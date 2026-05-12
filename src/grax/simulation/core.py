@@ -1,0 +1,566 @@
+"""Core one-point simulation helpers."""
+
+from __future__ import annotations
+
+import csv
+import importlib
+import logging
+from collections.abc import Iterable, Iterator
+from copy import copy
+from pathlib import Path
+from contextlib import nullcontext as _nullcontext
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from ..gratings import BaseGrating
+from ..rcwa_1d import res0, res1, res2
+from ._profiling import SolverProfiler
+from .models import BatchSimulationResult, CaseExecutionResult, SimulationResult, SingleSimulationResult
+
+logger = logging.getLogger(__name__)
+
+
+def _simulation_api():
+    """Return the public simulation package for monkeypatch-compatible dispatch."""
+
+    return importlib.import_module("grax.simulation")
+
+def _supports_interactive_pause() -> bool:
+    """Return whether the active Matplotlib backend supports interactive pause."""
+
+    return "agg" not in plt.get_backend().lower()
+
+
+def _refresh_interactive_figure(figure: plt.Figure, *, pause_seconds: float = 0.05) -> None:
+    """Show and refresh an interactive Matplotlib figure."""
+
+    if not _supports_interactive_pause():
+        figure.canvas.draw_idle()
+        return
+
+    plt.figure(figure.number)
+    plt.show(block=False)
+    figure.canvas.draw_idle()
+    figure.canvas.flush_events()
+    plt.pause(pause_seconds)
+
+
+def _validate_reflected_efficiencies(
+    *,
+    photon_energy_ev: float,
+    grazing_angle_deg: float,
+    period_nm: float,
+    orders: np.ndarray,
+    efficiency_all: np.ndarray,
+    min_efficiency: float,
+    max_reflected_efficiency: float,
+    max_total_reflected_efficiency: float,
+) -> None:
+    """Validate reflected efficiencies and raise on non-physical results.
+
+    Args:
+        photon_energy_ev: Photon energy in electronvolts.
+        grazing_angle_deg: Grazing incidence angle in degrees.
+        period_nm: Grating period in nanometers.
+        orders: Calculated diffraction orders.
+        efficiency_all: Reflected efficiency for all orders.
+        min_efficiency: Minimum accepted efficiency value.
+        max_reflected_efficiency: Maximum accepted single-order efficiency.
+        max_total_reflected_efficiency: Maximum accepted propagating reflected sum.
+    """
+
+    minimum_efficiency = float(np.min(efficiency_all))
+    maximum_efficiency = float(np.max(efficiency_all))
+    if minimum_efficiency < min_efficiency:
+        raise ValueError(
+            "Non-physical negative diffraction efficiency detected at "
+            f"{photon_energy_ev:.6g} eV: min={minimum_efficiency:.6g}"
+        )
+    if maximum_efficiency > max_reflected_efficiency:
+        raise ValueError(
+            "Non-physical reflected diffraction efficiency detected at "
+            f"{photon_energy_ev:.6g} eV: max={maximum_efficiency:.6g}"
+        )
+
+    wavelength_nm = 1239.8 / photon_energy_ev
+    k0 = 2.0 * np.pi / wavelength_nm
+    k_parallel = np.sin(np.deg2rad(90.0 - grazing_angle_deg))
+    kx = k0 * k_parallel + (2.0 * np.pi * orders / period_nm)
+    propagating_mask = np.abs(kx) <= k0 * (1.0 + 1e-9)
+    total_reflected_efficiency = float(np.sum(efficiency_all[propagating_mask]))
+    if total_reflected_efficiency > max_total_reflected_efficiency:
+        raise ValueError(
+            "Non-physical total reflected efficiency detected at "
+            f"{photon_energy_ev:.6g} eV: sum={total_reflected_efficiency:.6g}"
+        )
+
+
+def run_simulation(
+    *,
+    grating: BaseGrating,
+    energy_ev: float,
+    grazing_angle_deg: float,
+    diffraction_order: int = 1,
+    fourier_orders: int = 25,
+    roughness_sigma_nm: float | None = None,
+    validate_physical_results: bool = True,
+    max_reflected_efficiency: float = 1.05,
+    min_efficiency: float = -1e-8,
+    max_total_reflected_efficiency: float = 1.05,
+    _profiler: SolverProfiler | None = None,
+    _fourier_backend: str = "baseline",
+) -> SingleSimulationResult:
+    """Run one RCWA simulation case and return a typed result.
+
+    Args:
+        grating: Grating profile and material stack.
+        energy_ev: Photon energy in electronvolts.
+        grazing_angle_deg: Grazing incidence angle in degrees.
+        diffraction_order: Positive diffraction order to select.
+        fourier_orders: Number of Fourier orders on one side of zero.
+        roughness_sigma_nm: Optional rms roughness in nanometers.
+        validate_physical_results: Whether to validate reflected efficiencies.
+        max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
+        min_efficiency: Minimum allowed efficiency.
+        max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
+
+    Returns:
+        Single-case RCWA result.
+    """
+
+    if roughness_sigma_nm is not None and roughness_sigma_nm < 0.0:
+        raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
+    if not isinstance(grating, BaseGrating):
+        raise TypeError("grating must derive from BaseGrating.")
+
+    logger.info(
+        "Running simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s",
+        energy_ev,
+        grazing_angle_deg,
+        fourier_orders,
+    )
+    wavelength_nm = 1239.8 / float(energy_ev)
+    k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
+    with _profiler.record("texture_generation") if _profiler is not None else _nullcontext():
+        textures, profile = grating.build_textures(float(energy_ev), n_inc=1.0 + 0.0j)
+
+    parm = res0(1)
+    aa = res1(
+        wavelength_nm,
+        grating.period_nm,
+        textures,
+        int(fourier_orders),
+        k_parallel,
+        parm,
+        _profiler=_profiler,
+        _fourier_backend=_fourier_backend,
+    )
+    ef = res2(
+        aa,
+        profile,
+        parm,
+        roughness_sigma_nm=roughness_sigma_nm,
+        _profiler=_profiler,
+    )
+
+    with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
+        order_index = np.where(ef.inc_top_reflected.order == -int(diffraction_order))[0]
+        if len(order_index) != 1:
+            raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
+        idx = int(order_index[0])
+
+        orders = np.asarray(ef.inc_top_reflected.order, dtype=int)
+        all_efficiency = np.asarray(np.real_if_close(ef.inc_top_reflected.efficiency), dtype=float)
+        all_diffraction_angle_deg = np.asarray(90.0 - ef.inc_top_reflected.theta, dtype=float)
+    if validate_physical_results:
+        _validate_reflected_efficiencies(
+            photon_energy_ev=float(energy_ev),
+            grazing_angle_deg=float(grazing_angle_deg),
+            period_nm=grating.period_nm,
+            orders=orders,
+            efficiency_all=all_efficiency,
+            min_efficiency=min_efficiency,
+            max_reflected_efficiency=max_reflected_efficiency,
+            max_total_reflected_efficiency=max_total_reflected_efficiency,
+        )
+
+    if _profiler is not None:
+        _profiler.finalize()
+
+    return SingleSimulationResult(
+        energy_ev=float(energy_ev),
+        grazing_angle_deg=float(grazing_angle_deg),
+        orders=orders,
+        selected_efficiency=float(np.real_if_close(ef.inc_top_reflected.efficiency[idx])),
+        selected_diffraction_angle_deg=float(90.0 - ef.inc_top_reflected.theta[idx]),
+        efficiency_all=all_efficiency,
+        diffraction_angle_all=all_diffraction_angle_deg,
+        diffraction_order=int(diffraction_order),
+        fourier_orders=int(fourier_orders),
+        roughness_sigma_nm=roughness_sigma_nm,
+    )
+
+
+def _clone_grating_with_overrides(
+    grating: BaseGrating,
+    *,
+    x_resolution_nm: float | None,
+    z_resolution_nm: float | None,
+) -> BaseGrating:
+    """Return a grating copy with optional resolution overrides."""
+
+    cloned_grating = copy(grating)
+    if x_resolution_nm is not None:
+        cloned_grating.x_resolution_nm = float(x_resolution_nm)
+    if z_resolution_nm is not None:
+        cloned_grating.z_resolution_nm = float(z_resolution_nm)
+    return cloned_grating
+
+
+
+def load_experimental_csv(path: str | Path) -> np.ndarray:
+    """Load a semicolon-separated experimental CSV used for comparison.
+
+    Args:
+        path: Path to the experimental CSV file.
+
+    Returns:
+        Two-column array with energy and efficiency.
+    """
+
+    csv_path = Path(path)
+    rows = []
+    with csv_path.open("r", encoding="utf-8") as handle:
+        for _ in range(3):
+            next(handle)
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith(";"):
+                continue
+            energy_text, efficiency_text, *_ = line.split(";")
+            rows.append(
+                [
+                    float(energy_text.replace(",", ".")),
+                    float(efficiency_text.replace(",", ".")),
+                ]
+            )
+    return np.asarray(rows, dtype=float)
+
+
+
+def efficiency_for_order(
+    orders: Sequence[int] | np.ndarray,
+    efficiency_all: Sequence[float] | np.ndarray,
+    *,
+    diffraction_order: int,
+) -> float:
+    """Return the efficiency for one diffraction order.
+
+    Args:
+        orders: Array of calculated diffraction orders.
+        efficiency_all: Efficiency array aligned with ``orders``.
+        diffraction_order: Positive diffraction order to extract.
+
+    Returns:
+        Efficiency for the requested order, or ``nan`` if absent.
+    """
+
+    orders_array = np.asarray(orders, dtype=int)
+    efficiency_array = np.asarray(efficiency_all, dtype=float)
+    order_index = np.where(orders_array == -diffraction_order)[0]
+    if order_index.size == 0:
+        return float("nan")
+    return float(efficiency_array[int(order_index[0])])
+
+
+def _iter_case_results(
+    results: SingleSimulationResult | CaseExecutionResult | BatchSimulationResult | Iterable[CaseExecutionResult],
+) -> Iterator[CaseExecutionResult]:
+    """Yield case-style results from supported result containers."""
+
+    if isinstance(results, SingleSimulationResult):
+        yield CaseExecutionResult(
+            case_id="single",
+            index=0,
+            label=None,
+            energy_ev=results.energy_ev,
+            grazing_angle_deg=results.grazing_angle_deg,
+            orders=results.orders,
+            selected_efficiency=results.selected_efficiency,
+            selected_diffraction_angle_deg=results.selected_diffraction_angle_deg,
+            efficiency_all=results.efficiency_all,
+            diffraction_angle_all=results.diffraction_angle_all,
+            status="ok",
+        )
+        return
+    if isinstance(results, CaseExecutionResult):
+        yield results
+        return
+    if isinstance(results, BatchSimulationResult):
+        yield from results.cases
+        return
+    yield from results
+
+
+def write_all_orders_csv(
+    results: SingleSimulationResult | CaseExecutionResult | Iterable[CaseExecutionResult],
+    output_path: str | Path,
+) -> None:
+    """Write all-order efficiencies and angles to a stream-friendly CSV.
+
+    Args:
+        results: Single result, case result, or result iterable.
+        output_path: CSV output path.
+    """
+
+    output = Path(output_path)
+    with output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "case_id",
+                "energy_ev",
+                "grazing_angle_deg",
+                "order",
+                "efficiency",
+                "diffraction_angle_deg",
+            ]
+        )
+        for result in _iter_case_results(results):
+            if result.status != "ok":
+                continue
+            for order, efficiency, angle in zip(
+                np.asarray(result.orders, dtype=int),
+                np.asarray(result.efficiency_all, dtype=float),
+                np.asarray(result.diffraction_angle_all, dtype=float),
+            ):
+                writer.writerow(
+                    [
+                        result.case_id,
+                        float(result.energy_ev),
+                        float(result.grazing_angle_deg),
+                        int(order),
+                        float(efficiency),
+                        float(angle),
+                    ]
+                )
+
+
+def plot_order_subset(
+    results: CaseExecutionResult | Iterable[CaseExecutionResult],
+    output_filename: str | Path,
+    *,
+    diffraction_orders: Sequence[int],
+    title: str,
+) -> None:
+    """Save an efficiency-vs-energy plot for selected diffraction orders.
+
+    Args:
+        results: Case result or result iterable.
+        output_filename: Output image path.
+        diffraction_orders: Positive diffraction orders to plot.
+        title: Plot title.
+    """
+
+    collected = [result for result in _iter_case_results(results) if result.status == "ok"]
+    figure, axis = plt.subplots(figsize=(10, 6))
+    markers = ["o", "s", "^", "d", "v", "x"]
+    energies = np.asarray([case.energy_ev for case in collected], dtype=float)
+    for index, order in enumerate(diffraction_orders):
+        order_efficiency = np.asarray(
+            [
+                efficiency_for_order(
+                    case.orders,
+                    case.efficiency_all,
+                    diffraction_order=order,
+                )
+                for case in collected
+            ],
+            dtype=float,
+        )
+        axis.plot(
+            energies,
+            order_efficiency,
+            f"{markers[index % len(markers)]}-",
+            linewidth=1.0,
+            markersize=3.0,
+            label=f"Order {order}",
+        )
+    axis.set_xlabel("Photon Energy (eV)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title(title)
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(output_filename, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+
+
+class RCWASimulation:
+    """Compatibility wrapper around :func:`run_simulation` for internal tests."""
+
+    def __init__(
+        self,
+        *,
+        grating: BaseGrating,
+        diffraction_order: int = 1,
+        fourier_orders: int = 25,
+        grazing_angle_deg: float = 4.0,
+        live_plot: bool = False,
+        validate_physical_results: bool = True,
+        max_reflected_efficiency: float = 1.05,
+        min_efficiency: float = -1e-8,
+        max_total_reflected_efficiency: float = 1.05,
+        roughness_sigma_nm: float | None = None,
+    ) -> None:
+        """Initialize a compatibility simulation object."""
+
+        self.grating = grating
+        self.diffraction_order = diffraction_order
+        self.fourier_orders = fourier_orders
+        self.grazing_angle_deg = grazing_angle_deg
+        self.live_plot = live_plot
+        self.validate_physical_results = validate_physical_results
+        self.max_reflected_efficiency = max_reflected_efficiency
+        self.min_efficiency = min_efficiency
+        self.max_total_reflected_efficiency = max_total_reflected_efficiency
+        self.roughness_sigma_nm = roughness_sigma_nm
+        self._live_comparison_figure = None
+        self._live_comparison_axis = None
+
+    def run_single(self, photon_energy_ev: float) -> dict[str, float | np.ndarray]:
+        """Run one energy and return the legacy dictionary shape."""
+
+        result = _simulation_api().run_simulation(
+            grating=self.grating,
+            energy_ev=photon_energy_ev,
+            grazing_angle_deg=self.grazing_angle_deg,
+            diffraction_order=self.diffraction_order,
+            fourier_orders=self.fourier_orders,
+            roughness_sigma_nm=self.roughness_sigma_nm,
+            validate_physical_results=self.validate_physical_results,
+            max_reflected_efficiency=self.max_reflected_efficiency,
+            min_efficiency=self.min_efficiency,
+            max_total_reflected_efficiency=self.max_total_reflected_efficiency,
+        )
+        return {
+            "orders": result.orders,
+            "efficiency": result.selected_efficiency,
+            "diffraction_angle_deg": result.selected_diffraction_angle_deg,
+            "efficiency_all": result.efficiency_all,
+            "diffraction_angle_all": result.diffraction_angle_all,
+        }
+
+    def run(self, photon_energy_ev: float | list[float] | np.ndarray) -> SimulationResult:
+        """Run one or more energies and return a legacy collected sweep."""
+
+        energies = np.atleast_1d(np.asarray(photon_energy_ev, dtype=float))
+        simulation_api = _simulation_api()
+        single_results = [
+            simulation_api.run_simulation(
+                grating=self.grating,
+                energy_ev=float(energy),
+                grazing_angle_deg=self.grazing_angle_deg,
+                diffraction_order=self.diffraction_order,
+                fourier_orders=self.fourier_orders,
+                roughness_sigma_nm=self.roughness_sigma_nm,
+                validate_physical_results=self.validate_physical_results,
+                max_reflected_efficiency=self.max_reflected_efficiency,
+                min_efficiency=self.min_efficiency,
+                max_total_reflected_efficiency=self.max_total_reflected_efficiency,
+            )
+            for energy in energies
+        ]
+        orders = single_results[0].orders if single_results else np.asarray([], dtype=int)
+        for result in single_results[1:]:
+            if not np.array_equal(orders, result.orders):
+                raise ValueError("Diffraction orders changed between energy points.")
+        return SimulationResult(
+            energy_ev=energies,
+            orders=orders,
+            efficiency=np.asarray([result.selected_efficiency for result in single_results], dtype=float),
+            diffraction_angle_deg=np.asarray(
+                [result.selected_diffraction_angle_deg for result in single_results], dtype=float
+            ),
+            efficiency_all=np.asarray([result.efficiency_all for result in single_results], dtype=float),
+            diffraction_angle_all=np.asarray(
+                [result.diffraction_angle_all for result in single_results], dtype=float
+            ),
+        )
+
+    def _validate_reflected_efficiencies(
+        self,
+        *,
+        photon_energy_ev: float,
+        orders: np.ndarray,
+        efficiency_all: np.ndarray,
+    ) -> None:
+        """Validate reflected efficiencies using legacy object settings."""
+
+        _validate_reflected_efficiencies(
+            photon_energy_ev=photon_energy_ev,
+            grazing_angle_deg=self.grazing_angle_deg,
+            period_nm=self.grating.period_nm,
+            orders=orders,
+            efficiency_all=efficiency_all,
+            min_efficiency=self.min_efficiency,
+            max_reflected_efficiency=self.max_reflected_efficiency,
+            max_total_reflected_efficiency=self.max_total_reflected_efficiency,
+        )
+
+    def load_experimental_csv(self, path: str | Path) -> np.ndarray:
+        """Load experimental data from CSV."""
+
+        return load_experimental_csv(path)
+
+    def plot_against_experiment(
+        self,
+        result: SimulationResult | BatchSimulationResult,
+        experimental_data: np.ndarray,
+        output_filename: str | Path,
+        *,
+        live_plot: bool | None = None,
+    ) -> None:
+        """Plot simulation and experimental efficiency curves."""
+
+        simulation_result = result if isinstance(result, SimulationResult) else result.to_simulation_result()
+        live_plot_enabled = self.live_plot if live_plot is None else live_plot
+        if live_plot_enabled:
+            plt.ion()
+            figure = self._live_comparison_figure
+            axis = self._live_comparison_axis
+            if figure is None or axis is None or not plt.fignum_exists(figure.number):
+                figure, axis = plt.subplots(figsize=(10, 7))
+                self._live_comparison_figure = figure
+                self._live_comparison_axis = axis
+            axis.clear()
+        else:
+            figure, axis = plt.subplots(figsize=(10, 7))
+        axis.plot(
+            simulation_result.energy_ev,
+            simulation_result.efficiency,
+            "b-o",
+            linewidth=0.5,
+            markersize=2.0,
+            label="Simulation",
+        )
+        axis.plot(
+            experimental_data[:, 0],
+            experimental_data[:, 1],
+            "r-s",
+            linewidth=0.5,
+            markersize=2.0,
+            label="Experimental Data",
+        )
+        axis.set_xlabel("Photon Energy (eV)")
+        axis.set_ylabel("Diffraction Efficiency")
+        axis.set_title("RCWA Simulation vs Experimental Data")
+        axis.grid(True, alpha=0.3)
+        axis.legend(loc="best")
+        figure.tight_layout()
+        figure.savefig(output_filename, dpi=150, bbox_inches="tight")
+        if live_plot_enabled:
+            _refresh_interactive_figure(figure)
+        else:
+            plt.close(figure)

@@ -1,0 +1,1067 @@
+"""Generic batch execution and checkpoint orchestration."""
+
+from __future__ import annotations
+
+import concurrent.futures
+import ctypes
+import importlib
+import json
+import logging
+import multiprocessing as mp
+import os
+import queue as queue_module
+import sys
+import threading
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm
+
+from ..gratings import BaseGrating
+from .core import _clone_grating_with_overrides, _refresh_interactive_figure, efficiency_for_order, run_simulation
+from .models import (
+    AUTO_WORKER_MEMORY_RESERVE_BYTES,
+    AUTO_WORKER_MEMORY_SAFETY_FACTOR,
+    BatchSimulationResult,
+    CaseExecutionResult,
+    ExecutionMode,
+    ErrorPolicy,
+    MaxWorkers,
+    SingleSimulationResult,
+    ThetaSearchDiagnostics,
+)
+from .serialization import (
+    _case_result_from_record,
+    _case_result_to_record,
+    _completed_case_ids,
+    _load_checkpoint_case_results,
+    _single_result_from_record,
+    _single_result_to_record,
+)
+from .theta_search import run_multilayer_theta_search
+
+logger = logging.getLogger(__name__)
+
+
+def _simulation_api():
+    """Return the public simulation package for monkeypatch-compatible dispatch."""
+
+    return importlib.import_module("grax.simulation")
+
+def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -> dict[str, object]:
+    """Build the serializable payload used by inline and subprocess execution."""
+
+    grating = case["grating"]
+    if not isinstance(grating, BaseGrating):
+        raise TypeError("Each case must provide a 'grating' derived from BaseGrating.")
+    fourier_orders = int(case.get("fourier_orders", runner_settings["default_fourier_orders"]))
+    max_fourier_orders = int(runner_settings["max_fourier_orders"])
+    if fourier_orders > max_fourier_orders:
+        logger.warning(
+            "Case %s: fourier_orders=%s exceeds max=%s, reducing",
+            case["case_id"],
+            fourier_orders,
+            max_fourier_orders,
+        )
+        fourier_orders = max_fourier_orders
+
+    if case.get("workflow") == "multilayer_theta_search":
+        rough_fourier_orders = int(case.get("rough_fourier_orders", 3))
+        fine_fourier_orders = int(case.get("fine_fourier_orders", 5))
+        final_fourier_orders = int(case.get("final_fourier_orders", fourier_orders))
+        if rough_fourier_orders > max_fourier_orders:
+            logger.warning(
+                "Case %s: rough_fourier_orders=%s exceeds max=%s, reducing",
+                case["case_id"],
+                rough_fourier_orders,
+                max_fourier_orders,
+            )
+            rough_fourier_orders = max_fourier_orders
+        if fine_fourier_orders > max_fourier_orders:
+            logger.warning(
+                "Case %s: fine_fourier_orders=%s exceeds max=%s, reducing",
+                case["case_id"],
+                fine_fourier_orders,
+                max_fourier_orders,
+            )
+            fine_fourier_orders = max_fourier_orders
+        if final_fourier_orders > max_fourier_orders:
+            logger.warning(
+                "Case %s: final_fourier_orders=%s exceeds max=%s, reducing",
+                case["case_id"],
+                final_fourier_orders,
+                max_fourier_orders,
+            )
+            final_fourier_orders = max_fourier_orders
+        return {
+            "workflow": "multilayer_theta_search",
+            "grating": grating,
+            "energy_ev": float(case["energy_ev"]),
+            "diffraction_order": int(case.get("diffraction_order", runner_settings["default_diffraction_order"])),
+            "initial_grazing_angle_deg": case.get("initial_grazing_angle_deg"),
+            "multilayer_bragg_order": int(case.get("multilayer_bragg_order", 1)),
+            "rough_scan_half_width_deg": float(case.get("rough_scan_half_width_deg", 0.5)),
+            "rough_scan_points": int(case.get("rough_scan_points", 41)),
+            "precise_scan_half_width_deg": float(case.get("precise_scan_half_width_deg", 0.1)),
+            "precise_scan_points": int(case.get("precise_scan_points", 81)),
+            "rough_fourier_orders": rough_fourier_orders,
+            "fine_fourier_orders": fine_fourier_orders,
+            "final_fourier_orders": final_fourier_orders,
+            "rough_x_resolution_nm": case.get("rough_x_resolution_nm", 1.0),
+            "rough_z_resolution_nm": case.get("rough_z_resolution_nm", 1.0),
+            "fine_x_resolution_nm": case.get("fine_x_resolution_nm", 0.5),
+            "fine_z_resolution_nm": case.get("fine_z_resolution_nm", 0.5),
+            "final_x_resolution_nm": case.get("final_x_resolution_nm", 0.3),
+            "final_z_resolution_nm": case.get("final_z_resolution_nm", 0.3),
+            "roughness_sigma_nm": case.get("roughness_sigma_nm"),
+            "validate_physical_results": bool(runner_settings["validate_physical_results"]),
+            "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
+            "min_efficiency": float(runner_settings["min_efficiency"]),
+            "max_total_reflected_efficiency": float(runner_settings["max_total_reflected_efficiency"]),
+            "precise_peak_selection_mode": str(case.get("precise_peak_selection_mode", "max")),
+        }
+
+    return {
+        "grating": _clone_grating_with_overrides(
+            grating,
+            x_resolution_nm=case.get("x_resolution_nm"),
+            z_resolution_nm=case.get("z_resolution_nm"),
+        ),
+        "energy_ev": float(case["energy_ev"]),
+        "grazing_angle_deg": float(case["grazing_angle_deg"]),
+        "diffraction_order": int(case.get("diffraction_order", runner_settings["default_diffraction_order"])),
+        "fourier_orders": fourier_orders,
+        "roughness_sigma_nm": case.get("roughness_sigma_nm"),
+        "validate_physical_results": bool(runner_settings["validate_physical_results"]),
+        "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
+        "min_efficiency": float(runner_settings["min_efficiency"]),
+        "max_total_reflected_efficiency": float(runner_settings["max_total_reflected_efficiency"]),
+    }
+
+
+def _run_case_payload(
+    payload: dict[str, object],
+    *,
+    diagnostic_callback: Callable[[ThetaSearchDiagnostics, float], None] | None = None,
+) -> SingleSimulationResult:
+    """Execute one prepared case payload with an optional diagnostics callback."""
+
+    if payload.get("workflow") == "multilayer_theta_search":
+        theta_payload = dict(payload)
+        theta_payload.pop("workflow", None)
+        return _simulation_api().run_multilayer_theta_search(  # type: ignore[arg-type]
+            **theta_payload,
+            diagnostic_callback=diagnostic_callback,
+        )
+    return _simulation_api().run_simulation(**payload)  # type: ignore[arg-type]
+
+
+def _run_payload(payload: dict[str, object]) -> SingleSimulationResult:
+    """Execute one prepared case payload."""
+
+    return _run_case_payload(payload)
+
+
+def _worker_identity() -> str:
+    """Return a compact worker identity for execution-time logging."""
+
+    process = mp.current_process()
+    thread = threading.current_thread()
+    return f"pid={os.getpid()} proc={process.name} thread={thread.name}"
+
+
+def _log_case_execution_start(
+    *,
+    case_id: str,
+    case: dict[str, object],
+    index: int,
+    location: str,
+) -> None:
+    """Log one case only when execution actually starts."""
+
+    workflow = str(case.get("workflow", "single"))
+    energy_ev = float(case["energy_ev"])
+    angle = case.get("grazing_angle_deg")
+    if angle is None:
+        logger.info(
+            "[%s] starting case=%s idx=%d workflow=%s energy=%.6f eV %s",
+            location,
+            case_id,
+            index,
+            workflow,
+            energy_ev,
+            _worker_identity(),
+        )
+        return
+    logger.info(
+        "[%s] starting case=%s idx=%d workflow=%s energy=%.6f eV grazing=%.6f deg %s",
+        location,
+        case_id,
+        index,
+        workflow,
+        energy_ev,
+        float(angle),
+        _worker_identity(),
+    )
+
+
+def _subprocess_worker(payload: dict[str, object], result_queue: mp.Queue) -> None:
+    """Run one case payload in a child process and send back a result record."""
+
+    try:
+        result_queue.put({"success": True, "result": _single_result_to_record(_run_payload(payload))})
+    except Exception as error:  # pragma: no cover - exercised by parent error path
+        result_queue.put({"success": False, "error": str(error)})
+
+
+def _run_payload_in_subprocess(payload: dict[str, object], *, timeout: float) -> SingleSimulationResult:
+    """Execute one prepared case payload in a spawned subprocess."""
+
+    context = mp.get_context("spawn")
+    result_queue: mp.Queue = context.Queue()
+    process = context.Process(target=_subprocess_worker, args=(payload, result_queue))
+    process.start()
+    process.join(timeout)
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        raise TimeoutError(f"Timeout after {timeout} seconds")
+    if process.exitcode not in (0, None) and result_queue.empty():
+        raise RuntimeError(f"Subprocess exited with code {process.exitcode}")
+    try:
+        message = result_queue.get(timeout=1)
+    except queue_module.Empty as error:
+        raise RuntimeError("Subprocess produced no result") from error
+    if not message["success"]:
+        raise RuntimeError(str(message["error"]))
+    return _single_result_from_record(message["result"])
+
+
+
+def _json_safe_case_data(case_data: dict[str, object]) -> dict[str, object]:
+    """Return case metadata with non-JSON values represented as strings."""
+
+    safe: dict[str, object] = {}
+    for key, value in case_data.items():
+        if key == "grating":
+            continue
+        try:
+            json.dumps(value)
+            safe[key] = value
+        except TypeError:
+            safe[key] = repr(value)
+    return safe
+
+
+def _resolve_max_workers(max_workers: MaxWorkers) -> int:
+    """Return the effective worker count for batch execution."""
+
+    if max_workers is None:
+        return 1
+    if isinstance(max_workers, str):
+        cpu_count = os.cpu_count() or 1
+        if max_workers == "all":
+            return max(cpu_count, 1)
+        if max_workers == "auto":
+            return max(cpu_count - 2, 1)
+        raise ValueError("max_workers must be None, a positive integer, 'all', or 'auto'.")
+    if isinstance(max_workers, int):
+        if max_workers < 1:
+            raise ValueError("max_workers must be >= 1 when provided.")
+        return max_workers
+    raise ValueError("max_workers must be None, a positive integer, 'all', or 'auto'.")
+
+
+def _available_memory_bytes() -> int | None:
+    """Return currently available system memory in bytes when detectable."""
+
+    try:
+        import psutil  # type: ignore
+
+        return int(psutil.virtual_memory().available)
+    except Exception:
+        pass
+
+    if sys.platform.startswith("linux"):
+        try:
+            with Path("/proc/meminfo").open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("MemAvailable:"):
+                        return int(line.split()[1]) * 1024
+        except Exception:
+            pass
+
+    if sys.platform.startswith("win"):
+        try:
+            class _MemoryStatus(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = _MemoryStatus()
+            status.dwLength = ctypes.sizeof(_MemoryStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return int(status.ullAvailPhys)
+        except Exception:
+            pass
+
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+        return int(page_size * available_pages)
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
+def _multiprocessing_start_method() -> str:
+    """Return the platform-appropriate multiprocessing start method."""
+
+    return "spawn" if sys.platform.startswith("win") else "fork"
+
+
+def _worker_initializer() -> None:
+    """Limit worker-local BLAS/OpenMP thread counts to avoid oversubscription."""
+
+    for variable in (
+        "OPENBLAS_NUM_THREADS",
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ[variable] = "1"
+
+
+def _current_process_memory_bytes() -> int | None:
+    """Return current RSS memory usage for the active process in bytes."""
+
+    try:
+        import psutil  # type: ignore
+
+        return int(psutil.Process().memory_info().rss)
+    except Exception:
+        pass
+
+    if sys.platform.startswith("linux"):
+        try:
+            with Path("/proc/self/status").open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("VmRSS:"):
+                        return int(line.split()[1]) * 1024
+        except Exception:
+            pass
+
+    if sys.platform.startswith("win"):
+        try:
+            class _ProcessMemoryCounters(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = _ProcessMemoryCounters()
+            counters.cb = ctypes.sizeof(_ProcessMemoryCounters)
+            process_handle = ctypes.windll.kernel32.GetCurrentProcess()
+            if ctypes.windll.psapi.GetProcessMemoryInfo(
+                process_handle,
+                ctypes.byref(counters),
+                counters.cb,
+            ):
+                return int(counters.WorkingSetSize)
+        except Exception:
+            pass
+
+    return None
+
+
+def _calibrate_auto_max_workers_from_result(
+    *,
+    pending_case_count: int,
+    available_memory_bytes: int | None,
+) -> int:
+    """Return an ``auto`` worker count from one already-completed calibration case."""
+
+    cpu_limited_workers = _resolve_max_workers("auto")
+    if pending_case_count <= 1 or available_memory_bytes is None:
+        return cpu_limited_workers
+
+    measured_memory = _current_process_memory_bytes()
+    if measured_memory is None:
+        return cpu_limited_workers
+
+    per_worker_memory = max(int(measured_memory * AUTO_WORKER_MEMORY_SAFETY_FACTOR), 1)
+    usable_memory = max(available_memory_bytes - AUTO_WORKER_MEMORY_RESERVE_BYTES, 0)
+    if usable_memory <= 0:
+        return 1
+    memory_limited_workers = max(usable_memory // per_worker_memory, 1)
+    return max(min(cpu_limited_workers, memory_limited_workers), 1)
+
+
+def _parallel_worker_execute(payload: dict[str, object]) -> dict[str, object]:
+    """Execute one payload in a worker and return a serializable envelope."""
+
+    try:
+        logger.info(
+            "[parallel-worker] running workflow=%s energy=%.6f eV %s",
+            str(payload.get("workflow", "single")),
+            float(payload["energy_ev"]),
+            _worker_identity(),
+        )
+        return {"success": True, "result": _single_result_to_record(_run_payload(payload))}
+    except Exception as error:  # pragma: no cover - exercised in parent tests
+        return {"success": False, "error": str(error)}
+
+
+def _completed_case_ids(checkpoint_path: Path) -> set[str]:
+    """Load completed case IDs from an append-only JSONL checkpoint."""
+
+    if not checkpoint_path.exists():
+        return set()
+    completed: set[str] = set()
+    with checkpoint_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            completed.add(str(record["case_id"]))
+    return completed
+
+
+def _load_checkpoint_case_results(checkpoint_path: Path) -> dict[str, CaseExecutionResult]:
+    """Load deduplicated checkpoint case results keyed by case ID.
+
+    Malformed lines or records that cannot be converted are ignored so the caller
+    can recompute those cases during resume.
+    """
+
+    if not checkpoint_path.exists():
+        return {}
+    loaded: dict[str, CaseExecutionResult] = {}
+    with checkpoint_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+                case_result = _case_result_from_record(record)
+            except Exception:
+                logger.warning("Ignoring malformed checkpoint record during resume.")
+                continue
+            loaded[case_result.case_id] = case_result
+    return loaded
+
+
+class BatchSimulationRunner:
+    """Stream RCWA simulations for arbitrary case iterables."""
+
+    def __init__(
+        self,
+        *,
+        default_diffraction_order: int = 1,
+        default_fourier_orders: int = 25,
+        execution_mode: ExecutionMode = "inline",
+        max_workers: MaxWorkers = None,
+        timeout: float = 3600,
+        show_progress: bool = False,
+        total_cases: int | None = None,
+        live_plot: bool = False,
+        live_plot_x_key: str = "index",
+        live_plot_order_count: int = 1,
+        live_plot_reference_data: np.ndarray | None = None,
+        live_theta_scan_plot: bool = False,
+        on_error: ErrorPolicy = "continue",
+        max_fourier_orders: int = 100,
+        checkpoint_dir: str | Path | None = None,
+        checkpoint_interval: int = 1,
+        resume: bool = False,
+        validate_physical_results: bool = True,
+        max_reflected_efficiency: float = 1.05,
+        min_efficiency: float = -1e-8,
+        max_total_reflected_efficiency: float = 1.05,
+        retry_on_selected_efficiency_zero: bool = True,
+        retry_selected_efficiency_threshold: float = 1e-4,
+        max_zero_efficiency_retries: int = 3,
+        theta_retry_jitter_deg: tuple[float, ...] | None = None,
+    ) -> None:
+        """Initialize a streaming batch simulation runner.
+
+        Args:
+            default_diffraction_order: Default selected diffraction order.
+            default_fourier_orders: Default Fourier truncation order.
+            execution_mode: ``inline`` or ``subprocess`` execution.
+            max_workers: Optional case-level multiprocessing worker count.
+            timeout: Subprocess timeout in seconds.
+            show_progress: Whether to show a progress bar.
+            total_cases: Optional progress-total override. When omitted, total is
+                inferred internally from pending and resumed cases.
+            live_plot: Whether to update a live plot during execution.
+            live_plot_x_key: Case/result field used for the live-plot x axis.
+            live_plot_order_count: Number of positive diffraction orders to plot.
+            live_plot_reference_data: Optional two-column reference data to overlay.
+            live_theta_scan_plot: Whether to show a diagnostic theta-scan figure for
+                serial cases and for the auto-worker calibration case.
+            on_error: Error policy. ``continue`` yields error results, ``fail_fast`` raises.
+            max_fourier_orders: Maximum allowed Fourier orders.
+            checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
+            checkpoint_interval: Flush checkpoint file every N completed cases.
+            resume: Whether to skip case IDs already present in the checkpoint.
+            validate_physical_results: Whether to validate reflected efficiencies.
+            max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
+            min_efficiency: Minimum allowed efficiency.
+            max_total_reflected_efficiency: Maximum allowed reflected propagating sum.
+            retry_on_selected_efficiency_zero: Whether to retry multilayer theta-search
+                cases when selected efficiency is exactly zero.
+            retry_selected_efficiency_threshold: Retry trigger threshold for selected
+                efficiency. Retries are attempted when selected efficiency is less
+                than or equal to this value.
+            max_zero_efficiency_retries: Maximum number of additional retries for
+                zero-efficiency multilayer theta-search cases.
+            theta_retry_jitter_deg: Deterministic jitter offsets applied to the initial
+                theta estimate on each retry attempt.
+        """
+
+        if execution_mode not in {"inline", "subprocess"}:
+            raise ValueError("execution_mode must be 'inline' or 'subprocess'.")
+        if on_error not in {"continue", "fail_fast"}:
+            raise ValueError("on_error must be 'continue' or 'fail_fast'.")
+        if not np.isfinite(retry_selected_efficiency_threshold) or retry_selected_efficiency_threshold < 0.0:
+            raise ValueError("retry_selected_efficiency_threshold must be finite and >= 0.0.")
+        resolved_max_workers = _resolve_max_workers(max_workers)
+        if resolved_max_workers > 1 and execution_mode == "subprocess":
+            raise ValueError("max_workers > 1 cannot be combined with execution_mode='subprocess'.")
+        if resume and checkpoint_dir is None:
+            raise ValueError(
+                "resume=True requires checkpoint_dir to be specified. "
+                "Please provide a checkpoint_dir path to enable resumption from checkpoint."
+            )
+        self.default_diffraction_order = default_diffraction_order
+        self.default_fourier_orders = default_fourier_orders
+        self.execution_mode = execution_mode
+        self.max_workers = max_workers
+        self.resolved_max_workers = resolved_max_workers
+        self.timeout = timeout
+        self.show_progress = show_progress
+        self.total_cases = total_cases
+        self.live_plot = live_plot
+        self.live_plot_x_key = live_plot_x_key
+        self.live_plot_order_count = live_plot_order_count
+        self.live_plot_reference_data = live_plot_reference_data
+        self.live_theta_scan_plot = live_theta_scan_plot
+        self.on_error = on_error
+        self.max_fourier_orders = max_fourier_orders
+        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
+        self.checkpoint_interval = checkpoint_interval
+        self.resume = resume
+        self.validate_physical_results = validate_physical_results
+        self.max_reflected_efficiency = max_reflected_efficiency
+        self.min_efficiency = min_efficiency
+        self.max_total_reflected_efficiency = max_total_reflected_efficiency
+        self.retry_on_selected_efficiency_zero = retry_on_selected_efficiency_zero
+        self.retry_selected_efficiency_threshold = float(retry_selected_efficiency_threshold)
+        self.max_zero_efficiency_retries = max(0, int(max_zero_efficiency_retries))
+        self.theta_retry_jitter_deg = theta_retry_jitter_deg or (0.002, -0.002, 0.005)
+        self._live_figure: plt.Figure | None = None
+        self._live_axis: plt.Axes | None = None
+        self._theta_scan_figure: plt.Figure | None = None
+        self._theta_scan_axis: plt.Axes | None = None
+        self._live_x_values: list[float] = []
+        self._live_y_values: dict[int, list[float]] = {
+            order: [] for order in range(1, live_plot_order_count + 1)
+        }
+
+    @property
+    def checkpoint_path(self) -> Path | None:
+        """Return the JSONL checkpoint path, if checkpointing is enabled."""
+
+        if self.checkpoint_dir is None:
+            return None
+        return self.checkpoint_dir / "results.jsonl"
+
+    def run_cases(
+        self,
+        cases: Iterable[dict[str, object]],
+        metadata: dict[str, object] | None = None,
+    ) -> Iterator[CaseExecutionResult]:
+        """Yield simulation results for an arbitrary iterable of cases.
+
+        Args:
+            cases: Iterable of case dictionaries. Each case must include
+                ``grating`` and ``energy_ev``. ``case_id`` is optional; when
+                omitted, a deterministic ID is generated from workflow/index.
+                Fixed-angle cases also provide ``grazing_angle_deg``;
+                workflow-tagged cases may resolve the angle internally.
+            metadata: Optional run metadata saved next to checkpoints.
+
+        Yields:
+            Per-case execution results as each case completes.
+        """
+
+        checkpoint_path = self.checkpoint_path
+        completed_ids: set[str] = set()
+        checkpoint_handle = None
+        completed_since_flush = 0
+        if self.checkpoint_dir is not None:
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            self._write_metadata(metadata or {})
+            if checkpoint_path is not None and self.resume:
+                completed_ids = _completed_case_ids(checkpoint_path)
+            checkpoint_handle = checkpoint_path.open("a", encoding="utf-8") if checkpoint_path else None
+
+        iterable: Iterable[dict[str, object]] = cases
+        try:
+            pending_cases = self._prepare_pending_cases(iterable, completed_ids)
+            effective_total_cases = (
+                self.total_cases
+                if self.total_cases is not None
+                else (len(completed_ids) + len(pending_cases) if self.resume else len(pending_cases))
+            )
+            progress = None
+            if self.show_progress:
+                progress = _simulation_api().tqdm(total=effective_total_cases, desc="RCWA batch", unit="case")
+                if self.resume and completed_ids:
+                    progress.update(len(completed_ids))
+            calibrated_result = None
+            if self.max_workers == "auto" and pending_cases:
+                calibrated_result = self._execute_case(*pending_cases[0])
+                pending_cases = pending_cases[1:]
+                self.resolved_max_workers = _calibrate_auto_max_workers_from_result(
+                    pending_case_count=len(pending_cases) + 1,
+                    available_memory_bytes=_available_memory_bytes(),
+                )
+            if self.resolved_max_workers == 1:
+                result_iterator = self._run_serial_cases(pending_cases)
+            else:
+                result_iterator = self._run_parallel_cases(pending_cases)
+            if calibrated_result is not None:
+                if checkpoint_handle is not None:
+                    checkpoint_handle.write(json.dumps(_case_result_to_record(calibrated_result)) + "\n")
+                    completed_since_flush += 1
+                    if completed_since_flush >= self.checkpoint_interval:
+                        checkpoint_handle.flush()
+                        completed_since_flush = 0
+                if calibrated_result.status == "ok":
+                    self._update_live_plot(calibrated_result)
+                if progress is not None:
+                    progress.update(1)
+                yield calibrated_result
+            for result in result_iterator:
+                if checkpoint_handle is not None:
+                    checkpoint_handle.write(json.dumps(_case_result_to_record(result)) + "\n")
+                    completed_since_flush += 1
+                    if completed_since_flush >= self.checkpoint_interval:
+                        checkpoint_handle.flush()
+                        completed_since_flush = 0
+                if result.status == "ok":
+                    self._update_live_plot(result)
+                if progress is not None:
+                    progress.update(1)
+                yield result
+        finally:
+            if checkpoint_handle is not None:
+                checkpoint_handle.flush()
+                checkpoint_handle.close()
+            if progress is not None:
+                progress.close()
+
+    def _settings(self) -> dict[str, object]:
+        """Return runner settings used to prepare each case payload."""
+
+        return {
+            "default_diffraction_order": self.default_diffraction_order,
+            "default_fourier_orders": self.default_fourier_orders,
+            "max_fourier_orders": self.max_fourier_orders,
+            "validate_physical_results": self.validate_physical_results,
+            "max_reflected_efficiency": self.max_reflected_efficiency,
+            "min_efficiency": self.min_efficiency,
+            "max_total_reflected_efficiency": self.max_total_reflected_efficiency,
+        }
+
+    def _prepare_pending_cases(
+        self,
+        iterable: Iterable[dict[str, object]],
+        completed_ids: set[str],
+    ) -> list[tuple[int, str, dict[str, object]]]:
+        """Return runnable cases after resume filtering."""
+
+        pending_cases: list[tuple[int, str, dict[str, object]]] = []
+        for index, case in enumerate(iterable):
+            case_id = self._resolve_case_id(case, index)
+            if case_id in completed_ids:
+                continue
+            pending_cases.append((index, case_id, case))
+        return pending_cases
+
+    def _run_serial_cases(
+        self,
+        pending_cases: Sequence[tuple[int, str, dict[str, object]]],
+    ) -> Iterator[CaseExecutionResult]:
+        """Yield serially executed case results."""
+
+        for index, case_id, case in pending_cases:
+            _log_case_execution_start(case_id=case_id, case=case, index=index, location="serial")
+            yield self._execute_case(index, case_id, case)
+
+    def _run_parallel_cases(
+        self,
+        pending_cases: Sequence[tuple[int, str, dict[str, object]]],
+    ) -> Iterator[CaseExecutionResult]:
+        """Yield multiprocessing case results in completion order."""
+
+        context = mp.get_context(_multiprocessing_start_method())
+        max_workers = self.resolved_max_workers
+        settings = self._settings()
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=context,
+            initializer=_worker_initializer,
+        ) as executor:
+            futures: dict[concurrent.futures.Future[dict[str, object]], tuple[int, str, dict[str, object], dict[str, object]]] = {}
+            for index, case_id, case in pending_cases:
+                _log_case_execution_start(case_id=case_id, case=case, index=index, location="parallel-submit")
+                payload = _case_payload(case, settings)
+                futures[executor.submit(_parallel_worker_execute, payload)] = (
+                    index,
+                    case_id,
+                    case,
+                    {key: value for key, value in case.items() if key != "grating"},
+                )
+
+            try:
+                for future in concurrent.futures.as_completed(futures):
+                    index, case_id, case, case_data = futures[future]
+                    label = case.get("label")
+                    energy_ev = float(case["energy_ev"])
+                    grazing_angle_deg = self._case_energy_and_angle(case)[1]
+                    message = future.result()
+                    if message["success"]:
+                        single = _single_result_from_record(message["result"])  # type: ignore[arg-type]
+                        yield CaseExecutionResult(
+                            case_id=case_id,
+                            index=index,
+                            label=None if label is None else str(label),
+                            energy_ev=single.energy_ev,
+                            grazing_angle_deg=single.grazing_angle_deg,
+                            orders=single.orders,
+                            selected_efficiency=single.selected_efficiency,
+                            selected_diffraction_angle_deg=single.selected_diffraction_angle_deg,
+                            efficiency_all=single.efficiency_all,
+                            diffraction_angle_all=single.diffraction_angle_all,
+                            status="ok",
+                            case_data=case_data,
+                            theta_search_diagnostics=single.theta_search_diagnostics,
+                            retry_triggered=single.retry_triggered,
+                            retry_attempts=single.retry_attempts,
+                            retry_status=single.retry_status,
+                            selected_efficiency_is_exact_zero=single.selected_efficiency_is_exact_zero,
+                            selected_efficiency_below_retry_threshold=single.selected_efficiency_below_retry_threshold,
+                        )
+                        continue
+                    if self.on_error == "fail_fast":
+                        for pending in futures:
+                            pending.cancel()
+                        raise RuntimeError(str(message["error"]))
+                    yield CaseExecutionResult(
+                        case_id=case_id,
+                        index=index,
+                        label=None if label is None else str(label),
+                        energy_ev=energy_ev,
+                        grazing_angle_deg=grazing_angle_deg,
+                        orders=np.asarray([], dtype=int),
+                        selected_efficiency=float("nan"),
+                        selected_diffraction_angle_deg=float("nan"),
+                        efficiency_all=np.asarray([], dtype=float),
+                        diffraction_angle_all=np.asarray([], dtype=float),
+                        status="error",
+                        error_message=str(message["error"]),
+                        case_data=case_data,
+                    )
+            except Exception:
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
+
+    def _execute_case(
+        self,
+        index: int,
+        case_id: str,
+        case: dict[str, object],
+    ) -> CaseExecutionResult:
+        """Execute one batch case and return a case result."""
+
+        label = case.get("label")
+        energy_ev, grazing_angle_deg = self._case_energy_and_angle(case)
+        case_data = {key: value for key, value in case.items() if key != "grating"}
+        try:
+            payload = _case_payload(case, self._settings())
+            diagnostic_callback = self._theta_scan_diagnostic_callback(case)
+            single = (
+                _simulation_api()._run_case_payload(payload, diagnostic_callback=diagnostic_callback)
+                if self.execution_mode == "inline"
+                else _run_payload_in_subprocess(payload, timeout=self.timeout)
+            )
+            retry_triggered = False
+            retry_attempts = 0
+            retry_status = "not_needed"
+            selected_efficiency_is_exact_zero = bool(single.selected_efficiency == 0.0)
+            selected_efficiency_below_retry_threshold = bool(
+                single.selected_efficiency <= self.retry_selected_efficiency_threshold
+            )
+            if (
+                self.retry_on_selected_efficiency_zero
+                and case.get("workflow") == "multilayer_theta_search"
+                and self.execution_mode == "inline"
+                and selected_efficiency_below_retry_threshold
+            ):
+                retry_triggered = True
+                base_initial = case.get("initial_grazing_angle_deg")
+                if base_initial is None and single.theta_search_diagnostics is not None:
+                    base_initial = float(single.theta_search_diagnostics.estimated_grazing_angle_deg)
+                if base_initial is None:
+                    base_initial = float(single.grazing_angle_deg)
+                jitter_values = self.theta_retry_jitter_deg[: self.max_zero_efficiency_retries]
+                for jitter in jitter_values:
+                    retry_attempts += 1
+                    retry_case = dict(case)
+                    retry_case["initial_grazing_angle_deg"] = float(base_initial) + float(jitter)
+                    retry_payload = _case_payload(retry_case, self._settings())
+                    single = _simulation_api()._run_case_payload(
+                        retry_payload,
+                        diagnostic_callback=diagnostic_callback,
+                    )
+                    selected_efficiency_is_exact_zero = bool(single.selected_efficiency == 0.0)
+                    selected_efficiency_below_retry_threshold = bool(
+                        single.selected_efficiency <= self.retry_selected_efficiency_threshold
+                    )
+                    if not selected_efficiency_below_retry_threshold:
+                        retry_status = "recovered"
+                        break
+                else:
+                    retry_status = "retry_exhausted"
+
+            single.retry_triggered = retry_triggered
+            single.retry_attempts = retry_attempts
+            single.retry_status = retry_status
+            single.selected_efficiency_is_exact_zero = selected_efficiency_is_exact_zero
+            single.selected_efficiency_below_retry_threshold = selected_efficiency_below_retry_threshold
+            return CaseExecutionResult(
+                case_id=case_id,
+                index=index,
+                label=None if label is None else str(label),
+                energy_ev=single.energy_ev,
+                grazing_angle_deg=single.grazing_angle_deg,
+                orders=single.orders,
+                selected_efficiency=single.selected_efficiency,
+                selected_diffraction_angle_deg=single.selected_diffraction_angle_deg,
+                efficiency_all=single.efficiency_all,
+                diffraction_angle_all=single.diffraction_angle_all,
+                status="ok",
+                case_data=case_data,
+                theta_search_diagnostics=single.theta_search_diagnostics,
+                retry_triggered=single.retry_triggered,
+                retry_attempts=single.retry_attempts,
+                retry_status=single.retry_status,
+                selected_efficiency_is_exact_zero=single.selected_efficiency_is_exact_zero,
+                selected_efficiency_below_retry_threshold=single.selected_efficiency_below_retry_threshold,
+            )
+        except Exception as error:
+            if self.on_error == "fail_fast":
+                raise
+            return CaseExecutionResult(
+                case_id=case_id,
+                index=index,
+                label=None if label is None else str(label),
+                energy_ev=energy_ev,
+                grazing_angle_deg=grazing_angle_deg,
+                orders=np.asarray([], dtype=int),
+                selected_efficiency=float("nan"),
+                selected_diffraction_angle_deg=float("nan"),
+                efficiency_all=np.asarray([], dtype=float),
+                diffraction_angle_all=np.asarray([], dtype=float),
+                status="error",
+                error_message=str(error),
+                case_data=case_data,
+            )
+
+    def _resolve_case_id(self, case: dict[str, object], index: int) -> str:
+        """Return a stable case ID, generating one deterministically when missing."""
+
+        if "case_id" in case and case["case_id"] is not None:
+            return str(case["case_id"])
+        workflow = str(case.get("workflow", "batch"))
+        return f"{workflow}-{index:08d}"
+
+    def _write_metadata(self, metadata: dict[str, object]) -> None:
+        """Write small run metadata next to the append-only checkpoint."""
+
+        if self.checkpoint_dir is None:
+            return
+        payload = dict(metadata)
+        payload.setdefault("created", datetime.now().isoformat())
+        payload.update(
+            {
+                "execution_mode": self.execution_mode,
+                "max_workers": self.max_workers,
+                "resolved_max_workers": self.resolved_max_workers,
+                "default_diffraction_order": self.default_diffraction_order,
+                "default_fourier_orders": self.default_fourier_orders,
+            }
+        )
+        with (self.checkpoint_dir / "metadata.json").open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+
+    def _case_energy_and_angle(self, case: dict[str, object]) -> tuple[float, float]:
+        """Return the nominal energy and angle placeholders for one case."""
+
+        energy_ev = float(case["energy_ev"])
+        grazing_angle_deg = float(case["grazing_angle_deg"]) if "grazing_angle_deg" in case else float("nan")
+        return energy_ev, grazing_angle_deg
+
+    def _theta_scan_diagnostic_callback(
+        self,
+        case: dict[str, object],
+    ) -> Callable[[ThetaSearchDiagnostics, float], None] | None:
+        """Return the diagnostic callback for eligible theta-search cases."""
+
+        if not self.live_theta_scan_plot:
+            return None
+        if self.execution_mode != "inline":
+            return None
+        if case.get("workflow") != "multilayer_theta_search":
+            return None
+        if self.resolved_max_workers != 1 and self.max_workers != "auto":
+            return None
+        return self._update_theta_scan_plot
+
+    def _extract_live_plot_x(self, case: CaseExecutionResult) -> float:
+        """Return the x value for one streamed case in the live plot."""
+
+        if self.live_plot_x_key == "index":
+            return float(case.index + 1)
+        if self.live_plot_x_key in case.case_data:
+            return float(case.case_data[self.live_plot_x_key])
+        if hasattr(case, self.live_plot_x_key):
+            return float(getattr(case, self.live_plot_x_key))
+        raise KeyError(f"Unable to extract live-plot x axis from key '{self.live_plot_x_key}'.")
+
+    def _update_live_plot(self, case: CaseExecutionResult) -> None:
+        """Update the live plot incrementally from one successful result."""
+
+        if not self.live_plot:
+            return
+        if self._live_figure is None or self._live_axis is None or not plt.fignum_exists(self._live_figure.number):
+            plt.ion()
+            self._live_figure, self._live_axis = plt.subplots(figsize=(10, 6))
+
+        x_value = self._extract_live_plot_x(case)
+        self._live_x_values.append(x_value)
+        for order in range(1, self.live_plot_order_count + 1):
+            self._live_y_values.setdefault(order, []).append(
+                efficiency_for_order(case.orders, case.efficiency_all, diffraction_order=order)
+            )
+
+        sorted_indices = sorted(range(len(self._live_x_values)), key=self._live_x_values.__getitem__)
+        sorted_x_values = [self._live_x_values[index] for index in sorted_indices]
+        axis = self._live_axis
+        axis.clear()
+        markers = ["o", "s", "^", "d", "v", "x"]
+        for order in range(1, self.live_plot_order_count + 1):
+            sorted_order_values = [self._live_y_values[order][index] for index in sorted_indices]
+            axis.plot(
+                sorted_x_values,
+                sorted_order_values,
+                f"{markers[(order - 1) % len(markers)]}-",
+                linewidth=1.0,
+                markersize=3.0,
+                label=f"Order {order}",
+            )
+        if self.live_plot_reference_data is not None:
+            axis.plot(
+                self.live_plot_reference_data[:, 0],
+                self.live_plot_reference_data[:, 1],
+                "k--",
+                linewidth=1.0,
+                label="Reference",
+            )
+        axis.set_xlabel(self.live_plot_x_key)
+        axis.set_ylabel("Diffraction Efficiency")
+        axis.set_title("Batch Simulation Progress")
+        axis.grid(True, alpha=0.3)
+        axis.legend(loc="best")
+        self._live_figure.tight_layout()
+        self._live_figure.canvas.draw()
+        self._live_figure.canvas.flush_events()
+        _refresh_interactive_figure(self._live_figure)
+
+    def _update_theta_scan_plot(self, diagnostics: ThetaSearchDiagnostics, energy_ev: float) -> None:
+        """Update the live theta-scan diagnostic figure."""
+
+        if self._theta_scan_figure is None or self._theta_scan_axis is None or not plt.fignum_exists(
+            self._theta_scan_figure.number
+        ):
+            plt.ion()
+            self._theta_scan_figure, self._theta_scan_axis = plt.subplots(figsize=(8, 5))
+
+        axis = self._theta_scan_axis
+        axis.clear()
+        axis.plot(
+            diagnostics.rough_grazing_angles_deg,
+            diagnostics.rough_efficiencies,
+            "o-",
+            linewidth=1.0,
+            markersize=3.0,
+            label="Rough scan",
+        )
+        axis.plot(
+            diagnostics.precise_grazing_angles_deg,
+            diagnostics.precise_efficiencies,
+            "s-",
+            linewidth=1.0,
+            markersize=3.0,
+            label="Precise scan",
+        )
+        axis.plot(
+            diagnostics.selected_grazing_angle_deg,
+            diagnostics.selected_efficiency,
+            "r*",
+            markersize=10.0,
+            label="Selected peak",
+        )
+        if (
+            diagnostics.precise_peak_fitted_theta_deg is not None
+            and diagnostics.precise_peak_fitted_efficiencies is not None
+            and diagnostics.precise_peak_selection_mode_used in {"gauss", "voigt"}
+        ):
+            axis.plot(
+                diagnostics.precise_peak_fitted_theta_deg,
+                diagnostics.precise_peak_fitted_efficiencies,
+                "--",
+                linewidth=1.5,
+                color="tab:red",
+                label=f"{diagnostics.precise_peak_selection_mode_used.capitalize()} fit",
+            )
+        axis.set_xlabel("Grazing Angle (deg)")
+        axis.set_ylabel("Selected-Order Efficiency")
+        axis.set_title(f"Theta Search Diagnostics at {energy_ev:.2f} eV")
+        axis.grid(True, alpha=0.3)
+        axis.legend(loc="best")
+        self._theta_scan_figure.tight_layout()
+        self._theta_scan_figure.canvas.draw()
+        self._theta_scan_figure.canvas.flush_events()
+        _refresh_interactive_figure(self._theta_scan_figure)

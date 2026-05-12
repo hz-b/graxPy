@@ -1,0 +1,17 @@
+{
+  "grating_type": "BlazedGrating",
+  "period_lpermm": 600,
+  "blaze_angle_deg": 0.729,
+  "anti_blaze_angle_deg": 5.597,
+  "substrate_material": "Si",
+  "layer_material": "Au",
+  "layer_thickness_nm": 30.0,
+  "fourier_orders": 20,
+  "solver_backend": "s_matrix",
+  "description": "Blazed grating monochromator sweep",
+  "created": "2026-05-07T10:01:51.814397",
+  "execution_mode": "inline",
+  "default_diffraction_order": 1,
+  "default_fourier_orders": 15,
+  "default_solver_backend": "s_matrix"
+}

@@ -1,0 +1,57 @@
+"""Blazed-grating parameter study across energies."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import grax as rp
+from xrt.backends.raycing import materials as xrt_materials
+
+output_dir = Path(__file__).resolve().parent / "results"
+output_dir.mkdir(parents=True, exist_ok=True)
+
+silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
+gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
+
+grating = rp.BlazedGrating(
+    period_lpermm=600,
+    substrate_material=silicon,
+    layer_material=gold,
+    layer_thickness_nm=30.0,
+    blaze_angle_deg=0.75,
+    anti_blaze_angle_deg=None,
+    x_resolution_nm=0.5,
+    z_resolution_nm=0.1,
+)
+
+energies_ev = [100.0, 600.0, 2000.0]
+grazing_angle_deg = 1.5
+fourier_orders_values = list(range(5, 26, 2))
+x_resolution_values = rp.get_default_parameter_study_ranges()[1]
+z_resolution_values = rp.get_default_parameter_study_ranges()[2]
+
+study = rp.run_parameter_study(
+    grating=grating,
+    energies_ev=energies_ev,
+    grazing_angle_deg=grazing_angle_deg,
+    diffraction_order=1,
+    fourier_orders_values=fourier_orders_values,
+    x_resolution_values=x_resolution_values,
+    z_resolution_values=z_resolution_values,
+    output_dir=output_dir,
+    save_csv=True,
+    show_progress=True,
+)
+
+plot_path = output_dir / "parameter_study_grid.png"
+rp.plot_parameter_study(
+    study,
+    output_filename=plot_path,
+    title="Blazed Parameter Study: Orders vs Fourier/x/z Resolution",
+)
+
+profile_path = output_dir / "parameter_study_profile.png"
+grating.plot_profile(profile_path)
+
+print(f"Parameter-study plot saved to: {plot_path}")
+print(f"Profile plot saved to: {profile_path}")

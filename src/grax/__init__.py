@@ -1,0 +1,140 @@
+"""Top-level package for the Python RETICOLO port."""
+
+from __future__ import annotations
+
+import logging
+
+from .gratings import BaseGrating, BlazedGrating, LaminarGrating
+from .parameter_sweep import (
+    ParameterStudyEnergyResult,
+    ParameterStudyResult,
+    ParameterSweepSeries,
+    get_default_parameter_study_ranges,
+    plot_parameter_study,
+    run_parameter_study,
+)
+from .rcwa_1d import res0, res1, res2
+from .stacks import (
+    BaseStack,
+    CustomStack,
+    LayerSpec,
+    MultilayerStack,
+    SingleLayerStack,
+    assemble_custom_stack,
+    build_multilayer_stack,
+    build_single_layer_stack,
+)
+from .simulation import (
+    BatchSimulationRunner,
+    CaseExecutionResult,
+    MultilayerThetaSearchSweepResult,
+    SingleSimulationResult,
+    ThetaSearchDiagnostics,
+    efficiency_for_order,
+    energy_angle_cases,
+    estimate_multilayer_bragg_angle_deg,
+    fixed_angle_cases,
+    load_experimental_csv,
+    multilayer_theta_search_cases,
+    monochromator_cases,
+    monochromator_grazing_angles_deg,
+    plot_order_subset,
+    run_multilayer_theta_search,
+    run_multilayer_theta_search_sweep,
+    run_simulation,
+    write_all_orders_csv,
+)
+from .slag import SlagConfig, default_example_slag_config, run_example_slag, simulate_single_energy
+
+__all__ = [
+    "BaseGrating",
+    "BaseStack",
+    "BatchSimulationRunner",
+    "BlazedGrating",
+    "CaseExecutionResult",
+    "CustomStack",
+    "LaminarGrating",
+    "MultilayerThetaSearchSweepResult",
+    "MultilayerStack",
+    "ParameterStudyEnergyResult",
+    "ParameterStudyResult",
+    "ParameterSweepSeries",
+    "SingleLayerStack",
+    "SingleSimulationResult",
+    "ThetaSearchDiagnostics",
+    "SlagConfig",
+    "default_example_slag_config",
+    "efficiency_for_order",
+    "energy_angle_cases",
+    "estimate_multilayer_bragg_angle_deg",
+    "fixed_angle_cases",
+    "get_default_parameter_study_ranges",
+    "load_experimental_csv",
+    "multilayer_theta_search_cases",
+    "monochromator_cases",
+    "monochromator_grazing_angles_deg",
+    "plot_parameter_study",
+    "plot_order_subset",
+    "res0",
+    "res1",
+    "res2",
+    "run_example_slag",
+    "run_parameter_study",
+    "run_multilayer_theta_search",
+    "run_multilayer_theta_search_sweep",
+    "run_simulation",
+    "setup_logging",
+    "simulate_single_energy",
+    "write_all_orders_csv",
+]
+
+
+def setup_logging(
+    level: str = "INFO",
+    log_file: str | None = None,
+    log_dir: str | None = None,
+    run_id: str | None = None,
+) -> None:
+    """Configure logging for grax simulations.
+
+    Args:
+        level: Logging level (``DEBUG``, ``INFO``, ``WARNING``, or ``ERROR``).
+        log_file: Optional explicit file path to write logs. Overrides log_dir/run_id.
+        log_dir: Directory to store log files. Defaults to ``results/logs``.
+        run_id: Optional unique identifier for this run. If None, uses timestamp.
+    """
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    if log_file:
+        handler = logging.FileHandler(log_file, mode="w")
+    else:
+        if log_dir is None:
+            log_dir = "results/logs"
+
+        from datetime import datetime
+        from pathlib import Path
+
+        log_path = Path(log_dir)
+        log_path.mkdir(parents=True, exist_ok=True)
+
+        log_filename = f"{run_id}.log" if run_id else datetime.now().strftime("%Y%m%d_%H%M%S.log")
+        handler = logging.FileHandler(log_path / log_filename, mode="w")
+        print(f"Logging to: {log_path / log_filename}")
+
+    handler.setFormatter(formatter)
+    handler.setLevel(level)
+
+    root_logger = logging.getLogger("grax")
+    root_logger.setLevel(level)
+    root_logger.addHandler(handler)
+
+    logging.getLogger("numpy").setLevel(level)
+    logging.getLogger("scipy").setLevel(level)
+    "LayerSpec",
+    "assemble_custom_stack",
+    "build_multilayer_stack",
+    "build_single_layer_stack",

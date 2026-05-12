@@ -1,0 +1,12 @@
+parameter,value,efficiency,error,energy_ev,grazing_angle_deg
+fourier_orders,5,0.25246765012717065,False,600.0,1.5
+fourier_orders,7,0.2530816072106441,False,600.0,1.5
+fourier_orders,9,0.253163524282575,False,600.0,1.5
+fourier_orders,11,0.25320547292628653,False,600.0,1.5
+fourier_orders,13,0.2532202405918662,False,600.0,1.5
+fourier_orders,15,0.25322680657892066,False,600.0,1.5
+fourier_orders,17,0.2532323962316061,False,600.0,1.5
+fourier_orders,19,0.25323719138814477,False,600.0,1.5
+fourier_orders,21,0.2532409167143221,False,600.0,1.5
+fourier_orders,23,0.2532436954907508,False,600.0,1.5
+fourier_orders,25,0.2532457585320536,False,600.0,1.5

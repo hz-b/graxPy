@@ -1,0 +1,40 @@
+{
+  "experiment_name": "laminar_discrete_fit_with_roughness",
+  "objective_name": "loss",
+  "measurement_path": "/home/jny/projects/grax/comparison_to_other_codes/laminar/measured_alpha4deg_order1.csv",
+  "evaluation_mode": "discrete",
+  "evaluation_energies_ev": [
+    100.0,
+    300.0,
+    600.0
+  ],
+  "best_loss": 7.145365913421159e-06,
+  "best_parameters": {
+    "period_lpermm": 399.9284101810814,
+    "width_to_period_ratio": 0.6229232340540733,
+    "depth_nm": 13.95518653960976,
+    "left_wall_angle_deg": 6.754276370086171,
+    "right_wall_angle_deg": 26.097591826661596,
+    "top_cap_thickness_nm": 1.7812372665960812,
+    "roughness_sigma_nm": 0.6547842301002896
+  },
+  "best_grating_parameters": {
+    "period_lpermm": 399.9284101810814,
+    "width_to_period_ratio": 0.6229232340540733,
+    "depth_nm": 13.95518653960976,
+    "left_wall_angle_deg": 6.754276370086171,
+    "right_wall_angle_deg": 26.097591826661596,
+    "substrate_material": "Si",
+    "layer_material": "Pt",
+    "layer_thickness_nm": 28.77,
+    "top_cap_material": "C",
+    "top_cap_thickness_nm": 1.7812372665960812,
+    "z_resolution_nm": 0.1,
+    "x_resolution_nm": 0.1
+  },
+  "best_solver_parameters": {
+    "roughness_sigma_nm": 0.6547842301002896
+  },
+  "angle_mode": "fixed",
+  "grazing_angle_deg": 4.0
+}

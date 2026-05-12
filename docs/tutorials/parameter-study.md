@@ -1,0 +1,69 @@
+# Parameter study
+
+Use {func}`grax.run_parameter_study` when you want a convergence study at
+user-defined photon energies and a fixed user-defined grazing angle. The study
+always sweeps `fourier_orders`, `x_resolution_nm`, and `z_resolution_nm`, then
+plots the selected diffraction-order efficiency in a single grid figure.
+
+```python
+import grax as rp
+from xrt.backends.raycing import materials as xrt_materials
+
+silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
+gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
+
+grating = rp.BlazedGrating(
+    period_lpermm=600,
+    substrate_material=silicon,
+    layer_material=gold,
+    layer_thickness_nm=30.0,
+    blaze_angle_deg=0.75,
+    anti_blaze_angle_deg=None,
+    x_resolution_nm=0.5,
+    z_resolution_nm=0.1,
+)
+
+study = rp.run_parameter_study(
+    grating=grating,
+    energies_ev=[100.0, 600.0, 2000.0],
+    grazing_angle_deg=1.5,
+    diffraction_order=1,
+    fourier_orders_values=range(5, 26, 2),
+    x_resolution_values=rp.get_default_parameter_study_ranges()[1],
+    z_resolution_values=rp.get_default_parameter_study_ranges()[2],
+    output_dir="examples/simulation/parameter_study/results",
+)
+
+rp.plot_parameter_study(
+    study,
+    output_filename="examples/simulation/parameter_study/results/parameter_study_grid.png",
+    title="Blazed Parameter Study: Orders vs Fourier/x/z Resolution",
+)
+```
+
+The maintained example uses the same blazed geometry as the monochromator
+tutorial and produces one grid plot with rows for `100`, `600`, and `2000 eV`,
+and columns for the three swept parameters.
+
+```{image} images/simulation/parameter_study_grid.png
+:alt: Blazed parameter study grid for Fourier orders and x/z discretization
+:align: center
+:width: 95%
+```
+
+The default maintained example runs the full study:
+
+```python
+energies_ev = [100.0, 600.0, 2000.0]
+grazing_angle_deg = 1.5
+fourier_orders_values = range(5, 26, 2)
+x_resolution_values = rp.get_default_parameter_study_ranges()[1]
+z_resolution_values = rp.get_default_parameter_study_ranges()[2]
+```
+
+The x- and z-resolution values are logarithmically spaced from `10 nm` down to
+`0.1 nm`, which keeps the smaller values more closely packed than a linear
+spacing.
+
+See `examples/simulation/parameter_study/parameter_study.py` for the complete
+script.

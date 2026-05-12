@@ -1,0 +1,108 @@
+build
+examples/reference_baselines/**/results/latest.csv
+.venv*
+*theta_scans*
+.codex
+uv.lock
+examples/simulation/multilayer_theta_search/results/theta_scans/*
+reticolo
+*.log
+.token
+ToDo.md
+AGENTS.md
+.agents
+context
+
+# --- Standard Python ignores ---
+# Byte-compiled / optimized / DLL files
+*.pyd
+*.pyo
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-wheel-metadata/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.tox/
+.nox/
+
+# Type checkers / static analyzers
+.mypy_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pyenv
+.python-version
+
+# Environment files and local overrides
+.env
+.env.*
+*.env
+*.local
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Sphinx docs build
+docs/_build/
+
+
+
+
+__pycache__/
+*.pyc
+.pytes*t_cache/
+.ruff_cache

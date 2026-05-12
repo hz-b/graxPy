@@ -1,0 +1,28 @@
+RCWA Multi-Energy Fourier Backend Comparison (baseline vs numba-optional)
+
+numba_installed=True
+num_energies=10
+energy_start_ev=100.0
+energy_stop_ev=1200.0
+grazing_angle_deg=4.0
+fourier_orders=20
+x_resolution_nm=0.1
+z_resolution_nm=0.1
+
+aggregates
+- mean_baseline_total_s: 1.993982
+- mean_numba_total_s: 0.533744
+- mean_speedup_baseline_over_numba: 3.780828
+
+per_energy
+energy_ev  baseline_total_s  numba_total_s  baseline_fourier_s  numba_fourier_s  speedup  eff_delta_order_m1
+ 100.000          2.094385       0.751123            1.578065         0.006407   2.7883  +6.411e-13
+ 222.222          1.987627       0.510126            1.484898         0.005892   3.8963  +3.809e-12
+ 344.444          2.005449       0.515817            1.476776         0.005885   3.8879  +3.623e-12
+ 466.667          1.993209       0.511087            1.478742         0.005988   3.8999  +2.130e-13
+ 588.889          1.977986       0.509614            1.473522         0.005892   3.8813  -2.096e-14
+ 711.111          1.978611       0.504132            1.473982         0.005861   3.9248  -3.360e-13
+ 833.333          1.982317       0.510321            1.474952         0.005896   3.8845  -3.636e-14
+ 955.556          1.978455       0.512682            1.477228         0.005899   3.8590  +2.856e-14
+1077.778          1.968308       0.508277            1.477705         0.005878   3.8725  +1.505e-14
+1200.000          1.973470       0.504256            1.475614         0.005943   3.9136  -3.669e-15

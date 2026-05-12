@@ -1,0 +1,6 @@
+; example header
+; photon energy scan
+; energy;efficiency
+100,0;0,12
+150,0;0,18
+200,0;0,15

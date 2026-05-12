@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graxpy"
+version = "0.2.0"
+description = "Pure Python implementation inspired by RETICOLO v9 for X-ray grating simulations, with extended capabilities and user-friendly high-level workflows."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3 :: Only",
+]
+license = { text = "MIT" }
+authors = [
+  { name = "Simone Vadilonga", email = "simone.vadilonga@helmholtz-berlin.de" }
+]
+maintainers = [
+  { name = "Simone Vadilonga (Helmholtz-Zentrum Berlin)", email = "simone.vadilonga@helmholtz-berlin.de" }
+]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "matplotlib>=3.7",
+  "tqdm>=4.66",
+  "xrt>=1.6",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.5",
+]
+opt = [
+  "ax-platform>=0.5",
+]
+numba = [
+  "numba>=0.59",
+]
+docs = [
+  "sphinx>=7.0",
+  "myst-parser>=2.0",
+  "furo>=2024.8.6",
+  "sphinxcontrib-bibtex>=2.6",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "reticolo/tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "D"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[project.urls]
+"RETICOLO DOI" = "https://doi.org/10.5281/zenodo.14631950"
