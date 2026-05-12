@@ -50,6 +50,11 @@ bundled as part of the public `graxpy` package distribution.
 
 ## License
 
-Copyright (c) 2026 Simone Vadilonga, Helmholtz-Zentrum Berlin.
+Copyright (C) [2026] [Helmholtz-Berlin fur Materialen und Energie GmbH (HZB)]
 
-Licensed under the EUPL-1.2. See [LICENSE](LICENSE).
+Licensed under the European Union Public License (EUPL), Version 1.2.
+
+You may not use this work except in compliance with the License.
+
+A copy of the License is available at:
+<https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12>

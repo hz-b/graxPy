@@ -11,11 +11,29 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+PYTHON_SPEC="${PYTHON_SPEC:-3.12}"
+
+venv_matches_python_spec() {
+  if [ ! -x ".venv/bin/python" ]; then
+    return 1
+  fi
+  local version
+  version="$(".venv/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+  [ "$version" = "$PYTHON_SPEC" ]
+}
+
 if [ -d ".venv" ]; then
-  echo "Using existing virtual environment at .venv"
+  if venv_matches_python_spec; then
+    echo "Using existing virtual environment at .venv (Python ${PYTHON_SPEC})"
+  else
+    echo "Existing .venv does not use Python ${PYTHON_SPEC}; recreating."
+    rm -rf .venv
+    echo "Creating virtual environment at .venv with Python ${PYTHON_SPEC}"
+    uv venv --python "${PYTHON_SPEC}" .venv
+  fi
 else
-  echo "Creating virtual environment at .venv"
-  uv venv .venv
+  echo "Creating virtual environment at .venv with Python ${PYTHON_SPEC}"
+  uv venv --python "${PYTHON_SPEC}" .venv
 fi
 
 echo "Installing graxpy (import namespace: grax) in editable mode (-e)"
