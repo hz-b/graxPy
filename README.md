@@ -25,6 +25,8 @@ tools/build_docs.sh --html
 python -m pip install graxpy
 ```
 
+PyPI project page: <https://pypi.org/project/graxpy/0.1.0/>
+
 For local editable installs:
 
 ```bash

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graxpy"
-version = "0.2.0"
-description = "Pure Python implementation inspired by RETICOLO v9 for X-ray grating simulations, with extended capabilities and user-friendly high-level workflows."
+version = "0.1.0"
+description = "X-ray grating simulations"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 classifiers = [

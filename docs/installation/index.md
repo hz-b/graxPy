@@ -5,25 +5,25 @@ NumPy, pandas, SciPy, Matplotlib, tqdm, and xrt.
 
 ## Install the package
 
-### Install from TestPyPI (recommended for testing releases)
+### Install from PyPI
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple graxpy
+python -m pip install graxpy
 ```
 
 To install with optimization dependencies (`grax_opt` via `opt` extra):
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple "graxpy[opt]"
+python -m pip install "graxpy[opt]"
 ```
 
 To install with optional Numba acceleration support:
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple "graxpy[numba]"
+python -m pip install "graxpy[numba]"
 ```
 
-Project page: <https://test.pypi.org/project/graxpy/>
+Project page: <https://pypi.org/project/graxpy/0.1.0/>
 
 ### Install from local files (repository checkout)
 
