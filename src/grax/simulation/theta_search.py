@@ -141,6 +141,7 @@ def _run_theta_scan(
     max_reflected_efficiency: float,
     min_efficiency: float,
     max_total_reflected_efficiency: float,
+    backend: str,
 ) -> tuple[np.ndarray, list[SingleSimulationResult]]:
     """Run one theta scan and return selected efficiencies plus full results."""
 
@@ -156,6 +157,7 @@ def _run_theta_scan(
             max_reflected_efficiency=max_reflected_efficiency,
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
+            backend=backend,
         )
         for theta_deg in theta_grid_deg
     ]
@@ -293,6 +295,7 @@ def run_multilayer_theta_search(
     min_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
     precise_peak_selection_mode: PeakSelectionMode = "max",
+    backend: str = "numba",
     diagnostic_callback: Callable[[ThetaSearchDiagnostics, float], None] | None = None,
 ) -> SingleSimulationResult:
     """Run one energy point with an internal rough/precise grazing-angle search.
@@ -324,6 +327,8 @@ def run_multilayer_theta_search(
         precise_peak_selection_mode: Mode used to select the final theta from the
             precise scan. ``max`` uses the sampled maximum, ``gauss`` fits a local
             Gaussian neighborhood, and ``voigt`` fits a local Voigt neighborhood.
+        backend: Fourier coefficient backend selector. Options: ``numpy`` (pure Python,
+            default), ``numba`` (JIT-compiled, requires numba package).
         diagnostic_callback: Optional callback invoked with scan diagnostics after the peak search.
 
     Returns:
@@ -390,6 +395,7 @@ def run_multilayer_theta_search(
             max_reflected_efficiency=max_reflected_efficiency,
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
+            backend=backend,
         )
         rough_peak_index = int(np.nanargmax(rough_efficiencies))
         rough_peak_angle_deg = float(rough_grazing_angles_deg[rough_peak_index])
@@ -444,6 +450,7 @@ def run_multilayer_theta_search(
             max_reflected_efficiency=max_reflected_efficiency,
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
+            backend=backend,
         )
         precise_peak_index = int(np.nanargmax(precise_efficiencies))
         precise_ok, precise_status = _peak_capture_status(precise_efficiencies, precise_peak_index, edge_margin=2)
@@ -491,6 +498,7 @@ def run_multilayer_theta_search(
         max_reflected_efficiency=max_reflected_efficiency,
         min_efficiency=min_efficiency,
         max_total_reflected_efficiency=max_total_reflected_efficiency,
+        backend=backend,
     )
     logger.info(
         "[theta-search][final-scan] done energy=%.6f eV selected_theta=%.6f selected_eff=%.6e",

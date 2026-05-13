@@ -174,8 +174,8 @@ with csv_path.open("w", encoding="utf-8", newline="") as handle:
     writer.writeheader()
     writer.writerows(rows)
 
-mean_speedup = float(np.mean([float(row["speedup_baseline_over_numba"]) for row in rows]))
-mean_baseline_total = float(np.mean([float(row["baseline_total_s"]) for row in rows]))
+mean_speedup = float(np.mean([float(row["speedup_numpy_over_numba"]) for row in rows]))
+mean_numpy_total = float(np.mean([float(row["numpy_total_s"]) for row in rows]))
 mean_numba_total = float(np.mean([float(row["numba_total_s"]) for row in rows]))
 
 lines = [
@@ -190,8 +190,8 @@ lines = [
     f"efficiency_order={DIFFRACTION_ORDER}",
     "",
     "aggregates",
-    f"- mean_numpy_total_s: {mean_numpy_total_s:.6f}",
-    f"- mean_numba_total_s: {mean_numba_total_s:.6f}",
+    f"- mean_numpy_total_s: {mean_numpy_total:.6f}",
+    f"- mean_numba_total_s: {mean_numba_total:.6f}",
     f"- mean_speedup_numpy_over_numba: {mean_speedup:.6f}",
     "",
     "per_energy",
@@ -202,20 +202,30 @@ for row in rows:
     lines.append(
         f"{row['energy_ev']:>8.1f}  "
         f"{row['grazing_angle_deg']:>17.6f}  "
-        f"{row['baseline_total_s']:>16.6f}  "
+        f"{row['numpy_total_s']:>16.6f}  "
         f"{row['numba_total_s']:>13.6f}  "
-        f"{row['baseline_fourier_s']:>18.6f}  "
+        f"{row['numpy_fourier_s']:>18.6f}  "
         f"{row['numba_fourier_s']:>15.6f}  "
-        f"{row['speedup_baseline_over_numba']:>7.4f}  "
+        f"{row['speedup_numpy_over_numba']:>7.4f}  "
         f"{row['eff_delta_order_m1']:+.3e}"
     )
+
+def _numba_fourier_available() -> bool:
+    """Return True if the numba backend is available."""
+    try:
+        import numba
+
+        return True
+    except ImportError:
+        return False
+
 
 if not _numba_fourier_available():
     lines.extend(
         [
             "",
             "note",
-            "- numba-optional fell back to baseline because Numba is not installed in this environment.",
+            "- numba-optional fell back to numpy because Numba is not installed in this environment.",
         ]
     )
 

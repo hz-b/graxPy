@@ -84,6 +84,7 @@ sweep = rp.run_multilayer_theta_search_sweep(
     show_progress=True,
     live_plot=True,
     max_workers='auto',
+    backend='numba',
     on_error="fail_fast",
     checkpoint_dir=output_dir / "checkpoints",
     resume=False,
