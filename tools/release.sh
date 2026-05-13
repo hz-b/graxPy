@@ -93,13 +93,30 @@ echo "Checking GitHub CLI"
 echo "============================================================"
 
 if ! command -v gh >/dev/null 2>&1; then
+    echo
     echo "GitHub CLI (gh) is not installed."
-
-    read -rp "Open installation page? [y/N]: " INSTALL_GH
-
-    if [[ "${INSTALL_GH}" == "y" || "${INSTALL_GH}" == "Y" ]]; then
-        xdg-open "https://cli.github.com/"
-    fi
+    echo
+    echo "Install instructions for Debian/Ubuntu:"
+    echo
+    echo "------------------------------------------------------------"
+    echo "type -p curl >/dev/null || sudo apt install curl -y"
+    echo "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \\"
+    echo "  sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg"
+    echo "sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg"
+    echo
+    echo "echo \"deb [arch=\$(dpkg --print-architecture) \\"
+    echo "  signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \\"
+    echo "  https://cli.github.com/packages stable main\" | \\"
+    echo "  sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null"
+    echo
+    echo "sudo apt update"
+    echo "sudo apt install gh -y"
+    echo "------------------------------------------------------------"
+    echo
+    echo "Then authenticate with:"
+    echo
+    echo "  gh auth login"
+    echo
 else
     read -rp "Create GitHub release? [y/N]: " GH_CONFIRM
 
