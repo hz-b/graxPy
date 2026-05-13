@@ -62,7 +62,9 @@ runner = rp.BatchSimulationRunner(
     on_error="continue",
 )
 
-results = list(runner.run_cases(cases))
+results = list(runner.run_cases(cases,
+                                fourier_backend="numba",
+                                ))
 
 csv_path = output_dir / "fixed_angle_all_orders.csv"
 rp.write_all_orders_csv(results, csv_path)

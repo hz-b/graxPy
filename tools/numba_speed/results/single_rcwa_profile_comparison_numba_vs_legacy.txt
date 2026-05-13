@@ -5,9 +5,9 @@ numba_installed=True
 
 backend                    actual_backend              total_s    fourier_s   peak_mb   speedup_vs_baseline
 -----------------------------------------------------------------------------------------------------------
-baseline                  baseline                  2.112955  1.589884  303.099            1.000000
-numba-optional            numba-optional            0.745885  0.006523  303.097            2.832817
+baseline                  baseline                  8.665069  6.449602  303.099            1.000000
+numba-optional            numba-optional            2.536798  0.027024  303.097            3.415751
 
 order_minus_1_efficiency_deltas_vs_baseline
 - baseline: 0.000000000000e+00
-- numba-optional: -6.269706975814e-12
+- numba-optional: -5.049710649629e-12

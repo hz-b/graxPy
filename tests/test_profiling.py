@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from grax.gratings import LaminarGrating
-from grax.rcwa_1d import _numba_fourier_available
 from grax.simulation import run_simulation
 from grax.simulation._profiling import SolverProfiler
 from tests.optical_constants import load_optical_constants_table
@@ -115,59 +114,45 @@ def test_profiler_details_include_fourier_and_eigensolve_diagnostics() -> None:
     assert timings["layer_eigensolve_call"]["calls"] > 0
     assert unique_counts["layer_operator_unique"] > 0
     assert summary["peak_memory_bytes"] >= 0
-    assert summary["metadata"]["numba_available"] == _numba_fourier_available()
     assert summary["derived_kpis"]["time_per_fourier_call_seconds"] > 0.0
     assert summary["derived_kpis"]["time_per_harmonic_seconds"] > 0.0
 
 
-@pytest.mark.parametrize(
-    "backend_name",
-    [
-        "baseline",
-        "vectorized-harmonics",
-        "phase-recursive",
-        "phase-table-per-texture",
-        "numba-optional",
-    ],
-)
-def test_fourier_backends_match_baseline(backend_name: str) -> None:
+@pytest.mark.parametrize("backend_name", ["numba"])
+def test_fourier_backend_matches_baseline(backend_name: str) -> None:
     baseline = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        _fourier_backend="baseline",
+        fourier_backend="numpy",
     )
     candidate = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        _fourier_backend=backend_name,
+        fourier_backend=backend_name,
     )
 
-    assert candidate.selected_efficiency == pytest.approx(baseline.selected_efficiency, rel=1e-10, abs=1e-12)
-    assert np.allclose(candidate.efficiency_all, baseline.efficiency_all, rtol=1e-10, atol=1e-12)
-    assert np.allclose(
-        candidate.diffraction_angle_all,
-        baseline.diffraction_angle_all,
-        rtol=1e-10,
-        atol=1e-12,
-    )
-
-
-def test_numba_optional_backend_falls_back_cleanly_when_unavailable() -> None:
-    profiler = SolverProfiler()
-    run_simulation(
+    result = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        _profiler=profiler,
-        _fourier_backend="numba-optional",
+        fourier_backend=backend_name,
     )
-    summary = profiler.summary_dict()
+    baseline = run_simulation(
+        grating=_grating(),
+        energy_ev=200.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+        fourier_backend="numpy",
+    )
 
-    assert summary["metadata"]["fourier_backend_requested"] == "numba-optional"
-    expected_backend = "numba-optional" if _numba_fourier_available() else "baseline"
-    assert summary["metadata"]["fourier_backend_actual"] == expected_backend
+    assert result.selected_efficiency == pytest.approx(baseline.selected_efficiency, rel=1e-10, abs=1e-12)
+    assert np.allclose(result.efficiency_all, baseline.efficiency_all, rtol=1e-10, atol=1e-12)
+    assert np.allclose(result.diffraction_angle_all, baseline.diffraction_angle_all, rtol=1e-10, atol=1e-12)
+
+
+

@@ -1,5 +1,5 @@
 RCWA Profiling Summary
-total_wall_seconds=0.745885
+total_wall_seconds=2.536798
 
 metadata
 - benchmark_case: laminar_single_case
@@ -22,22 +22,22 @@ metadata
 
 stage                      excl_s    excl_%    incl_s   calls
 -------------------------------------------------------------
-res1_total                 0.235275    31.94%  0.241798      1
-layer_eigensolve           0.213257    28.95%  0.213257    301
-res2_total                 0.099856    13.56%  0.406514      1
-layer_propagation_cascade  0.093336    12.67%  0.093336      1
-texture_generation         0.088317    11.99%  0.088317      1
-fourier_coefficients       0.006523     0.89%  0.006523    490
-matrix_solves              0.000066     0.01%  0.000066      2
-postprocessing             0.000025     0.00%  0.000025      1
+layer_eigensolve           0.734697    29.33%  0.734697    301
+res1_total                 0.721864    28.82%  0.748888      1
+res2_total                 0.365517    14.59%  1.415535      1
+texture_generation         0.340138    13.58%  0.340138      1
+layer_propagation_cascade  0.315079    12.58%  0.315079      1
+fourier_coefficients       0.027024     1.08%  0.027024    490
+matrix_solves              0.000243     0.01%  0.000243      2
+postprocessing             0.000075     0.00%  0.000075      1
 
-profiled_exclusive_seconds=0.736654
-unprofiled_seconds=0.009231
+profiled_exclusive_seconds=2.504636
+unprofiled_seconds=0.032162
 
 derived_kpis
 - bytes_per_fourier_call: 1357.289796
-- time_per_fourier_call_seconds: 0.000013
-- time_per_harmonic_seconds: 0.000000
+- time_per_fourier_call_seconds: 0.000055
+- time_per_harmonic_seconds: 0.000001
 
 counters
 - layer_eigensolve_calls: 301
@@ -54,11 +54,11 @@ memory
 - stage_peak_mb[texture_generation]: 303.097
 
 detail_timings
-- fourier_call_total: calls=490, total_s=0.004598, mean_s=0.000009, max_s=0.000046
-- fourier_exp: calls=490, total_s=0.004598, mean_s=0.000009, max_s=0.000046
+- fourier_call_total: calls=490, total_s=0.018321, mean_s=0.000037, max_s=0.000179
+- fourier_exp: calls=490, total_s=0.018321, mean_s=0.000037, max_s=0.000179
 - fourier_loop_overhead: calls=490, total_s=0.000000, mean_s=0.000000, max_s=0.000000
 - fourier_sum: calls=490, total_s=0.000000, mean_s=0.000000, max_s=0.000000
-- layer_eigensolve_call: calls=301, total_s=0.212716, mean_s=0.000707, max_s=0.000832
+- layer_eigensolve_call: calls=301, total_s=0.732410, mean_s=0.002433, max_s=0.005146
 
 detail_counts
 - fourier_allocation_bytes: 665072

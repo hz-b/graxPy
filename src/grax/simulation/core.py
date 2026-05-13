@@ -109,7 +109,7 @@ def run_simulation(
     min_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
     _profiler: SolverProfiler | None = None,
-    _fourier_backend: str = "baseline",
+    fourier_backend: str = "numpy",
 ) -> SingleSimulationResult:
     """Run one RCWA simulation case and return a typed result.
 
@@ -124,6 +124,8 @@ def run_simulation(
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
         min_efficiency: Minimum allowed efficiency.
         max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
+        _profiler: Internal profiler for performance measurements. For development/testing only.
+        fourier_backend: Fourier coefficient backend selector. Options: "numpy" (default, pure Python), "numba" (JIT-compiled, requires numba package).
 
     Returns:
         Single-case RCWA result.
@@ -154,7 +156,7 @@ def run_simulation(
         k_parallel,
         parm,
         _profiler=_profiler,
-        _fourier_backend=_fourier_backend,
+        _fourier_backend=fourier_backend,
     )
     ef = res2(
         aa,
