@@ -20,6 +20,11 @@ def fixed_angle_cases(
 ) -> Iterator[dict[str, object]]:
     """Yield fixed-angle energy-sweep cases lazily.
 
+    Creates case dictionaries for a fixed-incident-angle energy scan. Each case
+    includes the grating, photon energy, and fixed grazing angle. This is the
+    simplest sweep configuration where all simulations use the same incidence
+    geometry.
+
     Args:
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
@@ -29,6 +34,16 @@ def fixed_angle_cases(
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> cases = fixed_angle_cases(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     grazing_angle_deg=5.0
+        ... )
+        >>> for case in cases:
+        ...     print(f"E={case['energy_ev']:.0f} eV, theta={case['grazing_angle_deg']:.1f}°")
     """
 
     for index, energy_ev in enumerate(energies_ev):
@@ -53,17 +68,37 @@ def monochromator_cases(
 ) -> Iterator[dict[str, object]]:
     """Yield fixed-cff monochromator sweep cases lazily.
 
+    Creates case dictionaries for a monochromator configuration with fixed
+    constant-focus-factor (CFF). The grazing angle is solved for each energy
+    using the monochromator equation, ensuring the optic maintains the same
+    optical configuration across the energy sweep.
+
+    The monochromator relation solves for incidence angle alpha and diffraction
+    angle beta subject to:
+    - cff = cos(alpha) / cos(beta) (fixed)
+    - m*lambda = period * (sin(alpha) + sin(beta)) (diffraction condition)
+
     Args:
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
         period_lpermm: Optional grating line density. Defaults to the grating value.
         diffraction_order: Positive diffraction order used by the monochromator relation.
-        cff: Constant-focus factor.
+        cff: Constant-focus factor. Higher values relax tolerance but reduce angular range.
         case_id_prefix: Prefix used for stable generated case IDs.
         **case_defaults: Additional case fields copied into every yielded case.
 
     Yields:
-        Case dictionaries suitable for :class:`BatchSimulationRunner`.
+        Case dictionaries suitable for :class:`BatchSimulationRunner` with computed
+        grazing_angle_deg and diffraction_order fields.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> cases = monochromator_cases(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     diffraction_order=1,
+        ...     cff=2.25
+        ... )
     """
 
     line_density = float(grating.period_lpermm if period_lpermm is None else period_lpermm)
@@ -95,6 +130,10 @@ def energy_angle_cases(
 ) -> Iterator[dict[str, object]]:
     """Yield arbitrary energy-angle simulation cases lazily.
 
+    Creates case dictionaries for user-specified energy and angle combinations.
+    This provides maximum flexibility for custom sweep configurations that don't
+    follow standard patterns like fixed-angle or monochromator scans.
+
     Args:
         grating: Grating reused by every generated case.
         energy_angle_pairs: Iterable of ``(energy_ev, grazing_angle_deg)`` pairs.
@@ -103,6 +142,14 @@ def energy_angle_cases(
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> pairs = [(500, 5.0), (600, 5.5), (700, 6.0)]
+        >>> cases = energy_angle_cases(
+        ...     grating=grating,
+        ...     energy_angle_pairs=pairs
+        ... )
     """
 
     for index, (energy_ev, grazing_angle_deg) in enumerate(energy_angle_pairs):
@@ -125,16 +172,37 @@ def multilayer_theta_search_cases(
 ) -> Iterator[dict[str, object]]:
     """Yield energy-only cases for the multilayer theta-search workflow.
 
+    Creates simplified case dictionaries that trigger the multilayer theta-search
+    workflow during batch execution. The workflow internally performs a three-stage
+    adaptive angular scan:
+    1. **Rough scan**: Wide angular range with low Fourier orders and coarse resolution
+    2. **Precise scan**: Narrow range around rough maximum with moderate settings
+    3. **Final solve**: High-resolution calculation at selected angle
+
+    This workflow automatically determines the optimal grazing angle for each
+    energy point, making it ideal for multilayer gratings where the Bragg angle
+    shifts with photon energy.
+
     Args:
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
         case_id_prefix: Prefix used for stable generated case IDs.
         precise_peak_selection_mode: Mode used to select the final theta from the
-            precise scan for each generated case.
+            precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
+            local Gaussian, and ``"voigt"`` fits a local Voigt profile.
         **case_defaults: Additional case fields copied into every yielded case.
 
     Yields:
-        Case dictionaries suitable for :class:`BatchSimulationRunner`.
+        Case dictionaries suitable for :class:`BatchSimulationRunner` with
+        workflow-specific fields stored in the case dictionary.
+
+    Example:
+        >>> grating = grax.BlazedGrating(period_nm=500, blaze_angle=10, height_nm=100)
+        >>> cases = multilayer_theta_search_cases(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     precise_peak_selection_mode="gauss"
+        ... )
     """
 
     default_fields = {
