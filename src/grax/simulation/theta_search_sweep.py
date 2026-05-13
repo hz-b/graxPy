@@ -196,6 +196,7 @@ def run_multilayer_theta_search_sweep(
     theta_retry_jitter_deg: tuple[float, ...] | None = None,
     save_profile_plot: bool = True,
     save_stack_plot: bool = True,
+    backend: str = "numba",
 ) -> MultilayerThetaSearchSweepResult:
     """Run a multilayer theta-search sweep and persist standard output artifacts.
 
@@ -249,6 +250,8 @@ def run_multilayer_theta_search_sweep(
         theta_retry_jitter_deg: Deterministic jitter offsets for retry attempts.
         save_profile_plot: Whether to save the grating profile plot.
         save_stack_plot: Whether to save the resolved stack schematic when available.
+        backend: Fourier coefficient backend selector. Options: ``numpy`` (pure Python,
+            default), ``numba`` (JIT-compiled, requires numba package).
 
     Returns:
         Typed result object containing collected results and the created output paths.
@@ -393,7 +396,7 @@ def run_multilayer_theta_search_sweep(
         "max_reflected_efficiency": 1.05,
         "min_efficiency": -1e-8,
         "max_total_reflected_efficiency": 1.05,
-        "backend": "numba",
+        "backend": backend,
     }
     retry_jitter_values = (theta_retry_jitter_deg or (0.002, -0.002, 0.005))[: max(0, int(max_zero_efficiency_retries))]
     theta_continuity_tolerance_deg = 0.02
