@@ -122,7 +122,7 @@ for energy_ev in tqdm(ENERGIES_EV, desc="Multilayer RCWA comparison", unit="ener
         diffraction_order=abs(DIFFRACTION_ORDER),
         fourier_orders=FOURIER_ORDERS,
         _profiler=profiler_numpy,
-        fourier_backend="numpy",
+        backend="numpy",
     )
     summary_numpy = profiler_numpy.summary_dict()
 
@@ -135,7 +135,7 @@ for energy_ev in tqdm(ENERGIES_EV, desc="Multilayer RCWA comparison", unit="ener
         diffraction_order=abs(DIFFRACTION_ORDER),
         fourier_orders=FOURIER_ORDERS,
         _profiler=profiler_numba,
-        fourier_backend="numba",
+        backend="numba",
     )
     summary_numba = profiler_numba.summary_dict()
 

@@ -56,6 +56,7 @@ runner = rp.BatchSimulationRunner(
     live_plot=True,
     live_plot_x_key="energy_ev",
     on_error="continue",
+    backend="numba",
 )
 
 results = list(runner.run_cases(cases))

@@ -104,7 +104,7 @@ def _run_backend_case(
         diffraction_order=1,
         fourier_orders=fourier_orders,
         _profiler=profiler,
-        fourier_backend=backend,
+        backend=backend,
     )
     return result, profiler
 

@@ -66,6 +66,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
+    backend="numba",
 )
 
 results = list(runner.run_cases(cases))

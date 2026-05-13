@@ -27,7 +27,7 @@ Project page: <https://pypi.org/project/graxpy/0.1.0/>
 
 ```{note}
 The numpy backend is the default for `run_simulation` and provides reliable
-performance without dependencies. For maximum speed, use `fourier_backend="numba"`
+performance without dependencies. For maximum speed, use `backend="numba"`
 which provides 3.7x speedup with identical numerical results.
 ```
 
@@ -66,8 +66,8 @@ python -m pip install -e ".[numba]"
 
 ```{note}
 The Numba backend provides **3.7x speedup** with identical numerical results.
-You can explicitly specify `fourier_backend="numpy"` for the pure Python
-implementation or `fourier_backend="numba"` for the JIT-compiled version.
+You can explicitly specify `backend="numpy"` for the pure Python
+implementation or `backend="numba"` for the JIT-compiled version.
 ```
 
 The main documentation focuses on the `grax` simulation package. The

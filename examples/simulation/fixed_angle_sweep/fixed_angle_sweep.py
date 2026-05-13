@@ -60,11 +60,10 @@ runner = rp.BatchSimulationRunner(
     live_plot=True,
     live_plot_x_key="energy_ev",
     on_error="continue",
+    backend="numba",
 )
 
-results = list(runner.run_cases(cases,
-                                fourier_backend="numba",
-                                ))
+results = list(runner.run_cases(cases))
 
 csv_path = output_dir / "fixed_angle_all_orders.csv"
 rp.write_all_orders_csv(results, csv_path)

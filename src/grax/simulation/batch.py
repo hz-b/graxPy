@@ -122,6 +122,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "min_efficiency": float(runner_settings["min_efficiency"]),
             "max_total_reflected_efficiency": float(runner_settings["max_total_reflected_efficiency"]),
             "precise_peak_selection_mode": str(case.get("precise_peak_selection_mode", "max")),
+            "backend": runner_settings["backend"],
         }
 
     return {
@@ -139,6 +140,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
         "min_efficiency": float(runner_settings["min_efficiency"]),
         "max_total_reflected_efficiency": float(runner_settings["max_total_reflected_efficiency"]),
+        "backend": runner_settings["backend"],
     }
 
 
@@ -500,6 +502,7 @@ class BatchSimulationRunner:
         retry_selected_efficiency_threshold: float = 1e-4,
         max_zero_efficiency_retries: int = 3,
         theta_retry_jitter_deg: tuple[float, ...] | None = None,
+        backend: str = "numpy",
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
@@ -536,6 +539,8 @@ class BatchSimulationRunner:
                 zero-efficiency multilayer theta-search cases.
             theta_retry_jitter_deg: Deterministic jitter offsets applied to the initial
                 theta estimate on each retry attempt.
+            backend: Fourier coefficient backend selector. Options: "numpy"
+                (default, pure Python), "numba" (JIT-compiled, requires numba package).
         """
 
         if execution_mode not in {"inline", "subprocess"}:
@@ -578,6 +583,7 @@ class BatchSimulationRunner:
         self.retry_selected_efficiency_threshold = float(retry_selected_efficiency_threshold)
         self.max_zero_efficiency_retries = max(0, int(max_zero_efficiency_retries))
         self.theta_retry_jitter_deg = theta_retry_jitter_deg or (0.002, -0.002, 0.005)
+        self.backend = backend
         self._live_figure: plt.Figure | None = None
         self._live_axis: plt.Axes | None = None
         self._theta_scan_figure: plt.Figure | None = None
@@ -692,6 +698,7 @@ class BatchSimulationRunner:
             "max_reflected_efficiency": self.max_reflected_efficiency,
             "min_efficiency": self.min_efficiency,
             "max_total_reflected_efficiency": self.max_total_reflected_efficiency,
+            "backend": self.backend,
         }
 
     def _prepare_pending_cases(

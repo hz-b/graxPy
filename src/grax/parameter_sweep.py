@@ -349,6 +349,7 @@ def _run_single_parameter_sweep(
                     diffraction_order=diffraction_order,
                     fourier_orders=fourier_orders,
                     grazing_angle_deg=grazing_angle_deg,
+                    backend="numba",
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True

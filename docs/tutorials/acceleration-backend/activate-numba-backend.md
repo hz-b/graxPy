@@ -17,16 +17,16 @@ result = rp.run_simulation(
     grazing_angle_deg=grazing_angle_deg,
     diffraction_order=diffraction_order,
     fourier_orders=fourier_orders,
-    fourier_backend="numba",
+    backend="numba",
 )
 ```
 
 ```{note}
 The numpy backend is now the default for `run_simulation`, providing reliable
-performance without dependencies. For maximum speed, use `fourier_backend="numba"`
+performance without dependencies. For maximum speed, use `backend="numba"`
 which provides 3.7x speedup with identical numerical results.
 ```
 
 ```{important}
-If Numba is unavailable, requesting `fourier_backend="numba"` raises a clear error.
+If Numba is unavailable, requesting `backend="numba"` raises a clear error.
 ```

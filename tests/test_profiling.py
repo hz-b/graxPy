@@ -125,14 +125,14 @@ def test_fourier_backend_matches_baseline(backend_name: str) -> None:
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        fourier_backend="numpy",
+        backend="numpy",
     )
     candidate = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        fourier_backend=backend_name,
+        backend=backend_name,
     )
 
     result = run_simulation(
@@ -140,14 +140,14 @@ def test_fourier_backend_matches_baseline(backend_name: str) -> None:
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        fourier_backend=backend_name,
+        backend=backend_name,
     )
     baseline = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        fourier_backend="numpy",
+        backend="numpy",
     )
 
     assert result.selected_efficiency == pytest.approx(baseline.selected_efficiency, rel=1e-10, abs=1e-12)
