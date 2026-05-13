@@ -14,7 +14,7 @@ if [[ ! -f "${PYPROJECT_FILE}" ]]; then
     exit 1
 fi
 
-CURRENT_VERSION="$(grep '^version = ' "${PYPROJECT_FILE}" | head -n1 | sed 's/version = "\(.*\)"/\1/')"
+CURRENT_VERSION="$(grep '^version *= *' "${PYPROJECT_FILE}" | head -n1 | sed 's/version *= *"\(.*\)"/\1/')"
 
 echo "============================================================"
 echo "Current version: ${CURRENT_VERSION}"
@@ -65,7 +65,7 @@ echo "============================================================"
 echo "Updating version"
 echo "============================================================"
 
-sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" "${PYPROJECT_FILE}"
+sed -i -E 's/^version *= *".*"/version = "'"${NEW_VERSION}"'"/' "${PYPROJECT_FILE}"
 
 echo
 echo "============================================================"
@@ -77,14 +77,38 @@ git status --short
 read -rp "Create git commit and tag? [y/N]: " GIT_CONFIRM
 
 if [[ "${GIT_CONFIRM}" == "y" || "${GIT_CONFIRM}" == "Y" ]]; then
+
     git add "${PYPROJECT_FILE}"
 
-    git commit -m "Release v${NEW_VERSION}"
+    if git diff --cached --quiet; then
+        echo
+        echo "No staged changes detected."
+        echo "Skipping git commit."
+    else
+        git commit -m "Release v${NEW_VERSION}"
+    fi
 
-    git tag "v${NEW_VERSION}"
+    if git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
+        echo
+        echo "Git tag v${NEW_VERSION} already exists."
+    else
+        git tag "v${NEW_VERSION}"
 
-    echo
-    echo "Git commit and tag created."
+        echo
+        echo "Created git tag: v${NEW_VERSION}"
+    fi
+
+    read -rp "Push commits and tags to origin? [y/N]: " PUSH_CONFIRM
+
+    if [[ "${PUSH_CONFIRM}" == "y" || "${PUSH_CONFIRM}" == "Y" ]]; then
+        CURRENT_BRANCH="$(git branch --show-current)"
+
+        git push origin "${CURRENT_BRANCH}"
+        git push origin "v${NEW_VERSION}"
+
+        echo
+        echo "Pushed branch and tag."
+    fi
 fi
 
 echo
