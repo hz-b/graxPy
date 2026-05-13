@@ -472,7 +472,44 @@ def _load_checkpoint_case_results(checkpoint_path: Path) -> dict[str, CaseExecut
 
 
 class BatchSimulationRunner:
-    """Stream RCWA simulations for arbitrary case iterables."""
+    """Stream RCWA simulations for arbitrary case iterables.
+
+    Args:
+        default_diffraction_order: Default selected diffraction order.
+        default_fourier_orders: Default Fourier truncation order.
+        max_fourier_orders: Maximum allowed Fourier orders.
+        backend: Fourier coefficient backend selector. Options: "numpy"
+            (default, pure Python), "numba" (JIT-compiled, requires numba package).
+        checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
+        checkpoint_interval: Flush checkpoint file every N completed cases.
+        resume: Whether to skip case IDs already present in the checkpoint.
+        live_plot: Whether to update a live plot during execution.
+        live_plot_x_key: Case/result field used for the live-plot x axis.
+        live_plot_order_count: Number of positive diffraction orders to plot.
+        live_plot_reference_data: Optional two-column reference data to overlay.
+        live_theta_scan_plot: Whether to show a diagnostic theta-scan figure for
+            serial cases and for the auto-worker calibration case.
+        validate_physical_results: Whether to validate reflected efficiencies.
+        max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
+        min_efficiency: Minimum allowed efficiency.
+        max_total_reflected_efficiency: Maximum allowed reflected propagating sum.
+        retry_on_selected_efficiency_zero: Whether to retry multilayer theta-search
+            cases when selected efficiency is exactly zero.
+        retry_selected_efficiency_threshold: Retry trigger threshold for selected
+            efficiency. Retries are attempted when selected efficiency is less
+            than or equal to this value.
+        max_zero_efficiency_retries: Maximum number of additional retries for
+            zero-efficiency multilayer theta-search cases.
+        theta_retry_jitter_deg: Deterministic jitter offsets applied to the initial
+            theta estimate on each retry attempt.
+        execution_mode: ``inline`` or ``subprocess`` execution.
+        max_workers: Optional case-level multiprocessing worker count.
+        timeout: Subprocess timeout in seconds.
+        show_progress: Whether to show a progress bar.
+        total_cases: Optional progress-total override. When omitted, total is
+            inferred internally from pending and resumed cases.
+        on_error: Error policy. ``continue`` yields error results, ``fail_fast`` raises.
+    """
 
     def __init__(
         self,
@@ -506,41 +543,7 @@ class BatchSimulationRunner:
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
-        Args:
-            default_diffraction_order: Default selected diffraction order.
-            default_fourier_orders: Default Fourier truncation order.
-            execution_mode: ``inline`` or ``subprocess`` execution.
-            max_workers: Optional case-level multiprocessing worker count.
-            timeout: Subprocess timeout in seconds.
-            show_progress: Whether to show a progress bar.
-            total_cases: Optional progress-total override. When omitted, total is
-                inferred internally from pending and resumed cases.
-            live_plot: Whether to update a live plot during execution.
-            live_plot_x_key: Case/result field used for the live-plot x axis.
-            live_plot_order_count: Number of positive diffraction orders to plot.
-            live_plot_reference_data: Optional two-column reference data to overlay.
-            live_theta_scan_plot: Whether to show a diagnostic theta-scan figure for
-                serial cases and for the auto-worker calibration case.
-            on_error: Error policy. ``continue`` yields error results, ``fail_fast`` raises.
-            max_fourier_orders: Maximum allowed Fourier orders.
-            checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
-            checkpoint_interval: Flush checkpoint file every N completed cases.
-            resume: Whether to skip case IDs already present in the checkpoint.
-            validate_physical_results: Whether to validate reflected efficiencies.
-            max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
-            min_efficiency: Minimum allowed efficiency.
-            max_total_reflected_efficiency: Maximum allowed reflected propagating sum.
-            retry_on_selected_efficiency_zero: Whether to retry multilayer theta-search
-                cases when selected efficiency is exactly zero.
-            retry_selected_efficiency_threshold: Retry trigger threshold for selected
-                efficiency. Retries are attempted when selected efficiency is less
-                than or equal to this value.
-            max_zero_efficiency_retries: Maximum number of additional retries for
-                zero-efficiency multilayer theta-search cases.
-            theta_retry_jitter_deg: Deterministic jitter offsets applied to the initial
-                theta estimate on each retry attempt.
-            backend: Fourier coefficient backend selector. Options: "numpy"
-                (default, pure Python), "numba" (JIT-compiled, requires numba package).
+        See :class:`BatchSimulationRunner` for parameter documentation.
         """
 
         if execution_mode not in {"inline", "subprocess"}:
