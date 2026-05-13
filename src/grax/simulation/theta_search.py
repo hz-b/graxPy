@@ -43,6 +43,14 @@ def estimate_multilayer_bragg_angle_deg(
 ) -> float:
     """Estimate the grazing angle from the nominal multilayer Bragg condition.
 
+    Computes an initial guess for the grazing angle using the multilayer Bragg
+    equation:
+
+        m * lambda = 2 * d * sin(theta) * sqrt(1 - 2*delta)
+
+    where delta is the refractive index decrement. This provides a reasonable
+    starting point for the adaptive theta search.
+
     Args:
         grating: Grating carrying a multilayer coating stack.
         energy_ev: Photon energy in electronvolts.
@@ -54,6 +62,10 @@ def estimate_multilayer_bragg_angle_deg(
     Raises:
         TypeError: If the grating does not resolve to a multilayer stack.
         ValueError: If the requested Bragg order is invalid or no real angle exists.
+
+    Note:
+        The estimate uses the real part of the refractive index decrement for
+        stability. Returns an angle in the range (0, 90) degrees.
     """
 
     if multilayer_bragg_order < 1:
@@ -87,7 +99,21 @@ def _safe_theta_scan_half_width_deg(
 ) -> float:
     """Return a non-negative-theta-safe half width around ``center_deg``.
 
-    The returned half width is limited so the lower scan bound stays above 0 deg.
+    Constrains the scan half-width so the lower bound of the scan remains
+    above 0 degrees. Prevents physically invalid negative grazing angles.
+
+    Args:
+        center_deg: Center angle of the scan range.
+        requested_half_width_deg: Requested half-width of the scan.
+
+    Returns:
+        Half-width limited so center - half_width > 0. If the requested
+        half-width would violate this constraint, returns 95% of the center
+        angle (leaving 5% margin).
+
+    Note:
+        This is a safety mechanism for very small center angles where the
+        requested scan range would extend into negative angles.
     """
 
     if center_deg <= 0.0:
@@ -141,6 +167,7 @@ def _run_theta_scan(
     max_reflected_efficiency: float,
     min_efficiency: float,
     max_total_reflected_efficiency: float,
+    backend: str,
 ) -> tuple[np.ndarray, list[SingleSimulationResult]]:
     """Run one theta scan and return selected efficiencies plus full results."""
 
@@ -156,6 +183,7 @@ def _run_theta_scan(
             max_reflected_efficiency=max_reflected_efficiency,
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
+            backend=backend,
         )
         for theta_deg in theta_grid_deg
     ]
@@ -293,41 +321,90 @@ def run_multilayer_theta_search(
     min_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
     precise_peak_selection_mode: PeakSelectionMode = "max",
+    backend: str = "numba",
     diagnostic_callback: Callable[[ThetaSearchDiagnostics, float], None] | None = None,
 ) -> SingleSimulationResult:
     """Run one energy point with an internal rough/precise grazing-angle search.
+
+    Implements a three-stage adaptive angular scan for multilayer gratings:
+    1. **Rough scan**: Wide angular range (±rough_scan_half_width_deg) with low
+       Fourier orders (rough_fourier_orders) and coarse resolution to find
+       approximate peak location.
+    2. **Precise scan**: Narrow range around rough maximum (±precise_scan_half_width_deg)
+       with moderate Fourier orders (fine_fourier_orders) and finer resolution
+       for accurate peak characterization.
+    3. **Final solve**: Single-point high-resolution calculation at selected
+       angle with full Fourier orders (final_fourier_orders) and finest resolution.
+
+    Adaptive refinement:
+    - Uses Gaussian/Voigt fitting for sub-grid peak localization in precise stage
+    - Tracks scan diagnostics (grating angles, efficiencies, FWHM, fitted curve)
+    - Validates physical results (efficiency bounds, Kramers-Kronig consistency)
 
     Args:
         grating: Grating profile and material stack.
         energy_ev: Photon energy in electronvolts.
         diffraction_order: Positive diffraction order to optimize.
         initial_grazing_angle_deg: Optional explicit center for the rough scan.
-        multilayer_bragg_order: Positive multilayer Bragg order used when estimating.
+            Uses multilayer Bragg estimate if not provided.
+        multilayer_bragg_order: Positive multilayer Bragg order used when estimating
+            the initial grazing angle. Should match the desired diffraction order
+            for best accuracy.
         rough_scan_half_width_deg: Half-width of the rough scan around the estimate.
-        rough_scan_points: Number of rough-scan points.
-        precise_scan_half_width_deg: Half-width of the precise scan around the rough maximum.
-        precise_scan_points: Number of precise-scan points.
-        rough_fourier_orders: Fourier order used during the rough scan.
-        fine_fourier_orders: Fourier order used during the precise scan.
-        final_fourier_orders: Fourier order used during the final solve.
+            Larger values provide more conservative search at increased computation.
+        rough_scan_points: Number of angular points in the rough scan. Higher values
+            give better angular resolution in the initial search.
+        precise_scan_half_width_deg: Half-width of the precise scan around the rough
+            maximum. Should be narrow enough to focus on the peak region.
+        precise_scan_points: Number of angular points in the precise scan. Must be
+            odd for symmetric sampling around the peak.
+        rough_fourier_orders: Fourier order used during the rough scan. Lower values
+            enable fast initial search.
+        fine_fourier_orders: Fourier order used during the precise scan. Should be
+            sufficient for accurate peak characterization.
+        final_fourier_orders: Fourier order used during the final solve. Use higher
+            values for final convergence and publication-quality results.
         rough_x_resolution_nm: Optional x resolution override during the rough scan.
+            Lower resolution accelerates initial search.
         rough_z_resolution_nm: Optional z resolution override during the rough scan.
         fine_x_resolution_nm: Optional x resolution override during the precise scan.
         fine_z_resolution_nm: Optional z resolution override during the precise scan.
         final_x_resolution_nm: Optional x resolution override during the final solve.
         final_z_resolution_nm: Optional z resolution override during the final solve.
-        roughness_sigma_nm: Optional rms roughness in nanometers.
-        validate_physical_results: Whether to validate reflected efficiencies.
-        max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
-        min_efficiency: Minimum allowed efficiency.
-        max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
+        roughness_sigma_nm: Optional rms roughness in nanometers applied to all
+            interfaces.
+        validate_physical_results: Whether to validate reflected efficiencies against
+            physical constraints (efficiency bounds, Kramers-Kronig consistency).
+        max_reflected_efficiency: Maximum allowed single-order reflected efficiency
+            during validation.
+        min_efficiency: Minimum allowed efficiency (slightly negative values allowed
+            for numerical noise).
+        max_total_reflected_efficiency: Maximum allowed sum of propagating reflected
+            efficiencies.
         precise_peak_selection_mode: Mode used to select the final theta from the
-            precise scan. ``max`` uses the sampled maximum, ``gauss`` fits a local
-            Gaussian neighborhood, and ``voigt`` fits a local Voigt neighborhood.
-        diagnostic_callback: Optional callback invoked with scan diagnostics after the peak search.
+            precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
+            local Gaussian neighborhood, and ``"voigt"`` fits a local Voigt profile.
+        backend: Fourier coefficient backend selector. Options: ``"numpy"`` (pure Python,
+            default), ``"numba"`` (JIT-compiled, requires numba package).
+        diagnostic_callback: Optional callback invoked with scan diagnostics after
+            the peak search. Receives ThetaSearchDiagnostics and energy_ev.
 
     Returns:
-        Single-case RCWA result at the selected grazing angle.
+        Single-case RCWA result at the selected grazing angle with:
+        - grazing_angle_deg: Selected optimal angle
+        - selected_efficiency: Efficiency at selected angle
+        - selected_diffraction_angle_deg: Diffraction angle at selected angle
+        - theta_search_diagnostics: Full scan diagnostics (None if callback disabled)
+
+    Example:
+        >>> result = run_multilayer_theta_search(
+        ...     grating=grating,
+        ...     energy_ev=500,
+        ...     diffraction_order=1,
+        ...     precise_peak_selection_mode="gauss"
+        ... )
+        >>> print(f"Optimal theta: {result.grazing_angle_deg:.3f}°")
+        >>> print(f"Selected efficiency: {result.selected_efficiency:.4f}")
     """
     if precise_peak_selection_mode not in {"max", "gauss", "voigt"}:
         raise ValueError("precise_peak_selection_mode must be 'max', 'gauss', or 'voigt'.")
@@ -390,6 +467,7 @@ def run_multilayer_theta_search(
             max_reflected_efficiency=max_reflected_efficiency,
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
+            backend=backend,
         )
         rough_peak_index = int(np.nanargmax(rough_efficiencies))
         rough_peak_angle_deg = float(rough_grazing_angles_deg[rough_peak_index])
@@ -444,6 +522,7 @@ def run_multilayer_theta_search(
             max_reflected_efficiency=max_reflected_efficiency,
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
+            backend=backend,
         )
         precise_peak_index = int(np.nanargmax(precise_efficiencies))
         precise_ok, precise_status = _peak_capture_status(precise_efficiencies, precise_peak_index, edge_margin=2)
@@ -491,6 +570,7 @@ def run_multilayer_theta_search(
         max_reflected_efficiency=max_reflected_efficiency,
         min_efficiency=min_efficiency,
         max_total_reflected_efficiency=max_total_reflected_efficiency,
+        backend=backend,
     )
     logger.info(
         "[theta-search][final-scan] done energy=%.6f eV selected_theta=%.6f selected_eff=%.6e",

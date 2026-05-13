@@ -17,7 +17,19 @@ from .stacks import BaseStack, MultilayerStack, SingleLayerStack
 
 @dataclass
 class BaseGrating(ABC):
-    """Base class for grating profiles and material stacks."""
+    """Base class for grating profiles and material stacks.
+
+    Args:
+        period_lpermm: Grating period in lines per millimeter.
+        coating_stack: Optional coating stack configuration.
+        substrate_material: Substrate material identifier.
+        layer_material: Layer material identifier.
+        layer_thickness_nm: Layer thickness in nanometers.
+        top_cap_material: Optional top cap material identifier.
+        top_cap_thickness_nm: Top cap thickness in nanometers.
+        z_resolution_nm: Vertical resolution for profile discretization.
+        x_resolution_nm: Horizontal resolution for profile discretization.
+    """
 
     period_lpermm: int = 400
     coating_stack: BaseStack | None = None
@@ -491,6 +503,21 @@ class LaminarGrating(BaseGrating):
     ``z = depth_nm``. ``width_to_period_ratio`` is the land-width fraction
     of one period. Sidewall angles are measured from the horizontal,
     so ``90`` degrees corresponds to vertical walls.
+
+    Args:
+        period_lpermm: Grating period in lines per millimeter.
+        coating_stack: Optional coating stack configuration.
+        substrate_material: Substrate material identifier.
+        layer_material: Layer material identifier.
+        layer_thickness_nm: Layer thickness in nanometers.
+        top_cap_material: Optional top cap material identifier.
+        top_cap_thickness_nm: Top cap thickness in nanometers.
+        z_resolution_nm: Vertical resolution for profile discretization.
+        x_resolution_nm: Horizontal resolution for profile discretization.
+        width_to_period_ratio: Land width fraction of one period.
+        depth_nm: Groove depth in nanometers.
+        left_wall_angle_deg: Left sidewall angle from horizontal.
+        right_wall_angle_deg: Right sidewall angle from horizontal.
     """
 
     width_to_period_ratio: float = 0.67
@@ -545,6 +572,19 @@ class BlazedGrating(BaseGrating):
     The legacy form uses a single blaze angle and an abrupt reset at the end
     of the period. When ``anti_blaze_angle_deg`` is provided, the profile is
     built as a two-facet triangle matching the original Reticolo helpers.
+
+    Args:
+        period_lpermm: Grating period in lines per millimeter.
+        coating_stack: Optional coating stack configuration.
+        substrate_material: Substrate material identifier.
+        layer_material: Layer material identifier.
+        layer_thickness_nm: Layer thickness in nanometers.
+        top_cap_material: Optional top cap material identifier.
+        top_cap_thickness_nm: Top cap thickness in nanometers.
+        z_resolution_nm: Vertical resolution for profile discretization.
+        x_resolution_nm: Horizontal resolution for profile discretization.
+        blaze_angle_deg: Blaze angle in degrees.
+        anti_blaze_angle_deg: Optional anti-blaze angle for two-facet triangle profile.
     """
 
     blaze_angle_deg: float = 0.9

@@ -87,6 +87,7 @@ runner = rp.BatchSimulationRunner(
     checkpoint_dir=checkpoint_dir,
     checkpoint_interval=1,
     resume=False,
+    backend="numba",
 )
 
 results = list(runner.run_cases(user_cases))

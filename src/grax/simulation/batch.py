@@ -122,6 +122,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "min_efficiency": float(runner_settings["min_efficiency"]),
             "max_total_reflected_efficiency": float(runner_settings["max_total_reflected_efficiency"]),
             "precise_peak_selection_mode": str(case.get("precise_peak_selection_mode", "max")),
+            "backend": runner_settings["backend"],
         }
 
     return {
@@ -139,6 +140,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
         "min_efficiency": float(runner_settings["min_efficiency"]),
         "max_total_reflected_efficiency": float(runner_settings["max_total_reflected_efficiency"]),
+        "backend": runner_settings["backend"],
     }
 
 
@@ -470,7 +472,44 @@ def _load_checkpoint_case_results(checkpoint_path: Path) -> dict[str, CaseExecut
 
 
 class BatchSimulationRunner:
-    """Stream RCWA simulations for arbitrary case iterables."""
+    """Stream RCWA simulations for arbitrary case iterables.
+
+    Args:
+        default_diffraction_order: Default selected diffraction order.
+        default_fourier_orders: Default Fourier truncation order.
+        max_fourier_orders: Maximum allowed Fourier orders.
+        backend: Fourier coefficient backend selector. Options: "numpy"
+            (default, pure Python), "numba" (JIT-compiled, requires numba package).
+        checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
+        checkpoint_interval: Flush checkpoint file every N completed cases.
+        resume: Whether to skip case IDs already present in the checkpoint.
+        live_plot: Whether to update a live plot during execution.
+        live_plot_x_key: Case/result field used for the live-plot x axis.
+        live_plot_order_count: Number of positive diffraction orders to plot.
+        live_plot_reference_data: Optional two-column reference data to overlay.
+        live_theta_scan_plot: Whether to show a diagnostic theta-scan figure for
+            serial cases and for the auto-worker calibration case.
+        validate_physical_results: Whether to validate reflected efficiencies.
+        max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
+        min_efficiency: Minimum allowed efficiency.
+        max_total_reflected_efficiency: Maximum allowed reflected propagating sum.
+        retry_on_selected_efficiency_zero: Whether to retry multilayer theta-search
+            cases when selected efficiency is exactly zero.
+        retry_selected_efficiency_threshold: Retry trigger threshold for selected
+            efficiency. Retries are attempted when selected efficiency is less
+            than or equal to this value.
+        max_zero_efficiency_retries: Maximum number of additional retries for
+            zero-efficiency multilayer theta-search cases.
+        theta_retry_jitter_deg: Deterministic jitter offsets applied to the initial
+            theta estimate on each retry attempt.
+        execution_mode: ``inline`` or ``subprocess`` execution.
+        max_workers: Optional case-level multiprocessing worker count.
+        timeout: Subprocess timeout in seconds.
+        show_progress: Whether to show a progress bar.
+        total_cases: Optional progress-total override. When omitted, total is
+            inferred internally from pending and resumed cases.
+        on_error: Error policy. ``continue`` yields error results, ``fail_fast`` raises.
+    """
 
     def __init__(
         self,
@@ -500,42 +539,57 @@ class BatchSimulationRunner:
         retry_selected_efficiency_threshold: float = 1e-4,
         max_zero_efficiency_retries: int = 3,
         theta_retry_jitter_deg: tuple[float, ...] | None = None,
+        backend: str = "numpy",
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
+        Configures batch execution parameters for RCWA simulations. Supports inline
+        single-threaded execution and multiprocessing via subprocess workers with
+        automatic memory calibration.
+
         Args:
-            default_diffraction_order: Default selected diffraction order.
-            default_fourier_orders: Default Fourier truncation order.
-            execution_mode: ``inline`` or ``subprocess`` execution.
-            max_workers: Optional case-level multiprocessing worker count.
-            timeout: Subprocess timeout in seconds.
-            show_progress: Whether to show a progress bar.
-            total_cases: Optional progress-total override. When omitted, total is
-                inferred internally from pending and resumed cases.
-            live_plot: Whether to update a live plot during execution.
-            live_plot_x_key: Case/result field used for the live-plot x axis.
-            live_plot_order_count: Number of positive diffraction orders to plot.
-            live_plot_reference_data: Optional two-column reference data to overlay.
-            live_theta_scan_plot: Whether to show a diagnostic theta-scan figure for
-                serial cases and for the auto-worker calibration case.
-            on_error: Error policy. ``continue`` yields error results, ``fail_fast`` raises.
-            max_fourier_orders: Maximum allowed Fourier orders.
-            checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
-            checkpoint_interval: Flush checkpoint file every N completed cases.
-            resume: Whether to skip case IDs already present in the checkpoint.
-            validate_physical_results: Whether to validate reflected efficiencies.
-            max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
-            min_efficiency: Minimum allowed efficiency.
-            max_total_reflected_efficiency: Maximum allowed reflected propagating sum.
-            retry_on_selected_efficiency_zero: Whether to retry multilayer theta-search
-                cases when selected efficiency is exactly zero.
-            retry_selected_efficiency_threshold: Retry trigger threshold for selected
-                efficiency. Retries are attempted when selected efficiency is less
-                than or equal to this value.
-            max_zero_efficiency_retries: Maximum number of additional retries for
-                zero-efficiency multilayer theta-search cases.
-            theta_retry_jitter_deg: Deterministic jitter offsets applied to the initial
-                theta estimate on each retry attempt.
+            default_diffraction_order: Default diffraction order for efficiency selection
+                when case does not specify. Must be positive integer.
+            default_fourier_orders: Default Fourier truncation orders when case does
+                not specify. Higher values improve accuracy but increase computation.
+            execution_mode: Execution strategy. ``inline`` runs in current process,
+                ``subprocess`` spawns separate worker processes.
+            max_workers: Worker count for parallel execution. ``"auto"`` calibrates
+                from available memory and single-case profile. Integer specifies exact count.
+            timeout: Maximum seconds per case before considering it failed.
+            show_progress: Display progress bar during execution.
+            total_cases: Optional total case count for progress bar. Inferred if None.
+            live_plot: Enable real-time efficiency plotting during execution.
+            live_plot_x_key: Case field to use for x-axis. One of "index", "energy_ev", "grazing_angle_deg".
+            live_plot_order_count: Number of diffraction orders to plot.
+            live_plot_reference_data: Optional experimental data array with shape (N, 3) for comparison.
+            live_theta_scan_plot: Enable theta scan diagnostics plot (multilayer theta search only).
+            on_error: Error handling policy. ``continue`` yields error results,
+                ``fail_fast`` raises immediately.
+            max_fourier_orders: Maximum Fourier orders for validation warnings.
+            checkpoint_dir: Directory for checkpoint persistence. Enables resume capability.
+            checkpoint_interval: Number of cases between checkpoint writes.
+            resume: Restore previous results from checkpoint directory.
+            validate_physical_results: Enforce physical constraints (efficiency bounds).
+            max_reflected_efficiency: Maximum allowed reflected efficiency for validation.
+            min_efficiency: Minimum allowed efficiency (may be slightly negative due to numerics).
+            max_total_reflected_efficiency: Maximum sum of reflected efficiencies.
+            retry_on_selected_efficiency_zero: Retry simulations with exactly-zero efficiency.
+            retry_selected_efficiency_threshold: Below this threshold, retry is triggered.
+            max_zero_efficiency_retries: Maximum retry attempts for zero-efficiency cases.
+            theta_retry_jitter_deg: Theta jitter values for zero-efficiency retry.
+            backend: RCWA backend implementation. ``"numpy"`` or ``"jax"``.
+
+        Example:
+            >>> runner = BatchSimulationRunner(
+            ...     default_diffraction_order=1,
+            ...     default_fourier_orders=25,
+            ...     max_workers="auto",
+            ...     checkpoint_dir="results",
+            ...     resume=True
+            ... )
+            >>> for result in runner.run_cases(cases):
+            ...     print(f"E={result.energy_ev:.1f} eV, eff={result.selected_efficiency:.3f}")
         """
 
         if execution_mode not in {"inline", "subprocess"}:
@@ -578,6 +632,7 @@ class BatchSimulationRunner:
         self.retry_selected_efficiency_threshold = float(retry_selected_efficiency_threshold)
         self.max_zero_efficiency_retries = max(0, int(max_zero_efficiency_retries))
         self.theta_retry_jitter_deg = theta_retry_jitter_deg or (0.002, -0.002, 0.005)
+        self.backend = backend
         self._live_figure: plt.Figure | None = None
         self._live_axis: plt.Axes | None = None
         self._theta_scan_figure: plt.Figure | None = None
@@ -589,7 +644,11 @@ class BatchSimulationRunner:
 
     @property
     def checkpoint_path(self) -> Path | None:
-        """Return the JSONL checkpoint path, if checkpointing is enabled."""
+        """Return the JSONL checkpoint path, if checkpointing is enabled.
+
+        Returns:
+            Path to results.jsonl in checkpoint directory, or None if checkpointing disabled.
+        """
 
         if self.checkpoint_dir is None:
             return None
@@ -602,6 +661,22 @@ class BatchSimulationRunner:
     ) -> Iterator[CaseExecutionResult]:
         """Yield simulation results for an arbitrary iterable of cases.
 
+        Executes RCWA simulations for all provided cases with support for:
+        - Single-threaded inline execution or multiprocessing via subprocess workers
+        - Real-time progress bars and live plotting
+        - Checkpoint persistence and resume capability
+        - Automatic worker calibration for memory-efficient parallel execution
+        - Retry logic for failed or zero-efficiency cases
+        - Physical validation of results (efficiency bounds, Kramers-Kronig consistency)
+
+        Case structure:
+        - Required fields: ``grating`` (BaseGrating), ``energy_ev`` (float)
+        - Optional fields: ``case_id``, ``diffraction_order``, ``fourier_orders``,
+          ``x_resolution_nm``, ``z_resolution_nm``, ``grazing_angle_deg``
+
+        Workflow-specific cases (e.g., multilayer theta search) include additional
+        fields that trigger adaptive three-stage scanning internally.
+
         Args:
             cases: Iterable of case dictionaries. Each case must include
                 ``grating`` and ``energy_ev``. ``case_id`` is optional; when
@@ -609,9 +684,25 @@ class BatchSimulationRunner:
                 Fixed-angle cases also provide ``grazing_angle_deg``;
                 workflow-tagged cases may resolve the angle internally.
             metadata: Optional run metadata saved next to checkpoints.
+                Saved to metadata.json in checkpoint directory.
 
         Yields:
-            Per-case execution results as each case completes.
+            Per-case execution results as each case completes. Each result contains:
+            - Basic fields: case_id, index, label, energy_ev, grazing_angle_deg,
+              orders, selected_efficiency, selected_diffraction_angle_deg
+            - Full arrays: efficiency_all, diffraction_angle_all
+            - Status fields: status, retry_triggered, retry_attempts, retry_status
+            - Special fields: selected_efficiency_is_exact_zero,
+              selected_efficiency_below_retry_threshold
+            - Theta search diagnostics: theta_search_diagnostics (if applicable)
+            - Tracking metadata: theta_tracking_* fields (if theta tracking enabled)
+
+        Example:
+            >>> runner = BatchSimulationRunner(max_workers="auto", checkpoint_dir="results")
+            >>> cases = fixed_angle_cases(grating, energies_ev=[500, 600, 700], grazing_angle_deg=5.0)
+            >>> for result in runner.run_cases(cases):
+            ...     if result.status == "ok":
+            ...         print(f"E={result.energy_ev:.1f} eV, eff={result.selected_efficiency:.4f}")
         """
 
         checkpoint_path = self.checkpoint_path
@@ -682,7 +773,18 @@ class BatchSimulationRunner:
                 progress.close()
 
     def _settings(self) -> dict[str, object]:
-        """Return runner settings used to prepare each case payload."""
+        """Return runner settings used to prepare each case payload.
+
+        Constructs the configuration dictionary passed to each RCWA simulation
+        execution. Contains all global settings that affect simulation behavior
+        and validation.
+
+        Returns:
+            Dictionary with settings for: default_diffraction_order,
+            default_fourier_orders, max_fourier_orders, validate_physical_results,
+            max_reflected_efficiency, min_efficiency, max_total_reflected_efficiency,
+            backend.
+        """
 
         return {
             "default_diffraction_order": self.default_diffraction_order,
@@ -692,6 +794,7 @@ class BatchSimulationRunner:
             "max_reflected_efficiency": self.max_reflected_efficiency,
             "min_efficiency": self.min_efficiency,
             "max_total_reflected_efficiency": self.max_total_reflected_efficiency,
+            "backend": self.backend,
         }
 
     def _prepare_pending_cases(
@@ -699,7 +802,18 @@ class BatchSimulationRunner:
         iterable: Iterable[dict[str, object]],
         completed_ids: set[str],
     ) -> list[tuple[int, str, dict[str, object]]]:
-        """Return runnable cases after resume filtering."""
+        """Return runnable cases after resume filtering.
+
+        Filters out cases that have already been completed (found in completed_ids).
+        Assigns sequential indices and generated case IDs to pending cases.
+
+        Args:
+            iterable: Raw case iterable from the user.
+            completed_ids: Set of case IDs that have already been completed.
+
+        Returns:
+            List of (index, case_id, case) tuples ready for execution.
+        """
 
         pending_cases: list[tuple[int, str, dict[str, object]]] = []
         for index, case in enumerate(iterable):
@@ -713,7 +827,17 @@ class BatchSimulationRunner:
         self,
         pending_cases: Sequence[tuple[int, str, dict[str, object]]],
     ) -> Iterator[CaseExecutionResult]:
-        """Yield serially executed case results."""
+        """Yield serially executed case results.
+
+        Executes cases one at a time in the current process. Used when max_workers=1
+        or execution_mode="subprocess". Includes logging for each case execution.
+
+        Args:
+            pending_cases: List of (index, case_id, case) tuples to execute.
+
+        Yields:
+            CaseExecutionResult for each completed case.
+        """
 
         for index, case_id, case in pending_cases:
             _log_case_execution_start(case_id=case_id, case=case, index=index, location="serial")
@@ -723,7 +847,24 @@ class BatchSimulationRunner:
         self,
         pending_cases: Sequence[tuple[int, str, dict[str, object]]],
     ) -> Iterator[CaseExecutionResult]:
-        """Yield multiprocessing case results in completion order."""
+        """Yield multiprocessing case results in completion order.
+
+        Executes cases in parallel using subprocess workers. Implements a
+        work queue pattern where workers pick up cases as they become available.
+        Results are yielded as soon as each case completes.
+
+        Args:
+            pending_cases: List of (index, case_id, case) tuples to execute.
+
+        Yields:
+            CaseExecutionResult for each completed case, in completion order
+            (not necessarily the same as input order).
+
+        Note:
+            Uses multiprocessing with spawn start method for cross-platform
+            compatibility. Workers are automatically calibrated based on
+            available memory.
+        """
 
         context = mp.get_context(_multiprocessing_start_method())
         max_workers = self.resolved_max_workers
@@ -803,7 +944,33 @@ class BatchSimulationRunner:
         case_id: str,
         case: dict[str, object],
     ) -> CaseExecutionResult:
-        """Execute one batch case and return a case result."""
+        """Execute one batch case and return a case result.
+
+        Runs a single RCWA simulation with full retry and validation logic.
+        Handles both inline execution and subprocess execution modes.
+
+        Workflow for multilayer theta search cases:
+        1. Execute primary scan with configured resolution
+        2. Check if retry needed (low efficiency or zero)
+        3. If retry triggered, re-execute with theta jitter
+        4. Repeat until efficiency exceeds threshold or retries exhausted
+
+        For other cases, executes once and returns result directly.
+
+        Args:
+            index: Sequential index of this case in the batch.
+            case_id: Unique identifier for this case.
+            case: Case dictionary with grating, energy_ev, and other parameters.
+
+        Returns:
+            CaseExecutionResult with simulation results and status.
+
+        Retry behavior:
+        - Only triggered for multilayer_theta_search workflow
+        - Only in inline execution mode (diagnostic access needed)
+        - Uses configurable jitter values for theta perturbation
+        - Stops when efficiency exceeds retry threshold
+        """
 
         label = case.get("label")
         energy_ev, grazing_angle_deg = self._case_energy_and_angle(case)
@@ -900,7 +1067,27 @@ class BatchSimulationRunner:
             )
 
     def _resolve_case_id(self, case: dict[str, object], index: int) -> str:
-        """Return a stable case ID, generating one deterministically when missing."""
+        """Return a stable case ID, generating one deterministically when missing.
+
+        Resolves case ID from case dictionary, or generates one if not present.
+        Generated IDs use workflow name and zero-padded index for stability.
+
+        Args:
+            case: Case dictionary with optional case_id field.
+            index: Sequential index for ID generation.
+
+        Returns:
+            Case ID string (from case or generated as "workflow-NNNNNNNN").
+
+        Example:
+            >>> runner = BatchSimulationRunner()
+            >>> case = {"energy_ev": 500, "grating": grating}
+            >>> runner._resolve_case_id(case, 42)
+            'batch-00000042'
+            >>> case_with_id = {"case_id": "my-case", "energy_ev": 500, "grating": grating}
+            >>> runner._resolve_case_id(case_with_id, 42)
+            'my-case'
+        """
 
         if "case_id" in case and case["case_id"] is not None:
             return str(case["case_id"])
@@ -908,7 +1095,18 @@ class BatchSimulationRunner:
         return f"{workflow}-{index:08d}"
 
     def _write_metadata(self, metadata: dict[str, object]) -> None:
-        """Write small run metadata next to the append-only checkpoint."""
+        """Write small run metadata next to the append-only checkpoint.
+
+        Saves run metadata to metadata.json in the checkpoint directory.
+        Contains user-provided metadata plus execution configuration.
+
+        Args:
+            metadata: Dictionary with arbitrary metadata to persist.
+
+        File format:
+            JSON file with keys from user metadata plus runner configuration.
+            Saved to {checkpoint_dir}/metadata.json
+        """
 
         if self.checkpoint_dir is None:
             return
@@ -927,7 +1125,21 @@ class BatchSimulationRunner:
             json.dump(payload, handle, indent=2)
 
     def _case_energy_and_angle(self, case: dict[str, object]) -> tuple[float, float]:
-        """Return the nominal energy and angle placeholders for one case."""
+        """Return the nominal energy and angle placeholders for one case.
+
+        Extracts energy and grazing angle from case dictionary for live plotting.
+        Uses NaN for missing grazing angles (workflow cases resolve internally).
+
+        Args:
+            case: Case dictionary with energy_ev and optional grazing_angle_deg.
+
+        Returns:
+            Tuple of (energy_ev, grazing_angle_deg). Grazing angle is NaN if not
+            present in case (expected for workflow cases that resolve angle internally).
+
+        Note:
+            Live plotting uses these nominal values; actual results may differ.
+        """
 
         energy_ev = float(case["energy_ev"])
         grazing_angle_deg = float(case["grazing_angle_deg"]) if "grazing_angle_deg" in case else float("nan")
@@ -937,7 +1149,20 @@ class BatchSimulationRunner:
         self,
         case: dict[str, object],
     ) -> Callable[[ThetaSearchDiagnostics, float], None] | None:
-        """Return the diagnostic callback for eligible theta-search cases."""
+        """Return the diagnostic callback for eligible theta-search cases.
+
+        Creates a callback function for live theta scan plotting when:
+        - live_theta_scan_plot is enabled
+        - execution_mode is "inline"
+        - case workflow is "multilayer_theta_search"
+
+        Args:
+            case: Case dictionary with workflow information.
+
+        Returns:
+            Callback function for theta search diagnostics, or None if plotting
+            is not applicable to this case.
+        """
 
         if not self.live_theta_scan_plot:
             return None
@@ -961,7 +1186,24 @@ class BatchSimulationRunner:
         raise KeyError(f"Unable to extract live-plot x axis from key '{self.live_plot_x_key}'.")
 
     def _update_live_plot(self, case: CaseExecutionResult) -> None:
-        """Update the live plot incrementally from one successful result."""
+        """Update the live plot incrementally from one successful result.
+
+        Adds one point to the live efficiency plot. Supports multiple diffraction
+        orders and optional experimental reference data for comparison.
+
+        Args:
+            case: CaseExecutionResult with simulation results to plot.
+
+        Plot configuration:
+        - X-axis: Controlled by live_plot_x_key (index, energy_ev, or grazing_angle_deg)
+        - Y-axis: Selected order efficiency
+        - Multiple orders: Displayed with different markers
+        - Reference data: Overlaid as gray line if provided
+
+        Note:
+            Only updates plot for successful ("ok") results. Skips if plot is
+            disabled or figure has been closed.
+        """
 
         if not self.live_plot:
             return
@@ -1010,7 +1252,27 @@ class BatchSimulationRunner:
         _refresh_interactive_figure(self._live_figure)
 
     def _update_theta_scan_plot(self, diagnostics: ThetaSearchDiagnostics, energy_ev: float) -> None:
-        """Update the live theta-scan diagnostic figure."""
+        """Update the live theta-scan diagnostic figure.
+
+        Displays the rough and precise scan data for the current energy point
+        with the selected peak marked. Shows Gaussian/Voigt fit if used for
+        peak selection.
+
+        Args:
+            diagnostics: ThetaSearchDiagnostics with scan data.
+            energy_ev: Photon energy for this scan (not displayed but available
+                for context).
+
+        Plot elements:
+        - Rough scan: circles with lines (blue)
+        - Precise scan: squares with lines (orange)
+        - Selected peak: red star
+        - Fitted curve: red dashed line (if applicable)
+
+        Note:
+            Only active when live_theta_scan_plot is enabled and execution_mode
+            is "inline". Creates figure on first call and updates in place.
+        """
 
         if self._theta_scan_figure is None or self._theta_scan_axis is None or not plt.fignum_exists(
             self._theta_scan_figure.number

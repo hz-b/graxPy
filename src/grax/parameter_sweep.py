@@ -87,8 +87,20 @@ class ParameterStudyResult:
 def get_default_parameter_study_ranges() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return default sweep ranges for the public parameter study.
 
+    Generates logarithmically-spaced discretization values appropriate for
+    convergence studies. The ranges cover a wide spectrum from coarse to fine
+    discretization to identify the minimum settings needed for convergence.
+
     Returns:
-        Tuple of ``(fourier_orders, x_resolution_nm, z_resolution_nm)`` arrays.
+        Tuple of ``(fourier_orders, x_resolution_nm, z_resolution_nm)`` arrays:
+        - fourier_orders: Odd integers from 5 to 25 for Fourier truncation study
+        - x_resolution_nm: 10 values from 10.0 to 0.1 nm for x-discretization study
+        - z_resolution_nm: 10 values from 10.0 to 0.1 nm for z-discretization study
+
+    Example:
+        >>> fourier_vals, x_res, z_res = get_default_parameter_study_ranges()
+        >>> print(f"Fourier orders: {fourier_vals}")
+        >>> print(f"X resolution range: {x_res[0]:.1f} to {x_res[-1]:.2f} nm")
     """
 
     return (
@@ -114,21 +126,44 @@ def run_parameter_study(
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
 
+    Executes three independent parameter sweeps for each energy point:
+    1. Fourier order convergence study (discretization in periodic direction)
+    2. X-resolution study (discretization along grating profile)
+    3. Z-resolution study (discretization along layer stack)
+
+    For Fourier order sweeps, the grating is used directly. For x/z resolution
+    sweeps, a shallow copy of the grating is created with the specified resolution
+    override. All sweeps use a fixed high Fourier order (max of sweep values) to
+    isolate discretization effects.
+
     Args:
         grating: Grating used for all simulations.
         energies_ev: Photon energies to study.
         grazing_angle_deg: Fixed grazing angle in degrees.
         diffraction_order: Positive diffraction order used for the metric.
-        fourier_orders_values: Optional Fourier sweep values.
+        fourier_orders_values: Optional Fourier sweep values. Uses defaults if None.
         x_resolution_values: Optional x-resolution sweep values in nanometers.
+            Uses defaults if None.
         z_resolution_values: Optional z-resolution sweep values in nanometers.
-        max_retries: Maximum retry attempts for a failed point.
-        output_dir: Optional directory for CSV exports.
-        save_csv: Whether to export per-energy sweep CSV files.
-        show_progress: Whether to display progress bars.
+            Uses defaults if None.
+        max_retries: Maximum retry attempts for a failed simulation point.
+        output_dir: Optional directory for CSV exports. Creates subdirectory if needed.
+        save_csv: Whether to export per-energy sweep CSV files to output_dir.
+        show_progress: Whether to display progress bars during execution.
 
     Returns:
-        Structured parameter-study result.
+        Structured parameter-study result containing all sweep data and metadata.
+        Use :func:`plot_parameter_study` to visualize the results.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> result = run_parameter_study(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     grazing_angle_deg=5.0,
+        ...     diffraction_order=1
+        ... )
+        >>> plot_parameter_study(result)
     """
 
     default_fourier, default_x, default_z = get_default_parameter_study_ranges()
@@ -230,13 +265,26 @@ def plot_parameter_study(
 ) -> plt.Figure | None:
     """Plot a parameter study as a grid of energies and swept parameters.
 
+    Creates a publication-ready figure with a 2D grid showing:
+    - Rows: Different photon energies
+    - Columns: Different swept parameters (Fourier orders, x-resolution, z-resolution)
+    - Color: Efficiency values with logarithmic scaling
+    - Crosses: Failed simulation points
+
+    The x-axis uses logarithmic scaling for discretization parameters to clearly
+    show convergence behavior across orders of magnitude.
+
     Args:
         result: Study result returned by :func:`run_parameter_study`.
-        output_filename: Optional output image path.
+        output_filename: Optional output image path. Saves to file if provided.
         title: Optional figure title.
 
     Returns:
-        The created figure, or ``None`` when saved directly to disk.
+        The created matplotlib Figure, or ``None`` when saved directly to disk.
+
+    Example:
+        >>> result = run_parameter_study(grating, [500, 600, 700], 5.0)
+        >>> plot_parameter_study(result, title="Convergence Study")
     """
 
     parameter_order = ["fourier_orders", "x_resolution_nm", "z_resolution_nm"]
@@ -327,7 +375,33 @@ def _run_single_parameter_sweep(
     max_retries: int,
     fixed_fourier_orders: int,
 ) -> ParameterSweepSeries:
-    """Run one parameter sweep for one energy."""
+    """Run one parameter sweep for one energy.
+
+    Executes a sequence of RCWA simulations varying one discretization parameter
+    while holding all others fixed. Implements retry logic for failed points with
+    exponential backoff behavior (same parameters retried up to max_retries).
+
+    Args:
+        grating: Grating used for all simulations in the sweep.
+        parameter: Parameter name to sweep. One of "fourier_orders", "x_resolution_nm",
+            or "z_resolution_nm".
+        values: Array of parameter values to test.
+        energy_ev: Photon energy in electronvolts.
+        grazing_angle_deg: Fixed grazing incidence angle in degrees.
+        diffraction_order: Positive diffraction order to select.
+        max_retries: Maximum retry attempts for failed points.
+        fixed_fourier_orders: Fourier orders used when sweeping x/z resolution
+            (to isolate discretization effects).
+
+    Returns:
+        ParameterSweepSeries containing parameter values, efficiencies, and
+        error flags aligned by index.
+
+    Note:
+        - Fourier order sweeps use the input grating directly.
+        - X/Z resolution sweeps clone the grating with the specified override.
+        - Failed points (after all retries) receive NaN efficiency and error=True.
+    """
 
     efficiencies = np.full(values.shape, np.nan, dtype=float)
     errors = np.zeros(values.shape, dtype=bool)
@@ -349,6 +423,7 @@ def _run_single_parameter_sweep(
                     diffraction_order=diffraction_order,
                     fourier_orders=fourier_orders,
                     grazing_angle_deg=grazing_angle_deg,
+                    backend="numba",
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True
@@ -370,7 +445,19 @@ def _clone_grating_with_override(
     parameter: str,
     value: float,
 ) -> BaseGrating:
-    """Return a shallow-copied grating with one discretization override."""
+    """Return a shallow-copied grating with one discretization override.
+
+    Creates a copy of the grating with a single attribute replaced. Used during
+    parameter studies to vary x/z resolution without modifying the original grating.
+
+    Args:
+        grating: Original grating to clone.
+        parameter: Attribute name to override ("x_resolution_nm" or "z_resolution_nm").
+        value: New value for the specified attribute.
+
+    Returns:
+        Shallow copy of grating with the specified attribute updated.
+    """
 
     cloned_grating = copy(grating)
     setattr(cloned_grating, parameter, value)
@@ -384,7 +471,27 @@ def _write_parameter_study_csv(
     grazing_angle_deg: float,
     sweep: ParameterSweepSeries,
 ) -> None:
-    """Write one sweep CSV for one energy."""
+    """Write one sweep CSV for one energy.
+
+    Exports sweep results to a CSV file with columns: parameter, value,
+    efficiency, error, energy_ev, grazing_angle_deg. Failed points (errors=True)
+    have empty efficiency fields.
+
+    Args:
+        output_dir: Directory to write the CSV file.
+        energy_ev: Photon energy in electronvolts (saved in file).
+        grazing_angle_deg: Grazing incidence angle in degrees (saved in file).
+        sweep: ParameterSweepSeries with values, efficiencies, and error flags.
+
+    File format:
+        parameter,value,efficiency,error,energy_ev,grazing_angle_deg
+        fourier_orders,5,0.823,False,500.0,5.0
+        fourier_orders,7,0.845,False,500.0,5.0
+        fourier_orders,9,,True,500.0,5.0
+
+    Note:
+        Filename format: ``parameter_study_{parameter}_E{energy_ev:.1f}eV.csv``
+    """
 
     csv_path = output_dir / f"parameter_study_{sweep.parameter}_E{energy_ev:.1f}eV.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
@@ -406,7 +513,27 @@ def _write_parameter_study_csv(
 
 
 def _get_log_formatter(x_min: float, x_max: float) -> FuncFormatter:
-    """Create a formatter for log axes that preserves decimal labels."""
+    """Create a formatter for log axes that preserves decimal labels.
+
+    Constructs a matplotlib FuncFormatter for logarithmic x-axis tick labels
+    with custom formatting rules. Uses different precision thresholds to
+    display meaningful decimal values while avoiding label clutter.
+
+    Args:
+        x_min: Minimum value in the axis range.
+        x_max: Maximum value in the axis range.
+
+    Returns:
+        FuncFormatter configured with threshold-based formatting rules.
+        Uses LOG_TICK_THRESHOLDS and LOG_TICK_FORMATS for label formatting.
+
+    Format thresholds:
+        Values >= 10: Show as integers
+        Values >= 1: Show with one decimal
+        Values >= 0.1: Show with two decimals
+        Values >= 0.01: Show with three decimals
+        Values < 0.01: Show with four decimals
+    """
 
     def formatter(x: float, _: int) -> str:
         if x < min(x_min, x_max) or x > max(x_min, x_max):

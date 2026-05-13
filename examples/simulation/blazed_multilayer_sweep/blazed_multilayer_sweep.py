@@ -64,6 +64,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=True,
     live_plot_x_key="energy_ev",
+    backend="numba",
 )
 
 csv_path = output_dir / "blazed_multilayer_all_orders.csv"
