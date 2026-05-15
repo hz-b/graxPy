@@ -53,6 +53,17 @@ C = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_C_cxro.txt", "C")
 CR = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Cr_cxro.txt", "Cr")
 AU = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Au_cxro.txt", "Au")
 
+EXAMPLE_SCRIPT_PATHS = [
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "single_simulation" / "single_simulation.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_sweep" / "fixed_angle_sweep.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "monochromator_sweep" / "monochromator_sweep.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "energy_angle_sweep" / "energy_angle_sweep.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
+]
+OPTIMIZER_EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "optimizer"
+
 
 def build_test_grating() -> LaminarGrating:
     """Return a reusable test grating."""
@@ -61,6 +72,47 @@ def build_test_grating() -> LaminarGrating:
         substrate_material=SI,
         layer_material=PT,
         layer_thickness_nm=28.77,
+    )
+
+
+def build_laminar_example_grating(
+    *,
+    depth_nm: float = 14.9,
+    x_resolution_nm: float = 1.0,
+    z_resolution_nm: float = 1.0,
+) -> LaminarGrating:
+    """Return the laminar grating shape used by the public sweep examples."""
+
+    return LaminarGrating(
+        period_lpermm=400,
+        width_to_period_ratio=0.67,
+        depth_nm=depth_nm,
+        left_wall_angle_deg=15.0,
+        right_wall_angle_deg=15.0,
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        x_resolution_nm=x_resolution_nm,
+        z_resolution_nm=z_resolution_nm,
+    )
+
+
+def build_monochromator_example_grating(
+    *,
+    x_resolution_nm: float = 1.0,
+    z_resolution_nm: float = 1.0,
+) -> BlazedGrating:
+    """Return the blazed single-layer grating used by the public mono example."""
+
+    return BlazedGrating(
+        period_lpermm=600,
+        substrate_material=SI,
+        layer_material=AU,
+        layer_thickness_nm=30.0,
+        blaze_angle_deg=0.75,
+        anti_blaze_angle_deg=5.597,
+        x_resolution_nm=x_resolution_nm,
+        z_resolution_nm=z_resolution_nm,
     )
 
 
@@ -433,14 +485,14 @@ def test_run_multilayer_theta_search_selects_precise_peak_and_uses_selected_angl
         initial_grazing_angle_deg=1.3,
         rough_scan_half_width_deg=0.2,
         rough_scan_points=9,
-        precise_scan_half_width_deg=0.05,
-        precise_scan_points=11,
+        fine_scan_half_width_deg=0.05,
+        fine_scan_points=11,
         rough_fourier_orders=5,
-        fourier_orders=7,
+        final_fourier_orders=7,
         rough_x_resolution_nm=1.0,
         rough_z_resolution_nm=1.0,
-        x_resolution_nm=1.0,
-        z_resolution_nm=1.0,
+        final_x_resolution_nm=1.0,
+        final_z_resolution_nm=1.0,
     )
 
     diagnostics = result.theta_search_diagnostics
@@ -487,14 +539,14 @@ def test_run_multilayer_theta_search_gauss_refines_between_sampled_points(
         initial_grazing_angle_deg=1.35,
         rough_scan_half_width_deg=0.05,
         rough_scan_points=9,
-        precise_scan_half_width_deg=0.01,
-        precise_scan_points=5,
+        fine_scan_half_width_deg=0.01,
+        fine_scan_points=5,
         rough_fourier_orders=5,
-        fourier_orders=7,
+        final_fourier_orders=7,
         rough_x_resolution_nm=1.0,
         rough_z_resolution_nm=1.0,
-        x_resolution_nm=1.0,
-        z_resolution_nm=1.0,
+        final_x_resolution_nm=1.0,
+        final_z_resolution_nm=1.0,
         precise_peak_selection_mode="gauss",
     )
 
@@ -539,14 +591,14 @@ def test_run_multilayer_theta_search_voigt_fallbacks_to_gauss(monkeypatch: pytes
         initial_grazing_angle_deg=1.35,
         rough_scan_half_width_deg=0.05,
         rough_scan_points=9,
-        precise_scan_half_width_deg=0.01,
-        precise_scan_points=5,
+        fine_scan_half_width_deg=0.01,
+        fine_scan_points=5,
         rough_fourier_orders=5,
-        fourier_orders=7,
+        final_fourier_orders=7,
         rough_x_resolution_nm=1.0,
         rough_z_resolution_nm=1.0,
-        x_resolution_nm=1.0,
-        z_resolution_nm=1.0,
+        final_x_resolution_nm=1.0,
+        final_z_resolution_nm=1.0,
         precise_peak_selection_mode="voigt",
     )
 
@@ -595,14 +647,14 @@ def test_run_multilayer_theta_search_fit_falls_back_to_sampled_max_when_both_mod
         initial_grazing_angle_deg=1.35,
         rough_scan_half_width_deg=0.05,
         rough_scan_points=9,
-        precise_scan_half_width_deg=0.01,
-        precise_scan_points=5,
+        fine_scan_half_width_deg=0.01,
+        fine_scan_points=5,
         rough_fourier_orders=5,
-        fourier_orders=7,
+        final_fourier_orders=7,
         rough_x_resolution_nm=1.0,
         rough_z_resolution_nm=1.0,
-        x_resolution_nm=1.0,
-        z_resolution_nm=1.0,
+        final_x_resolution_nm=1.0,
+        final_z_resolution_nm=1.0,
         precise_peak_selection_mode="voigt",
     )
 
@@ -943,12 +995,14 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
 ) -> None:
     updates: list[int] = []
     postfix_values: list[str] = []
+    totals: list[int | None] = []
 
     class DummyProgress:
         def __init__(self, total: int | None, desc: str, unit: str) -> None:
             self.total = total
             self.desc = desc
             self.unit = unit
+            totals.append(total)
 
         def update(self, value: int = 1) -> None:
             updates.append(value)
@@ -967,7 +1021,7 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
 
     monkeypatch.setattr(simulation_module, "tqdm", DummyProgress)
     monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
-    runner = BatchSimulationRunner(show_progress=True, total_cases=2)
+    runner = BatchSimulationRunner(show_progress=True)
 
     results = list(
         runner.run_cases(
@@ -979,6 +1033,7 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
     )
 
     assert len(results) == 2
+    assert totals == [2]
     assert updates == [1, 1]
     assert postfix_values == []
 
@@ -1008,7 +1063,8 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
     )
     updates.clear()
     postfix_values.clear()
-    resumed_runner = BatchSimulationRunner(show_progress=True, total_cases=2, checkpoint_dir=checkpoint_path, resume=True)
+    totals.clear()
+    resumed_runner = BatchSimulationRunner(show_progress=True, checkpoint_dir=checkpoint_path, resume=True)
     resumed_results = list(
         resumed_runner.run_cases(
             [
@@ -1018,8 +1074,43 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
         )
     )
     assert [case.case_id for case in resumed_results] == ["case-2"]
+    assert totals == [2]
     assert updates == [1, 1]
     assert postfix_values == []
+
+
+def test_batch_runner_infers_progress_total_for_generator_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    totals: list[int | None] = []
+
+    class DummyProgress:
+        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+            del desc, unit
+            totals.append(total)
+
+        def update(self, value: int = 1) -> None:
+            del value
+
+        def close(self) -> None:
+            return None
+
+    def fake_run_simulation(**kwargs: object) -> SingleSimulationResult:
+        return fake_single_result(
+            energy_ev=float(kwargs["energy_ev"]),
+            grazing_angle_deg=float(kwargs["grazing_angle_deg"]),
+        )
+
+    monkeypatch.setattr(simulation_module, "tqdm", DummyProgress)
+    monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
+    runner = BatchSimulationRunner(show_progress=True)
+    cases = (
+        {"case_id": f"case-{index}", "grating": build_test_grating(), "energy_ev": float(100 + index), "grazing_angle_deg": 4.0}
+        for index in range(3)
+    )
+
+    results = list(runner.run_cases(cases))
+
+    assert len(results) == 3
+    assert totals == [3]
 
 
 def test_batch_runner_parallel_executes_cases_and_writes_checkpoint(tmp_path: Path) -> None:
@@ -1155,6 +1246,77 @@ def test_lazy_case_helpers_yield_expected_cases() -> None:
     assert "grazing_angle_deg" not in first_theta_search
 
 
+def test_case_helpers_reject_removed_public_override_arguments() -> None:
+    grating = build_test_grating()
+    with pytest.raises(TypeError, match="case_id_prefix"):
+        list(
+            fixed_angle_cases(
+                grating=grating,
+                energies_ev=[100.0],
+                grazing_angle_deg=4.0,
+                case_id_prefix="fixed",
+            )
+        )
+    with pytest.raises(TypeError, match="case_defaults"):
+        list(
+            monochromator_cases(
+                grating=grating,
+                energies_ev=[100.0],
+                case_defaults={"label": "x"},
+            )
+        )
+
+
+def test_theta_search_sweep_rejects_removed_public_arguments() -> None:
+    with pytest.raises(TypeError, match="case_id_prefix"):
+        run_multilayer_theta_search_sweep(
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energies_ev=[1800.0],
+            output_dir=Path("unused"),
+            case_id_prefix="theta",
+        )
+    with pytest.raises(TypeError, match="theta_retry_jitter_deg"):
+        run_multilayer_theta_search_sweep(
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energies_ev=[1800.0],
+            output_dir=Path("unused"),
+            theta_retry_jitter_deg=(0.002,),
+        )
+
+
+def test_run_multilayer_theta_search_rejects_removed_aliases() -> None:
+    with pytest.raises(TypeError, match="fourier_orders"):
+        run_multilayer_theta_search(  # type: ignore[call-arg]
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energy_ev=1800.0,
+            fourier_orders=3,
+        )
+    with pytest.raises(TypeError, match="x_resolution_nm"):
+        run_multilayer_theta_search(  # type: ignore[call-arg]
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energy_ev=1800.0,
+            x_resolution_nm=1.0,
+        )
+    with pytest.raises(TypeError, match="z_resolution_nm"):
+        run_multilayer_theta_search(  # type: ignore[call-arg]
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energy_ev=1800.0,
+            z_resolution_nm=1.0,
+        )
+    with pytest.raises(TypeError, match="precise_scan_half_width_deg"):
+        run_multilayer_theta_search(  # type: ignore[call-arg]
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energy_ev=1800.0,
+            precise_scan_half_width_deg=0.1,
+        )
+    with pytest.raises(TypeError, match="precise_scan_points"):
+        run_multilayer_theta_search(  # type: ignore[call-arg]
+            grating=build_blazed_multilayer_angle_parity_grating(),
+            energy_ev=1800.0,
+            precise_scan_points=81,
+        )
+
+
 def test_result_export_helpers_write_expected_outputs(tmp_path: Path) -> None:
     result = BatchSimulationResult(
         cases=[
@@ -1258,110 +1420,6 @@ def test_batch_runner_live_plot_can_overlay_reference_data(monkeypatch: pytest.M
     plt.close("all")
 
 
-def test_batch_runner_theta_search_updates_main_and_diagnostic_live_plots(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_run_multilayer_theta_search(
-        *,
-        diagnostic_callback=None,
-        **kwargs: object,
-    ) -> SingleSimulationResult:
-        result = fake_single_result(
-            energy_ev=float(kwargs["energy_ev"]),
-            grazing_angle_deg=1.25,
-            selected_efficiency=0.42,
-        )
-        result.theta_search_diagnostics = simulation_module.ThetaSearchDiagnostics(
-            estimated_grazing_angle_deg=1.2,
-            rough_grazing_angles_deg=np.asarray([1.1, 1.2, 1.3], dtype=float),
-            rough_efficiencies=np.asarray([0.2, 0.3, 0.25], dtype=float),
-            precise_grazing_angles_deg=np.asarray([1.22, 1.25, 1.28], dtype=float),
-            precise_efficiencies=np.asarray([0.35, 0.42, 0.4], dtype=float),
-            selected_grazing_angle_deg=1.25,
-            selected_efficiency=0.42,
-            precise_peak_selection_mode_used="voigt",
-            precise_peak_fitted_theta_deg=np.asarray([1.22, 1.25, 1.28], dtype=float),
-            precise_peak_fitted_efficiencies=np.asarray([0.34, 0.43, 0.39], dtype=float),
-        )
-        if diagnostic_callback is not None:
-            diagnostic_callback(result.theta_search_diagnostics, result.energy_ev)
-        return result
-
-    monkeypatch.setattr(simulation_module, "run_multilayer_theta_search", fake_run_multilayer_theta_search)
-    runner = BatchSimulationRunner(
-        live_plot=True,
-        live_plot_x_key="energy_ev",
-        live_plot_order_count=1,
-        live_theta_scan_plot=True,
-    )
-
-    results = list(
-        runner.run_cases(
-            multilayer_theta_search_cases(
-                grating=build_blazed_multilayer_angle_parity_grating(),
-                energies_ev=[2000.0],
-            )
-        )
-    )
-
-    assert len(results) == 1
-    assert runner._live_axis is not None
-    assert runner._theta_scan_axis is not None
-    assert len(runner._theta_scan_axis.get_lines()) == 4
-    assert runner._theta_scan_axis.get_lines()[-1].get_label() == "Voigt fit"
-    plt.close("all")
-
-
-def test_batch_runner_theta_search_diagnostic_live_plot_omits_fit_for_max_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_run_multilayer_theta_search(
-        *,
-        diagnostic_callback=None,
-        **kwargs: object,
-    ) -> SingleSimulationResult:
-        result = fake_single_result(
-            energy_ev=float(kwargs["energy_ev"]),
-            grazing_angle_deg=1.25,
-            selected_efficiency=0.42,
-        )
-        result.theta_search_diagnostics = simulation_module.ThetaSearchDiagnostics(
-            estimated_grazing_angle_deg=1.2,
-            rough_grazing_angles_deg=np.asarray([1.1, 1.2, 1.3], dtype=float),
-            rough_efficiencies=np.asarray([0.2, 0.3, 0.25], dtype=float),
-            precise_grazing_angles_deg=np.asarray([1.22, 1.25, 1.28], dtype=float),
-            precise_efficiencies=np.asarray([0.35, 0.42, 0.4], dtype=float),
-            selected_grazing_angle_deg=1.25,
-            selected_efficiency=0.42,
-            precise_peak_selection_mode_used="max",
-            precise_peak_fitted_theta_deg=np.asarray([1.22, 1.25, 1.28], dtype=float),
-            precise_peak_fitted_efficiencies=np.asarray([0.34, 0.43, 0.39], dtype=float),
-        )
-        if diagnostic_callback is not None:
-            diagnostic_callback(result.theta_search_diagnostics, result.energy_ev)
-        return result
-
-    monkeypatch.setattr(simulation_module, "run_multilayer_theta_search", fake_run_multilayer_theta_search)
-    runner = BatchSimulationRunner(
-        live_plot=True,
-        live_plot_x_key="energy_ev",
-        live_plot_order_count=1,
-        live_theta_scan_plot=True,
-    )
-    list(
-        runner.run_cases(
-            multilayer_theta_search_cases(
-                grating=build_blazed_multilayer_angle_parity_grating(),
-                energies_ev=[2000.0],
-            )
-        )
-    )
-
-    assert runner._theta_scan_axis is not None
-    assert len(runner._theta_scan_axis.get_lines()) == 3
-    plt.close("all")
-
-
 def test_batch_runner_theta_search_writes_checkpoints_and_resumes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1420,7 +1478,7 @@ def test_run_multilayer_theta_search_sweep_writes_outputs(
             efficiency_all=np.asarray([0.35, 0.0, 0.0], dtype=float),
             diffraction_angle_all=np.asarray([2.0, 1.0, 0.0], dtype=float),
             diffraction_order=int(kwargs["diffraction_order"]),
-            fourier_orders=int(kwargs["fourier_orders"]),
+            fourier_orders=int(kwargs["final_fourier_orders"]),
             theta_search_diagnostics=diagnostics,
         )
 
@@ -1430,10 +1488,7 @@ def test_run_multilayer_theta_search_sweep_writes_outputs(
         energies_ev=[1800.0, 2000.0],
         output_dir=tmp_path,
         diffraction_order=2,
-        fourier_orders=5,
         rough_fourier_orders=5,
-        x_resolution_nm=1.0,
-        z_resolution_nm=1.0,
         rough_x_resolution_nm=1.0,
         rough_z_resolution_nm=1.0,
         show_progress=False,
@@ -1514,7 +1569,51 @@ def test_theta_search_diagnostics_fit_fields_round_trip_through_case_record() ->
     assert np.allclose(restored.theta_search_diagnostics.precise_peak_fitted_efficiencies, [0.32, 0.36, 0.31])
 
 
-def test_multilayer_theta_search_example_uses_voigt_peak_selection() -> None:
+def test_public_examples_do_not_expose_quick_mode_flags() -> None:
+    for example_path in EXAMPLE_SCRIPT_PATHS:
+        source = example_path.read_text(encoding="utf-8")
+        assert "--quick" not in source
+        assert "quick_mode" not in source
+        assert "Quick mode" not in source
+
+
+def test_optimizer_example_assets_exist() -> None:
+    expected_paths = [
+        OPTIMIZER_EXAMPLE_ROOT / "0_fit_laminar_grating.py",
+        OPTIMIZER_EXAMPLE_ROOT / "1_run_simulation_design_parameters.py",
+        OPTIMIZER_EXAMPLE_ROOT / "2_run_simulation_fitted_parameters.py",
+        OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py",
+        OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py",
+        OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py",
+        OPTIMIZER_EXAMPLE_ROOT / "measured_alpha4deg_order1.csv",
+        OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_Si_cxro.txt",
+        OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_Pt_cxro.txt",
+        OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_C_cxro.txt",
+    ]
+    for path in expected_paths:
+        assert path.exists(), f"Missing optimizer example asset: {path}"
+
+
+def test_optimizer_example_scripts_compile() -> None:
+    import py_compile
+
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "0_fit_laminar_grating.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "1_run_simulation_design_parameters.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "2_run_simulation_fitted_parameters.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py"), doraise=True)
+
+
+def test_optimizer_example_plot_uses_evaluation_energies() -> None:
+    plot_source = (OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py").read_text(
+        encoding="utf-8"
+    )
+    assert "evaluation_energies_ev" in plot_source
+    assert "Optimization energies" in plot_source
+
+
+def test_multilayer_theta_search_docs_use_grouped_canonical_arguments() -> None:
     example_path = (
         Path(__file__).resolve().parents[1]
         / "examples"
@@ -1522,8 +1621,195 @@ def test_multilayer_theta_search_example_uses_voigt_peak_selection() -> None:
         / "multilayer_theta_search"
         / "multilayer_theta_search.py"
     )
+    tutorial_path = Path(__file__).resolve().parents[1] / "docs" / "tutorials" / "multilayer-theta-search.md"
 
-    assert 'precise_peak_selection_mode="voigt"' in example_path.read_text(encoding="utf-8")
+    example_source = example_path.read_text(encoding="utf-8")
+    tutorial_source = tutorial_path.read_text(encoding="utf-8")
+    example_call = example_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
+    tutorial_call = tutorial_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
+    assert "run_multilayer_theta_search(" not in tutorial_source
+
+    for call_block in (example_call, tutorial_call):
+        assert call_block.index("multilayer_bragg_order") < call_block.index("rough_scan_half_width_deg")
+        assert call_block.index("rough_scan_half_width_deg") < call_block.index("rough_fourier_orders")
+        assert call_block.index("rough_fourier_orders") < call_block.index("rough_x_resolution_nm")
+        assert call_block.index("rough_x_resolution_nm") < call_block.index("fine_scan_half_width_deg")
+        assert call_block.index("fine_scan_half_width_deg") < call_block.index("fine_fourier_orders")
+        assert call_block.index("fine_fourier_orders") < call_block.index("fine_x_resolution_nm")
+        assert call_block.index("fine_x_resolution_nm") < call_block.index("final_fourier_orders")
+        assert call_block.index("final_fourier_orders") < call_block.index("final_x_resolution_nm")
+        assert call_block.index("final_x_resolution_nm") < call_block.index("precise_peak_selection_mode")
+        assert "\n        fourier_orders=" not in call_block
+        assert "\n        x_resolution_nm=" not in call_block
+        assert "\n        z_resolution_nm=" not in call_block
+
+
+def test_single_simulation_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = build_laminar_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
+    result = run_simulation(
+        grating=grating,
+        energy_ev=200.0,
+        grazing_angle_deg=4.0,
+        diffraction_order=1,
+        fourier_orders=3,
+    )
+    csv_path = tmp_path / "single_simulation.csv"
+    profile_path = tmp_path / "single_simulation_profile.png"
+
+    write_all_orders_csv(result, csv_path)
+    grating.plot_profile(profile_path)
+
+    assert result.selected_efficiency >= 0.0
+    assert csv_path.exists()
+    assert profile_path.exists()
+
+
+def test_fixed_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = build_laminar_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
+    cases = fixed_angle_cases(grating=grating, energies_ev=[200.0], grazing_angle_deg=4.0)
+    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    results = list(runner.run_cases(cases))
+    csv_path = tmp_path / "fixed_angle_all_orders.csv"
+    orders_plot_path = tmp_path / "fixed_angle_orders_1_3.png"
+
+    write_all_orders_csv(results, csv_path)
+    plot_order_subset(results, orders_plot_path, diffraction_orders=[1, 2, 3], title="Fixed-angle parity")
+
+    assert len(results) == 1
+    assert results[0].status == "ok"
+    assert csv_path.exists()
+    assert orders_plot_path.exists()
+
+
+def test_monochromator_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = build_monochromator_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
+    cases = monochromator_cases(grating=grating, energies_ev=[200.0], diffraction_order=1, cff=2.25)
+    runner = BatchSimulationRunner(default_fourier_orders=3)
+    results = list(runner.run_cases(cases))
+    csv_path = tmp_path / "monochromator_all_orders.csv"
+    orders_plot_path = tmp_path / "monochromator_orders_1_3.png"
+
+    write_all_orders_csv(results, csv_path)
+    plot_order_subset(results, orders_plot_path, diffraction_orders=[1, 2, 3], title="Monochromator parity")
+
+    assert len(results) == 1
+    assert results[0].status == "ok"
+    assert csv_path.exists()
+    assert orders_plot_path.exists()
+
+
+def test_blazed_multilayer_sweep_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = BlazedGrating(
+        period_lpermm=2400,
+        blaze_angle_deg=1.37,
+        anti_blaze_angle_deg=3.25,
+        coating_stack=MultilayerStack(
+            substrate_material=SI,
+            material_a=CR,
+            material_b=C,
+            d_period_nm=6.0,
+            gamma=0.4,
+            n_bilayers=50,
+            top_material=C,
+        ),
+        x_resolution_nm=1.0,
+        z_resolution_nm=1.0,
+    )
+    cases = monochromator_cases(grating=grating, energies_ev=[500.0], diffraction_order=1, cff=2.25)
+    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    results = list(runner.run_cases(cases))
+    csv_path = tmp_path / "blazed_multilayer_all_orders.csv"
+
+    write_all_orders_csv(results, csv_path)
+
+    assert len(results) == 1
+    assert results[0].status == "ok"
+    assert csv_path.exists()
+
+
+def test_energy_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = build_blazed_multilayer_angle_parity_grating()
+    cases = energy_angle_cases(grating=grating, energy_angle_pairs=[(1800.0, 8.0)])
+    runner = BatchSimulationRunner(default_diffraction_order=2, default_fourier_orders=3)
+    results = list(runner.run_cases(cases))
+    csv_path = tmp_path / "energy_angle_all_orders.csv"
+
+    write_all_orders_csv(results, csv_path)
+
+    assert len(results) == 1
+    assert results[0].status == "ok"
+    assert csv_path.exists()
+
+
+def test_multilayer_theta_search_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = build_blazed_multilayer_angle_parity_grating()
+    sweep = run_multilayer_theta_search_sweep(
+        grating=grating,
+        energies_ev=[1800.0],
+        output_dir=tmp_path,
+        diffraction_order=2,
+        multilayer_bragg_order=1,
+        rough_scan_half_width_deg=0.5,
+        rough_scan_points=21,
+        fine_scan_half_width_deg=0.1,
+        fine_scan_points=21,
+        rough_fourier_orders=3,
+        fine_fourier_orders=3,
+        final_fourier_orders=3,
+        rough_x_resolution_nm=1.0,
+        rough_z_resolution_nm=1.0,
+        fine_x_resolution_nm=1.0,
+        fine_z_resolution_nm=1.0,
+        final_x_resolution_nm=1.0,
+        final_z_resolution_nm=1.0,
+        precise_peak_selection_mode="voigt",
+        retry_on_selected_efficiency_zero=True,
+        retry_selected_efficiency_threshold=1e-3,
+        max_zero_efficiency_retries=1,
+        show_progress=False,
+        live_plot=False,
+        on_error="fail_fast",
+        save_profile_plot=False,
+        save_stack_plot=False,
+        backend="numba",
+    )
+
+    assert len(sweep.batch_result.cases) == 1
+    assert sweep.batch_result.cases[0].status == "ok"
+    assert sweep.summary_csv_path.exists()
+    assert sweep.theta_scan_directory.exists()
+
+
+def test_batch_user_cases_example_parity_quick_configuration(tmp_path: Path) -> None:
+    grating = build_laminar_example_grating(depth_nm=14.9, x_resolution_nm=1.0, z_resolution_nm=1.0)
+    grazing_angle_deg = float(
+        monochromator_grazing_angles_deg(
+            [1000.0],
+            period_lpermm=grating.period_lpermm,
+            diffraction_order=1,
+            cff=2.25,
+        )[0]
+    )
+    user_cases = [
+        {
+            "case_id": "user-laminar-depth-015",
+            "label": "Laminar grating at depth 14.9 nm",
+            "grating": grating,
+            "energy_ev": 1000.0,
+            "grazing_angle_deg": grazing_angle_deg,
+            "diffraction_order": 1,
+            "depth_nm": 14.9,
+        }
+    ]
+    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    results = list(runner.run_cases(user_cases))
+    csv_path = tmp_path / "batch_user_cases_all_orders.csv"
+
+    write_all_orders_csv(results, csv_path)
+
+    assert len(results) == 1
+    assert results[0].status == "ok"
+    assert csv_path.exists()
 
 
 def test_multilayer_theta_search_sweep_accumulates_elapsed_time_across_resume(
@@ -1551,7 +1837,7 @@ def test_multilayer_theta_search_sweep_accumulates_elapsed_time_across_resume(
             efficiency_all=np.asarray([0.35, 0.0, 0.0], dtype=float),
             diffraction_angle_all=np.asarray([2.0, 1.0, 0.0], dtype=float),
             diffraction_order=int(kwargs["diffraction_order"]),
-            fourier_orders=int(kwargs["fourier_orders"]),
+            fourier_orders=int(kwargs["final_fourier_orders"]),
             theta_search_diagnostics=diagnostics,
         )
 
@@ -1615,7 +1901,6 @@ def test_multilayer_theta_search_sweep_retries_on_threshold(monkeypatch: pytest.
         retry_on_selected_efficiency_zero=True,
         retry_selected_efficiency_threshold=1e-4,
         max_zero_efficiency_retries=1,
-        theta_retry_jitter_deg=(0.002,),
     )
 
     assert call_count["value"] == 2
@@ -1655,7 +1940,6 @@ def test_batch_runner_theta_retry_uses_threshold(monkeypatch: pytest.MonkeyPatch
         retry_on_selected_efficiency_zero=True,
         retry_selected_efficiency_threshold=1e-4,
         max_zero_efficiency_retries=1,
-        theta_retry_jitter_deg=(0.002,),
     )
     results = list(runner.run_cases(cases))
 
@@ -1678,6 +1962,44 @@ def test_retry_selected_efficiency_threshold_validation() -> None:
             output_dir=Path("unused"),
             retry_selected_efficiency_threshold=-1.0,
         )
+
+
+def test_batch_runner_removed_constructor_args_raise_type_error() -> None:
+    with pytest.raises(TypeError, match="total_cases"):
+        BatchSimulationRunner(total_cases=2)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="live_theta_scan_plot"):
+        BatchSimulationRunner(live_theta_scan_plot=True)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="max_total_reflected_efficiency"):
+        BatchSimulationRunner(max_total_reflected_efficiency=2.0)  # type: ignore[call-arg]
+
+
+def test_batch_runner_passes_min_reflected_efficiency_to_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, object]] = []
+
+    def fake_run_case_payload(
+        payload: dict[str, object],
+        *,
+        diagnostic_callback: object = None,
+    ) -> SingleSimulationResult:
+        del diagnostic_callback
+        payloads.append(payload)
+        return fake_single_result(
+            energy_ev=float(payload["energy_ev"]),
+            grazing_angle_deg=float(payload["grazing_angle_deg"]),
+        )
+
+    monkeypatch.setattr(simulation_module, "_run_case_payload", fake_run_case_payload)
+    runner = BatchSimulationRunner(min_reflected_efficiency=-0.125)
+
+    list(
+        runner.run_cases(
+            [{"case_id": "case-1", "grating": build_test_grating(), "energy_ev": 100.0, "grazing_angle_deg": 4.0}]
+        )
+    )
+
+    assert len(payloads) == 1
+    assert payloads[0]["min_efficiency"] == pytest.approx(-0.125)
+    assert payloads[0]["max_total_reflected_efficiency"] == pytest.approx(1.05)
 
 
 def test_multilayer_theta_search_auto_tracks_previous_for_dense_steps(

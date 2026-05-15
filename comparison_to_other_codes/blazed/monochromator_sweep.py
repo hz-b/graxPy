@@ -62,7 +62,6 @@ cases = rp.monochromator_cases(
     period_lpermm=period_lpermm,
     diffraction_order=1,
     cff=2.25,
-    case_id_prefix="case",
     fourier_orders=20,
 )
 
@@ -75,7 +74,6 @@ runner = rp.BatchSimulationRunner(
     live_plot_order_count=3,
     checkpoint_dir=results_dir / "checkpoints",
     resume=False,  # Set to False to force restart from beginning
-    total_cases=len(energies_ev),
 )
 
 grating.plot_profile(profile_plot_path)

@@ -57,7 +57,6 @@ grating = rp.BlazedGrating(
 cases = rp.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
-    case_id_prefix="energy-angle-multilayer",
 )
 
 runner = rp.BatchSimulationRunner(
@@ -66,6 +65,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
+    backend="numba",
 )
 
 results = list(runner.run_cases(cases))

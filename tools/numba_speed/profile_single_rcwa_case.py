@@ -8,18 +8,13 @@ from pathlib import Path
 import numpy as np
 
 import grax as rp
-from grax.rcwa_1d import _numba_fourier_available
 from grax.simulation._profiling import SolverProfiler
 from xrt.backends.raycing import materials as xrt_materials
 
 BACKEND_CHOICES = (
-    "compare-numba-legacy",
-    "all",
-    "baseline",
-    "vectorized-harmonics",
-    "phase-recursive",
-    "phase-table-per-texture",
-    "numba-optional",
+    "compare-numpy-numba",
+    "numpy",
+    "numba",
 )
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
@@ -46,16 +41,8 @@ def _build_grating(*, x_resolution_nm: float, z_resolution_nm: float) -> rp.Lami
 def _backend_run_order(selection: str) -> list[str]:
     """Return the backend run order for one CLI selection."""
 
-    if selection == "compare-numba-legacy":
-        return ["baseline", "numba-optional"]
-    if selection == "all":
-        return [
-            "baseline",
-            "vectorized-harmonics",
-            "phase-recursive",
-            "phase-table-per-texture",
-            "numba-optional",
-        ]
+    if selection == "compare-numpy-numba":
+        return ["numpy", "numba"]
     return [selection]
 
 
@@ -87,7 +74,6 @@ def _configure_profiler(
     profiler.set_metadata("python_version", sys.version.split()[0])
     profiler.set_metadata("numpy_version", np.__version__)
     profiler.set_metadata("tool_backend_selection", backend)
-    profiler.set_metadata("numba_installed", _numba_fourier_available())
 
 
 def _run_backend_case(
@@ -118,7 +104,7 @@ def _run_backend_case(
         diffraction_order=1,
         fourier_orders=fourier_orders,
         _profiler=profiler,
-        _fourier_backend=backend,
+        backend=backend,
     )
     return result, profiler
 
@@ -144,13 +130,12 @@ def _comparison_report(
 ) -> str:
     """Return a concise cross-backend comparison summary."""
 
-    baseline_summary = profilers["baseline"].summary_dict()
-    baseline_actual = str(baseline_summary["metadata"].get("fourier_backend_actual", "baseline"))
+    baseline_summary = profilers["numpy"].summary_dict()
+    baseline_actual = str(baseline_summary["metadata"].get("fourier_backend_actual", "numpy"))
     lines = [
         "RCWA Fourier Backend Comparison",
         "",
         f"baseline_actual_backend={baseline_actual}",
-        f"numba_installed={_numba_fourier_available()}",
         "",
         "backend                    actual_backend              total_s    fourier_s   peak_mb   speedup_vs_baseline",
         "-----------------------------------------------------------------------------------------------------------",
@@ -177,20 +162,12 @@ def _comparison_report(
             f"{fourier_stage:>8.6f}  {peak_mb:>7.3f}  {speedup:>18.6f}"
         )
 
-    lines.extend(["", "order_minus_1_efficiency_deltas_vs_baseline"])
-    baseline_efficiency = _efficiency_for_exact_order(results["baseline"], order=-1)
+    lines.extend(["", "order_minus_1_efficiency_deltas_vs_numpy"])
+    numpy_efficiency = _efficiency_for_exact_order(results["numpy"], order=-1)
     for backend_name, result in results.items():
         backend_efficiency = _efficiency_for_exact_order(result, order=-1)
         lines.append(
-            f"- {backend_name}: {backend_efficiency - baseline_efficiency:.12e}"
-        )
-    if not _numba_fourier_available():
-        lines.extend(
-            [
-                "",
-                "note",
-                "- numba-optional fell back to baseline because Numba is not installed in this environment.",
-            ]
+            f"- {backend_name}: {backend_efficiency - numpy_efficiency:.12e}"
         )
     return "\n".join(lines)
 
@@ -229,10 +206,10 @@ for backend_name in backend_names:
     print(f"\nSaved report: {report_path}")
     print(f"Selected efficiency: {result.selected_efficiency:.6g}")
 
-if "baseline" in profilers_by_backend and "numba-optional" in profilers_by_backend:
+if "numpy" in profilers_by_backend and "numba" in profilers_by_backend:
     comparison = _comparison_report(results_by_backend, profilers_by_backend)
-    comparison_path = output_dir / "single_rcwa_profile_comparison_numba_vs_legacy.txt"
+    comparison_path = output_dir / "single_rcwa_profile_comparison_numba_vs_numpy.txt"
     _write_report(comparison_path, comparison)
-    print("\n=== comparison=numba-vs-legacy ===")
+    print("\n=== comparison=numba-vs-numpy ===")
     print(comparison)
     print(f"\nSaved comparison: {comparison_path}")

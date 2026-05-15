@@ -25,26 +25,21 @@ logger = logging.getLogger(__name__)
 
 ArrayLike = Any
 EigenCache = Dict[Tuple[Any, ...], Tuple[np.ndarray, np.ndarray]]
-FourierPhaseCache = dict[tuple[Any, ...], tuple[np.ndarray, np.ndarray]]
 
 
 class FourierBackend(str, Enum):
-    """Internal Fourier coefficient prototype variants."""
+    """Internal Fourier coefficient implementations.
 
-    BASELINE = "baseline"
-    VECTORIZED_HARMONICS = "vectorized-harmonics"
-    PHASE_RECURSIVE = "phase-recursive"
-    PHASE_TABLE_PER_TEXTURE = "phase-table-per-texture"
-    NUMBA_OPTIONAL = "numba-optional"
+    Two backends are available:
+    - NUMPY: Reference implementation using NumPy (no dependencies)
+    - NUMBA: JIT-compiled kernel for optimal performance (requires numba)
+    """
+
+    NUMPY = "numpy"
+    NUMBA = "numba"
 
 
-FourierBackendName = Literal[
-    "baseline",
-    "vectorized-harmonics",
-    "phase-recursive",
-    "phase-table-per-texture",
-    "numba-optional",
-]
+FourierBackendName = Literal["numpy", "numba"]
 
 try:
     from numba import njit
@@ -53,8 +48,6 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     njit = None
     _NUMBA_AVAILABLE = False
-
-_NUMBA_WARMUP_DONE = False
 
 
 @dataclass
@@ -154,42 +147,19 @@ if _NUMBA_AVAILABLE:  # pragma: no branch
 
 def _resolve_fourier_backend(
     backend: FourierBackendName | str,
-    profiler: SolverProfiler | None,
+    profiler: SolverProfiler | None = None,
 ) -> FourierBackend:
-    """Return the effective Fourier backend after optional fallbacks."""
+    """Return the effective Fourier backend after validation."""
 
+    if backend == "numba" and not _NUMBA_AVAILABLE:
+        raise RuntimeError(
+            "numba backend requested but numba is not installed. "
+            "Install with: python -m pip install \"graxpy[numba]\""
+        )
     try:
-        resolved = FourierBackend(backend)
+        return FourierBackend(backend)
     except ValueError as error:
-        raise ValueError(f"Unsupported internal Fourier backend: {backend}") from error
-
-    if resolved is FourierBackend.NUMBA_OPTIONAL and not _NUMBA_AVAILABLE:
-        if profiler is not None:
-            profiler.add_detail_count("fourier_numba_unavailable", 1)
-        return FourierBackend.BASELINE
-    return resolved
-
-
-def _numba_fourier_available() -> bool:
-    """Return whether the optional Numba Fourier kernel is available."""
-
-    return _NUMBA_AVAILABLE
-
-
-def _warmup_numba_fourier_kernel() -> None:
-    """Compile the optional Numba Fourier kernel once outside profiled runs."""
-
-    global _NUMBA_WARMUP_DONE
-
-    if not _NUMBA_AVAILABLE or _NUMBA_WARMUP_DONE:
-        return
-    _piecewise_fourier_coefficients_numba_kernel(
-        np.asarray([0.0, 0.5, 1.0], dtype=float),
-        np.asarray([1.0 + 0.0j, 1.1 + 0.0j], dtype=complex),
-        1.0,
-        2,
-    )
-    _NUMBA_WARMUP_DONE = True
+        raise ValueError(f"Unsupported Fourier backend: {backend}") from error
 
 
 def res0(dim: int) -> Parameters:
@@ -207,7 +177,7 @@ def res1(
     parm: Parameters | None = None,
     *,
     _profiler: SolverProfiler | None = None,
-    _fourier_backend: FourierBackendName | str = FourierBackend.BASELINE.value,
+    _fourier_backend: FourierBackendName | str = "numpy",
 ) -> Res1Result:
     parm = parm or res0(1)
     if parm.polarization != 1:
@@ -217,16 +187,12 @@ def res1(
         orders = _normalize_orders(nn)
         harmonic_count = (2 * int(np.max(np.abs(orders)))) + 1
         resolved_backend = _resolve_fourier_backend(_fourier_backend, _profiler)
-        if resolved_backend is FourierBackend.NUMBA_OPTIONAL:
-            _warmup_numba_fourier_kernel()
-        phase_cache: FourierPhaseCache = {}
         if _profiler is not None:
             _profiler.set_metadata("fourier_backend_requested", str(_fourier_backend))
             _profiler.set_metadata("fourier_backend_actual", resolved_backend.value)
             _profiler.set_metadata("numba_available", _NUMBA_AVAILABLE)
             _profiler.set_metadata("texture_count", len(textures))
             _profiler.set_metadata("harmonic_count", harmonic_count)
-            _profiler.set_metadata("fourier_phase_cache_scope", "single_res1_call")
             _profiler.set_metadata(
                 "unique_texture_signatures",
                 len({_texture_signature_for_metadata(texture, period) for texture in textures}),
@@ -238,7 +204,6 @@ def res1(
                 orders,
                 _profiler=_profiler,
                 _fourier_backend=resolved_backend,
-                _phase_cache=phase_cache,
             )
             for texture in textures
         ]
@@ -402,8 +367,7 @@ def _convert_texture(
     orders: np.ndarray,
     *,
     _profiler: SolverProfiler | None = None,
-    _fourier_backend: FourierBackend = FourierBackend.BASELINE,
-    _phase_cache: FourierPhaseCache | None = None,
+    _fourier_backend: FourierBackend = FourierBackend.NUMPY,
 ) -> Texture1D:
     if not isinstance(texture, (list, tuple)):
         refractive_index = complex(texture)
@@ -418,7 +382,6 @@ def _convert_texture(
                 max_order=2 * int(np.max(np.abs(orders))),
                 _profiler=_profiler,
                 _fourier_backend=_fourier_backend,
-                _phase_cache=_phase_cache,
             ),
             homogeneous_index=refractive_index,
         )
@@ -431,7 +394,6 @@ def _convert_texture(
             orders,
             _profiler=_profiler,
             _fourier_backend=_fourier_backend,
-            _phase_cache=_phase_cache,
         )
 
     if len(texture) != 2:
@@ -457,7 +419,6 @@ def _convert_texture(
             max_order=2 * int(np.max(np.abs(orders))),
             _profiler=_profiler,
             _fourier_backend=_fourier_backend,
-            _phase_cache=_phase_cache,
         ),
     )
 
@@ -500,80 +461,7 @@ def _record_fourier_array_allocations(
     profiler.update_detail_peak("fourier_temp_buffer_bytes_peak", float(bytes_total))
 
 
-def _phase_cache_key(breaks: np.ndarray, period: float, max_order: int) -> tuple[Any, ...]:
-    """Return the local phase-table cache key for one texture."""
 
-    return (
-        round(float(period), 12),
-        int(max_order),
-        tuple(np.round(breaks, 12)),
-    )
-
-
-def _phase_tables_for_texture(
-    breaks: np.ndarray,
-    period: float,
-    max_order: int,
-    *,
-    profiler: SolverProfiler | None,
-    phase_cache: FourierPhaseCache | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return cached phase tables for positive harmonic orders."""
-
-    if phase_cache is None:
-        return _build_phase_tables(breaks, period, max_order, profiler=profiler)
-
-    cache_key = _phase_cache_key(breaks, period, max_order)
-    if cache_key in phase_cache:
-        phase_right, phase_left = phase_cache[cache_key]
-        if profiler is not None:
-            profiler.add_detail_count("fourier_phase_table_hits", 1)
-            profiler.add_detail_count(
-                "fourier_reused_exponentials",
-                int(phase_right.size + phase_left.size),
-            )
-        return phase_right, phase_left
-
-    if profiler is not None:
-        profiler.add_detail_count("fourier_phase_table_misses", 1)
-    phase_tables = _build_phase_tables(breaks, period, max_order, profiler=profiler)
-    phase_cache[cache_key] = phase_tables
-    cache_bytes = sum(int(table.nbytes) for cached in phase_cache.values() for table in cached)
-    if profiler is not None:
-        profiler.update_detail_peak("fourier_phase_table_cache_bytes_peak", float(cache_bytes))
-    return phase_tables
-
-
-def _build_phase_tables(
-    breaks: np.ndarray,
-    period: float,
-    max_order: int,
-    *,
-    profiler: SolverProfiler | None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Build positive-order phase tables using recursive updates."""
-
-    segment_right = breaks[1:]
-    segment_left = breaks[:-1]
-    base_right = np.exp(-1j * 2.0 * np.pi * segment_right / period)
-    base_left = np.exp(-1j * 2.0 * np.pi * segment_left / period)
-    if profiler is not None:
-        profiler.add_detail_count("fourier_exp_calls", int(base_right.size + base_left.size))
-    phase_right = np.empty((max_order, segment_right.size), dtype=complex)
-    phase_left = np.empty((max_order, segment_left.size), dtype=complex)
-    _record_fourier_array_allocations(profiler, base_right, base_left, phase_right, phase_left)
-
-    current_right = base_right.copy()
-    current_left = base_left.copy()
-    if max_order > 0:
-        phase_right[0] = current_right
-        phase_left[0] = current_left
-    for order_index in range(1, max_order):
-        current_right = current_right * base_right
-        current_left = current_left * base_left
-        phase_right[order_index] = current_right
-        phase_left[order_index] = current_left
-    return phase_right, phase_left
 
 
 def _record_fourier_common_stats(
@@ -664,176 +552,13 @@ def _piecewise_fourier_coefficients_baseline(
     return coeffs
 
 
-def _piecewise_fourier_coefficients_vectorized_harmonics(
-    breaks: np.ndarray,
-    refractive_index: np.ndarray,
-    period: float,
-    max_order: int,
-    *,
-    profiler: SolverProfiler | None,
-) -> np.ndarray:
-    """Return Fourier coefficients using batched harmonic exponentials."""
-
-    call_start = perf_counter() if profiler is not None else None
-    g = np.arange(-max_order, max_order + 1, dtype=int)
-    epsilon = refractive_index**2
-    coeffs = np.zeros_like(g, dtype=complex)
-    _record_fourier_array_allocations(profiler, g, epsilon, coeffs)
-
-    t0 = perf_counter() if profiler is not None else None
-    nonzero_orders = g[g != 0]
-    phase_right = np.exp(
-        -1j * 2.0 * np.pi * np.outer(nonzero_orders.astype(float), breaks[1:]) / period
-    )
-    phase_left = np.exp(
-        -1j * 2.0 * np.pi * np.outer(nonzero_orders.astype(float), breaks[:-1]) / period
-    )
-    exp_seconds = 0.0
-    if profiler is not None and t0 is not None:
-        exp_seconds = perf_counter() - t0
-        profiler.add_detail_count("fourier_exp_calls", int(phase_right.size + phase_left.size))
-    _record_fourier_array_allocations(profiler, nonzero_orders, phase_right, phase_left)
-
-    t1 = perf_counter() if profiler is not None else None
-    coeffs[max_order] = np.sum(epsilon * (breaks[1:] - breaks[:-1])) / period
-    numerators = epsilon[np.newaxis, :] * (phase_right - phase_left)
-    denominators = (-1j * 2.0 * np.pi * nonzero_orders.astype(float))[:, np.newaxis]
-    coeffs[g != 0] = np.sum(numerators / denominators, axis=1)
-    sum_seconds = 0.0
-    if profiler is not None and t1 is not None:
-        sum_seconds = perf_counter() - t1
-        profiler.add_detail_count("fourier_sum_calls", int(nonzero_orders.size + 1))
-        profiler.add_detail_count("fourier_loop_iterations", int(nonzero_orders.size))
-    _record_fourier_array_allocations(profiler, numerators, denominators)
-
-    if profiler is not None and call_start is not None:
-        _record_fourier_call_totals(profiler, perf_counter() - call_start, exp_seconds, sum_seconds)
-    return coeffs
 
 
-def _piecewise_fourier_coefficients_phase_recursive(
-    breaks: np.ndarray,
-    refractive_index: np.ndarray,
-    period: float,
-    max_order: int,
-    *,
-    profiler: SolverProfiler | None,
-) -> np.ndarray:
-    """Return Fourier coefficients using recursive phase updates."""
-
-    call_start = perf_counter() if profiler is not None else None
-    g = np.arange(-max_order, max_order + 1, dtype=int)
-    epsilon = refractive_index**2
-    coeffs = np.zeros_like(g, dtype=complex)
-    _record_fourier_array_allocations(profiler, g, epsilon, coeffs)
-
-    t0 = perf_counter() if profiler is not None else None
-    base_right = np.exp(-1j * 2.0 * np.pi * breaks[1:] / period)
-    base_left = np.exp(-1j * 2.0 * np.pi * breaks[:-1] / period)
-    exp_seconds = 0.0
-    if profiler is not None and t0 is not None:
-        exp_seconds = perf_counter() - t0
-        profiler.add_detail_count("fourier_exp_calls", int(base_right.size + base_left.size))
-    _record_fourier_array_allocations(profiler, base_right, base_left)
-
-    t1 = perf_counter() if profiler is not None else None
-    coeffs[max_order] = np.sum(epsilon * (breaks[1:] - breaks[:-1])) / period
-    current_right = base_right.copy()
-    current_left = base_left.copy()
-    current_right_neg = np.conjugate(base_right)
-    current_left_neg = np.conjugate(base_left)
-    _record_fourier_array_allocations(
-        profiler,
-        current_right,
-        current_left,
-        current_right_neg,
-        current_left_neg,
-    )
-    for order in range(1, max_order + 1):
-        if profiler is not None:
-            profiler.add_detail_count("fourier_loop_iterations", 1)
-        denominator = -1j * 2.0 * np.pi * float(order)
-        coeffs[max_order + order] = np.sum(
-            epsilon * (current_right - current_left) / denominator
-        )
-        coeffs[max_order - order] = np.sum(
-            epsilon * (current_right_neg - current_left_neg) / (1j * 2.0 * np.pi * float(order))
-        )
-        if order < max_order:
-            current_right = current_right * base_right
-            current_left = current_left * base_left
-            current_right_neg = current_right_neg * np.conjugate(base_right)
-            current_left_neg = current_left_neg * np.conjugate(base_left)
-    sum_seconds = 0.0
-    if profiler is not None and t1 is not None:
-        sum_seconds = perf_counter() - t1
-        profiler.add_detail_count("fourier_sum_calls", int((2 * max_order) + 1))
-        profiler.add_detail_count(
-            "fourier_reused_exponentials",
-            int(2 * max(0, max_order - 1) * breaks[:-1].size * 2),
-        )
-
-    if profiler is not None and call_start is not None:
-        _record_fourier_call_totals(profiler, perf_counter() - call_start, exp_seconds, sum_seconds)
-    return coeffs
 
 
-def _piecewise_fourier_coefficients_phase_table(
-    breaks: np.ndarray,
-    refractive_index: np.ndarray,
-    period: float,
-    max_order: int,
-    *,
-    profiler: SolverProfiler | None,
-    phase_cache: FourierPhaseCache | None,
-) -> np.ndarray:
-    """Return Fourier coefficients using per-texture phase-table reuse."""
-
-    call_start = perf_counter() if profiler is not None else None
-    g = np.arange(-max_order, max_order + 1, dtype=int)
-    epsilon = refractive_index**2
-    coeffs = np.zeros_like(g, dtype=complex)
-    _record_fourier_array_allocations(profiler, g, epsilon, coeffs)
-
-    t0 = perf_counter() if profiler is not None else None
-    phase_right, phase_left = _phase_tables_for_texture(
-        breaks,
-        period,
-        max_order,
-        profiler=profiler,
-        phase_cache=phase_cache,
-    )
-    exp_seconds = 0.0
-    if profiler is not None and t0 is not None:
-        exp_seconds = perf_counter() - t0
-
-    t1 = perf_counter() if profiler is not None else None
-    coeffs[max_order] = np.sum(epsilon * (breaks[1:] - breaks[:-1])) / period
-    positive = np.sum(
-        epsilon[np.newaxis, :] * (phase_right - phase_left)
-        / (-1j * 2.0 * np.pi * np.arange(1, max_order + 1, dtype=float))[:, np.newaxis],
-        axis=1,
-    )
-    negative = np.sum(
-        epsilon[np.newaxis, :] * (np.conjugate(phase_right) - np.conjugate(phase_left))
-        / (1j * 2.0 * np.pi * np.arange(1, max_order + 1, dtype=float))[:, np.newaxis],
-        axis=1,
-    )
-    coeffs[max_order + 1 :] = positive
-    coeffs[:max_order] = negative[::-1]
-    sum_seconds = 0.0
-    if profiler is not None and t1 is not None:
-        sum_seconds = perf_counter() - t1
-        profiler.add_detail_count("fourier_sum_calls", int((2 * max_order) + 1))
-        profiler.add_detail_count("fourier_loop_iterations", int(max_order))
-    _record_fourier_array_allocations(profiler, positive, negative)
-
-    if profiler is not None and call_start is not None:
-        _record_fourier_call_totals(profiler, perf_counter() - call_start, exp_seconds, sum_seconds)
-    return coeffs
 
 
-def _piecewise_fourier_coefficients_numba_optional(
+def _piecewise_fourier_coefficients_numba(
     breaks: np.ndarray,
     refractive_index: np.ndarray,
     period: float,
@@ -864,12 +589,11 @@ def _piecewise_fourier_coefficients(
     max_order: int,
     *,
     _profiler: SolverProfiler | None = None,
-    _fourier_backend: FourierBackend = FourierBackend.BASELINE,
-    _phase_cache: FourierPhaseCache | None = None,
+    _fourier_backend: FourierBackend = FourierBackend.NUMPY,
 ) -> np.ndarray:
     with _profiler.record("fourier_coefficients") if _profiler is not None else _nullcontext():
         _record_fourier_common_stats(_profiler, refractive_index, breaks, max_order, _fourier_backend)
-        if _fourier_backend is FourierBackend.BASELINE:
+        if _fourier_backend is FourierBackend.NUMPY:
             return _piecewise_fourier_coefficients_baseline(
                 breaks,
                 refractive_index,
@@ -877,33 +601,8 @@ def _piecewise_fourier_coefficients(
                 max_order,
                 profiler=_profiler,
             )
-        if _fourier_backend is FourierBackend.VECTORIZED_HARMONICS:
-            return _piecewise_fourier_coefficients_vectorized_harmonics(
-                breaks,
-                refractive_index,
-                period,
-                max_order,
-                profiler=_profiler,
-            )
-        if _fourier_backend is FourierBackend.PHASE_RECURSIVE:
-            return _piecewise_fourier_coefficients_phase_recursive(
-                breaks,
-                refractive_index,
-                period,
-                max_order,
-                profiler=_profiler,
-            )
-        if _fourier_backend is FourierBackend.PHASE_TABLE_PER_TEXTURE:
-            return _piecewise_fourier_coefficients_phase_table(
-                breaks,
-                refractive_index,
-                period,
-                max_order,
-                profiler=_profiler,
-                phase_cache=_phase_cache,
-            )
-        if _fourier_backend is FourierBackend.NUMBA_OPTIONAL:
-            return _piecewise_fourier_coefficients_numba_optional(
+        if _fourier_backend is FourierBackend.NUMBA:
+            return _piecewise_fourier_coefficients_numba(
                 breaks,
                 refractive_index,
                 period,

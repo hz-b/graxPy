@@ -46,6 +46,8 @@ from ..peak_fitting import PeakSelectionMode
 
 logger = logging.getLogger(__name__)
 
+_THETA_RETRY_JITTER_DEG = (0.002, -0.002, 0.005)
+
 
 def _simulation_api():
     """Return the public simulation package for monkeypatch-compatible dispatch."""
@@ -85,7 +87,33 @@ def _adaptive_scan_half_widths(
     initial_precise_half_width_deg: float,
     completed_fwhm_by_energy: dict[float, float],
 ) -> tuple[float, float, str, float | None, float | None]:
-    """Resolve rough/precise half-widths from completed lower-energy FWHM data."""
+    """Resolve rough/precise half-widths from completed lower-energy FWHM data.
+
+    Implements energy-dependent scan width adaptation based on previous FWHM
+    measurements. For energies below a sparse-step threshold, uses previous
+    theta tracking with proportional scan widths scaled by the FWHM ratio.
+    For sparse energy steps or first points, uses initial scan widths.
+
+    Args:
+        energy_ev: Current photon energy in electronvolts.
+        initial_rough_half_width_deg: Initial rough scan half-width in degrees.
+        initial_precise_half_width_deg: Initial precise scan half-width in degrees.
+        completed_fwhm_by_energy: Dictionary mapping completed energies to their
+            precise scan FWHM values.
+
+    Returns:
+        Tuple of (rough_half_width, precise_half_width, source, source_energy, source_fwhm):
+        - rough_half_width: Calculated or initial rough scan half-width
+        - precise_half_width: Calculated or initial precise scan half-width
+        - source: "initial" (used initial widths) or "lower_energy" (scaled from FWHM)
+        - source_energy: Energy used for scaling (None if initial)
+        - source_fwhm: FWHM used for scaling (None if initial)
+
+    Note:
+        Scan widths scale proportionally to the FWHM ratio when adapting from
+        lower-energy points. This maintains consistent angular resolution
+        across the energy sweep.
+    """
 
     lower_energy_pairs = [
         (completed_energy, fwhm)
@@ -163,39 +191,37 @@ def run_multilayer_theta_search_sweep(
     energies_ev: Iterable[float],
     output_dir: str | Path,
     diffraction_order: int = 1,
-    case_id_prefix: str = "multilayer-theta-search",
-    rough_fourier_orders: int = 3,
-    fine_fourier_orders: int = 5,
-    final_fourier_orders: int = 25,
-    rough_x_resolution_nm: float = 1.0,
-    rough_z_resolution_nm: float = 1.0,
-    fine_x_resolution_nm: float = 0.5,
-    fine_z_resolution_nm: float = 0.5,
-    final_x_resolution_nm: float = 0.3,
-    final_z_resolution_nm: float = 0.3,
+    multilayer_bragg_order: int = 1,
     rough_scan_half_width_deg: float = 0.5,
     rough_scan_points: int = 82,
-    precise_scan_half_width_deg: float = 0.1,
-    precise_scan_points: int = 81,
-    multilayer_bragg_order: int = 1,
+    rough_fourier_orders: int = 3,
+    rough_x_resolution_nm: float = 1.0,
+    rough_z_resolution_nm: float = 1.0,
+    fine_scan_half_width_deg: float = 0.1,
+    fine_scan_points: int = 81,
+    fine_fourier_orders: int = 5,
+    fine_x_resolution_nm: float = 0.5,
+    fine_z_resolution_nm: float = 0.5,
+    final_fourier_orders: int = 25,
+    final_x_resolution_nm: float = 0.3,
+    final_z_resolution_nm: float = 0.3,
     roughness_sigma_nm: float | None = None,
+    precise_peak_selection_mode: PeakSelectionMode = "max",
+    retry_on_selected_efficiency_zero: bool = True,
+    retry_selected_efficiency_threshold: float = 1e-4,
+    max_zero_efficiency_retries: int = 3,
     max_workers: MaxWorkers = None,
     show_progress: bool = True,
     live_plot: bool = False,
-    live_theta_scan_plot: bool = False,
     on_error: ErrorPolicy = "fail_fast",
     checkpoint_dir: str | Path | None = None,
     checkpoint_interval: int = 1,
     resume: bool = False,
     theta_tracking_mode: Literal["auto", "previous", "bragg"] = "auto",
     max_tracking_energy_step_ev: float | None = None,
-    precise_peak_selection_mode: PeakSelectionMode = "max",
-    retry_on_selected_efficiency_zero: bool = True,
-    retry_selected_efficiency_threshold: float = 1e-4,
-    max_zero_efficiency_retries: int = 3,
-    theta_retry_jitter_deg: tuple[float, ...] | None = None,
     save_profile_plot: bool = True,
     save_stack_plot: bool = True,
+    backend: str = "numba",
 ) -> MultilayerThetaSearchSweepResult:
     """Run a multilayer theta-search sweep and persist standard output artifacts.
 
@@ -204,29 +230,39 @@ def run_multilayer_theta_search_sweep(
         energies_ev: Photon energies in electronvolts.
         output_dir: Destination directory for CSV and plot outputs.
         diffraction_order: Positive diffraction order to optimize and report.
-        case_id_prefix: Prefix used for stable generated case IDs.
-        rough_fourier_orders: Fourier order used during the rough scan.
-        fine_fourier_orders: Fourier order used during the precise scan.
-        final_fourier_orders: Fourier order used during the final solve.
-        rough_x_resolution_nm: X resolution used during the rough scan.
-        rough_z_resolution_nm: Z resolution used during the rough scan.
-        fine_x_resolution_nm: X resolution used during the precise scan.
-        fine_z_resolution_nm: Z resolution used during the precise scan.
-        final_x_resolution_nm: X resolution used during the final solve.
-        final_z_resolution_nm: Z resolution used during the final solve.
+        multilayer_bragg_order: Positive Bragg order used for the analytical estimate.
         rough_scan_half_width_deg: Rough scan half-width around the analytical estimate.
         rough_scan_points: Number of rough scan points.
-        precise_scan_half_width_deg: Precise scan half-width around the rough maximum.
-        precise_scan_points: Number of precise scan points.
-        multilayer_bragg_order: Positive Bragg order used for the analytical estimate.
+        rough_fourier_orders: Fourier order used during the rough scan.
+        rough_x_resolution_nm: X resolution used during the rough scan.
+        rough_z_resolution_nm: Z resolution used during the rough scan.
+        fine_scan_half_width_deg: Precise scan half-width around the rough maximum.
+        fine_scan_points: Number of precise scan points.
+        fine_fourier_orders: Fourier order used during the precise scan.
+        fine_x_resolution_nm: X resolution used during the precise scan.
+        fine_z_resolution_nm: Z resolution used during the precise scan.
+        final_fourier_orders: Fourier order used during the final solve.
+        final_x_resolution_nm: X resolution used during the final solve.
+        final_z_resolution_nm: Z resolution used during the final solve.
         roughness_sigma_nm: Optional rms roughness in nanometers.
+        precise_peak_selection_mode: Mode used to select the final theta from the
+            precise scan. ``max`` uses the sampled maximum, ``gauss`` fits a local
+            Gaussian neighborhood, and ``voigt`` fits a local Voigt neighborhood.
+        retry_on_selected_efficiency_zero: Whether to retry inline multilayer theta-search
+            cases when selected efficiency is less than or equal to
+            ``retry_selected_efficiency_threshold``.
+        retry_selected_efficiency_threshold: Retry trigger threshold for selected
+            efficiency. Retries are attempted when selected efficiency is less
+            than or equal to this value.
+        max_zero_efficiency_retries: Maximum number of additional retries.
         max_workers: Optional batch worker count. ``"auto"`` calibrates from one
             completed theta-search case and available system memory before
             launching the remaining parallel work.
         show_progress: Whether to show a progress bar during execution.
         live_plot: Whether to update the standard batch live plot.
-        live_theta_scan_plot: Whether to show the theta-scan diagnostic window when eligible.
-        on_error: Batch error policy.
+        on_error: Per-case error policy forwarded to the batch runner. ``continue``
+            yields error results for failed cases and keeps going; ``fail_fast``
+            raises immediately and stops the sweep.
         checkpoint_dir: Optional checkpoint directory for the internal runner.
         checkpoint_interval: Flush interval for checkpoint writes.
         resume: Whether to resume from an existing checkpoint.
@@ -237,18 +273,10 @@ def run_multilayer_theta_search_sweep(
         max_tracking_energy_step_ev: Optional dense-step threshold override used by
             ``auto`` mode. When omitted, the threshold is derived from the median
             positive energy step in the requested sweep.
-        precise_peak_selection_mode: Mode used to select the final theta from the
-            precise scan. ``max`` uses the sampled maximum, ``gauss`` fits a local
-            Gaussian neighborhood, and ``voigt`` fits a local Voigt neighborhood.
-        retry_on_selected_efficiency_zero: Whether to retry zero-efficiency selected
-            order results in multilayer theta-search cases.
-        retry_selected_efficiency_threshold: Retry trigger threshold for selected
-            efficiency. Retries are attempted when selected efficiency is less
-            than or equal to this value.
-        max_zero_efficiency_retries: Maximum number of additional retries.
-        theta_retry_jitter_deg: Deterministic jitter offsets for retry attempts.
         save_profile_plot: Whether to save the grating profile plot.
         save_stack_plot: Whether to save the resolved stack schematic when available.
+        backend: Fourier coefficient backend selector. Options: ``numpy`` (pure Python,
+            default), ``numba`` (JIT-compiled, requires numba package).
 
     Returns:
         Typed result object containing collected results and the created output paths.
@@ -321,21 +349,20 @@ def run_multilayer_theta_search_sweep(
         multilayer_theta_search_cases(
             grating=grating,
             energies_ev=energy_list,
-            case_id_prefix=case_id_prefix,
             diffraction_order=diffraction_order,
-            rough_fourier_orders=rough_fourier_orders,
-            fine_fourier_orders=fine_fourier_orders,
-            final_fourier_orders=final_fourier_orders,
-            rough_x_resolution_nm=rough_x_resolution_nm,
-            rough_z_resolution_nm=rough_z_resolution_nm,
-            fine_x_resolution_nm=fine_x_resolution_nm,
-            fine_z_resolution_nm=fine_z_resolution_nm,
-            final_x_resolution_nm=final_x_resolution_nm,
-            final_z_resolution_nm=final_z_resolution_nm,
             rough_scan_half_width_deg=rough_scan_half_width_deg,
             rough_scan_points=rough_scan_points,
-            precise_scan_half_width_deg=precise_scan_half_width_deg,
-            precise_scan_points=precise_scan_points,
+            rough_fourier_orders=rough_fourier_orders,
+            rough_x_resolution_nm=rough_x_resolution_nm,
+            rough_z_resolution_nm=rough_z_resolution_nm,
+            fine_scan_half_width_deg=fine_scan_half_width_deg,
+            fine_scan_points=fine_scan_points,
+            fine_fourier_orders=fine_fourier_orders,
+            fine_x_resolution_nm=fine_x_resolution_nm,
+            fine_z_resolution_nm=fine_z_resolution_nm,
+            final_fourier_orders=final_fourier_orders,
+            final_x_resolution_nm=final_x_resolution_nm,
+            final_z_resolution_nm=final_z_resolution_nm,
             multilayer_bragg_order=multilayer_bragg_order,
             precise_peak_selection_mode=precise_peak_selection_mode,
             roughness_sigma_nm=roughness_sigma_nm,
@@ -391,13 +418,27 @@ def run_multilayer_theta_search_sweep(
         "max_fourier_orders": max(rough_fourier_orders, fine_fourier_orders, final_fourier_orders),
         "validate_physical_results": True,
         "max_reflected_efficiency": 1.05,
-        "min_efficiency": -1e-8,
-        "max_total_reflected_efficiency": 1.05,
+        "min_reflected_efficiency": -1e-8,
+        "backend": backend,
     }
-    retry_jitter_values = (theta_retry_jitter_deg or (0.002, -0.002, 0.005))[: max(0, int(max_zero_efficiency_retries))]
+    retry_jitter_values = _THETA_RETRY_JITTER_DEG[: max(0, int(max_zero_efficiency_retries))]
     theta_continuity_tolerance_deg = 0.02
     def _tracking_metadata_from_case(case: dict[str, object]) -> dict[str, object]:
-        """Extract tracking metadata from a case dictionary."""
+        """Extract tracking metadata from a case dictionary.
+
+        Retrieves all continuity-tracking fields from a case dictionary for use
+        in the CaseExecutionResult. Used during resume to preserve tracking state.
+
+        Args:
+            case: Case dictionary potentially containing tracking metadata fields.
+
+        Returns:
+            Dictionary with all tracking metadata fields, using defaults where missing.
+            Keys: theta_tracking_center_mode, theta_tracking_auto_classification,
+            theta_tracking_previous_energy_ev, theta_tracking_previous_grazing_angle_deg,
+            theta_tracking_used_previous_theta, theta_tracking_bragg_fallback_triggered,
+            theta_tracking_continuity_rejected
+        """
 
         return {
             "theta_tracking_center_mode": str(case.get("theta_tracking_center_mode", "bragg")),
@@ -430,7 +471,25 @@ def run_multilayer_theta_search_sweep(
         bragg_fallback_triggered: bool,
         continuity_rejected: bool,
     ) -> SingleSimulationResult:
-        """Attach continuity-tracking metadata to a single result."""
+        """Attach continuity-tracking metadata to a single result.
+
+        Copies tracking metadata to both the SingleSimulationResult and its
+        ThetaSearchDiagnostics (if present). This preserves tracking information
+        through serialization/deserialization and makes it available for analysis.
+
+        Args:
+            single: SingleSimulationResult to attach metadata to.
+            center_mode: Primary center selection method used.
+            auto_classification: Reasoning behind center mode choice.
+            previous_energy_ev: Energy of previous successful result (if any).
+            previous_grazing_angle_deg: Theta of previous successful result (if any).
+            used_previous_theta: Whether tracked previous theta was used.
+            bragg_fallback_triggered: Whether Bragg fallback was attempted.
+            continuity_rejected: Whether continuity violation caused fallback.
+
+        Returns:
+            Updated SingleSimulationResult with tracking metadata attached.
+        """
 
         single.theta_tracking_center_mode = center_mode
         single.theta_tracking_auto_classification = auto_classification
@@ -450,7 +509,18 @@ def run_multilayer_theta_search_sweep(
         return single
 
     def _copy_tracking_fields(single: SingleSimulationResult) -> dict[str, object]:
-        """Return result tracking fields for case construction."""
+        """Return result tracking fields for case construction.
+
+        Extracts all continuity-tracking metadata from a SingleSimulationResult
+        for use in constructing new case dictionaries during the sweep.
+
+        Args:
+            single: SingleSimulationResult with tracking metadata attached.
+
+        Returns:
+            Dictionary with all tracking metadata fields extracted from the result.
+            Keys match those in _tracking_metadata_from_case for consistency.
+        """
 
         return {
             "theta_tracking_center_mode": single.theta_tracking_center_mode,
@@ -463,14 +533,36 @@ def run_multilayer_theta_search_sweep(
         }
 
     def _set_progress_postfix(*, active: int, queued: int, completed: int) -> None:
-        """Update the adaptive sweep progress postfix."""
+        """Update the adaptive sweep progress postfix.
+
+        Sets the progress bar postfix with real-time statistics about the sweep
+        execution status. Displayed as "active=X queued=Y done=Z" in the progress
+        bar description.
+
+        Args:
+            active: Number of currently executing cases.
+            queued: Number of pending cases waiting for execution.
+            completed: Number of completed cases (including resumed).
+        """
 
         if progress_bar is None:
             return
         progress_bar.set_postfix_str(f"active={active} queued={queued} done={completed}")
 
     def _append_checkpoint_case_result(case_result: CaseExecutionResult) -> None:
-        """Append one newly completed adaptive result to the checkpoint."""
+        """Append one newly completed adaptive result to the checkpoint.
+
+        Writes a completed case result to the JSONL checkpoint file in append
+        mode. Implements flush throttling to avoid excessive I/O operations.
+
+        Args:
+            case_result: Completed CaseExecutionResult to persist.
+
+        Note:
+            - Appends to results.jsonl in checkpoint directory
+            - Flushes every checkpoint_interval writes
+            - No-op if checkpointing is disabled
+        """
 
         nonlocal completed_since_flush
         if checkpoint_handle is None:
@@ -486,7 +578,22 @@ def run_multilayer_theta_search_sweep(
         selected_theta_deg: float,
         previous_theta_deg: float | None,
     ) -> bool:
-        """Return whether the candidate violates dense-step continuity."""
+        """Return whether the candidate violates dense-step continuity.
+
+        Checks if the selected grazing angle deviates significantly from the
+        previous successful result. For dense energy steps (below the tracking
+        threshold), theta should change smoothly. Large jumps indicate potential
+        tracking failures or convergence to a different peak.
+
+        Args:
+            selected_theta_deg: Selected grazing angle from current scan.
+            previous_theta_deg: Previous successful grazing angle for comparison.
+
+        Returns:
+            True if the angular jump exceeds the continuity tolerance (0.02 degrees),
+            indicating a potential tracking problem. False if continuity is maintained
+            or if there's no previous theta to compare against.
+        """
 
         if previous_theta_deg is None:
             return False
@@ -497,7 +604,29 @@ def run_multilayer_theta_search_sweep(
         energy_ev: float,
         previous_successful_case: CaseExecutionResult | None,
     ) -> tuple[str, str]:
-        """Choose the primary theta center mode for one energy."""
+        """Choose the primary theta center mode for one energy.
+
+        Determines whether to track the previous theta or use the Bragg estimate
+        based on energy step size and user configuration. Implements the auto mode
+        logic that switches between tracking and Bragg based on energy density.
+
+        Args:
+            energy_ev: Current photon energy in electronvolts.
+            previous_successful_case: Most recent successful result.
+
+        Returns:
+            Tuple of (center_mode, auto_classification):
+            - center_mode: "tracked_previous" or "bragg"
+            - auto_classification: One of "initial", "auto_dense", "auto_sparse",
+              "manual_previous", "manual_bragg"
+
+        Classification rules:
+        - First point: "bragg" + "initial"
+        - theta_tracking_mode == "bragg": always "bragg" + manual classification
+        - theta_tracking_mode == "previous": always "tracked_previous" + manual classification
+        - Auto mode with dense step (<= threshold): "tracked_previous" + "auto_dense"
+        - Auto mode with sparse step (> threshold): "bragg" + "auto_sparse"
+        """
 
         if previous_successful_case is None:
             return "bragg", "initial"
@@ -517,7 +646,32 @@ def run_multilayer_theta_search_sweep(
         *,
         previous_successful_case: CaseExecutionResult | None,
     ) -> tuple[dict[str, object], str, str]:
-        """Return a copied case prepared with continuity-tracking metadata."""
+        """Return a copied case prepared with continuity-tracking metadata.
+
+        Prepares a case dictionary for execution with continuity-aware theta tracking.
+        Sets the theta center mode (tracked_previous or bragg) and stores tracking
+        metadata for post-execution analysis. For the first point or sparse energy
+        steps, uses the Bragg estimate. For dense steps, tracks the previous theta.
+
+        Args:
+            case: Original case dictionary from the sweep.
+            previous_successful_case: Most recent successful result for continuity tracking.
+
+        Returns:
+            Tuple of (prepared_case, center_mode, auto_classification):
+            - prepared_case: Modified case with tracking metadata
+            - center_mode: "tracked_previous" or "bragg"
+            - auto_classification: Classification of how center mode was chosen
+
+        Tracking metadata includes:
+        - theta_tracking_center_mode: Primary center selection method
+        - theta_tracking_auto_classification: Reasoning behind the choice
+        - theta_tracking_previous_energy_ev: Previous energy for tracking
+        - theta_tracking_previous_grazing_angle_deg: Previous theta for tracking
+        - theta_tracking_used_previous_theta: Whether tracking was used
+        - theta_tracking_bragg_fallback_triggered: Whether Bragg fallback was tried
+        - theta_tracking_continuity_rejected: Whether continuity was violated
+        """
 
         prepared_case = dict(case)
         center_mode, auto_classification = _choose_tracking_mode(
@@ -544,7 +698,31 @@ def run_multilayer_theta_search_sweep(
         return prepared_case, center_mode, auto_classification
 
     def _apply_zero_retry(case: dict[str, object], single: SingleSimulationResult) -> SingleSimulationResult:
-        """Retry an exact-zero selected efficiency using deterministic theta jitter."""
+        """Retry an exact-zero selected efficiency using deterministic theta jitter.
+
+        Handles cases where the selected diffraction order has exactly zero efficiency
+        after the primary scan. This can occur due to numerical artifacts or boundary
+        conditions. Retries with small deterministic theta offsets to escape the zero
+        efficiency state and find a nearby non-zero solution.
+
+        Args:
+            case: Case dictionary with the original scan parameters.
+            single: SingleSimulationResult from the primary scan.
+
+        Returns:
+            Updated SingleSimulationResult with retry information:
+            - retry_triggered: Whether retry was attempted
+            - retry_attempts: Number of retry attempts made
+            - retry_status: "not_needed", "recovered", or "retry_exhausted"
+            - selected_efficiency_is_exact_zero: Original efficiency was exactly zero
+            - selected_efficiency_below_retry_threshold: Below retry threshold
+
+        Retry mechanism:
+        - Uses deterministic jitter values from configuration
+        - Each retry adds jitter to the initial theta estimate
+        - Stops when efficiency exceeds retry threshold
+        - Tracks all retry attempts for diagnostics
+        """
 
         retry_triggered = False
         retry_attempts = 0
@@ -586,11 +764,11 @@ def run_multilayer_theta_search_sweep(
         rough_half_width_deg, precise_half_width_deg, source, source_energy, source_fwhm = _adaptive_scan_half_widths(
             energy_ev=float(case["energy_ev"]),
             initial_rough_half_width_deg=float(rough_scan_half_width_deg),
-            initial_precise_half_width_deg=float(precise_scan_half_width_deg),
+            initial_precise_half_width_deg=float(fine_scan_half_width_deg),
             completed_fwhm_by_energy=completed_fwhm_by_energy,
         )
         case["rough_scan_half_width_deg"] = rough_half_width_deg
-        case["precise_scan_half_width_deg"] = precise_half_width_deg
+        case["fine_scan_half_width_deg"] = precise_half_width_deg
         if source == "initial":
             logger.info(
                 "Energy %.2f eV: using initial scan widths rough=%.6f deg precise=%.6f deg",
@@ -636,7 +814,34 @@ def run_multilayer_theta_search_sweep(
         auto_classification: str,
         primary_single: SingleSimulationResult,
     ) -> tuple[dict[str, object], SingleSimulationResult]:
-        """Finalize one tracked result, optionally evaluating a Bragg fallback."""
+        """Finalize one tracked result, optionally evaluating a Bragg fallback.
+
+        Completes the tracking workflow by evaluating whether to accept the primary
+        result or switch to a Bragg fallback. The fallback is triggered when:
+        - Selected efficiency is very low (below threshold)
+        - Continuity is violated (large angular jump from previous result)
+
+        Fallback selection logic (in order of priority):
+        1. Continuity violation: Always prefer fallback if primary violates continuity
+        2. Efficiency gap: Choose higher efficiency if gap exceeds tolerance (5% or 1e-4)
+        3. Angular distance: Choose result closer to previous theta if available
+        4. Default: Prefer fallback if it has higher efficiency
+
+        Args:
+            prepared_case: Case dictionary with tracking metadata.
+            center_mode: Primary center mode used ("tracked_previous" or "bragg").
+            auto_classification: Reasoning behind center mode choice.
+            primary_single: Result from the primary (tracked or initial) scan.
+
+        Returns:
+            Tuple of (chosen_case, chosen_single):
+            - chosen_case: Case with final tracking metadata
+            - chosen_single: SingleSimulationResult (primary or fallback)
+
+        Tracking metadata added:
+        - theta_tracking_continuity_rejected: Whether continuity was violated
+        - theta_tracking_bragg_fallback_triggered: Whether fallback was attempted
+        """
 
         tracking_previous_energy_ev = (
             None
@@ -708,6 +913,22 @@ def run_multilayer_theta_search_sweep(
         return chosen_case, chosen_single
 
     def _write_single_theta_scan_artifacts(case: CaseExecutionResult, *, skip_if_exists: bool = False) -> None:
+        """Write theta scan artifacts for one energy point.
+
+        Exports diagnostic data and figures for a completed theta scan:
+        - CSV file with rough/precise scan data and selected peak
+        - PNG figure showing both scans with the selected peak marked
+
+        The figure displays:
+        - Rough scan: circles connected by lines
+        - Precise scan: squares connected by lines
+        - Selected peak: red star
+        - Fitted curve (if Gaussian/Voigt fit was used): red dashed line
+
+        Args:
+            case: CaseExecutionResult with completed theta search.
+            skip_if_exists: If True, skip writing if both files already exist.
+        """
         diagnostics = case.theta_search_diagnostics
         if diagnostics is None:
             return

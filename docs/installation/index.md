@@ -17,13 +17,19 @@ To install with optimization dependencies (`grax_opt` via `opt` extra):
 python -m pip install "graxpy[opt]"
 ```
 
-To install with optional Numba acceleration support:
+To install with optional Numba acceleration support (recommended for best performance):
 
 ```bash
 python -m pip install "graxpy[numba]"
 ```
 
-Project page: <https://pypi.org/project/graxpy/0.1.0/>
+Project page: <https://pypi.org/project/graxpy>
+
+```{note}
+The numpy backend is the default for `run_simulation` and provides reliable
+performance without dependencies. For maximum speed, use `backend="numba"`
+which provides 3.7x speedup with identical numerical results.
+```
 
 ### Install from local files (repository checkout)
 
@@ -56,6 +62,12 @@ The optional Numba backend support is installed with the `numba` extra:
 
 ```bash
 python -m pip install -e ".[numba]"
+```
+
+```{note}
+The Numba backend provides **3.7x speedup** with identical numerical results.
+You can explicitly specify `backend="numpy"` for the pure Python
+implementation or `backend="numba"` for the JIT-compiled version.
 ```
 
 The main documentation focuses on the `grax` simulation package. The

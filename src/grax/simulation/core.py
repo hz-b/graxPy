@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import csv
 import importlib
 import logging
@@ -109,7 +110,7 @@ def run_simulation(
     min_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
     _profiler: SolverProfiler | None = None,
-    _fourier_backend: str = "baseline",
+    backend: str = "numpy",
 ) -> SingleSimulationResult:
     """Run one RCWA simulation case and return a typed result.
 
@@ -124,6 +125,7 @@ def run_simulation(
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
         min_efficiency: Minimum allowed efficiency.
         max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
+        backend: Fourier coefficient backend selector. Options: "numpy" (default, pure Python), "numba" (JIT-compiled, requires numba package).
 
     Returns:
         Single-case RCWA result.
@@ -154,7 +156,7 @@ def run_simulation(
         k_parallel,
         parm,
         _profiler=_profiler,
-        _fourier_backend=_fourier_backend,
+        _fourier_backend=backend,
     )
     ef = res2(
         aa,
@@ -200,6 +202,15 @@ def run_simulation(
         fourier_orders=int(fourier_orders),
         roughness_sigma_nm=roughness_sigma_nm,
     )
+
+
+run_simulation.__signature__ = inspect.signature(run_simulation).replace(
+    parameters=[
+        parameter
+        for parameter in inspect.signature(run_simulation).parameters.values()
+        if parameter.name != "_profiler"
+    ]
+)
 
 
 def _clone_grating_with_overrides(
@@ -413,6 +424,7 @@ class RCWASimulation:
         min_efficiency: float = -1e-8,
         max_total_reflected_efficiency: float = 1.05,
         roughness_sigma_nm: float | None = None,
+        backend: str = "numpy",
     ) -> None:
         """Initialize a compatibility simulation object."""
 
@@ -426,6 +438,7 @@ class RCWASimulation:
         self.min_efficiency = min_efficiency
         self.max_total_reflected_efficiency = max_total_reflected_efficiency
         self.roughness_sigma_nm = roughness_sigma_nm
+        self.backend = backend
         self._live_comparison_figure = None
         self._live_comparison_axis = None
 
@@ -443,6 +456,7 @@ class RCWASimulation:
             max_reflected_efficiency=self.max_reflected_efficiency,
             min_efficiency=self.min_efficiency,
             max_total_reflected_efficiency=self.max_total_reflected_efficiency,
+            backend=self.backend,
         )
         return {
             "orders": result.orders,
@@ -469,6 +483,7 @@ class RCWASimulation:
                 max_reflected_efficiency=self.max_reflected_efficiency,
                 min_efficiency=self.min_efficiency,
                 max_total_reflected_efficiency=self.max_total_reflected_efficiency,
+                backend=self.backend,
             )
             for energy in energies
         ]

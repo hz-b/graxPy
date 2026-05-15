@@ -66,10 +66,11 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
     echo "============================================================"
     GRATING_IMAGE_DIR="${DOCS_DIR}/tutorials/images/gratings"
     SIM_IMAGE_DIR="${DOCS_DIR}/tutorials/images/simulation"
+    OPTIMIZER_IMAGE_DIR="${DOCS_DIR}/tutorials/images/optimizer/laminar_fit"
     NUMBA_SPEED_IMAGE_DIR="${DOCS_DIR}/tutorials/images/numba_speed"
     COMPARISON_IMAGE_DIR="${DOCS_DIR}/comparison-to-other-codes/images"
     HOWTO_IMAGE_DIR="${DOCS_DIR}/how-to/images"
-    mkdir -p "${GRATING_IMAGE_DIR}" "${SIM_IMAGE_DIR}" "${NUMBA_SPEED_IMAGE_DIR}" "${COMPARISON_IMAGE_DIR}" "${HOWTO_IMAGE_DIR}"
+    mkdir -p "${GRATING_IMAGE_DIR}" "${SIM_IMAGE_DIR}" "${OPTIMIZER_IMAGE_DIR}" "${NUMBA_SPEED_IMAGE_DIR}" "${COMPARISON_IMAGE_DIR}" "${HOWTO_IMAGE_DIR}"
 
     cp "${PROJECT_ROOT}/examples/grating/results/laminar_no_top_cap.png" \
       "${GRATING_IMAGE_DIR}/laminar_no_top_cap.png"
@@ -98,6 +99,12 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${SIM_IMAGE_DIR}/multilayer_theta_search_workflow.png"
     cp "${PROJECT_ROOT}/examples/simulation/parameter_study/results/parameter_study_grid.png" \
       "${SIM_IMAGE_DIR}/parameter_study_grid.png"
+    cp "${PROJECT_ROOT}/examples/optimizer/results/laminar_fit/best_fit.png" \
+      "${OPTIMIZER_IMAGE_DIR}/best_fit.png"
+    cp "${PROJECT_ROOT}/examples/optimizer/results/laminar_fit/optimization_loss_history.png" \
+      "${OPTIMIZER_IMAGE_DIR}/optimization_loss_history.png"
+    cp "${PROJECT_ROOT}/examples/optimizer/results/laminar_fit/laminar_fit_measurement_comparison.png" \
+      "${OPTIMIZER_IMAGE_DIR}/laminar_fit_measurement_comparison.png"
     cp "${PROJECT_ROOT}/tools/numba_speed/results/multi_energy_numba_vs_legacy_plots.png" \
       "${NUMBA_SPEED_IMAGE_DIR}/multi_energy_numba_vs_legacy_plots.png"
     cp "${PROJECT_ROOT}/tools/numba_speed/results/multi_energy_multilayer_numba_vs_legacy_plots.png" \

@@ -10,31 +10,46 @@ from scipy.optimize import brentq
 from ..gratings import BaseGrating
 from ..peak_fitting import PeakSelectionMode
 
+_FIXED_CASE_ID_PREFIX = "fixed"
+_MONOCHROMATOR_CASE_ID_PREFIX = "mono"
+_ENERGY_ANGLE_CASE_ID_PREFIX = "pair"
+_THETA_SEARCH_CASE_ID_PREFIX = "theta-search"
+
+
 def fixed_angle_cases(
     *,
     grating: BaseGrating,
     energies_ev: Iterable[float],
     grazing_angle_deg: float,
-    case_id_prefix: str = "fixed",
-    **case_defaults: object,
 ) -> Iterator[dict[str, object]]:
     """Yield fixed-angle energy-sweep cases lazily.
+
+    Creates case dictionaries for a fixed-incident-angle energy scan. Each case
+    includes the grating, photon energy, and fixed grazing angle. Case IDs are
+    generated automatically with a stable internal prefix.
 
     Args:
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        case_id_prefix: Prefix used for stable generated case IDs.
-        **case_defaults: Additional case fields copied into every yielded case.
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> cases = fixed_angle_cases(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     grazing_angle_deg=5.0
+        ... )
+        >>> for case in cases:
+        ...     print(f"E={case['energy_ev']:.0f} eV, theta={case['grazing_angle_deg']:.1f}°")
     """
 
     for index, energy_ev in enumerate(energies_ev):
         yield {
-            **case_defaults,
-            "case_id": f"{case_id_prefix}-{index:08d}",
+            "case_id": f"{_FIXED_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": float(grazing_angle_deg),
@@ -48,22 +63,37 @@ def monochromator_cases(
     period_lpermm: float | None = None,
     diffraction_order: int = 1,
     cff: float = 2.25,
-    case_id_prefix: str = "mono",
-    **case_defaults: object,
 ) -> Iterator[dict[str, object]]:
     """Yield fixed-cff monochromator sweep cases lazily.
+
+    Creates case dictionaries for a monochromator configuration with fixed
+    constant-focus-factor (CFF). The grazing angle is solved for each energy
+    using the monochromator equation, ensuring the optic maintains the same
+    optical configuration across the energy sweep.
+
+    The monochromator relation solves for incidence angle alpha and diffraction
+    angle beta subject to ``cff = cos(alpha) / cos(beta)`` and
+    ``m*lambda = period * (sin(alpha) + sin(beta))``.
 
     Args:
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
         period_lpermm: Optional grating line density. Defaults to the grating value.
         diffraction_order: Positive diffraction order used by the monochromator relation.
-        cff: Constant-focus factor.
-        case_id_prefix: Prefix used for stable generated case IDs.
-        **case_defaults: Additional case fields copied into every yielded case.
+        cff: Constant-focus factor. Higher values relax tolerance but reduce angular range.
 
     Yields:
-        Case dictionaries suitable for :class:`BatchSimulationRunner`.
+        Case dictionaries suitable for :class:`BatchSimulationRunner` with computed
+        grazing_angle_deg and diffraction_order fields.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> cases = monochromator_cases(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     diffraction_order=1,
+        ...     cff=2.25
+        ... )
     """
 
     line_density = float(grating.period_lpermm if period_lpermm is None else period_lpermm)
@@ -77,8 +107,7 @@ def monochromator_cases(
             )[0]
         )
         yield {
-            **case_defaults,
-            "case_id": f"{case_id_prefix}-{index:08d}",
+            "case_id": f"{_MONOCHROMATOR_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": grazing_angle,
@@ -90,25 +119,32 @@ def energy_angle_cases(
     *,
     grating: BaseGrating,
     energy_angle_pairs: Iterable[tuple[float, float]],
-    case_id_prefix: str = "pair",
-    **case_defaults: object,
 ) -> Iterator[dict[str, object]]:
     """Yield arbitrary energy-angle simulation cases lazily.
+
+    Creates case dictionaries for user-specified energy and angle combinations.
+    This provides maximum flexibility for custom sweep configurations that don't
+    follow standard patterns like fixed-angle or monochromator scans.
 
     Args:
         grating: Grating reused by every generated case.
         energy_angle_pairs: Iterable of ``(energy_ev, grazing_angle_deg)`` pairs.
-        case_id_prefix: Prefix used for stable generated case IDs.
-        **case_defaults: Additional case fields copied into every yielded case.
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.
+
+    Example:
+        >>> grating = grax.LaminarGrating(period_nm=500, duty=0.5, height_nm=100)
+        >>> pairs = [(500, 5.0), (600, 5.5), (700, 6.0)]
+        >>> cases = energy_angle_cases(
+        ...     grating=grating,
+        ...     energy_angle_pairs=pairs
+        ... )
     """
 
     for index, (energy_ev, grazing_angle_deg) in enumerate(energy_angle_pairs):
         yield {
-            **case_defaults,
-            "case_id": f"{case_id_prefix}-{index:08d}",
+            "case_id": f"{_ENERGY_ANGLE_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": float(grazing_angle_deg),
@@ -119,52 +155,95 @@ def multilayer_theta_search_cases(
     *,
     grating: BaseGrating,
     energies_ev: Iterable[float],
-    case_id_prefix: str = "theta-search",
+    diffraction_order: int = 1,
+    rough_scan_half_width_deg: float = 0.5,
+    rough_scan_points: int = 82,
+    rough_fourier_orders: int = 3,
+    rough_x_resolution_nm: float = 1.0,
+    rough_z_resolution_nm: float = 1.0,
+    fine_scan_half_width_deg: float = 0.1,
+    fine_scan_points: int = 81,
+    fine_fourier_orders: int = 5,
+    fine_x_resolution_nm: float = 0.5,
+    fine_z_resolution_nm: float = 0.5,
+    final_fourier_orders: int = 25,
+    final_x_resolution_nm: float = 0.3,
+    final_z_resolution_nm: float = 0.3,
+    multilayer_bragg_order: int = 1,
+    roughness_sigma_nm: float | None = None,
     precise_peak_selection_mode: PeakSelectionMode = "max",
-    **case_defaults: object,
 ) -> Iterator[dict[str, object]]:
     """Yield energy-only cases for the multilayer theta-search workflow.
+
+    Creates simplified case dictionaries that trigger the multilayer theta-search
+    workflow during batch execution. The workflow internally performs a three-stage
+    adaptive angular scan: rough scan, precise scan, and final solve.
+
+    This workflow automatically determines the optimal grazing angle for each
+    energy point, making it ideal for multilayer gratings where the Bragg angle
+    shifts with photon energy.
 
     Args:
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
-        case_id_prefix: Prefix used for stable generated case IDs.
+        diffraction_order: Positive diffraction order used by the theta-search workflow.
+        rough_scan_half_width_deg: Rough scan half-width around the estimate.
+        rough_scan_points: Number of rough scan points.
+        rough_fourier_orders: Fourier order used during the rough scan.
+        rough_x_resolution_nm: X resolution used during the rough scan.
+        rough_z_resolution_nm: Z resolution used during the rough scan.
+        fine_scan_half_width_deg: Precise scan half-width around the rough maximum.
+        fine_scan_points: Number of precise scan points.
+        fine_fourier_orders: Fourier order used during the precise scan.
+        fine_x_resolution_nm: X resolution used during the precise scan.
+        fine_z_resolution_nm: Z resolution used during the precise scan.
+        final_fourier_orders: Fourier order used during the final solve.
+        final_x_resolution_nm: X resolution used during the final solve.
+        final_z_resolution_nm: Z resolution used during the final solve.
+        multilayer_bragg_order: Positive Bragg order used for the analytical estimate.
+        roughness_sigma_nm: Optional rms roughness in nanometers.
         precise_peak_selection_mode: Mode used to select the final theta from the
-            precise scan for each generated case.
-        **case_defaults: Additional case fields copied into every yielded case.
+            precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
+            local Gaussian, and ``"voigt"`` fits a local Voigt profile.
 
     Yields:
-        Case dictionaries suitable for :class:`BatchSimulationRunner`.
-    """
+        Case dictionaries suitable for :class:`BatchSimulationRunner` with
+        workflow-specific fields stored in the case dictionary and stable
+        internally generated case IDs.
 
-    default_fields = {
-        "workflow": "multilayer_theta_search",
-        "rough_fourier_orders": 3,
-        "fine_fourier_orders": 5,
-        "final_fourier_orders": 25,
-        "rough_x_resolution_nm": 1.0,
-        "rough_z_resolution_nm": 1.0,
-        "fine_x_resolution_nm": 0.5,
-        "fine_z_resolution_nm": 0.5,
-        "final_x_resolution_nm": 0.3,
-        "final_z_resolution_nm": 0.3,
-        "rough_scan_half_width_deg": 0.5,
-        "rough_scan_points": 82,
-        "precise_scan_half_width_deg": 0.1,
-        "precise_scan_points": 81,
-        "multilayer_bragg_order": 1,
-        "precise_peak_selection_mode": precise_peak_selection_mode,
-    }
-    default_fields.update(case_defaults)
+    Example:
+        >>> grating = grax.BlazedGrating(period_nm=500, blaze_angle=10, height_nm=100)
+        >>> cases = multilayer_theta_search_cases(
+        ...     grating=grating,
+        ...     energies_ev=[500, 600, 700],
+        ...     precise_peak_selection_mode="gauss"
+        ... )
+    """
 
     for index, energy_ev in enumerate(energies_ev):
         yield {
-            **default_fields,
-            "case_id": f"{case_id_prefix}-{index:08d}",
+            "workflow": "multilayer_theta_search",
+            "rough_scan_half_width_deg": rough_scan_half_width_deg,
+            "rough_scan_points": rough_scan_points,
+            "rough_fourier_orders": rough_fourier_orders,
+            "rough_x_resolution_nm": rough_x_resolution_nm,
+            "rough_z_resolution_nm": rough_z_resolution_nm,
+            "fine_scan_half_width_deg": fine_scan_half_width_deg,
+            "fine_scan_points": fine_scan_points,
+            "fine_fourier_orders": fine_fourier_orders,
+            "fine_x_resolution_nm": fine_x_resolution_nm,
+            "fine_z_resolution_nm": fine_z_resolution_nm,
+            "final_fourier_orders": final_fourier_orders,
+            "final_x_resolution_nm": final_x_resolution_nm,
+            "final_z_resolution_nm": final_z_resolution_nm,
+            "multilayer_bragg_order": multilayer_bragg_order,
+            "roughness_sigma_nm": roughness_sigma_nm,
+            "precise_peak_selection_mode": precise_peak_selection_mode,
+            "case_id": f"{_THETA_SEARCH_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
+            "diffraction_order": int(diffraction_order),
         }
-
 
 
 def monochromator_grazing_angles_deg(
@@ -210,4 +289,3 @@ def monochromator_grazing_angles_deg(
     wavelengths_nm = 1239.8 / np.asarray(energy_ev, dtype=float)
     alpha_deg = np.asarray([solve_alpha_deg(float(w)) for w in wavelengths_nm], dtype=float)
     return 90.0 - alpha_deg
-

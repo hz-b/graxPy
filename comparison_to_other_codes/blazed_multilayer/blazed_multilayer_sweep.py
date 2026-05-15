@@ -95,7 +95,6 @@ grating = rp.BlazedGrating(
 cases = rp.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
-    case_id_prefix="blazed-multilayer",
 )
 
 runner = rp.BatchSimulationRunner(
@@ -110,7 +109,6 @@ runner = rp.BatchSimulationRunner(
     max_workers=15,
     checkpoint_dir=output_dir / "checkpoints",
     resume=True,
-    total_cases=len(energy_angle_pairs),
 )
 
 csv_path = output_dir / "blazed_multilayer_all_orders.csv"

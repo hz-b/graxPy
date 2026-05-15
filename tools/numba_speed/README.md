@@ -6,9 +6,9 @@ These examples are intended for profiling/investigation workflows only.
 
 ## Location
 
-- `tools/fourier_profiling_examples/profile_single_rcwa_case.py`
-- `tools/fourier_profiling_examples/profile_multi_energy_numba_vs_legacy.py`
-- `tools/fourier_profiling_examples/plot_multi_energy_numba_vs_legacy.py`
+- `tools/numba_speed/profile_single_rcwa_case.py`
+- `tools/numba_speed/profile_multi_energy_numba_vs_legacy.py`
+- `tools/numba_speed/plot_multi_energy_numba_vs_legacy.py`
 
 ## Fixed simulation settings
 
@@ -34,15 +34,15 @@ Multi-energy script uses a configurable energy range with defaults:
 From the repository root:
 
 ```bash
-.venv/bin/python tools/fourier_profiling_examples/profile_single_rcwa_case.py
+.venv/bin/python tools/numba_speed/profile_single_rcwa_case.py
 ```
 
 ```bash
-.venv/bin/python tools/fourier_profiling_examples/profile_multi_energy_numba_vs_legacy.py
+.venv/bin/python tools/numba_speed/profile_multi_energy_numba_vs_legacy.py
 ```
 
 ```bash
-.venv/bin/python tools/fourier_profiling_examples/plot_multi_energy_numba_vs_legacy.py
+.venv/bin/python tools/numba_speed/plot_multi_energy_numba_vs_legacy.py
 ```
 
 Optional arguments:
@@ -52,8 +52,8 @@ Optional arguments:
 - Multi-energy:
   - none (fully reproducible fixed settings)
 - Plotting:
-  - `--csv-path` (default: `tools/fourier_profiling_examples/results/multi_energy_numba_vs_legacy.csv`)
-  - `--output-dir` (default: `tools/fourier_profiling_examples/results`)
+  - `--csv-path` (default: `tools/numba_speed/results/multi_energy_numba_vs_legacy.csv`)
+  - `--output-dir` (default: `tools/numba_speed/results`)
 
 ## Created results
 
@@ -66,9 +66,8 @@ Single-case script writes:
 
 When `--fourier-backend all` is used, it also writes backend-specific reports for:
 
-- `vectorized-harmonics`
-- `phase-recursive`
-- `phase-table-per-texture`
+- `baseline`
+- `numba-optional`
 
 Multi-energy script writes:
 

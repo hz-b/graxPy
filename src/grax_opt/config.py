@@ -126,7 +126,12 @@ class BlazedAxConfig:
     loss_name: str = "mse"
     failure_penalty: float = 1.0e6
     objective_sem: float = 1.0e-6
+    enable_early_stopping: bool = False
+    early_stopping_patience: int = 8
+    early_stopping_min_relative_improvement: float = 5.0e-3
+    early_stopping_warmup_trials: int = 8
     save_best_fit_plot: bool = True
+    save_loss_plot: bool = True
     evaluation_energies_ev: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -151,6 +156,17 @@ class BlazedAxConfig:
             raise ValueError("failure_penalty must be > 0.")
         if not math.isfinite(self.objective_sem) or self.objective_sem <= 0.0:
             raise ValueError("objective_sem must be finite and > 0.")
+        if self.early_stopping_patience <= 0:
+            raise ValueError("early_stopping_patience must be > 0.")
+        if (
+            not math.isfinite(self.early_stopping_min_relative_improvement)
+            or self.early_stopping_min_relative_improvement < 0.0
+        ):
+            raise ValueError(
+                "early_stopping_min_relative_improvement must be finite and >= 0."
+            )
+        if self.early_stopping_warmup_trials < 0:
+            raise ValueError("early_stopping_warmup_trials must be >= 0.")
         if len(self.evaluation_energies_ev) == 0:
             raise ValueError("evaluation_energies_ev must be provided and non-empty.")
         normalized_energies = sorted(
@@ -209,7 +225,12 @@ class LaminarAxConfig:
     loss_name: str = "mse"
     failure_penalty: float = 1.0e6
     objective_sem: float = 1.0e-6
+    enable_early_stopping: bool = False
+    early_stopping_patience: int = 8
+    early_stopping_min_relative_improvement: float = 5.0e-3
+    early_stopping_warmup_trials: int = 8
     save_best_fit_plot: bool = True
+    save_loss_plot: bool = True
     evaluation_energies_ev: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -236,6 +257,17 @@ class LaminarAxConfig:
             raise ValueError("failure_penalty must be > 0.")
         if not math.isfinite(self.objective_sem) or self.objective_sem <= 0.0:
             raise ValueError("objective_sem must be finite and > 0.")
+        if self.early_stopping_patience <= 0:
+            raise ValueError("early_stopping_patience must be > 0.")
+        if (
+            not math.isfinite(self.early_stopping_min_relative_improvement)
+            or self.early_stopping_min_relative_improvement < 0.0
+        ):
+            raise ValueError(
+                "early_stopping_min_relative_improvement must be finite and >= 0."
+            )
+        if self.early_stopping_warmup_trials < 0:
+            raise ValueError("early_stopping_warmup_trials must be >= 0.")
         if len(self.evaluation_energies_ev) == 0:
             raise ValueError("evaluation_energies_ev must be provided and non-empty.")
         normalized_energies = sorted(

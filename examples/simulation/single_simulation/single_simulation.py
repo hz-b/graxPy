@@ -42,6 +42,7 @@ result = rp.run_simulation(
     grazing_angle_deg=grazing_angle_deg,
     diffraction_order=diffraction_order,
     fourier_orders=fourier_orders,
+    backend="numba",
 )
 
 csv_path = output_dir / "single_simulation.csv"
