@@ -101,7 +101,42 @@ class InitialLaminarGrating:
 
 @dataclass(frozen=True)
 class BlazedAxConfig:
-    """Run configuration for Ax-based blazed-grating fitting."""
+    """Run configuration for Ax-based blazed-grating fitting.
+
+    Attributes:
+        initial_grating: Initial/fixed blazed grating definition.
+        measurement_path: Path to two-column measurement data (energy, efficiency).
+        output_dir: Directory where optimizer artifacts are written.
+        cff: Constant-focus factor used by monochromator geometry.
+        diffraction_order: Positive diffraction order to optimize.
+        fourier_orders: Fourier truncation order for RCWA evaluations.
+        roughness_sigma_nm: Optional fixed roughness sigma in nanometers.
+        validate_physical_results: Whether to validate physical output ranges.
+        total_trials: Total Ax trials to run.
+        batch_size: Number of candidates proposed/evaluated per optimizer batch.
+        random_seed: Optional random seed for deterministic Ax behavior.
+        optimize_period_lpermm: Whether period is an optimization variable.
+        optimize_blaze_angle_deg: Whether blaze angle is optimized.
+        optimize_anti_blaze_angle_deg: Whether anti-blaze angle is optimized.
+        optimize_top_cap_thickness_nm: Whether top-cap thickness is optimized.
+        period_lpermm_bounds: Optional bounds for period optimization.
+        blaze_angle_deg_bounds: Optional bounds for blaze-angle optimization.
+        anti_blaze_angle_deg_bounds: Optional bounds for anti-blaze-angle optimization.
+        top_cap_thickness_nm_bounds: Optional bounds for top-cap-thickness optimization.
+        objective_name: Objective metric name reported to Ax.
+        experiment_name: Experiment label persisted in optimizer artifacts.
+        loss_name: Loss metric used for trial scoring.
+        failure_penalty: Finite penalty assigned to failed simulations.
+        objective_sem: Reported objective standard error for Ax.
+        enable_early_stopping: Whether early stopping logic is enabled.
+        early_stopping_patience: Allowed non-improving trials before stopping.
+        early_stopping_min_relative_improvement: Relative improvement threshold.
+        early_stopping_warmup_trials: Trials to complete before early-stop checks.
+        save_best_fit_plot: Whether to write ``best_fit.png``.
+        save_loss_plot: Whether to write ``optimization_loss_history.png``.
+        backend: Requested compute backend (for example ``"auto"``, ``"numba"``, ``"numpy"``).
+        evaluation_energies_ev: Discrete energies (eV) used for objective evaluation.
+    """
 
     initial_grating: InitialBlazedGrating
     measurement_path: Path
@@ -205,7 +240,50 @@ class BlazedAxConfig:
 
 @dataclass(frozen=True)
 class LaminarAxConfig:
-    """Run configuration for Ax-based laminar-grating fitting."""
+    """Run configuration for Ax-based laminar-grating fitting.
+
+    Attributes:
+        initial_grating: Initial/fixed laminar grating definition.
+        measurement_path: Path to two-column measurement data (energy, efficiency).
+        output_dir: Directory where optimizer artifacts are written.
+        angle_mode: Evaluation geometry mode (``"fixed"`` or ``"cff"``).
+        grazing_angle_deg: Fixed grazing angle in degrees when ``angle_mode="fixed"``.
+        cff: Constant-focus factor used when ``angle_mode="cff"``.
+        diffraction_order: Positive diffraction order to optimize.
+        fourier_orders: Fourier truncation order for RCWA evaluations.
+        roughness_sigma_nm: Optional fixed roughness sigma in nanometers.
+        validate_physical_results: Whether to validate physical output ranges.
+        total_trials: Total Ax trials to run.
+        batch_size: Number of candidates proposed/evaluated per optimizer batch.
+        random_seed: Optional random seed for deterministic Ax behavior.
+        optimize_period_lpermm: Whether period is an optimization variable.
+        optimize_width_to_period_ratio: Whether width/period ratio is optimized.
+        optimize_depth_nm: Whether groove depth is optimized.
+        optimize_left_wall_angle_deg: Whether left wall angle is optimized.
+        optimize_right_wall_angle_deg: Whether right wall angle is optimized.
+        optimize_top_cap_thickness_nm: Whether top-cap thickness is optimized.
+        optimize_roughness_sigma_nm: Whether roughness sigma is optimized.
+        period_lpermm_bounds: Bounds for period optimization when enabled.
+        width_to_period_ratio_bounds: Bounds for width/period-ratio optimization.
+        depth_nm_bounds: Bounds for depth optimization.
+        left_wall_angle_deg_bounds: Bounds for left-wall-angle optimization.
+        right_wall_angle_deg_bounds: Bounds for right-wall-angle optimization.
+        top_cap_thickness_nm_bounds: Bounds for top-cap-thickness optimization.
+        roughness_sigma_nm_bounds: Bounds for roughness optimization.
+        objective_name: Objective metric name reported to Ax.
+        experiment_name: Experiment label persisted in optimizer artifacts.
+        loss_name: Loss metric used for trial scoring.
+        failure_penalty: Finite penalty assigned to failed simulations.
+        objective_sem: Reported objective standard error for Ax.
+        enable_early_stopping: Whether early stopping logic is enabled.
+        early_stopping_patience: Allowed non-improving trials before stopping.
+        early_stopping_min_relative_improvement: Relative improvement threshold.
+        early_stopping_warmup_trials: Trials to complete before early-stop checks.
+        save_best_fit_plot: Whether to write ``best_fit.png``.
+        save_loss_plot: Whether to write ``optimization_loss_history.png``.
+        backend: Requested compute backend (for example ``"auto"``, ``"numba"``, ``"numpy"``).
+        evaluation_energies_ev: Discrete energies (eV) used for objective evaluation.
+    """
 
     initial_grating: InitialLaminarGrating
     measurement_path: Path

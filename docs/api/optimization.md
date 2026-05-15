@@ -1,63 +1,50 @@
 # Optimization API (`grax_opt`)
 
-The optional `grax_opt` package provides Ax-based fitting helpers for grating
-parameter optimization against measured efficiency data.
-
 Install optional dependencies first:
 
 ```bash
 pip install .[opt]
 ```
 
-## Main entrypoints
+This page intentionally exposes only the two public optimizer entrypoints.
 
-- `grax_opt.optimize_laminar(config: LaminarAxConfig) -> OptimizationResult`
-- `grax_opt.optimize_blazed(config: BlazedAxConfig) -> OptimizationResult`
+```{eval-rst}
+.. autofunction:: grax_opt.optimize_laminar
+```
 
-Both functions run an Ax optimization loop and emit artifacts in
-`config.output_dir`.
+```{eval-rst}
+.. autofunction:: grax_opt.optimize_blazed
+```
 
-## Core configuration types
+## Configuration classes
 
-- `LaminarAxConfig`
-- `BlazedAxConfig`
-- `InitialLaminarGrating`
-- `InitialBlazedGrating`
-- `ParameterBounds`
+```{eval-rst}
+.. autoclass:: grax_opt.LaminarAxConfig
+   :members:
+```
 
-These define:
+```{eval-rst}
+.. autoclass:: grax_opt.BlazedAxConfig
+   :members:
+```
 
-- initial geometry/materials
-- which parameters are optimized
-- bounds for each optimized parameter
-- solver/evaluation settings (order, Fourier terms, objective settings)
+```{eval-rst}
+.. autoclass:: grax_opt.ParameterBounds
+   :members:
+```
 
 ## Result type
 
-`OptimizationResult` includes:
+```{eval-rst}
+.. autoclass:: grax_opt.OptimizationResult
+   :members:
+```
 
-- `best_parameters`: optimized Ax parameter values
-- `best_grating_parameters`: fully resolved grating parameters for simulation
-- `best_loss`: best objective value found
-- `measurement_path`: source measurement file used during fitting
-- `result_json_path`: path to persisted best-result JSON
-- `trial_history_csv_path`: per-trial loss and parameter history
-- `best_fit_plot_path`: optional measurement-vs-fit plot
-- `loss_history_plot_path`: optional optimization-loss history plot
-- `trial_records`: in-memory trial summaries
-- `stopped_early`, `completed_trials`, `early_stop_reason`
+## Utility
 
-## Typical artifact files
-
-Depending on workflow scripts, common files are:
-
-- `best_result.json`
-- `trial_history.csv`
-- `fitted_parameters.json`
-- `simulated_curve_initial.csv`
-- `simulated_curve_fitted.csv`
-- `best_fit.png`
-- `optimization_loss_history.png`
+```{eval-rst}
+.. autofunction:: grax_opt.json_safe_grating_parameters
+```
 
 ## See tutorials
 

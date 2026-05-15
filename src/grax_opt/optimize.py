@@ -752,12 +752,39 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
 
 
 def optimize_blazed(config: BlazedAxConfig) -> OptimizationResult:
-    """Run Ax optimization for a blazed grating."""
+    """Run Ax optimization for a blazed grating.
+
+    Args:
+        config: Blazed optimizer configuration including initial grating
+            geometry, optimization bounds, trial count, and output directory.
+
+    Returns:
+        OptimizationResult with the best parameters, resolved grating
+        parameters, best loss, and persisted artifact paths.
+
+    Raises:
+        ImportError: If Ax is not installed (install with ``pip install .[opt]``).
+        ValueError: If ``config`` fails dataclass validation.
+    """
 
     return _optimize_grating(config)
 
 
 def optimize_laminar(config: LaminarAxConfig) -> OptimizationResult:
-    """Run Ax optimization for a laminar grating."""
+    """Run Ax optimization for a laminar grating.
+
+    Args:
+        config: Laminar optimizer configuration including initial grating
+            geometry, optimization bounds, evaluation mode, trial count, and
+            output directory.
+
+    Returns:
+        OptimizationResult with the best parameters, resolved grating
+        parameters, best loss, and persisted artifact paths.
+
+    Raises:
+        ImportError: If Ax is not installed (install with ``pip install .[opt]``).
+        ValueError: If ``config`` fails dataclass validation.
+    """
 
     return _optimize_grating(config)
