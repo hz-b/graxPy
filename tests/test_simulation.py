@@ -62,6 +62,7 @@ EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
 ]
+OPTIMIZER_EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "optimizer"
 
 
 def build_test_grating() -> LaminarGrating:
@@ -1576,6 +1577,26 @@ def test_public_examples_do_not_expose_quick_mode_flags() -> None:
         assert "Quick mode" not in source
 
 
+def test_optimizer_example_assets_exist() -> None:
+    expected_paths = [
+        OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py",
+        OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py",
+        OPTIMIZER_EXAMPLE_ROOT / "measured_alpha4deg_order1.csv",
+        OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_Si_cxro.txt",
+        OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_Pt_cxro.txt",
+        OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_C_cxro.txt",
+    ]
+    for path in expected_paths:
+        assert path.exists(), f"Missing optimizer example asset: {path}"
+
+
+def test_optimizer_example_scripts_compile() -> None:
+    import py_compile
+
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py"), doraise=True)
+
+
 def test_multilayer_theta_search_docs_use_grouped_canonical_arguments() -> None:
     example_path = (
         Path(__file__).resolve().parents[1]
@@ -1589,7 +1610,8 @@ def test_multilayer_theta_search_docs_use_grouped_canonical_arguments() -> None:
     example_source = example_path.read_text(encoding="utf-8")
     tutorial_source = tutorial_path.read_text(encoding="utf-8")
     example_call = example_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
-    tutorial_call = tutorial_source.split("run_multilayer_theta_search(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
+    tutorial_call = tutorial_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
+    assert "run_multilayer_theta_search(" not in tutorial_source
 
     for call_block in (example_call, tutorial_call):
         assert call_block.index("multilayer_bragg_order") < call_block.index("rough_scan_half_width_deg")
