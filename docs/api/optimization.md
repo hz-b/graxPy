@@ -61,5 +61,5 @@ Depending on workflow scripts, common files are:
 
 ## See tutorials
 
-- [Optimizer Example](../tutorials/optimizer-laminar-fit.md)
-- [Optimizer Blazed Example](../tutorials/optimizer-blazed-fit.md)
+- [Laminar Grating](../tutorials/optimizer-laminar-fit.md)
+- [Blazed Grating](../tutorials/optimizer-blazed-fit.md)

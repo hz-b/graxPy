@@ -1,4 +1,4 @@
-# Optimizer Example
+# Laminar Grating
 
 This tutorial documents the maintained optimizer workflow in
 `examples/optimizer` for fitting a laminar grating model to measured
@@ -41,13 +41,13 @@ PY
 Run only the fit step:
 
 ```bash
-python examples/optimizer/optimizer_grating/0_fit_laminar_grating.py
+python examples/optimizer/0_fit_laminar_grating.py
 ```
 
 Run the full workflow:
 
 ```bash
-./examples/optimizer/optimizer_grating/run_all.sh
+./examples/optimizer/run_all.sh
 ```
 
 The full workflow runs:

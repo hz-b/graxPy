@@ -210,5 +210,50 @@ fi
 if [[ "${LAUNCH_HTML}" == true ]]; then
     echo
     echo "Opening HTML documentation..."
-    xdg-open "${HTML_BUILD_DIR}/index.html" >/dev/null 2>&1 &
+    HTML_INDEX="${HTML_BUILD_DIR}/index.html"
+    DOCS_BROWSER="${DOCS_BROWSER:-google-chrome}"
+    if command -v "${DOCS_BROWSER}" >/dev/null 2>&1; then
+        if "${DOCS_BROWSER}" "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif "${DOCS_BROWSER}" "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v xdg-open >/dev/null 2>&1 && xdg-open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v gio >/dev/null 2>&1 && gio open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v python3 >/dev/null 2>&1 && python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        else
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    elif command -v xdg-open >/dev/null 2>&1; then
+        if xdg-open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v gio >/dev/null 2>&1 && gio open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v python3 >/dev/null 2>&1 && python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        else
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    elif command -v gio >/dev/null 2>&1; then
+        if gio open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v python3 >/dev/null 2>&1 && python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        else
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    elif command -v python3 >/dev/null 2>&1; then
+        if ! python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    else
+        echo "Could not auto-open browser."
+        echo "Open manually: ${HTML_INDEX}"
+    fi
 fi

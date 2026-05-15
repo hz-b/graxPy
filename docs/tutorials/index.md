@@ -11,6 +11,5 @@ materials
 gratings
 simulations
 acceleration-backend
-optimizer-laminar-fit
-optimizer-blazed-fit
+optimizer
 ```

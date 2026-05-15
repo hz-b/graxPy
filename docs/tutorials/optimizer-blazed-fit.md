@@ -1,7 +1,7 @@
-# Optimizer Blazed Example
+# Blazed Grating
 
 This tutorial documents the blazed optimizer workflow in
-`examples/optimizer/optimizer_blazed` for fitting a blazed grating model to measured
+`examples/optimizer_blazed` for fitting a blazed grating model to measured
 monochromator efficiency data.
 
 For API details of optimizer functions/configs, see
@@ -28,13 +28,13 @@ pip install .[opt]
 Run only the fit step:
 
 ```bash
-python examples/optimizer/optimizer_blazed/0_fit_blazed_grating.py
+python examples/optimizer_blazed/0_fit_blazed_grating.py
 ```
 
 Run the full workflow:
 
 ```bash
-./examples/optimizer/optimizer_blazed/run_all.sh
+./examples/optimizer_blazed/run_all.sh
 ```
 
 The full workflow runs:
@@ -62,7 +62,7 @@ Optimizer compute: CPU | model=... | torch=... | cuda=...
 
 Main output directory:
 
-- `examples/optimizer/optimizer_blazed/results/blazed_fit/`
+- `examples/optimizer_blazed/results/blazed_fit/`
 
 Key files:
 
