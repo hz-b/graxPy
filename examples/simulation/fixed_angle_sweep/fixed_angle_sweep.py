@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import argparse
 
 import numpy as np
 import grax as rp
@@ -25,37 +24,21 @@ grating = rp.LaminarGrating(
     z_resolution_nm=0.1,
 )
 
-parser = argparse.ArgumentParser(description="Fixed-angle energy sweep")
-parser.add_argument(
-    "--quick",
-    action="store_true",
-    help="Run with fewer energy points for quick testing",
-)
 output_dir = Path(__file__).resolve().parent / "results"
-
-args = parser.parse_args()
 output_dir.mkdir(parents=True, exist_ok=True)
 
 grazing_angle_deg = 4.0
-
-if args.quick:
-    energies_ev = np.linspace(100.0, 300.0, 10)
-    print("Quick mode: 10 energy points")
-else:
-    energies_ev = np.arange(50.0, 650.0, 10)
+energies_ev = np.arange(50.0, 650.0, 10)
 
 cases = rp.fixed_angle_cases(
     grating=grating,
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
-    case_id_prefix="fixed-laminar",
 )
-
-default_fourier = 5 if args.quick else 20
 
 runner = rp.BatchSimulationRunner(
     default_diffraction_order=1,
-    default_fourier_orders=default_fourier,
+    default_fourier_orders=20,
     show_progress=True,
     live_plot=True,
     live_plot_x_key="energy_ev",

@@ -46,6 +46,8 @@ from ..peak_fitting import PeakSelectionMode
 
 logger = logging.getLogger(__name__)
 
+_THETA_RETRY_JITTER_DEG = (0.002, -0.002, 0.005)
+
 
 def _simulation_api():
     """Return the public simulation package for monkeypatch-compatible dispatch."""
@@ -189,37 +191,34 @@ def run_multilayer_theta_search_sweep(
     energies_ev: Iterable[float],
     output_dir: str | Path,
     diffraction_order: int = 1,
-    case_id_prefix: str = "multilayer-theta-search",
-    rough_fourier_orders: int = 3,
-    fine_fourier_orders: int = 5,
-    final_fourier_orders: int = 25,
-    rough_x_resolution_nm: float = 1.0,
-    rough_z_resolution_nm: float = 1.0,
-    fine_x_resolution_nm: float = 0.5,
-    fine_z_resolution_nm: float = 0.5,
-    final_x_resolution_nm: float = 0.3,
-    final_z_resolution_nm: float = 0.3,
+    multilayer_bragg_order: int = 1,
     rough_scan_half_width_deg: float = 0.5,
     rough_scan_points: int = 82,
-    precise_scan_half_width_deg: float = 0.1,
-    precise_scan_points: int = 81,
-    multilayer_bragg_order: int = 1,
+    rough_fourier_orders: int = 3,
+    rough_x_resolution_nm: float = 1.0,
+    rough_z_resolution_nm: float = 1.0,
+    fine_scan_half_width_deg: float = 0.1,
+    fine_scan_points: int = 81,
+    fine_fourier_orders: int = 5,
+    fine_x_resolution_nm: float = 0.5,
+    fine_z_resolution_nm: float = 0.5,
+    final_fourier_orders: int = 25,
+    final_x_resolution_nm: float = 0.3,
+    final_z_resolution_nm: float = 0.3,
     roughness_sigma_nm: float | None = None,
+    precise_peak_selection_mode: PeakSelectionMode = "max",
+    retry_on_selected_efficiency_zero: bool = True,
+    retry_selected_efficiency_threshold: float = 1e-4,
+    max_zero_efficiency_retries: int = 3,
     max_workers: MaxWorkers = None,
     show_progress: bool = True,
     live_plot: bool = False,
-    live_theta_scan_plot: bool = False,
     on_error: ErrorPolicy = "fail_fast",
     checkpoint_dir: str | Path | None = None,
     checkpoint_interval: int = 1,
     resume: bool = False,
     theta_tracking_mode: Literal["auto", "previous", "bragg"] = "auto",
     max_tracking_energy_step_ev: float | None = None,
-    precise_peak_selection_mode: PeakSelectionMode = "max",
-    retry_on_selected_efficiency_zero: bool = True,
-    retry_selected_efficiency_threshold: float = 1e-4,
-    max_zero_efficiency_retries: int = 3,
-    theta_retry_jitter_deg: tuple[float, ...] | None = None,
     save_profile_plot: bool = True,
     save_stack_plot: bool = True,
     backend: str = "numba",
@@ -231,29 +230,39 @@ def run_multilayer_theta_search_sweep(
         energies_ev: Photon energies in electronvolts.
         output_dir: Destination directory for CSV and plot outputs.
         diffraction_order: Positive diffraction order to optimize and report.
-        case_id_prefix: Prefix used for stable generated case IDs.
-        rough_fourier_orders: Fourier order used during the rough scan.
-        fine_fourier_orders: Fourier order used during the precise scan.
-        final_fourier_orders: Fourier order used during the final solve.
-        rough_x_resolution_nm: X resolution used during the rough scan.
-        rough_z_resolution_nm: Z resolution used during the rough scan.
-        fine_x_resolution_nm: X resolution used during the precise scan.
-        fine_z_resolution_nm: Z resolution used during the precise scan.
-        final_x_resolution_nm: X resolution used during the final solve.
-        final_z_resolution_nm: Z resolution used during the final solve.
+        multilayer_bragg_order: Positive Bragg order used for the analytical estimate.
         rough_scan_half_width_deg: Rough scan half-width around the analytical estimate.
         rough_scan_points: Number of rough scan points.
-        precise_scan_half_width_deg: Precise scan half-width around the rough maximum.
-        precise_scan_points: Number of precise scan points.
-        multilayer_bragg_order: Positive Bragg order used for the analytical estimate.
+        rough_fourier_orders: Fourier order used during the rough scan.
+        rough_x_resolution_nm: X resolution used during the rough scan.
+        rough_z_resolution_nm: Z resolution used during the rough scan.
+        fine_scan_half_width_deg: Precise scan half-width around the rough maximum.
+        fine_scan_points: Number of precise scan points.
+        fine_fourier_orders: Fourier order used during the precise scan.
+        fine_x_resolution_nm: X resolution used during the precise scan.
+        fine_z_resolution_nm: Z resolution used during the precise scan.
+        final_fourier_orders: Fourier order used during the final solve.
+        final_x_resolution_nm: X resolution used during the final solve.
+        final_z_resolution_nm: Z resolution used during the final solve.
         roughness_sigma_nm: Optional rms roughness in nanometers.
+        precise_peak_selection_mode: Mode used to select the final theta from the
+            precise scan. ``max`` uses the sampled maximum, ``gauss`` fits a local
+            Gaussian neighborhood, and ``voigt`` fits a local Voigt neighborhood.
+        retry_on_selected_efficiency_zero: Whether to retry inline multilayer theta-search
+            cases when selected efficiency is less than or equal to
+            ``retry_selected_efficiency_threshold``.
+        retry_selected_efficiency_threshold: Retry trigger threshold for selected
+            efficiency. Retries are attempted when selected efficiency is less
+            than or equal to this value.
+        max_zero_efficiency_retries: Maximum number of additional retries.
         max_workers: Optional batch worker count. ``"auto"`` calibrates from one
             completed theta-search case and available system memory before
             launching the remaining parallel work.
         show_progress: Whether to show a progress bar during execution.
         live_plot: Whether to update the standard batch live plot.
-        live_theta_scan_plot: Whether to show the theta-scan diagnostic window when eligible.
-        on_error: Batch error policy.
+        on_error: Per-case error policy forwarded to the batch runner. ``continue``
+            yields error results for failed cases and keeps going; ``fail_fast``
+            raises immediately and stops the sweep.
         checkpoint_dir: Optional checkpoint directory for the internal runner.
         checkpoint_interval: Flush interval for checkpoint writes.
         resume: Whether to resume from an existing checkpoint.
@@ -264,16 +273,6 @@ def run_multilayer_theta_search_sweep(
         max_tracking_energy_step_ev: Optional dense-step threshold override used by
             ``auto`` mode. When omitted, the threshold is derived from the median
             positive energy step in the requested sweep.
-        precise_peak_selection_mode: Mode used to select the final theta from the
-            precise scan. ``max`` uses the sampled maximum, ``gauss`` fits a local
-            Gaussian neighborhood, and ``voigt`` fits a local Voigt neighborhood.
-        retry_on_selected_efficiency_zero: Whether to retry zero-efficiency selected
-            order results in multilayer theta-search cases.
-        retry_selected_efficiency_threshold: Retry trigger threshold for selected
-            efficiency. Retries are attempted when selected efficiency is less
-            than or equal to this value.
-        max_zero_efficiency_retries: Maximum number of additional retries.
-        theta_retry_jitter_deg: Deterministic jitter offsets for retry attempts.
         save_profile_plot: Whether to save the grating profile plot.
         save_stack_plot: Whether to save the resolved stack schematic when available.
         backend: Fourier coefficient backend selector. Options: ``numpy`` (pure Python,
@@ -350,21 +349,20 @@ def run_multilayer_theta_search_sweep(
         multilayer_theta_search_cases(
             grating=grating,
             energies_ev=energy_list,
-            case_id_prefix=case_id_prefix,
             diffraction_order=diffraction_order,
-            rough_fourier_orders=rough_fourier_orders,
-            fine_fourier_orders=fine_fourier_orders,
-            final_fourier_orders=final_fourier_orders,
-            rough_x_resolution_nm=rough_x_resolution_nm,
-            rough_z_resolution_nm=rough_z_resolution_nm,
-            fine_x_resolution_nm=fine_x_resolution_nm,
-            fine_z_resolution_nm=fine_z_resolution_nm,
-            final_x_resolution_nm=final_x_resolution_nm,
-            final_z_resolution_nm=final_z_resolution_nm,
             rough_scan_half_width_deg=rough_scan_half_width_deg,
             rough_scan_points=rough_scan_points,
-            precise_scan_half_width_deg=precise_scan_half_width_deg,
-            precise_scan_points=precise_scan_points,
+            rough_fourier_orders=rough_fourier_orders,
+            rough_x_resolution_nm=rough_x_resolution_nm,
+            rough_z_resolution_nm=rough_z_resolution_nm,
+            fine_scan_half_width_deg=fine_scan_half_width_deg,
+            fine_scan_points=fine_scan_points,
+            fine_fourier_orders=fine_fourier_orders,
+            fine_x_resolution_nm=fine_x_resolution_nm,
+            fine_z_resolution_nm=fine_z_resolution_nm,
+            final_fourier_orders=final_fourier_orders,
+            final_x_resolution_nm=final_x_resolution_nm,
+            final_z_resolution_nm=final_z_resolution_nm,
             multilayer_bragg_order=multilayer_bragg_order,
             precise_peak_selection_mode=precise_peak_selection_mode,
             roughness_sigma_nm=roughness_sigma_nm,
@@ -420,11 +418,10 @@ def run_multilayer_theta_search_sweep(
         "max_fourier_orders": max(rough_fourier_orders, fine_fourier_orders, final_fourier_orders),
         "validate_physical_results": True,
         "max_reflected_efficiency": 1.05,
-        "min_efficiency": -1e-8,
-        "max_total_reflected_efficiency": 1.05,
+        "min_reflected_efficiency": -1e-8,
         "backend": backend,
     }
-    retry_jitter_values = (theta_retry_jitter_deg or (0.002, -0.002, 0.005))[: max(0, int(max_zero_efficiency_retries))]
+    retry_jitter_values = _THETA_RETRY_JITTER_DEG[: max(0, int(max_zero_efficiency_retries))]
     theta_continuity_tolerance_deg = 0.02
     def _tracking_metadata_from_case(case: dict[str, object]) -> dict[str, object]:
         """Extract tracking metadata from a case dictionary.
@@ -767,11 +764,11 @@ def run_multilayer_theta_search_sweep(
         rough_half_width_deg, precise_half_width_deg, source, source_energy, source_fwhm = _adaptive_scan_half_widths(
             energy_ev=float(case["energy_ev"]),
             initial_rough_half_width_deg=float(rough_scan_half_width_deg),
-            initial_precise_half_width_deg=float(precise_scan_half_width_deg),
+            initial_precise_half_width_deg=float(fine_scan_half_width_deg),
             completed_fwhm_by_energy=completed_fwhm_by_energy,
         )
         case["rough_scan_half_width_deg"] = rough_half_width_deg
-        case["precise_scan_half_width_deg"] = precise_half_width_deg
+        case["fine_scan_half_width_deg"] = precise_half_width_deg
         if source == "initial":
             logger.info(
                 "Energy %.2f eV: using initial scan widths rough=%.6f deg precise=%.6f deg",

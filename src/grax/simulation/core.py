@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import csv
 import importlib
 import logging
@@ -124,7 +125,6 @@ def run_simulation(
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
         min_efficiency: Minimum allowed efficiency.
         max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
-        _profiler: Internal profiler for performance measurements. For development/testing only.
         backend: Fourier coefficient backend selector. Options: "numpy" (default, pure Python), "numba" (JIT-compiled, requires numba package).
 
     Returns:
@@ -202,6 +202,15 @@ def run_simulation(
         fourier_orders=int(fourier_orders),
         roughness_sigma_nm=roughness_sigma_nm,
     )
+
+
+run_simulation.__signature__ = inspect.signature(run_simulation).replace(
+    parameters=[
+        parameter
+        for parameter in inspect.signature(run_simulation).parameters.values()
+        if parameter.name != "_profiler"
+    ]
+)
 
 
 def _clone_grating_with_overrides(

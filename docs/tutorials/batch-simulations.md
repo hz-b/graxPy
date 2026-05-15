@@ -23,9 +23,6 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 ```
 
-`total_cases` is optional. If omitted, the runner infers it automatically when
-the cases object is countable.
-
 ```{toctree}
 :maxdepth: 1
 

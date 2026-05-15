@@ -70,7 +70,6 @@ cases = rp.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
     grazing_angle_deg=4.0,
-    case_id_prefix="case",
     label="fixed-angle",
     solver_backend="s_matrix",
     roughness_sigma_nm=roughness_sigma_nm,
@@ -89,7 +88,6 @@ runner = rp.BatchSimulationRunner(
     on_error="fail_fast",
     resume=False,
     max_workers="auto",
-    total_cases=len(energies),
 )
 grating.plot_profile(grating_plot_path)
 batch_result = list(runner.run_cases(cases))

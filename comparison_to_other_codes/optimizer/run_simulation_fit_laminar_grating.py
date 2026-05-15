@@ -76,7 +76,6 @@ if angle_mode == "fixed":
         grating=grating,
         energies_ev=energies,
         grazing_angle_deg=float(fitted_payload["grazing_angle_deg"]),
-        case_id_prefix="case",
         label="fixed-angle",
         solver_backend=solver_backend,
     )
@@ -86,7 +85,6 @@ else:
         energies_ev=energies,
         diffraction_order=diffraction_order,
         cff=float(fitted_payload["cff"]),
-        case_id_prefix="case",
         label="monochromator",
         solver_backend=solver_backend,
     )
