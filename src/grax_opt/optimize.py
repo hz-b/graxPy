@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import inspect
 import json
+import platform
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,116 @@ from .config import BlazedAxConfig, LaminarAxConfig
 from .data import MeasurementData, load_measurement_data
 from .model import build_ax_parameters, resolve_grating_parameters, resolve_solver_parameters
 from .objective import build_evaluation_measurement, evaluate_trial, simulate_efficiency_curve
+
+
+def _is_cuda_usable() -> bool:
+    """Return whether PyTorch can safely use CUDA on this machine."""
+
+    try:
+        import torch
+    except ImportError:
+        return False
+    try:
+        return bool(torch.cuda.is_available())
+    except RuntimeError:
+        return False
+
+
+def _patch_torch_fork_rng_for_cpu_only() -> None:
+    """Prevent torch.random.fork_rng() from probing CUDA on CPU-only hosts.
+
+    AxClient uses torch.random.fork_rng() internally when generating BoTorch
+    trials. On hosts where PyTorch is built with CUDA support but the installed
+    NVIDIA driver is too old, the default implementation raises while trying to
+    initialize CUDA even though the optimization itself is CPU-only.
+    """
+
+    if _is_cuda_usable():
+        return
+
+    try:
+        import torch
+    except ImportError:
+        return
+
+    original_fork_rng = torch.random.fork_rng
+    if getattr(original_fork_rng, "_grax_cpu_only_patch", False):
+        return
+
+    def cpu_only_fork_rng(*args, **kwargs):
+        if not args and "devices" not in kwargs:
+            kwargs["devices"] = []
+        return original_fork_rng(*args, **kwargs)
+
+    cpu_only_fork_rng._grax_cpu_only_patch = True  # type: ignore[attr-defined]
+    torch.random.fork_rng = cpu_only_fork_rng
+
+
+def _detect_cpu_model() -> str:
+    """Best-effort CPU model detection."""
+
+    cpu_model = platform.processor().strip()
+    if cpu_model:
+        return cpu_model
+    cpuinfo_path = Path("/proc/cpuinfo")
+    if cpuinfo_path.exists():
+        for line in cpuinfo_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.lower().startswith("model name"):
+                _, _, value = line.partition(":")
+                model = value.strip()
+                if model:
+                    return model
+    return "unknown"
+
+
+def _build_optimizer_compute_banner(
+    *,
+    mode: str,
+    model: str,
+    torch_version: str,
+    torch_cuda_version: str,
+) -> str:
+    """Format startup compute context for optimizer runs."""
+
+    return (
+        f"Optimizer compute: {mode} | model={model} "
+        f"| torch={torch_version} | cuda={torch_cuda_version}"
+    )
+
+
+def _describe_optimizer_compute_context() -> str:
+    """Resolve optimizer compute context and return printable banner."""
+
+    try:
+        import torch
+    except ImportError:
+        return _build_optimizer_compute_banner(
+            mode="CPU",
+            model=_detect_cpu_model(),
+            torch_version="not-installed",
+            torch_cuda_version="unavailable",
+        )
+
+    torch_version = str(getattr(torch, "__version__", "unknown"))
+    cuda_version_raw = getattr(torch.version, "cuda", None)
+    torch_cuda_version = str(cuda_version_raw) if cuda_version_raw is not None else "unavailable"
+    if _is_cuda_usable():
+        try:
+            gpu_model = str(torch.cuda.get_device_name(0))
+        except RuntimeError:
+            gpu_model = "unknown"
+        return _build_optimizer_compute_banner(
+            mode="GPU",
+            model=gpu_model,
+            torch_version=torch_version,
+            torch_cuda_version=torch_cuda_version,
+        )
+    return _build_optimizer_compute_banner(
+        mode="CPU",
+        model=_detect_cpu_model(),
+        torch_version=torch_version,
+        torch_cuda_version=torch_cuda_version,
+    )
 
 
 @dataclass(frozen=True)
@@ -264,6 +375,8 @@ def _save_loss_history_plot(
 def _create_ax_client_for_config(config: BlazedAxConfig | LaminarAxConfig):
     """Create and initialize an Ax client for one optimization run."""
 
+    _patch_torch_fork_rng_for_cpu_only()
+    print(_describe_optimizer_compute_context())
     AxClient = _import_ax_client()
     client_kwargs: dict[str, object] = {}
     client_signature = inspect.signature(AxClient)

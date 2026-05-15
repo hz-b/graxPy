@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+from contextlib import contextmanager
 
 import numpy as np
 import pytest
@@ -790,3 +791,73 @@ def test_optimize_laminar_early_stopping_stops_on_plateau(
     payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
     assert payload["stopped_early"] is True
     assert payload["completed_trials"] == 3
+
+
+def test_cpu_only_fork_rng_patch_avoids_cuda_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch = pytest.importorskip("torch")
+    original_fork_rng = torch.random.fork_rng
+
+    @contextmanager
+    def sentinel_fork_rng(*args, **kwargs):
+        assert kwargs.get("devices") == []
+        yield
+
+    monkeypatch.setattr(optimize_module, "_is_cuda_usable", lambda: False)
+    monkeypatch.setattr(torch.random, "fork_rng", sentinel_fork_rng)
+
+    try:
+        optimize_module._patch_torch_fork_rng_for_cpu_only()
+
+        with torch.random.fork_rng():
+            pass
+    finally:
+        torch.random.fork_rng = original_fork_rng
+
+
+def test_build_optimizer_compute_banner_formats_output() -> None:
+    gpu_banner = optimize_module._build_optimizer_compute_banner(
+        mode="GPU",
+        model="NVIDIA RTX A4000",
+        torch_version="2.12.0+cu130",
+        torch_cuda_version="13.0",
+    )
+    cpu_banner = optimize_module._build_optimizer_compute_banner(
+        mode="CPU",
+        model="Intel(R) Xeon(R)",
+        torch_version="2.12.0+cu130",
+        torch_cuda_version="13.0",
+    )
+
+    assert gpu_banner == (
+        "Optimizer compute: GPU | model=NVIDIA RTX A4000 | torch=2.12.0+cu130 | cuda=13.0"
+    )
+    assert cpu_banner == (
+        "Optimizer compute: CPU | model=Intel(R) Xeon(R) | torch=2.12.0+cu130 | cuda=13.0"
+    )
+
+
+def test_create_ax_client_prints_compute_context_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = build_laminar_test_config(tmp_path)
+
+    class FakeAxClient:
+        def __init__(self, **_kwargs) -> None:
+            self.created = False
+
+        def create_experiment(self, objective_name, **_kwargs) -> None:
+            self.created = True
+
+    monkeypatch.setattr(optimize_module, "_patch_torch_fork_rng_for_cpu_only", lambda: None)
+    monkeypatch.setattr(optimize_module, "_describe_optimizer_compute_context", lambda: "BANNER")
+    monkeypatch.setattr(optimize_module, "_import_ax_client", lambda: FakeAxClient)
+
+    ax_client = optimize_module._create_ax_client_for_config(config)
+
+    captured = capsys.readouterr()
+    assert captured.out.count("BANNER") == 1
+    assert isinstance(ax_client, FakeAxClient)
