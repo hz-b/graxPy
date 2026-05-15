@@ -11,6 +11,7 @@ from example_config import measurement_path, results_dir
 fitted_parameters_path = results_dir / "fitted_parameters.json"
 initial_csv_path = results_dir / "simulated_curve_initial.csv"
 fitted_csv_path = results_dir / "simulated_curve_fitted.csv"
+alternative_fitted_csv_path = results_dir / "simulated_curve_fitted_alternative.csv"
 comparison_plot_path = results_dir / "blazed_fit_measurement_comparison.png"
 
 measurement = pd.read_csv(
@@ -21,6 +22,9 @@ measurement = pd.read_csv(
 ).apply(pd.to_numeric, errors="coerce").dropna()
 initial_frame = pd.read_csv(initial_csv_path)
 fitted_frame = pd.read_csv(fitted_csv_path)
+alternative_fitted_frame = (
+    pd.read_csv(alternative_fitted_csv_path) if alternative_fitted_csv_path.exists() else None
+)
 fitted_parameters = json.loads(fitted_parameters_path.read_text(encoding="utf-8"))
 evaluation_energies_ev = [float(v) for v in fitted_parameters.get("evaluation_energies_ev", [])]
 
@@ -31,6 +35,7 @@ figure, axis = plt.subplots(figsize=(11, 7))
 axis.plot(measurement["energy_ev"], measurement["efficiency"], "o", label="Measurement", markersize=2.5)
 axis.plot(initial_m1["energy_ev"], initial_m1["efficiency"], "-", label="Initial design")
 axis.plot(fitted_m1["energy_ev"], fitted_m1["efficiency"], "-", label="Fitted")
+
 if evaluation_energies_ev:
     y_min, y_max = axis.get_ylim()
     axis.vlines(evaluation_energies_ev, y_min, y_max, colors="red", linestyles=":", linewidth=0.8, label="Optimization energies")

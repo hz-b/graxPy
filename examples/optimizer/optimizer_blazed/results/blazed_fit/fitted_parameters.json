@@ -183,24 +183,25 @@
     1781.0,
     1791.0
   ],
-  "best_loss": 7.26513632118071e-05,
+  "best_loss": 6.917858494436578e-05,
   "best_parameters": {
-    "blaze_angle_deg": 0.743372216767164,
-    "anti_blaze_angle_deg": 5.0
+    "blaze_angle_deg": 0.7609051611058839,
+    "anti_blaze_angle_deg": 4.0,
+    "top_cap_thickness_nm": 0.3
   },
   "best_grating_parameters": {
     "period_lpermm": 600.0,
-    "blaze_angle_deg": 0.743372216767164,
-    "anti_blaze_angle_deg": 5.0,
+    "blaze_angle_deg": 0.7609051611058839,
+    "anti_blaze_angle_deg": 4.0,
     "substrate_material": "Si",
     "layer_material": "Au",
     "layer_thickness_nm": 30.0,
-    "top_cap_material": null,
-    "top_cap_thickness_nm": 0.0,
+    "top_cap_material": "C",
+    "top_cap_thickness_nm": 0.3,
     "z_resolution_nm": 0.5,
     "x_resolution_nm": 0.5
   },
   "stopped_early": false,
-  "completed_trials": 20,
+  "completed_trials": 50,
   "early_stop_reason": null
 }
