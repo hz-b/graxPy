@@ -186,10 +186,18 @@ EOF
 
             case "${PR_MERGE_CHOICE}" in
                 2)
-                    gh pr merge "${CURRENT_BRANCH}" --merge --delete-branch
+                    if [[ "${CURRENT_BRANCH}" == "develop" || "${CURRENT_BRANCH}" == "main" ]]; then
+                        gh pr merge "${CURRENT_BRANCH}" --merge
+                    else
+                        gh pr merge "${CURRENT_BRANCH}" --merge --delete-branch
+                    fi
                     ;;
                 3)
-                    gh pr merge "${CURRENT_BRANCH}" --auto --merge --delete-branch
+                    if [[ "${CURRENT_BRANCH}" == "develop" || "${CURRENT_BRANCH}" == "main" ]]; then
+                        gh pr merge "${CURRENT_BRANCH}" --auto --merge
+                    else
+                        gh pr merge "${CURRENT_BRANCH}" --auto --merge --delete-branch
+                    fi
                     ;;
                 *)
                     echo "Skipping automatic PR merge."
