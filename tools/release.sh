@@ -150,6 +150,53 @@ else
             --title "v${NEW_VERSION}" \
             --generate-notes
     fi
+
+    echo
+    read -rp "Create GitHub PR to main from current branch? [y/N]: " PR_CONFIRM
+
+    if [[ "${PR_CONFIRM}" == "y" || "${PR_CONFIRM}" == "Y" ]]; then
+        CURRENT_BRANCH="$(git branch --show-current)"
+
+        if [[ "${CURRENT_BRANCH}" == "main" ]]; then
+            echo "Current branch is main; skipping PR creation."
+        else
+            PR_TITLE="Release v${NEW_VERSION}: ${CURRENT_BRANCH} -> main"
+            PR_BODY=$(
+                cat <<EOF
+## Release promotion
+
+- Promote release changes from \`${CURRENT_BRANCH}\` to \`main\`.
+- Version: \`v${NEW_VERSION}\`
+
+EOF
+            )
+
+            gh pr create \
+                --base main \
+                --head "${CURRENT_BRANCH}" \
+                --title "${PR_TITLE}" \
+                --body "${PR_BODY}"
+
+            echo
+            echo "Select PR merge mode:"
+            echo "1) do not merge automatically"
+            echo "2) merge now (if allowed)"
+            echo "3) enable auto-merge when checks pass"
+            read -rp "Choice [1-3]: " PR_MERGE_CHOICE
+
+            case "${PR_MERGE_CHOICE}" in
+                2)
+                    gh pr merge "${CURRENT_BRANCH}" --merge --delete-branch
+                    ;;
+                3)
+                    gh pr merge "${CURRENT_BRANCH}" --auto --merge --delete-branch
+                    ;;
+                *)
+                    echo "Skipping automatic PR merge."
+                    ;;
+            esac
+        fi
+    fi
 fi
 
 echo
