@@ -541,7 +541,7 @@ def run_multilayer_theta_search(
             precise_center_deg = max(0.01, precise_center_deg - shift)
         else:
             precise_center_deg = precise_center_deg + shift
-        precise_half_width_deg *= 1.3
+        precise_half_width_deg *= 1.1
     precise_fwhm_deg = _precise_scan_fwhm_deg(precise_grazing_angles_deg, precise_efficiencies)
     peak_selection = select_peak_theta_from_scan(
         precise_grazing_angles_deg,
