@@ -80,7 +80,7 @@ Interpretation:
 
 Main output directory:
 
-- `examples/optimizer/optimizer_grating/results/laminar_fit/`
+- `examples/optimizer/optmizer_laminar/results/laminar_fit/`
 
 Key files:
 
@@ -96,8 +96,8 @@ Key files:
 ## Design vs Optimized Parameters
 
 The optimizer example starts from the design parameters defined in
-`examples/optimizer/optimizer_grating/0_fit_laminar_grating.py` and writes optimized values in
-`examples/optimizer/optimizer_grating/results/laminar_fit/fitted_parameters.json`.
+`examples/optimizer/optmizer_laminar/0_fit_laminar_grating.py` and writes optimized values in
+`examples/optimizer/optmizer_laminar/results/laminar_fit/fitted_parameters.json`.
 
 | Parameter | Optimized in this example | Design value | Optimized value |
 | --- | --- | --- | --- |

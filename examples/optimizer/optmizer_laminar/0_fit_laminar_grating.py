@@ -15,6 +15,7 @@ from grax_opt import (
 )
 from example_config import (
     angle_mode,
+    batch_size,
     optimizer_backend,
     cff,
     depth_nm,
@@ -136,6 +137,7 @@ fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8
 
 print(f"Measurement: {result.measurement_path}")
 print(f"Optimizer backend request: {optimizer_backend}")
+print(f"Batch size: {batch_size}")
 print(f"Best loss: {result.best_loss:.6g}")
 print(f"Best parameters: {result.best_parameters}")
 print(f"Completed trials: {result.completed_trials}")

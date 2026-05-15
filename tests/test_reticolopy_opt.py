@@ -1017,7 +1017,7 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
         str(repo_root / "examples" / "optimizer" / "optimizer_blazed" / "example_config.py")
     )
     laminar_config = runpy.run_path(
-        str(repo_root / "examples" / "optimizer" / "optimizer_grating" / "example_config.py")
+        str(repo_root / "examples" / "optimizer" / "optmizer_laminar" / "example_config.py")
     )
 
     assert blazed_config["optimizer_backend"] == "auto"

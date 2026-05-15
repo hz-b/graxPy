@@ -18,8 +18,8 @@ left_wall_angle_deg = 15.0
 right_wall_angle_deg = 15.0
 layer_thickness_nm = 28.77
 top_cap_thickness_nm = 0.3
-x_resolution_nm = 0.1
-z_resolution_nm = 0.1
+x_resolution_nm = 0.5
+z_resolution_nm = 0.5
 
 angle_mode = "fixed"
 grazing_angle_deg = 4.0
@@ -30,5 +30,6 @@ optimizer_backend = "auto"
 simulation_backend = "numba"
 
 total_trials = 20
+batch_size = 15
 random_seed = 7
 evaluation_energies_ev = np.arange(100.0, 501.0, 10.0)

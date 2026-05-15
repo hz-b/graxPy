@@ -1,8 +1,13 @@
 {
-  "experiment_name": "laminar_fit",
-  "objective_name": "loss",
-  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_grating/measured_alpha4deg_order1.csv",
-  "evaluation_mode": "discrete",
+  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optmizer_laminar/measured_alpha4deg_order1.csv",
+  "angle_mode": "fixed",
+  "grazing_angle_deg": 4.0,
+  "cff": 2.5,
+  "diffraction_order": 1,
+  "fourier_orders": 15,
+  "backend": "numba",
+  "backend_requested": "auto",
+  "backend_effective": "numba",
   "evaluation_energies_ev": [
     100.0,
     110.0,
@@ -68,14 +73,7 @@
     "z_resolution_nm": 0.1,
     "x_resolution_nm": 0.1
   },
-  "best_solver_parameters": {
-    "roughness_sigma_nm": null
-  },
   "stopped_early": false,
   "completed_trials": 60,
-  "early_stop_reason": null,
-  "backend_requested": "auto",
-  "backend_effective": "numba",
-  "angle_mode": "fixed",
-  "grazing_angle_deg": 4.0
+  "early_stop_reason": null
 }
