@@ -112,6 +112,7 @@ class BlazedAxConfig:
     roughness_sigma_nm: float | None = None
     validate_physical_results: bool = True
     total_trials: int = 20
+    batch_size: int = 1
     random_seed: int | None = None
     optimize_period_lpermm: bool = True
     optimize_blaze_angle_deg: bool = False
@@ -160,6 +161,8 @@ class BlazedAxConfig:
             raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
         if self.total_trials <= 0:
             raise ValueError("total_trials must be > 0.")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be > 0.")
         if self.failure_penalty <= 0.0:
             raise ValueError("failure_penalty must be > 0.")
         if not math.isfinite(self.objective_sem) or self.objective_sem <= 0.0:
@@ -215,6 +218,7 @@ class LaminarAxConfig:
     roughness_sigma_nm: float | None = None
     validate_physical_results: bool = True
     total_trials: int = 20
+    batch_size: int = 1
     random_seed: int | None = None
     optimize_period_lpermm: bool = True
     optimize_width_to_period_ratio: bool = True
@@ -264,6 +268,8 @@ class LaminarAxConfig:
             raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
         if self.total_trials <= 0:
             raise ValueError("total_trials must be > 0.")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be > 0.")
         if self.failure_penalty <= 0.0:
             raise ValueError("failure_penalty must be > 0.")
         if not math.isfinite(self.objective_sem) or self.objective_sem <= 0.0:

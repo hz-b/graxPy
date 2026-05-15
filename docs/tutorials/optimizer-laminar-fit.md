@@ -41,13 +41,13 @@ PY
 Run only the fit step:
 
 ```bash
-python examples/optimizer/0_fit_laminar_grating.py
+python examples/optimizer/optimizer_grating/0_fit_laminar_grating.py
 ```
 
 Run the full workflow:
 
 ```bash
-./examples/optimizer/run_all.sh
+./examples/optimizer/optimizer_grating/run_all.sh
 ```
 
 The full workflow runs:
@@ -80,7 +80,7 @@ Interpretation:
 
 Main output directory:
 
-- `examples/optimizer/results/laminar_fit/`
+- `examples/optimizer/optimizer_grating/results/laminar_fit/`
 
 Key files:
 
@@ -96,8 +96,8 @@ Key files:
 ## Design vs Optimized Parameters
 
 The optimizer example starts from the design parameters defined in
-`examples/optimizer/0_fit_laminar_grating.py` and writes optimized values in
-`examples/optimizer/results/laminar_fit/fitted_parameters.json`.
+`examples/optimizer/optimizer_grating/0_fit_laminar_grating.py` and writes optimized values in
+`examples/optimizer/optimizer_grating/results/laminar_fit/fitted_parameters.json`.
 
 | Parameter | Optimized in this example | Design value | Optimized value |
 | --- | --- | --- | --- |

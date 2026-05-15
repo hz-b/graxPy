@@ -62,6 +62,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--diffraction-order", type=int, default=1)
     parser.add_argument("--fourier-orders", type=int, default=20)
     parser.add_argument("--total-trials", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--random-seed", type=int, default=None)
     parser.add_argument(
         "--backend",
@@ -116,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         diffraction_order=arguments.diffraction_order,
         fourier_orders=arguments.fourier_orders,
         total_trials=arguments.total_trials,
+        batch_size=arguments.batch_size,
         random_seed=arguments.random_seed,
         backend=arguments.backend,
         optimize_period_lpermm=arguments.optimize_period_lpermm,
