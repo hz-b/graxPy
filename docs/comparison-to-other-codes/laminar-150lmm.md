@@ -1,4 +1,4 @@
-# Laminar Grating (150 l/mm, Monochromator)
+# Laminar Grating (150 l/mm, monochromator sweep)
 
 This comparison uses the monochromator workflow from
 `comparison_to_other_codes/laminar_150lmm` with `cff = 2.25`.

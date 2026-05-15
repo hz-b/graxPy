@@ -1,8 +1,11 @@
-# Optimizer Example
+# Laminar Grating
 
 This tutorial documents the maintained optimizer workflow in
 `examples/optimizer` for fitting a laminar grating model to measured
 fixed-angle efficiency data.
+
+For API details of optimizer functions/configs, see
+[`grax_opt` optimization API](../api/optimization.md).
 
 ## Goal
 
@@ -77,7 +80,7 @@ Interpretation:
 
 Main output directory:
 
-- `examples/optimizer/results/laminar_fit/`
+- `examples/optimizer/optmizer_laminar/results/laminar_fit/`
 
 Key files:
 
@@ -93,8 +96,8 @@ Key files:
 ## Design vs Optimized Parameters
 
 The optimizer example starts from the design parameters defined in
-`examples/optimizer/0_fit_laminar_grating.py` and writes optimized values in
-`examples/optimizer/results/laminar_fit/fitted_parameters.json`.
+`examples/optimizer/optmizer_laminar/0_fit_laminar_grating.py` and writes optimized values in
+`examples/optimizer/optmizer_laminar/results/laminar_fit/fitted_parameters.json`.
 
 | Parameter | Optimized in this example | Design value | Optimized value |
 | --- | --- | --- | --- |

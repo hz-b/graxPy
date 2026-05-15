@@ -68,12 +68,13 @@ def build_blazed_ax_parameters(config: BlazedAxConfig) -> list[dict[str, object]
     initial = config.initial_grating
     parameters: list[dict[str, object]] = []
 
-    period_bounds = _resolve_bounds(
-        explicit_bounds=config.period_lpermm_bounds,
-        initial_value=initial.period_lpermm,
-        default_relative_fraction=0.01,
-    )
-    parameters.append(_range_parameter("period_lpermm", period_bounds))
+    if config.optimize_period_lpermm:
+        period_bounds = _resolve_bounds(
+            explicit_bounds=config.period_lpermm_bounds,
+            initial_value=initial.period_lpermm,
+            default_relative_fraction=0.01,
+        )
+        parameters.append(_range_parameter("period_lpermm", period_bounds))
 
     if config.optimize_blaze_angle_deg:
         blaze_bounds = _resolve_bounds(
