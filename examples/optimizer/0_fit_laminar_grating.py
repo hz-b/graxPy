@@ -108,14 +108,23 @@ payload = {
     "best_loss": result.best_loss,
     "best_parameters": result.best_parameters,
     "best_grating_parameters": json_safe_grating_parameters(result.best_grating_parameters),
+    "stopped_early": result.stopped_early,
+    "completed_trials": result.completed_trials,
+    "early_stop_reason": result.early_stop_reason,
 }
 fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 print(f"Measurement: {result.measurement_path}")
 print(f"Best loss: {result.best_loss:.6g}")
 print(f"Best parameters: {result.best_parameters}")
+print(f"Completed trials: {result.completed_trials}")
+print(f"Stopped early: {result.stopped_early}")
+if result.early_stop_reason is not None:
+    print(f"Early-stop reason: {result.early_stop_reason}")
 print(f"Fitted parameters JSON: {fitted_parameters_path}")
 print(f"Best result JSON: {result.result_json_path}")
 print(f"Trial history CSV: {result.trial_history_csv_path}")
 if result.best_fit_plot_path is not None:
     print(f"Best-fit plot: {result.best_fit_plot_path}")
+if result.loss_history_plot_path is not None:
+    print(f"Loss-history plot: {result.loss_history_plot_path}")

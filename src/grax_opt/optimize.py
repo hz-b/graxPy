@@ -39,7 +39,11 @@ class OptimizationResult:
     result_json_path: Path
     trial_history_csv_path: Path
     best_fit_plot_path: Path | None
+    loss_history_plot_path: Path | None
     trial_records: list[TrialRecord]
+    stopped_early: bool
+    completed_trials: int
+    early_stop_reason: str | None
 
 
 def _import_ax_optimize():
@@ -55,6 +59,26 @@ def _import_ax_optimize():
                 "Ax is not installed. Install the optional dependency with `pip install .[opt]`."
             ) from exc
     return ax_optimize
+
+
+def _import_ax_client():
+    """Import the Ax client entrypoint lazily."""
+
+    try:
+        from ax.service.ax_client import AxClient
+    except ImportError as exc:
+        raise ImportError(
+            "Ax is not installed. Install the optional dependency with `pip install .[opt]`."
+        ) from exc
+    return AxClient
+
+
+def _import_objective_properties():
+    """Import Ax objective properties for newer Ax client APIs."""
+
+    from ax.service.utils.instantiation import ObjectiveProperties
+
+    return ObjectiveProperties
 
 
 def _build_ax_optimize_kwargs(
@@ -146,6 +170,9 @@ def _write_result_json(
     best_parameters: dict[str, float],
     best_grating_parameters: dict[str, object],
     best_loss: float,
+    stopped_early: bool,
+    completed_trials: int,
+    early_stop_reason: str | None,
     output_path: Path,
 ) -> None:
     """Write the best optimization result to JSON."""
@@ -160,6 +187,9 @@ def _write_result_json(
         "best_parameters": best_parameters,
         "best_grating_parameters": json_safe_grating_parameters(best_grating_parameters),
         "best_solver_parameters": resolve_solver_parameters(config, best_parameters),
+        "stopped_early": bool(stopped_early),
+        "completed_trials": int(completed_trials),
+        "early_stop_reason": early_stop_reason,
     }
     if isinstance(config, LaminarAxConfig):
         payload["angle_mode"] = config.angle_mode
@@ -197,32 +227,132 @@ def _save_best_fit_plot(
     plt.close(figure)
 
 
-def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationResult:
-    """Run Ax optimization for a grating config."""
+def _save_loss_history_plot(
+    *,
+    trial_records: list[TrialRecord],
+    output_path: Path,
+    stopped_early: bool,
+) -> None:
+    """Save trial-loss and running-best history."""
 
-    measurement = load_measurement_data(config.measurement_path)
-    evaluation_measurement = build_evaluation_measurement(config, measurement)
-    config.output_dir.mkdir(parents=True, exist_ok=True)
+    trial_indices = np.asarray([record.trial_index for record in trial_records], dtype=float)
+    losses = np.asarray([record.loss for record in trial_records], dtype=float)
+    running_best = np.minimum.accumulate(losses)
 
-    ax_optimize = _import_ax_optimize()
-    kwargs = _build_ax_optimize_kwargs(config, measurement)
-    best_parameters, values, experiment, _model = ax_optimize(**kwargs)
-    mean_values, _covariances = values
-    best_loss = float(mean_values[config.objective_name])
+    figure, axis = plt.subplots(figsize=(10, 6))
+    axis.plot(trial_indices, losses, "o-", linewidth=1.0, label="Trial loss")
+    axis.plot(trial_indices, running_best, "s-", linewidth=1.0, label="Running best")
+    if stopped_early and trial_indices.size > 0:
+        stop_trial_index = float(trial_indices[-1])
+        axis.axvline(
+            stop_trial_index,
+            color="tab:red",
+            linestyle="--",
+            linewidth=1.0,
+            label="Early stop",
+        )
+    axis.set_xlabel("Trial")
+    axis.set_ylabel("Loss")
+    axis.set_title("Optimization Loss History")
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
 
-    best_parameters_float = {name: float(value) for name, value in best_parameters.items()}
-    best_grating_parameters = resolve_grating_parameters(config, best_parameters_float)
-    trial_records = _extract_trial_records(experiment)
 
-    result_json_path = config.output_dir / "best_result.json"
-    trial_history_csv_path = config.output_dir / "trial_history.csv"
-    best_fit_plot_path = config.output_dir / "best_fit.png" if config.save_best_fit_plot else None
+def _create_ax_client_for_config(config: BlazedAxConfig | LaminarAxConfig):
+    """Create and initialize an Ax client for one optimization run."""
+
+    AxClient = _import_ax_client()
+    client_kwargs: dict[str, object] = {}
+    client_signature = inspect.signature(AxClient)
+    if config.random_seed is not None and "random_seed" in client_signature.parameters:
+        client_kwargs["random_seed"] = config.random_seed
+    ax_client = AxClient(**client_kwargs)
+
+    create_signature = inspect.signature(ax_client.create_experiment)
+    create_kwargs: dict[str, object] = {
+        "parameters": build_ax_parameters(config),
+        "name": config.experiment_name,
+    }
+    if "objective_name" in create_signature.parameters:
+        create_kwargs["objective_name"] = config.objective_name
+        if "minimize" in create_signature.parameters:
+            create_kwargs["minimize"] = True
+    elif "objectives" in create_signature.parameters:
+        ObjectiveProperties = _import_objective_properties()
+        create_kwargs["objectives"] = {
+            config.objective_name: ObjectiveProperties(minimize=True),
+        }
+    else:
+        raise RuntimeError("Unsupported Ax client create_experiment signature.")
+    ax_client.create_experiment(**create_kwargs)
+    return ax_client
+
+
+def _complete_ax_trial(
+    *,
+    ax_client,
+    config: BlazedAxConfig | LaminarAxConfig,
+    trial_index: int,
+    loss: float,
+) -> None:
+    """Submit one completed trial result back to Ax."""
+
+    raw_data = {config.objective_name: (float(loss), float(config.objective_sem))}
+    complete_signature = inspect.signature(ax_client.complete_trial)
+    if "raw_data" in complete_signature.parameters:
+        ax_client.complete_trial(trial_index=trial_index, raw_data=raw_data)
+        return
+    if "data" in complete_signature.parameters:
+        ax_client.complete_trial(trial_index=trial_index, data=raw_data)
+        return
+    raise RuntimeError("Unsupported Ax client complete_trial signature.")
+
+
+def _is_significant_improvement(
+    *,
+    previous_best_loss: float,
+    new_loss: float,
+    min_relative_improvement: float,
+) -> bool:
+    """Return whether a new loss improves enough to reset early-stop patience."""
+
+    if not np.isfinite(previous_best_loss):
+        return True
+    if new_loss >= previous_best_loss:
+        return False
+    relative_improvement = (previous_best_loss - new_loss) / max(abs(previous_best_loss), 1.0e-12)
+    return bool(relative_improvement >= min_relative_improvement)
+
+
+def _persist_optimizer_artifacts(
+    *,
+    config: BlazedAxConfig | LaminarAxConfig,
+    evaluation_measurement: MeasurementData,
+    best_parameters: dict[str, float],
+    best_grating_parameters: dict[str, object],
+    best_loss: float,
+    trial_records: list[TrialRecord],
+    result_json_path: Path,
+    trial_history_csv_path: Path,
+    best_fit_plot_path: Path | None,
+    loss_history_plot_path: Path | None,
+    stopped_early: bool,
+    completed_trials: int,
+    early_stop_reason: str | None,
+) -> None:
+    """Rewrite all optimizer artifacts from the current optimizer state."""
 
     _write_result_json(
         config=config,
-        best_parameters=best_parameters_float,
+        best_parameters=best_parameters,
         best_grating_parameters=best_grating_parameters,
         best_loss=best_loss,
+        stopped_early=stopped_early,
+        completed_trials=completed_trials,
+        early_stop_reason=early_stop_reason,
         output_path=result_json_path,
     )
     _write_trial_history_csv(trial_records, trial_history_csv_path)
@@ -230,7 +360,7 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
     if best_fit_plot_path is not None:
         simulated_efficiency = simulate_efficiency_curve(
             config,
-            best_parameters_float,
+            best_parameters,
             evaluation_measurement,
         )
         _save_best_fit_plot(
@@ -238,6 +368,102 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
             simulated_efficiency=simulated_efficiency,
             output_path=best_fit_plot_path,
         )
+    if loss_history_plot_path is not None:
+        _save_loss_history_plot(
+            trial_records=trial_records,
+            output_path=loss_history_plot_path,
+            stopped_early=stopped_early,
+        )
+
+
+def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationResult:
+    """Run Ax optimization for a grating config."""
+
+    measurement = load_measurement_data(config.measurement_path)
+    evaluation_measurement = build_evaluation_measurement(config, measurement)
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+
+    result_json_path = config.output_dir / "best_result.json"
+    trial_history_csv_path = config.output_dir / "trial_history.csv"
+    best_fit_plot_path = config.output_dir / "best_fit.png" if config.save_best_fit_plot else None
+    loss_history_plot_path = (
+        config.output_dir / "optimization_loss_history.png" if config.save_loss_plot else None
+    )
+
+    ax_client = _create_ax_client_for_config(config)
+    trial_records: list[TrialRecord] = []
+    best_parameters_float: dict[str, float] = {}
+    best_grating_parameters = resolve_grating_parameters(config, best_parameters_float)
+    best_loss = float("inf")
+    completed_trials = 0
+    stopped_early = False
+    early_stop_reason: str | None = None
+    consecutive_non_improving_trials = 0
+
+    for _ in range(int(config.total_trials)):
+        raw_parameters, trial_index = ax_client.get_next_trial()
+        parameters = {name: float(value) for name, value in raw_parameters.items()}
+        loss = float(evaluate_trial(config, parameters, measurement))
+        _complete_ax_trial(
+            ax_client=ax_client,
+            config=config,
+            trial_index=int(trial_index),
+            loss=loss,
+        )
+        trial_records.append(
+            TrialRecord(
+                trial_index=int(trial_index),
+                loss=loss,
+                parameters=parameters,
+            )
+        )
+        completed_trials = len(trial_records)
+
+        improved_enough = _is_significant_improvement(
+            previous_best_loss=best_loss,
+            new_loss=loss,
+            min_relative_improvement=float(config.early_stopping_min_relative_improvement),
+        )
+        if loss < best_loss:
+            best_loss = loss
+            best_parameters_float = dict(parameters)
+            best_grating_parameters = resolve_grating_parameters(config, best_parameters_float)
+
+        if completed_trials > int(config.early_stopping_warmup_trials):
+            if improved_enough:
+                consecutive_non_improving_trials = 0
+            else:
+                consecutive_non_improving_trials += 1
+            if (
+                config.enable_early_stopping
+                and consecutive_non_improving_trials >= int(config.early_stopping_patience)
+            ):
+                stopped_early = True
+                early_stop_reason = (
+                    "loss plateau after "
+                    f"{completed_trials} trials; patience={config.early_stopping_patience}, "
+                    f"warmup={config.early_stopping_warmup_trials}, "
+                    "min_relative_improvement="
+                    f"{config.early_stopping_min_relative_improvement:.6g}"
+                )
+
+        _persist_optimizer_artifacts(
+            config=config,
+            evaluation_measurement=evaluation_measurement,
+            best_parameters=best_parameters_float,
+            best_grating_parameters=best_grating_parameters,
+            best_loss=best_loss,
+            trial_records=trial_records,
+            result_json_path=result_json_path,
+            trial_history_csv_path=trial_history_csv_path,
+            best_fit_plot_path=best_fit_plot_path,
+            loss_history_plot_path=loss_history_plot_path,
+            stopped_early=stopped_early,
+            completed_trials=completed_trials,
+            early_stop_reason=early_stop_reason,
+        )
+        if stopped_early:
+            break
 
     return OptimizationResult(
         best_parameters=best_parameters_float,
@@ -247,7 +473,11 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
         result_json_path=result_json_path,
         trial_history_csv_path=trial_history_csv_path,
         best_fit_plot_path=best_fit_plot_path,
+        loss_history_plot_path=loss_history_plot_path,
         trial_records=trial_records,
+        stopped_early=stopped_early,
+        completed_trials=completed_trials,
+        early_stop_reason=early_stop_reason,
     )
 
 

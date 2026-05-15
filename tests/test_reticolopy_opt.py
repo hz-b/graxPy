@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import numpy as np
 import pytest
@@ -32,6 +33,7 @@ from grax_opt.optimize import (
     optimize_blazed,
     optimize_laminar,
 )
+from grax_opt import optimize as optimize_module
 from tests.optical_constants import load_optical_constants_table
 
 OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "examples" / "optical_constants"
@@ -269,6 +271,50 @@ def test_config_validates_objective_sem(tmp_path: Path) -> None:
                 evaluation_energies_ev=[150.0],
                 objective_sem=invalid_sem,
             )
+
+
+def test_config_validates_early_stopping_controls(tmp_path: Path) -> None:
+    config = build_test_config(tmp_path)
+
+    valid_config = BlazedAxConfig(
+        initial_grating=config.initial_grating,
+        measurement_path=config.measurement_path,
+        output_dir=config.output_dir,
+        evaluation_energies_ev=[150.0],
+        enable_early_stopping=True,
+        early_stopping_patience=4,
+        early_stopping_min_relative_improvement=1.0e-2,
+        early_stopping_warmup_trials=3,
+    )
+    assert valid_config.save_loss_plot is True
+
+    with pytest.raises(ValueError, match="early_stopping_patience must be > 0"):
+        BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            evaluation_energies_ev=[150.0],
+            early_stopping_patience=0,
+        )
+    with pytest.raises(
+        ValueError,
+        match="early_stopping_min_relative_improvement must be finite and >= 0",
+    ):
+        BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            evaluation_energies_ev=[150.0],
+            early_stopping_min_relative_improvement=-1.0,
+        )
+    with pytest.raises(ValueError, match="early_stopping_warmup_trials must be >= 0"):
+        BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            evaluation_energies_ev=[150.0],
+            early_stopping_warmup_trials=-1,
+        )
 
 
 def test_initial_laminar_grating_validates_geometry() -> None:
@@ -520,17 +566,35 @@ def test_optimize_blazed_smoke_run_writes_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pytest.importorskip("ax")
     config = build_test_config(tmp_path)
     measurement = load_measurement_data(config.measurement_path)
 
-    def fake_simulate_efficiency_curve(_config, trial_parameters, _measurement):
+    class FakeAxClient:
+        def __init__(self) -> None:
+            self._parameter_sets = [
+                {"period_lpermm": 600.0, "blaze_angle_deg": 0.729},
+                {"period_lpermm": 601.0, "blaze_angle_deg": 0.729},
+                {"period_lpermm": 602.0, "blaze_angle_deg": 0.729},
+            ]
+            self.completed: list[tuple[int, object]] = []
+
+        def create_experiment(self, **_kwargs) -> None:
+            return None
+
+        def get_next_trial(self):
+            trial_index = len(self.completed)
+            return self._parameter_sets[trial_index], trial_index
+
+        def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
+            self.completed.append((trial_index, raw_data if raw_data is not None else data))
+
+    def fake_simulate_efficiency_curve(_config, trial_parameters, sampled_measurement):
         period = float(trial_parameters["period_lpermm"])
         blaze = float(
             trial_parameters.get("blaze_angle_deg", config.initial_grating.blaze_angle_deg)
         )
         target = 0.25 + 0.001 * (period - 600.0) - 0.01 * (blaze - 0.729)
-        return np.full(measurement.energy_ev.shape, target, dtype=float)
+        return np.full(sampled_measurement.energy_ev.shape, target, dtype=float)
 
     monkeypatch.setattr(
         "grax_opt.objective.simulate_efficiency_curve",
@@ -540,28 +604,88 @@ def test_optimize_blazed_smoke_run_writes_outputs(
         "grax_opt.optimize.simulate_efficiency_curve",
         fake_simulate_efficiency_curve,
     )
+    monkeypatch.setattr(
+        "grax_opt.optimize._create_ax_client_for_config",
+        lambda _config: FakeAxClient(),
+    )
+
+    persist_call_count = {"value": 0}
+    original_persist = optimize_module._persist_optimizer_artifacts
+
+    def counting_persist(**kwargs):
+        persist_call_count["value"] += 1
+        return original_persist(**kwargs)
+
+    monkeypatch.setattr("grax_opt.optimize._persist_optimizer_artifacts", counting_persist)
 
     result = optimize_blazed(config)
 
     assert result.result_json_path.exists()
     assert result.trial_history_csv_path.exists()
     assert result.best_fit_plot_path is not None and result.best_fit_plot_path.exists()
+    assert result.loss_history_plot_path is not None and result.loss_history_plot_path.exists()
     assert len(result.trial_records) == config.total_trials
+    assert result.completed_trials == config.total_trials
+    assert result.stopped_early is False
+    assert persist_call_count["value"] == config.total_trials
+
+    result_payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+    assert result_payload["completed_trials"] == config.total_trials
+    assert result_payload["stopped_early"] is False
 
 
 def test_optimize_laminar_smoke_run_writes_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pytest.importorskip("ax")
     config = build_laminar_test_config(tmp_path)
     measurement = load_measurement_data(config.measurement_path)
 
-    def fake_simulate_efficiency_curve(_config, trial_parameters, _measurement):
+    class FakeAxClient:
+        def __init__(self) -> None:
+            self._parameter_sets = [
+                {
+                    "period_lpermm": 400.0,
+                    "width_to_period_ratio": 0.67,
+                    "depth_nm": 14.9,
+                    "left_wall_angle_deg": 15.0,
+                    "right_wall_angle_deg": 15.0,
+                    "top_cap_thickness_nm": 0.3,
+                },
+                {
+                    "period_lpermm": 401.0,
+                    "width_to_period_ratio": 0.67,
+                    "depth_nm": 15.1,
+                    "left_wall_angle_deg": 15.0,
+                    "right_wall_angle_deg": 15.0,
+                    "top_cap_thickness_nm": 0.3,
+                },
+                {
+                    "period_lpermm": 402.0,
+                    "width_to_period_ratio": 0.67,
+                    "depth_nm": 15.2,
+                    "left_wall_angle_deg": 15.0,
+                    "right_wall_angle_deg": 15.0,
+                    "top_cap_thickness_nm": 0.3,
+                },
+            ]
+            self.completed: list[tuple[int, object]] = []
+
+        def create_experiment(self, **_kwargs) -> None:
+            return None
+
+        def get_next_trial(self):
+            trial_index = len(self.completed)
+            return self._parameter_sets[trial_index], trial_index
+
+        def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
+            self.completed.append((trial_index, raw_data if raw_data is not None else data))
+
+    def fake_simulate_efficiency_curve(_config, trial_parameters, sampled_measurement):
         period = float(trial_parameters["period_lpermm"])
         depth = float(trial_parameters["depth_nm"])
         target = 0.25 + 0.001 * (period - 400.0) - 0.001 * (depth - 14.9)
-        return np.full(measurement.energy_ev.shape, target, dtype=float)
+        return np.full(sampled_measurement.energy_ev.shape, target, dtype=float)
 
     monkeypatch.setattr(
         "grax_opt.objective.simulate_efficiency_curve",
@@ -570,6 +694,10 @@ def test_optimize_laminar_smoke_run_writes_outputs(
     monkeypatch.setattr(
         "grax_opt.optimize.simulate_efficiency_curve",
         fake_simulate_efficiency_curve,
+    )
+    monkeypatch.setattr(
+        "grax_opt.optimize._create_ax_client_for_config",
+        lambda _config: FakeAxClient(),
     )
 
     result = optimize_laminar(config)
@@ -577,4 +705,88 @@ def test_optimize_laminar_smoke_run_writes_outputs(
     assert result.result_json_path.exists()
     assert result.trial_history_csv_path.exists()
     assert result.best_fit_plot_path is not None and result.best_fit_plot_path.exists()
+    assert result.loss_history_plot_path is not None and result.loss_history_plot_path.exists()
     assert len(result.trial_records) == config.total_trials
+    assert result.completed_trials == config.total_trials
+    assert result.stopped_early is False
+
+
+def test_optimize_laminar_early_stopping_stops_on_plateau(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_config = build_laminar_test_config(tmp_path)
+    config = LaminarAxConfig(
+        initial_grating=base_config.initial_grating,
+        measurement_path=base_config.measurement_path,
+        output_dir=base_config.output_dir,
+        angle_mode=base_config.angle_mode,
+        grazing_angle_deg=base_config.grazing_angle_deg,
+        cff=base_config.cff,
+        total_trials=6,
+        period_lpermm_bounds=base_config.period_lpermm_bounds,
+        width_to_period_ratio_bounds=base_config.width_to_period_ratio_bounds,
+        depth_nm_bounds=base_config.depth_nm_bounds,
+        left_wall_angle_deg_bounds=base_config.left_wall_angle_deg_bounds,
+        right_wall_angle_deg_bounds=base_config.right_wall_angle_deg_bounds,
+        top_cap_thickness_nm_bounds=base_config.top_cap_thickness_nm_bounds,
+        evaluation_energies_ev=base_config.evaluation_energies_ev,
+        enable_early_stopping=True,
+        early_stopping_warmup_trials=1,
+        early_stopping_patience=2,
+        early_stopping_min_relative_improvement=1.0e-2,
+    )
+
+    class FakeAxClient:
+        def __init__(self) -> None:
+            self._parameter_sets = [
+                {
+                    "period_lpermm": 400.0 + float(index),
+                    "width_to_period_ratio": 0.67,
+                    "depth_nm": 14.9,
+                    "left_wall_angle_deg": 15.0,
+                    "right_wall_angle_deg": 15.0,
+                    "top_cap_thickness_nm": 0.3,
+                }
+                for index in range(6)
+            ]
+            self.completed: list[tuple[int, object]] = []
+
+        def create_experiment(self, **_kwargs) -> None:
+            return None
+
+        def get_next_trial(self):
+            trial_index = len(self.completed)
+            return self._parameter_sets[trial_index], trial_index
+
+        def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
+            self.completed.append((trial_index, raw_data if raw_data is not None else data))
+
+    loss_values = iter([0.10, 0.10, 0.10, 0.10, 0.10, 0.10])
+
+    monkeypatch.setattr(
+        "grax_opt.optimize._create_ax_client_for_config",
+        lambda _config: FakeAxClient(),
+    )
+    monkeypatch.setattr(
+        "grax_opt.optimize.evaluate_trial",
+        lambda _config, _trial_parameters, _measurement: next(loss_values),
+    )
+    monkeypatch.setattr(
+        "grax_opt.optimize.simulate_efficiency_curve",
+        lambda _config, _trial_parameters, sampled_measurement: np.full(
+            sampled_measurement.energy_ev.shape,
+            0.2,
+            dtype=float,
+        ),
+    )
+
+    result = optimize_laminar(config)
+
+    assert result.stopped_early is True
+    assert result.completed_trials == 3
+    assert len(result.trial_records) == 3
+    assert result.early_stop_reason is not None
+    payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+    assert payload["stopped_early"] is True
+    assert payload["completed_trials"] == 3

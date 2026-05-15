@@ -1605,6 +1605,14 @@ def test_optimizer_example_scripts_compile() -> None:
     py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py"), doraise=True)
 
 
+def test_optimizer_example_plot_uses_evaluation_energies() -> None:
+    plot_source = (OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py").read_text(
+        encoding="utf-8"
+    )
+    assert "evaluation_energies_ev" in plot_source
+    assert "Optimization energies" in plot_source
+
+
 def test_multilayer_theta_search_docs_use_grouped_canonical_arguments() -> None:
     example_path = (
         Path(__file__).resolve().parents[1]
