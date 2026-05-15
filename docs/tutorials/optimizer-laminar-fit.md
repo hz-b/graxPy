@@ -90,6 +90,25 @@ Key files:
 - `optimization_loss_history.png`: trial loss and running-best history
 - `laminar_fit_measurement_comparison.png`: final design-vs-fitted-vs-measured comparison
 
+## Design vs Optimized Parameters
+
+The laminar optimizer example starts from the design parameters defined in
+`examples/optimizer/0_fit_laminar_grating.py` and writes optimized values in
+`examples/optimizer/results/laminar_fit/fitted_parameters.json`.
+
+| Parameter | Optimized in this example | Design value | Optimized value |
+| --- | --- | --- | --- |
+| `period_lpermm` | No (fixed) | `400.0` | `400.0` |
+| `width_to_period_ratio` | Yes | `0.67` | `0.7029613344292561` |
+| `depth_nm` | Yes | `14.9` | `14.5` |
+| `left_wall_angle_deg` | Yes | `15.0` | `21.378071367576183` |
+| `right_wall_angle_deg` | Yes | `15.0` | `5.0` |
+| `top_cap_thickness_nm` | Yes | `0.3` | `0.3811546815021951` |
+
+Additional geometry/material fields in `InitialLaminarGrating` are held fixed
+for this run (for example substrate/layer materials, `layer_thickness_nm`,
+`x_resolution_nm`, and `z_resolution_nm`).
+
 Generated figures:
 
 ```{image} images/optimizer/laminar_fit/best_fit.png
@@ -109,19 +128,3 @@ Generated figures:
 :align: center
 :width: 80%
 ```
-
-## Common Issues
-
-`Ax is not installed` or optimizer imports fail:
-
-- install optional dependencies: `pip install .[opt]`
-
-CUDA/driver mismatch errors from PyTorch:
-
-- update NVIDIA driver, then verify `torch.cuda.is_available()`
-- or install a PyTorch CUDA build compatible with the installed driver
-
-No GPU banner despite CUDA wheel:
-
-- confirm you are in the correct virtual environment
-- re-run the GPU verification command above
