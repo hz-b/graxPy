@@ -1579,6 +1579,10 @@ def test_public_examples_do_not_expose_quick_mode_flags() -> None:
 
 def test_optimizer_example_assets_exist() -> None:
     expected_paths = [
+        OPTIMIZER_EXAMPLE_ROOT / "0_fit_laminar_grating.py",
+        OPTIMIZER_EXAMPLE_ROOT / "1_run_simulation_design_parameters.py",
+        OPTIMIZER_EXAMPLE_ROOT / "2_run_simulation_fitted_parameters.py",
+        OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py",
         OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py",
         OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py",
         OPTIMIZER_EXAMPLE_ROOT / "measured_alpha4deg_order1.csv",
@@ -1593,6 +1597,10 @@ def test_optimizer_example_assets_exist() -> None:
 def test_optimizer_example_scripts_compile() -> None:
     import py_compile
 
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "0_fit_laminar_grating.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "1_run_simulation_design_parameters.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "2_run_simulation_fitted_parameters.py"), doraise=True)
+    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py"), doraise=True)
     py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py"), doraise=True)
     py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py"), doraise=True)
 
