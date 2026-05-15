@@ -25,6 +25,13 @@ silicon = pd.read_csv(optical_constants_dir / "OC_Si_SSTR.dat", sep=r"\s*,\s*|\s
 silicon.attrs["name"] = "Si"
 gold = pd.read_csv(optical_constants_dir / "OC_Au_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
 gold.attrs["name"] = "Au"
+carbon = pd.read_csv(
+    optical_constants_dir / "n_C_cxro.txt",
+    skiprows=1,
+    sep=r"\s*,\s*|\s+",
+    engine="python",
+)
+carbon.attrs["name"] = "C"
 
 measurement = pd.read_csv(
     example_root / "GR600-BEIChem_energy-Cff2.5.dat",
@@ -38,6 +45,7 @@ payload = json.loads(fitted_parameters_path.read_text(encoding="utf-8"))
 fitted_grating_parameters = dict(payload["best_grating_parameters"])
 fitted_grating_parameters["substrate_material"] = silicon
 fitted_grating_parameters["layer_material"] = gold
+fitted_grating_parameters["top_cap_material"] = carbon
 fitted_grating = rp.BlazedGrating(**fitted_grating_parameters)
 
 cases = rp.monochromator_cases(

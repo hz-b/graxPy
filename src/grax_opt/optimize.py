@@ -130,6 +130,31 @@ def _describe_optimizer_compute_context() -> str:
     )
 
 
+def _is_numba_available() -> bool:
+    """Return whether numba can be imported."""
+
+    try:
+        import numba  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _resolve_optimizer_backend(requested_backend: str) -> str:
+    """Resolve requested optimizer backend to an executable backend."""
+
+    normalized_backend = str(requested_backend).lower()
+    numba_available = _is_numba_available()
+    if normalized_backend == "auto":
+        return "numba" if numba_available else "numpy"
+    if normalized_backend == "numba":
+        if numba_available:
+            return "numba"
+        print("Requested optimizer backend 'numba' not available; falling back to 'numpy'.")
+        return "numpy"
+    return "numpy"
+
+
 @dataclass(frozen=True)
 class TrialRecord:
     """Summary of one completed Ax trial."""
@@ -199,9 +224,10 @@ def _build_ax_optimize_kwargs(
     """Build keyword arguments for the Ax optimize function."""
 
     ax_optimize = _import_ax_optimize()
+    backend_effective = _resolve_optimizer_backend(config.backend)
 
     def evaluation_function(parameterization: dict[str, float]) -> dict[str, tuple[float, float]]:
-        loss = evaluate_trial(config, parameterization, measurement)
+        loss = evaluate_trial(config, parameterization, measurement, backend=backend_effective)
         return {config.objective_name: (loss, config.objective_sem)}
 
     kwargs: dict[str, object] = {
@@ -284,6 +310,8 @@ def _write_result_json(
     stopped_early: bool,
     completed_trials: int,
     early_stop_reason: str | None,
+    backend_requested: str,
+    backend_effective: str,
     output_path: Path,
 ) -> None:
     """Write the best optimization result to JSON."""
@@ -301,6 +329,8 @@ def _write_result_json(
         "stopped_early": bool(stopped_early),
         "completed_trials": int(completed_trials),
         "early_stop_reason": early_stop_reason,
+        "backend_requested": backend_requested,
+        "backend_effective": backend_effective,
     }
     if isinstance(config, LaminarAxConfig):
         payload["angle_mode"] = config.angle_mode
@@ -459,6 +489,7 @@ def _persist_optimizer_artifacts(
     stopped_early: bool,
     completed_trials: int,
     early_stop_reason: str | None,
+    backend_effective: str,
 ) -> None:
     """Rewrite all optimizer artifacts from the current optimizer state."""
 
@@ -470,6 +501,8 @@ def _persist_optimizer_artifacts(
         stopped_early=stopped_early,
         completed_trials=completed_trials,
         early_stop_reason=early_stop_reason,
+        backend_requested=config.backend,
+        backend_effective=backend_effective,
         output_path=result_json_path,
     )
     _write_trial_history_csv(trial_records, trial_history_csv_path)
@@ -479,6 +512,7 @@ def _persist_optimizer_artifacts(
             config,
             best_parameters,
             evaluation_measurement,
+            backend=backend_effective,
         )
         _save_best_fit_plot(
             measurement=evaluation_measurement,
@@ -498,6 +532,7 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
 
     measurement = load_measurement_data(config.measurement_path)
     evaluation_measurement = build_evaluation_measurement(config, measurement)
+    backend_effective = _resolve_optimizer_backend(config.backend)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     result_json_path = config.output_dir / "best_result.json"
@@ -520,7 +555,7 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
     for _ in range(int(config.total_trials)):
         raw_parameters, trial_index = ax_client.get_next_trial()
         parameters = {name: float(value) for name, value in raw_parameters.items()}
-        loss = float(evaluate_trial(config, parameters, measurement))
+        loss = float(evaluate_trial(config, parameters, measurement, backend=backend_effective))
         _complete_ax_trial(
             ax_client=ax_client,
             config=config,
@@ -578,6 +613,7 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
             stopped_early=stopped_early,
             completed_trials=completed_trials,
             early_stop_reason=early_stop_reason,
+            backend_effective=backend_effective,
         )
         if stopped_early:
             break

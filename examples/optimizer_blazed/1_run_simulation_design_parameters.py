@@ -18,6 +18,13 @@ silicon = pd.read_csv(optical_constants_dir / "OC_Si_SSTR.dat", sep=r"\s*,\s*|\s
 silicon.attrs["name"] = "Si"
 gold = pd.read_csv(optical_constants_dir / "OC_Au_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
 gold.attrs["name"] = "Au"
+carbon = pd.read_csv(
+    optical_constants_dir / "n_C_cxro.txt",
+    skiprows=1,
+    sep=r"\s*,\s*|\s+",
+    engine="python",
+)
+carbon.attrs["name"] = "C"
 
 measurement = pd.read_csv(
     example_root / "GR600-BEIChem_energy-Cff2.5.dat",
@@ -34,8 +41,8 @@ design_grating = rp.BlazedGrating(
     substrate_material=silicon,
     layer_material=gold,
     layer_thickness_nm=30.0,
-    top_cap_material=None,
-    top_cap_thickness_nm=0.0,
+    top_cap_material=carbon,
+    top_cap_thickness_nm=0.5,
     z_resolution_nm=0.1,
     x_resolution_nm=0.1,
 )

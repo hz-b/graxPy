@@ -33,6 +33,14 @@ gold = pd.read_csv(
 )
 gold.attrs["name"] = "Au"
 
+carbon = pd.read_csv(
+    optical_constants_dir / "n_C_cxro.txt",
+    skiprows=1,
+    sep=r"\s*,\s*|\s+",
+    engine="python",
+)
+carbon.attrs["name"] = "C"
+
 measurement_path = example_root / "GR600-BEIChem_energy-Cff2.5.dat"
 measurement = pd.read_csv(
     measurement_path,
@@ -51,30 +59,32 @@ config = BlazedAxConfig(
         substrate_material=silicon,
         layer_material=gold,
         layer_thickness_nm=30.0,
-        top_cap_material=None,
-        top_cap_thickness_nm=0.0,
-        z_resolution_nm=0.1,
-        x_resolution_nm=0.1,
+        top_cap_material=carbon,
+        top_cap_thickness_nm=0.5,
+        z_resolution_nm=.5,
+        x_resolution_nm=.5,
     ),
     measurement_path=measurement_path,
     output_dir=output_dir,
-    cff=2.5,
+    cff=2.25,
     diffraction_order=1,
-    fourier_orders=20,
+    fourier_orders=10,
     validate_physical_results=True,
-    total_trials=20,
+    total_trials=100,
     random_seed=7,
-    optimize_period_lpermm=True,
+    backend="auto",
+    optimize_period_lpermm=False,
     optimize_blaze_angle_deg=True,
     optimize_anti_blaze_angle_deg=True,
-    optimize_top_cap_thickness_nm=False,
-    period_lpermm_bounds=ParameterBounds(590.0, 610.0),
+    optimize_top_cap_thickness_nm=True,
+    # period_lpermm_bounds=ParameterBounds(600.0, 610.0),
     blaze_angle_deg_bounds=ParameterBounds(0.5, 1.2),
     anti_blaze_angle_deg_bounds=ParameterBounds(4.0, 8.0),
+    top_cap_thickness_nm_bounds=ParameterBounds(0.3, 1.2),
     experiment_name="blazed_fit",
     loss_name="mse",
     save_best_fit_plot=True,
-    evaluation_energies_ev=np.asarray(measurement["energy_ev"], dtype=float).tolist(),
+    evaluation_energies_ev=np.arange(51,1800.1, 10),
 )
 
 try:
@@ -85,12 +95,15 @@ except ImportError as error:
     raise SystemExit(1) from error
 
 fitted_parameters_path = output_dir / "fitted_parameters.json"
+best_result_payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
 payload = {
     "measurement_path": str(config.measurement_path),
     "cff": config.cff,
     "diffraction_order": config.diffraction_order,
     "fourier_orders": config.fourier_orders,
-    "backend": "numba",
+    "backend": best_result_payload.get("backend_effective", "numba"),
+    "backend_requested": config.backend,
+    "backend_effective": best_result_payload.get("backend_effective", "numba"),
     "evaluation_energies_ev": config.evaluation_energies_ev,
     "best_loss": result.best_loss,
     "best_parameters": result.best_parameters,

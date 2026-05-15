@@ -63,7 +63,23 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fourier-orders", type=int, default=20)
     parser.add_argument("--total-trials", type=int, default=20)
     parser.add_argument("--random-seed", type=int, default=None)
-    parser.add_argument("--optimize-blaze-angle-deg", action="store_true")
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "numba", "numpy"],
+        default="auto",
+        help="RCWA Fourier backend for optimization objective. 'auto' prefers numba.",
+    )
+    parser.add_argument(
+        "--optimize-period-lpermm",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable period optimization (enabled by default).",
+    )
+    parser.add_argument(
+        "--optimize-blaze-angle-deg",
+        action="store_true",
+        help="Enable blaze-angle optimization. Parameters can be toggled independently.",
+    )
     parser.add_argument("--optimize-anti-blaze-angle-deg", action="store_true")
     parser.add_argument("--optimize-top-cap-thickness-nm", action="store_true")
     parser.add_argument("--period-bounds", type=float, nargs=2)
@@ -101,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         fourier_orders=arguments.fourier_orders,
         total_trials=arguments.total_trials,
         random_seed=arguments.random_seed,
+        backend=arguments.backend,
+        optimize_period_lpermm=arguments.optimize_period_lpermm,
         optimize_blaze_angle_deg=arguments.optimize_blaze_angle_deg,
         optimize_anti_blaze_angle_deg=arguments.optimize_anti_blaze_angle_deg,
         optimize_top_cap_thickness_nm=arguments.optimize_top_cap_thickness_nm,

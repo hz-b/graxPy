@@ -132,6 +132,7 @@ class BlazedAxConfig:
     early_stopping_warmup_trials: int = 8
     save_best_fit_plot: bool = True
     save_loss_plot: bool = True
+    backend: str = "auto"
     evaluation_energies_ev: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -140,8 +141,15 @@ class BlazedAxConfig:
         object.__setattr__(self, "measurement_path", Path(self.measurement_path))
         object.__setattr__(self, "output_dir", Path(self.output_dir))
 
-        if not self.optimize_period_lpermm:
-            raise ValueError("period_lpermm must remain an optimized parameter.")
+        if not any(
+            (
+                self.optimize_period_lpermm,
+                self.optimize_blaze_angle_deg,
+                self.optimize_anti_blaze_angle_deg,
+                self.optimize_top_cap_thickness_nm,
+            )
+        ):
+            raise ValueError("At least one blazed optimization parameter must be enabled.")
         if self.cff <= 0.0:
             raise ValueError("cff must be > 0.")
         if self.diffraction_order <= 0:
@@ -167,6 +175,8 @@ class BlazedAxConfig:
             )
         if self.early_stopping_warmup_trials < 0:
             raise ValueError("early_stopping_warmup_trials must be >= 0.")
+        if self.backend not in {"auto", "numba", "numpy"}:
+            raise ValueError("backend must be one of: auto, numba, numpy.")
         if len(self.evaluation_energies_ev) == 0:
             raise ValueError("evaluation_energies_ev must be provided and non-empty.")
         normalized_energies = sorted(
@@ -231,6 +241,7 @@ class LaminarAxConfig:
     early_stopping_warmup_trials: int = 8
     save_best_fit_plot: bool = True
     save_loss_plot: bool = True
+    backend: str = "auto"
     evaluation_energies_ev: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -268,6 +279,8 @@ class LaminarAxConfig:
             )
         if self.early_stopping_warmup_trials < 0:
             raise ValueError("early_stopping_warmup_trials must be >= 0.")
+        if self.backend not in {"auto", "numba", "numpy"}:
+            raise ValueError("backend must be one of: auto, numba, numpy.")
         if len(self.evaluation_energies_ev) == 0:
             raise ValueError("evaluation_energies_ev must be provided and non-empty.")
         normalized_energies = sorted(
