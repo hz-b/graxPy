@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 from contextlib import contextmanager
+import runpy
 
 import numpy as np
 import pytest
@@ -1006,6 +1007,26 @@ def test_resolve_optimizer_backend_auto_and_fallback(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(optimize_module, "_is_numba_available", lambda: False)
     assert optimize_module._resolve_optimizer_backend("auto") == "numpy"
     assert optimize_module._resolve_optimizer_backend("numba") == "numpy"
+
+
+def test_example_configs_split_optimizer_and_simulation_backends() -> None:
+    """Ensure examples use auto only for optimizer config, not simulation runners."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    blazed_config = runpy.run_path(
+        str(repo_root / "examples" / "optimizer" / "optimizer_blazed" / "example_config.py")
+    )
+    laminar_config = runpy.run_path(
+        str(repo_root / "examples" / "optimizer" / "optimizer_grating" / "example_config.py")
+    )
+
+    assert blazed_config["optimizer_backend"] == "auto"
+    assert blazed_config["simulation_backend"] in {"numba", "numpy"}
+    assert blazed_config["simulation_backend"] != "auto"
+
+    assert laminar_config["optimizer_backend"] == "auto"
+    assert laminar_config["simulation_backend"] in {"numba", "numpy"}
+    assert laminar_config["simulation_backend"] != "auto"
 
 
 def test_optimize_blazed_batch_mode_groups_trials_and_preserves_order(

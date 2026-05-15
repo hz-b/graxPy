@@ -2,7 +2,7 @@
   "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_blazed/GR600-BEIChem_energy-Cff2.5.dat",
   "cff": 2.25,
   "diffraction_order": 1,
-  "fourier_orders": 5,
+  "fourier_orders": 10,
   "backend": "numba",
   "backend_requested": "auto",
   "backend_effective": "numba",
@@ -183,25 +183,24 @@
     1781.0,
     1791.0
   ],
-  "best_loss": 0.00013820995366657928,
+  "best_loss": 7.26513632118071e-05,
   "best_parameters": {
-    "blaze_angle_deg": 0.7577184729149105,
-    "anti_blaze_angle_deg": 5.0,
-    "top_cap_thickness_nm": 0.5
+    "blaze_angle_deg": 0.743372216767164,
+    "anti_blaze_angle_deg": 5.0
   },
   "best_grating_parameters": {
     "period_lpermm": 600.0,
-    "blaze_angle_deg": 0.7577184729149105,
+    "blaze_angle_deg": 0.743372216767164,
     "anti_blaze_angle_deg": 5.0,
     "substrate_material": "Si",
     "layer_material": "Au",
     "layer_thickness_nm": 30.0,
-    "top_cap_material": "C",
-    "top_cap_thickness_nm": 0.5,
-    "z_resolution_nm": 0.3,
-    "x_resolution_nm": 0.3
+    "top_cap_material": null,
+    "top_cap_thickness_nm": 0.0,
+    "z_resolution_nm": 0.5,
+    "x_resolution_nm": 0.5
   },
   "stopped_early": false,
-  "completed_trials": 50,
+  "completed_trials": 20,
   "early_stop_reason": null
 }

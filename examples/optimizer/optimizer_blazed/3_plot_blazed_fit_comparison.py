@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from example_config import measurement_path, results_dir
 
-example_root = Path(__file__).resolve().parent
-results_dir = example_root / "results" / "blazed_fit"
-
-measurement_path = example_root / "GR600-BEIChem_energy-Cff2.5.dat"
 fitted_parameters_path = results_dir / "fitted_parameters.json"
 initial_csv_path = results_dir / "simulated_curve_initial.csv"
 fitted_csv_path = results_dir / "simulated_curve_fitted.csv"

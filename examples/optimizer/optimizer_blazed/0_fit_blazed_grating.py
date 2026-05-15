@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from grax_opt import (
@@ -15,9 +13,28 @@ from grax_opt import (
     json_safe_grating_parameters,
     optimize_blazed,
 )
-
-example_root = Path(__file__).resolve().parent
-optical_constants_dir = example_root / "optical_constants"
+from example_config import (
+    anti_blaze_angle_deg,
+    optimizer_backend,
+    batch_size,
+    blaze_angle_deg,
+    cff,
+    diffraction_order,
+    evaluation_energies_ev,
+    fourier_orders,
+    layer_thickness_nm,
+    measurement_path,
+    optical_constants_dir,
+    period_lpermm,
+    random_seed,
+    results_dir,
+    top_cap_thickness_nm,
+    top_cap_material_name,
+    total_trials,
+    use_top_cap,
+    x_resolution_nm,
+    z_resolution_nm,
+)
 
 silicon = pd.read_csv(
     optical_constants_dir / "OC_Si_SSTR.dat",
@@ -40,52 +57,44 @@ carbon = pd.read_csv(
     engine="python",
 )
 carbon.attrs["name"] = "C"
-
-measurement_path = example_root / "GR600-BEIChem_energy-Cff2.5.dat"
-measurement = pd.read_csv(
-    measurement_path,
-    sep=r"\s+",
-    header=None,
-    names=["energy_ev", "efficiency"],
-).apply(pd.to_numeric, errors="coerce").dropna()
-
-output_dir = example_root / "results" / "blazed_fit"
+results_dir.mkdir(parents=True, exist_ok=True)
+top_cap_material = carbon if use_top_cap else None
 
 config = BlazedAxConfig(
     initial_grating=InitialBlazedGrating(
-        period_lpermm=600.0,
-        blaze_angle_deg=0.729,
-        anti_blaze_angle_deg=5.597,
+        period_lpermm=period_lpermm,
+        blaze_angle_deg=blaze_angle_deg,
+        anti_blaze_angle_deg=anti_blaze_angle_deg,
         substrate_material=silicon,
         layer_material=gold,
-        layer_thickness_nm=30.0,
-        top_cap_material=carbon,
-        top_cap_thickness_nm=0.7,
-        z_resolution_nm=.3,
-        x_resolution_nm=.3,
+        layer_thickness_nm=layer_thickness_nm,
+        top_cap_material=top_cap_material,
+        top_cap_thickness_nm=top_cap_thickness_nm,
+        z_resolution_nm=z_resolution_nm,
+        x_resolution_nm=x_resolution_nm,
     ),
     measurement_path=measurement_path,
-    output_dir=output_dir,
-    cff=2.25,
-    diffraction_order=1,
-    fourier_orders=5,
+    output_dir=results_dir,
+    cff=cff,
+    diffraction_order=diffraction_order,
+    fourier_orders=fourier_orders,
     validate_physical_results=True,
-    total_trials=50,
-    batch_size=15,
-    random_seed=7,
-    backend="auto",
+    total_trials=total_trials,
+    batch_size=batch_size,
+    random_seed=random_seed,
+    backend=optimizer_backend,
     optimize_period_lpermm=False,
     optimize_blaze_angle_deg=True,
     optimize_anti_blaze_angle_deg=True,
-    optimize_top_cap_thickness_nm=True,
+    optimize_top_cap_thickness_nm=False,
     # period_lpermm_bounds=ParameterBounds(600.0, 610.0),
     blaze_angle_deg_bounds=ParameterBounds(0.5, 1.2),
     anti_blaze_angle_deg_bounds=ParameterBounds(5.0, 6.0),
-    top_cap_thickness_nm_bounds=ParameterBounds(0.5, 1.2),
+    top_cap_thickness_nm_bounds=ParameterBounds(0.0, 1.2),
     experiment_name="blazed_fit",
     loss_name="mse",
     save_best_fit_plot=True,
-    evaluation_energies_ev=np.arange(51,1800.1, 10),
+    evaluation_energies_ev=list(evaluation_energies_ev),
 )
 
 try:
@@ -95,7 +104,7 @@ except ImportError as error:
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")
     raise SystemExit(1) from error
 
-fitted_parameters_path = output_dir / "fitted_parameters.json"
+fitted_parameters_path = results_dir / "fitted_parameters.json"
 best_result_payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
 payload = {
     "measurement_path": str(config.measurement_path),
@@ -116,6 +125,12 @@ payload = {
 fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 print(f"Measurement: {result.measurement_path}")
+print(f"Optimizer backend request: {optimizer_backend}")
+print(
+    f"Baseline top-cap setting: use_top_cap={use_top_cap}, "
+    f"material={top_cap_material_name if use_top_cap else 'None'}, "
+    f"thickness_nm={top_cap_thickness_nm}"
+)
 print(f"Best loss: {result.best_loss:.6g}")
 print(f"Best parameters: {result.best_parameters}")
 print(f"Completed trials: {result.completed_trials}")
