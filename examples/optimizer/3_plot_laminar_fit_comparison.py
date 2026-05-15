@@ -70,7 +70,6 @@ if evaluation_energies_ev:
 axis.set_xlabel("Energy (eV)")
 axis.set_ylabel("Efficiency")
 axis.set_title("Laminar fit: measurement vs initial vs fitted")
-# axis.grid(alpha=0.3)
 axis.legend(loc="best")
 figure.tight_layout()
 figure.savefig(comparison_plot_path, dpi=200, bbox_inches="tight")
