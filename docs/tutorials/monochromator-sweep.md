@@ -29,7 +29,6 @@ cases = rp.monochromator_cases(
     energies_ev=energies,
     diffraction_order=1,
     cff=2.25,
-    case_id_prefix="mono-blazed",
 )
 
 runner = rp.BatchSimulationRunner(
@@ -56,14 +55,6 @@ The `cff` (constant-focus factor) parameter controls the geometry:
 - The grazing angle is computed from the monochromator equation:
   `sin(alpha) = (cff * lambda * period) / (2 * d_source)` where `d_source` is implicit
 
-Quick mode for fast testing:
-
-```python
-# --quick mode: 10 energy points, 5 Fourier orders
-energies = np.linspace(100.0, 300.0, 10)
-default_fourier = 5
-```
-
 The example also produces an energy-vs-efficiency plot for diffraction
 orders 1, 2, and 3:
 
@@ -71,14 +62,6 @@ orders 1, 2, and 3:
 :alt: Monochromator sweep efficiencies for diffraction orders 1 to 3
 :align: center
 :width: 80%
-```
-
-Full mode uses the production settings:
-
-```python
-# Full mode: 45 energy points, 25 Fourier orders
-energies = np.linspace(50.0, 500.0, 45)
-default_fourier = 25
 ```
 
 See `examples/simulation/monochromator_sweep/monochromator_sweep.py` for the complete script.

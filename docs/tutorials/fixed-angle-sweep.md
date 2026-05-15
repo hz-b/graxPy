@@ -29,7 +29,6 @@ cases = rp.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
     grazing_angle_deg=4.0,
-    case_id_prefix="fixed-laminar",
 )
 
 runner = rp.BatchSimulationRunner(
@@ -58,22 +57,6 @@ orders 1, 2, and 3:
 :alt: Fixed-angle sweep efficiencies for diffraction orders 1 to 3
 :align: center
 :width: 80%
-```
-
-Quick mode uses fewer points and lower Fourier order for fast testing:
-
-```python
-# --quick mode: 10 energy points, 5 Fourier orders
-energies = np.linspace(100.0, 300.0, 10)
-default_fourier = 5
-```
-
-Full mode uses the production settings:
-
-```python
-# Full mode: 60 energy points, 25 Fourier orders
-energies = np.linspace(50.0, 650.0, 60)
-default_fourier = 25
 ```
 
 See `examples/simulation/fixed_angle_sweep/fixed_angle_sweep.py` for the complete script.

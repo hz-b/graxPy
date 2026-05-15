@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,19 +28,9 @@ energy_ev = 1000.0
 diffraction_order = 1
 cff = 2.25
 depths_nm = np.arange(10.0, 31.0, 1.0)
-
-parser = argparse.ArgumentParser(description="Run batch simulation with user cases")
-parser.add_argument(
-    "--quick",
-    action="store_true",
-    help="Run with lower Fourier order for quick testing",
-)
 output_dir = Path(__file__).resolve().parent / "results"
-
-args = parser.parse_args()
 output_dir.mkdir(parents=True, exist_ok=True)
 
-quick_mode = args.quick
 checkpoint_dir = output_dir / "checkpoints_depth_sweep"
 
 grazing_angle_deg = float(
@@ -52,11 +41,6 @@ grazing_angle_deg = float(
         cff=cff,
     )[0]
 )
-
-if quick_mode:
-    print("Quick mode: full depth range, lower Fourier order")
-else:
-    print("Full mode: full depth range, production Fourier order")
 
 user_cases = []
 for depth_nm in depths_nm:
@@ -76,11 +60,9 @@ for depth_nm in depths_nm:
         }
     )
 
-default_fourier = 5 if quick_mode else 25
-
 runner = rp.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
-    default_fourier_orders=default_fourier,
+    default_fourier_orders=25,
     show_progress=True,
     live_plot=False,
     on_error="continue",

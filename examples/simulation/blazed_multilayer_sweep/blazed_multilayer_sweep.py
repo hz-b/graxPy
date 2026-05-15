@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -12,14 +11,6 @@ from xrt.backends.raycing import materials as xrt_materials
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 chromium = xrt_materials.Material("Cr", rho=7.19, table="Henke", name="Cr")
 carbon = xrt_materials.Material("C", rho=2.20, table="Henke", name="C")
-
-parser = argparse.ArgumentParser(description="Blazed multilayer monochromator sweep")
-parser.add_argument(
-    "--quick",
-    action="store_true",
-    help="Run with fewer energy points for quick testing",
-)
-args = parser.parse_args()
 
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -39,28 +30,21 @@ grating = rp.BlazedGrating(
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
     coating_stack=multilayer_stack,
-    x_resolution_nm=0.1 if not args.quick else 1.0,
-    z_resolution_nm=0.1 if not args.quick else 1.0,
+    x_resolution_nm=0.1,
+    z_resolution_nm=0.1,
 )
 
-if args.quick:
-    energies_ev = np.arange(500.0, 4000.0, 10.0)
-    default_fourier_orders = 5
-else:
-    energies_ev = np.arange(500.0, 4000.0, 10.0)
-    default_fourier_orders = 20
-
+energies_ev = np.arange(500.0, 4000.0, 10.0)
 cases = rp.monochromator_cases(
     grating=grating,
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
-    case_id_prefix="blazed-multilayer",
 )
 
 runner = rp.BatchSimulationRunner(
     default_diffraction_order=1,
-    default_fourier_orders=default_fourier_orders,
+    default_fourier_orders=20,
     show_progress=True,
     live_plot=True,
     live_plot_x_key="energy_ev",

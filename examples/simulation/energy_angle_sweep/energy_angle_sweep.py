@@ -57,7 +57,6 @@ grating = rp.BlazedGrating(
 cases = rp.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
-    case_id_prefix="energy-angle-multilayer",
 )
 
 runner = rp.BatchSimulationRunner(

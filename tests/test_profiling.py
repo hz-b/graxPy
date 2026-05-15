@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pytest
 
@@ -37,6 +39,12 @@ def test_profiler_disabled_does_not_change_result() -> None:
     assert baseline.selected_efficiency == profiled.selected_efficiency
     assert np.allclose(baseline.efficiency_all, profiled.efficiency_all)
     assert np.allclose(baseline.diffraction_angle_all, profiled.diffraction_angle_all)
+
+
+def test_run_simulation_signature_hides_profiler() -> None:
+    signature = inspect.signature(run_simulation)
+
+    assert "_profiler" not in signature.parameters
 
 
 def test_profiler_summary_contains_expected_stages() -> None:
@@ -153,6 +161,5 @@ def test_fourier_backend_matches_baseline(backend_name: str) -> None:
     assert result.selected_efficiency == pytest.approx(baseline.selected_efficiency, rel=1e-10, abs=1e-12)
     assert np.allclose(result.efficiency_all, baseline.efficiency_all, rtol=1e-10, atol=1e-12)
     assert np.allclose(result.diffraction_angle_all, baseline.diffraction_angle_all, rtol=1e-10, atol=1e-12)
-
 
 

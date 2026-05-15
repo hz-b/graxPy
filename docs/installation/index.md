@@ -23,7 +23,7 @@ To install with optional Numba acceleration support (recommended for best perfor
 python -m pip install "graxpy[numba]"
 ```
 
-Project page: <https://pypi.org/project/graxpy/0.1.0/>
+Project page: <https://pypi.org/project/graxpy>
 
 ```{note}
 The numpy backend is the default for `run_simulation` and provides reliable

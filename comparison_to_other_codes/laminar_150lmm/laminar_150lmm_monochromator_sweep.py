@@ -60,7 +60,6 @@ cases = rp.monochromator_cases(
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=1.45,
-    case_id_prefix="laminar-150lmm-mono",
 )
 
 runner = rp.BatchSimulationRunner(
@@ -73,7 +72,6 @@ runner = rp.BatchSimulationRunner(
     on_error="fail_fast",
     max_workers='auto',
     resume=False,
-    # total_cases=len(energies_ev),
 )
 
 grating.plot_profile(profile_plot_path)
@@ -109,4 +107,3 @@ print(f"Computed {sum(case.status == 'ok' for case in batch_result)} monochromat
 print(f"Monochromator all-orders CSV saved to: {csv_path}")
 print(f"Monochromator orders plot saved to: {orders_plot_path}")
 print(f"Grating profile plot saved to: {profile_plot_path}")
-
