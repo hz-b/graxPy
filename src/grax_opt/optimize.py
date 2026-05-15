@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import csv
 import inspect
 import json
+import os
 import platform
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,6 +132,86 @@ def _describe_optimizer_compute_context() -> str:
     )
 
 
+def _is_numba_available() -> bool:
+    """Return whether numba can be imported."""
+
+    try:
+        import numba  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _resolve_optimizer_backend(requested_backend: str) -> str:
+    """Resolve requested optimizer backend to an executable backend."""
+
+    normalized_backend = str(requested_backend).lower()
+    numba_available = _is_numba_available()
+    if normalized_backend == "auto":
+        return "numba" if numba_available else "numpy"
+    if normalized_backend == "numba":
+        if numba_available:
+            return "numba"
+        print("Requested optimizer backend 'numba' not available; falling back to 'numpy'.")
+        return "numpy"
+    return "numpy"
+
+
+def _resolve_batch_worker_count(batch_size: int) -> int:
+    """Return effective worker count for one candidate batch."""
+
+    return max(1, min(int(batch_size), int(os.cpu_count() or 1)))
+
+
+def _evaluate_candidate_worker(
+    candidate: tuple[int, dict[str, float]],
+    *,
+    config: BlazedAxConfig | LaminarAxConfig,
+    measurement: MeasurementData,
+    backend_effective: str,
+) -> tuple[int, dict[str, float], float]:
+    """Evaluate one optimizer candidate and return trial index, params, and loss."""
+
+    trial_index, parameters = candidate
+    loss = float(evaluate_trial(config, parameters, measurement, backend=backend_effective))
+    return int(trial_index), dict(parameters), float(loss)
+
+
+def _evaluate_candidate_batch(
+    candidates: list[tuple[int, dict[str, float]]],
+    *,
+    config: BlazedAxConfig | LaminarAxConfig,
+    measurement: MeasurementData,
+    backend_effective: str,
+) -> list[tuple[int, dict[str, float], float]]:
+    """Evaluate a candidate batch, optionally in parallel."""
+
+    if len(candidates) <= 1:
+        return [
+            _evaluate_candidate_worker(
+                candidates[0],
+                config=config,
+                measurement=measurement,
+                backend_effective=backend_effective,
+            )
+        ]
+
+    worker_count = _resolve_batch_worker_count(len(candidates))
+    with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(
+                _evaluate_candidate_worker,
+                candidate,
+                config=config,
+                measurement=measurement,
+                backend_effective=backend_effective,
+            )
+            for candidate in candidates
+        ]
+        evaluated = [future.result() for future in futures]
+    return sorted(evaluated, key=lambda item: int(item[0]))
+
+
 @dataclass(frozen=True)
 class TrialRecord:
     """Summary of one completed Ax trial."""
@@ -192,6 +274,26 @@ def _import_objective_properties():
     return ObjectiveProperties
 
 
+def _import_max_parallelism_exception():
+    """Import Ax max-parallelism exception lazily."""
+
+    try:
+        from ax.exceptions.generation_strategy import MaxParallelismReachedException
+    except ImportError:
+        return None
+    return MaxParallelismReachedException
+
+
+def _import_data_required_exception():
+    """Import Ax data-required exception lazily."""
+
+    try:
+        from ax.exceptions.core import DataRequiredError
+    except ImportError:
+        return None
+    return DataRequiredError
+
+
 def _build_ax_optimize_kwargs(
     config: BlazedAxConfig | LaminarAxConfig,
     measurement: MeasurementData,
@@ -199,9 +301,10 @@ def _build_ax_optimize_kwargs(
     """Build keyword arguments for the Ax optimize function."""
 
     ax_optimize = _import_ax_optimize()
+    backend_effective = _resolve_optimizer_backend(config.backend)
 
     def evaluation_function(parameterization: dict[str, float]) -> dict[str, tuple[float, float]]:
-        loss = evaluate_trial(config, parameterization, measurement)
+        loss = evaluate_trial(config, parameterization, measurement, backend=backend_effective)
         return {config.objective_name: (loss, config.objective_sem)}
 
     kwargs: dict[str, object] = {
@@ -284,6 +387,8 @@ def _write_result_json(
     stopped_early: bool,
     completed_trials: int,
     early_stop_reason: str | None,
+    backend_requested: str,
+    backend_effective: str,
     output_path: Path,
 ) -> None:
     """Write the best optimization result to JSON."""
@@ -301,6 +406,8 @@ def _write_result_json(
         "stopped_early": bool(stopped_early),
         "completed_trials": int(completed_trials),
         "early_stop_reason": early_stop_reason,
+        "backend_requested": backend_requested,
+        "backend_effective": backend_effective,
     }
     if isinstance(config, LaminarAxConfig):
         payload["angle_mode"] = config.angle_mode
@@ -349,10 +456,14 @@ def _save_loss_history_plot(
     trial_indices = np.asarray([record.trial_index for record in trial_records], dtype=float)
     losses = np.asarray([record.loss for record in trial_records], dtype=float)
     running_best = np.minimum.accumulate(losses)
+    positive_mask = np.isfinite(losses) & (losses > 0.0)
+    positive_running_best = np.isfinite(running_best) & (running_best > 0.0)
 
     figure, axis = plt.subplots(figsize=(10, 6))
     axis.plot(trial_indices, losses, "o-", linewidth=1.0, label="Trial loss")
     axis.plot(trial_indices, running_best, "s-", linewidth=1.0, label="Running best")
+    if np.any(positive_mask) and np.any(positive_running_best):
+        axis.set_yscale("log")
     if stopped_early and trial_indices.size > 0:
         stop_trial_index = float(trial_indices[-1])
         axis.axvline(
@@ -455,6 +566,7 @@ def _persist_optimizer_artifacts(
     stopped_early: bool,
     completed_trials: int,
     early_stop_reason: str | None,
+    backend_effective: str,
 ) -> None:
     """Rewrite all optimizer artifacts from the current optimizer state."""
 
@@ -466,6 +578,8 @@ def _persist_optimizer_artifacts(
         stopped_early=stopped_early,
         completed_trials=completed_trials,
         early_stop_reason=early_stop_reason,
+        backend_requested=config.backend,
+        backend_effective=backend_effective,
         output_path=result_json_path,
     )
     _write_trial_history_csv(trial_records, trial_history_csv_path)
@@ -475,6 +589,7 @@ def _persist_optimizer_artifacts(
             config,
             best_parameters,
             evaluation_measurement,
+            backend=backend_effective,
         )
         _save_best_fit_plot(
             measurement=evaluation_measurement,
@@ -494,6 +609,7 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
 
     measurement = load_measurement_data(config.measurement_path)
     evaluation_measurement = build_evaluation_measurement(config, measurement)
+    backend_effective = _resolve_optimizer_backend(config.backend)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     result_json_path = config.output_dir / "best_result.json"
@@ -512,53 +628,93 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
     stopped_early = False
     early_stop_reason: str | None = None
     consecutive_non_improving_trials = 0
+    max_parallelism_exception_type = _import_max_parallelism_exception()
+    data_required_exception_type = _import_data_required_exception()
 
-    for _ in range(int(config.total_trials)):
-        raw_parameters, trial_index = ax_client.get_next_trial()
-        parameters = {name: float(value) for name, value in raw_parameters.items()}
-        loss = float(evaluate_trial(config, parameters, measurement))
-        _complete_ax_trial(
-            ax_client=ax_client,
-            config=config,
-            trial_index=int(trial_index),
-            loss=loss,
-        )
-        trial_records.append(
-            TrialRecord(
-                trial_index=int(trial_index),
-                loss=loss,
-                parameters=parameters,
-            )
-        )
-        completed_trials = len(trial_records)
-
-        improved_enough = _is_significant_improvement(
-            previous_best_loss=best_loss,
-            new_loss=loss,
-            min_relative_improvement=float(config.early_stopping_min_relative_improvement),
-        )
-        if loss < best_loss:
-            best_loss = loss
-            best_parameters_float = dict(parameters)
-            best_grating_parameters = resolve_grating_parameters(config, best_parameters_float)
-
-        if completed_trials > int(config.early_stopping_warmup_trials):
-            if improved_enough:
-                consecutive_non_improving_trials = 0
-            else:
-                consecutive_non_improving_trials += 1
-            if (
-                config.enable_early_stopping
-                and consecutive_non_improving_trials >= int(config.early_stopping_patience)
-            ):
-                stopped_early = True
-                early_stop_reason = (
-                    "loss plateau after "
-                    f"{completed_trials} trials; patience={config.early_stopping_patience}, "
-                    f"warmup={config.early_stopping_warmup_trials}, "
-                    "min_relative_improvement="
-                    f"{config.early_stopping_min_relative_improvement:.6g}"
+    while completed_trials < int(config.total_trials):
+        remaining_trials = int(config.total_trials) - completed_trials
+        target_batch_size = min(int(config.batch_size), remaining_trials)
+        candidates: list[tuple[int, dict[str, float]]] = []
+        while len(candidates) < target_batch_size:
+            try:
+                raw_parameters, trial_index = ax_client.get_next_trial()
+            except Exception as error:
+                is_max_parallelism_error = (
+                    max_parallelism_exception_type is not None
+                    and isinstance(error, max_parallelism_exception_type)
                 )
+                is_data_required_error = (
+                    data_required_exception_type is not None
+                    and isinstance(error, data_required_exception_type)
+                )
+                if is_max_parallelism_error or is_data_required_error:
+                    reason = "max_parallelism" if is_max_parallelism_error else "data_required"
+                    if len(candidates) == 0:
+                        raise RuntimeError(
+                            "Ax blocked candidate generation before any candidate could be "
+                            f"proposed (target_batch_size={target_batch_size}, reason={reason})."
+                        ) from error
+                    print(
+                        "Ax generation clamp: "
+                        f"reason={reason}, requested_batch={target_batch_size}, "
+                        f"generated_batch={len(candidates)}"
+                    )
+                    break
+                raise
+            parameters = {name: float(value) for name, value in raw_parameters.items()}
+            candidates.append((int(trial_index), parameters))
+
+        evaluated_candidates = _evaluate_candidate_batch(
+            candidates,
+            config=config,
+            measurement=measurement,
+            backend_effective=backend_effective,
+        )
+
+        for trial_index, parameters, loss in evaluated_candidates:
+            _complete_ax_trial(
+                ax_client=ax_client,
+                config=config,
+                trial_index=int(trial_index),
+                loss=float(loss),
+            )
+            trial_records.append(
+                TrialRecord(
+                    trial_index=int(trial_index),
+                    loss=float(loss),
+                    parameters=dict(parameters),
+                )
+            )
+            completed_trials = len(trial_records)
+
+            improved_enough = _is_significant_improvement(
+                previous_best_loss=best_loss,
+                new_loss=float(loss),
+                min_relative_improvement=float(config.early_stopping_min_relative_improvement),
+            )
+            if float(loss) < best_loss:
+                best_loss = float(loss)
+                best_parameters_float = dict(parameters)
+                best_grating_parameters = resolve_grating_parameters(config, best_parameters_float)
+
+            if completed_trials > int(config.early_stopping_warmup_trials):
+                if improved_enough:
+                    consecutive_non_improving_trials = 0
+                else:
+                    consecutive_non_improving_trials += 1
+                if (
+                    config.enable_early_stopping
+                    and consecutive_non_improving_trials >= int(config.early_stopping_patience)
+                ):
+                    stopped_early = True
+                    early_stop_reason = (
+                        "loss plateau after "
+                        f"{completed_trials} trials; patience={config.early_stopping_patience}, "
+                        f"warmup={config.early_stopping_warmup_trials}, "
+                        "min_relative_improvement="
+                        f"{config.early_stopping_min_relative_improvement:.6g}"
+                    )
+                    break
 
         _persist_optimizer_artifacts(
             config=config,
@@ -574,6 +730,7 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
             stopped_early=stopped_early,
             completed_trials=completed_trials,
             early_stop_reason=early_stop_reason,
+            backend_effective=backend_effective,
         )
         if stopped_early:
             break
@@ -595,12 +752,39 @@ def _optimize_grating(config: BlazedAxConfig | LaminarAxConfig) -> OptimizationR
 
 
 def optimize_blazed(config: BlazedAxConfig) -> OptimizationResult:
-    """Run Ax optimization for a blazed grating."""
+    """Run Ax optimization for a blazed grating.
+
+    Args:
+        config: Blazed optimizer configuration including initial grating
+            geometry, optimization bounds, trial count, and output directory.
+
+    Returns:
+        OptimizationResult with the best parameters, resolved grating
+        parameters, best loss, and persisted artifact paths.
+
+    Raises:
+        ImportError: If Ax is not installed (install with ``pip install .[opt]``).
+        ValueError: If ``config`` fails dataclass validation.
+    """
 
     return _optimize_grating(config)
 
 
 def optimize_laminar(config: LaminarAxConfig) -> OptimizationResult:
-    """Run Ax optimization for a laminar grating."""
+    """Run Ax optimization for a laminar grating.
+
+    Args:
+        config: Laminar optimizer configuration including initial grating
+            geometry, optimization bounds, evaluation mode, trial count, and
+            output directory.
+
+    Returns:
+        OptimizationResult with the best parameters, resolved grating
+        parameters, best loss, and persisted artifact paths.
+
+    Raises:
+        ImportError: If Ax is not installed (install with ``pip install .[opt]``).
+        ValueError: If ``config`` fails dataclass validation.
+    """
 
     return _optimize_grating(config)

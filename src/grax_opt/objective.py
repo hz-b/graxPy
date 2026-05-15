@@ -47,6 +47,8 @@ def simulate_efficiency_curve(
     config: BlazedAxConfig | LaminarAxConfig,
     trial_parameters: Mapping[str, float],
     measurement: MeasurementData,
+    *,
+    backend: str,
 ) -> np.ndarray:
     """Simulate the selected diffraction-order efficiency on the measurement grid."""
 
@@ -75,6 +77,7 @@ def simulate_efficiency_curve(
             fourier_orders=config.fourier_orders,
             validate_physical_results=config.validate_physical_results,
             roughness_sigma_nm=solver_parameters["roughness_sigma_nm"],
+            backend=backend,
         )
         efficiencies.append(float(result.selected_efficiency))
 
@@ -87,6 +90,7 @@ def evaluate_trial(
     measurement: MeasurementData,
     *,
     loss_function: LossFunction | None = None,
+    backend: str,
 ) -> float:
     """Evaluate one Ax trial and return a scalar loss.
 
@@ -101,6 +105,7 @@ def evaluate_trial(
             config,
             trial_parameters,
             evaluation_measurement,
+            backend=backend,
         )
     except Exception:
         return float(config.failure_penalty)

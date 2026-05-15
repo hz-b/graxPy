@@ -1,4 +1,4 @@
-# Laminar Grating
+# Laminar Grating (400 l/mm, fixed angle)
 
 This comparison uses the laminar fixed-angle workflow from `comparison_to_other_codes/laminar`.
 

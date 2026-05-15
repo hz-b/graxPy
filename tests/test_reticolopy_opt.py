@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 from contextlib import contextmanager
+import runpy
 
 import numpy as np
 import pytest
@@ -35,6 +36,7 @@ from grax_opt.optimize import (
     optimize_laminar,
 )
 from grax_opt import optimize as optimize_module
+from grax_opt.cli import build_argument_parser
 from tests.optical_constants import load_optical_constants_table
 
 OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "examples" / "optical_constants"
@@ -158,6 +160,89 @@ def test_build_ax_parameters_uses_default_and_override_bounds(tmp_path: Path) ->
     override_parameters = build_ax_parameters(override_config)
     assert override_parameters[0]["bounds"] == [590.0, 610.0]
     assert override_parameters[1]["bounds"] == [0.6, 0.8]
+
+
+def test_blazed_ax_parameters_can_disable_period_optimization(tmp_path: Path) -> None:
+    """Ensure period is omitted from Ax parameters when optimization is disabled."""
+
+    config = build_test_config(tmp_path)
+    fixed_period_config = BlazedAxConfig(
+        initial_grating=config.initial_grating,
+        measurement_path=config.measurement_path,
+        output_dir=config.output_dir,
+        optimize_period_lpermm=False,
+        optimize_blaze_angle_deg=True,
+        evaluation_energies_ev=[150.0],
+    )
+
+    parameter_names = [parameter["name"] for parameter in build_ax_parameters(fixed_period_config)]
+    assert "period_lpermm" not in parameter_names
+    assert "blaze_angle_deg" in parameter_names
+
+
+def test_blazed_config_requires_at_least_one_optimized_parameter(tmp_path: Path) -> None:
+    """Reject blazed configs that disable every optimization parameter."""
+
+    config = build_test_config(tmp_path)
+    with pytest.raises(ValueError, match="At least one blazed optimization parameter"):
+        BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            optimize_period_lpermm=False,
+            optimize_blaze_angle_deg=False,
+            optimize_anti_blaze_angle_deg=False,
+            optimize_top_cap_thickness_nm=False,
+            evaluation_energies_ev=[150.0],
+        )
+
+
+def test_cli_can_disable_period_optimization_flag() -> None:
+    """Parse --no-optimize-period-lpermm to disable period optimization."""
+
+    parser = build_argument_parser()
+    arguments = parser.parse_args(
+        [
+            "--measurement-path",
+            "m.dat",
+            "--output-dir",
+            "out",
+            "--period-lpermm",
+            "600",
+            "--blaze-angle-deg",
+            "0.7",
+            "--substrate-optical-constants",
+            "si.dat",
+            "--layer-optical-constants",
+            "au.dat",
+            "--no-optimize-period-lpermm",
+        ]
+    )
+    assert arguments.optimize_period_lpermm is False
+
+
+def test_cli_backend_defaults_to_auto() -> None:
+    """Parse backend option with expected default."""
+
+    parser = build_argument_parser()
+    arguments = parser.parse_args(
+        [
+            "--measurement-path",
+            "m.dat",
+            "--output-dir",
+            "out",
+            "--period-lpermm",
+            "600",
+            "--blaze-angle-deg",
+            "0.7",
+            "--substrate-optical-constants",
+            "si.dat",
+            "--layer-optical-constants",
+            "au.dat",
+        ]
+    )
+    assert arguments.backend == "auto"
+    assert arguments.batch_size == 1
 
 
 def test_laminar_ax_parameters_require_explicit_bounds_and_include_all_fit_variables(
@@ -318,6 +403,53 @@ def test_config_validates_early_stopping_controls(tmp_path: Path) -> None:
         )
 
 
+def test_config_validates_backend_choice(tmp_path: Path) -> None:
+    """Accept known backend values and reject unknown ones."""
+
+    config = build_test_config(tmp_path)
+    for backend in ["auto", "numba", "numpy"]:
+        validated = BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            evaluation_energies_ev=[150.0],
+            backend=backend,
+        )
+        assert validated.backend == backend
+
+    with pytest.raises(ValueError, match="backend must be one of"):
+        BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            evaluation_energies_ev=[150.0],
+            backend="jax",
+        )
+
+
+def test_config_validates_batch_size(tmp_path: Path) -> None:
+    """Accept valid batch size and reject non-positive values."""
+
+    config = build_test_config(tmp_path)
+    validated = BlazedAxConfig(
+        initial_grating=config.initial_grating,
+        measurement_path=config.measurement_path,
+        output_dir=config.output_dir,
+        evaluation_energies_ev=[150.0],
+        batch_size=3,
+    )
+    assert validated.batch_size == 3
+
+    with pytest.raises(ValueError, match="batch_size must be > 0"):
+        BlazedAxConfig(
+            initial_grating=config.initial_grating,
+            measurement_path=config.measurement_path,
+            output_dir=config.output_dir,
+            evaluation_energies_ev=[150.0],
+            batch_size=0,
+        )
+
+
 def test_initial_laminar_grating_validates_geometry() -> None:
     with pytest.raises(ValueError, match="width_to_period_ratio must be in"):
         InitialLaminarGrating(
@@ -419,8 +551,8 @@ def test_evaluate_trial_is_deterministic_with_mocked_solver(
         fake_simulate_efficiency_curve,
     )
 
-    loss_one = evaluate_trial(config, {"period_lpermm": 600.0}, measurement)
-    loss_two = evaluate_trial(config, {"period_lpermm": 600.0}, measurement)
+    loss_one = evaluate_trial(config, {"period_lpermm": 600.0}, measurement, backend="numpy")
+    loss_two = evaluate_trial(config, {"period_lpermm": 600.0}, measurement, backend="numpy")
 
     assert loss_one == pytest.approx(loss_two)
     assert isinstance(loss_one, float)
@@ -454,7 +586,7 @@ def test_laminar_fixed_angle_objective_uses_constant_grazing_angle(
 
     monkeypatch.setattr("grax_opt.objective.run_simulation", fake_run_simulation)
 
-    simulate_efficiency_curve(config, {"period_lpermm": 400.0}, measurement)
+    simulate_efficiency_curve(config, {"period_lpermm": 400.0}, measurement, backend="numpy")
 
     assert observed_angles == [4.0, 4.0]
 
@@ -477,7 +609,7 @@ def test_laminar_cff_objective_uses_monochromator_grazing_angles(
         lambda *_args, **_kwargs: np.array([1.0, 2.0]),
     )
 
-    simulate_efficiency_curve(config, {"period_lpermm": 400.0}, measurement)
+    simulate_efficiency_curve(config, {"period_lpermm": 400.0}, measurement, backend="numpy")
 
     assert observed_angles == [1.0, 2.0]
 
@@ -500,6 +632,7 @@ def test_objective_passes_trial_roughness_to_simulation(
         config,
         {"period_lpermm": 400.0, "roughness_sigma_nm": 0.8},
         measurement,
+        backend="numpy",
     )
 
     assert observed_roughness == [0.8, 0.8]
@@ -519,7 +652,7 @@ def test_evaluate_trial_uses_discrete_energy_subset(
     measurement = load_measurement_data(config.measurement_path)
     observed_energy_grid = {"values": None}
 
-    def fake_simulate_efficiency_curve(_config, _trial_parameters, sampled_measurement):
+    def fake_simulate_efficiency_curve(_config, _trial_parameters, sampled_measurement, *, backend):
         observed_energy_grid["values"] = np.asarray(sampled_measurement.energy_ev, dtype=float)
         return np.asarray(sampled_measurement.efficiency, dtype=float)
 
@@ -528,7 +661,7 @@ def test_evaluate_trial_uses_discrete_energy_subset(
         fake_simulate_efficiency_curve,
     )
 
-    loss = evaluate_trial(discrete_config, {"period_lpermm": 600.0}, measurement)
+    loss = evaluate_trial(discrete_config, {"period_lpermm": 600.0}, measurement, backend="numpy")
     assert loss == pytest.approx(0.0)
     assert observed_energy_grid["values"] is not None
     assert np.allclose(observed_energy_grid["values"], np.array([150.0]))
@@ -554,7 +687,7 @@ def test_build_ax_optimize_kwargs_uses_configured_objective_sem(
     )
     monkeypatch.setattr(
         "grax_opt.optimize.evaluate_trial",
-        lambda _config, _trial_parameters, _measurement: 0.125,
+        lambda _config, _trial_parameters, _measurement, *, backend: 0.125,
     )
 
     kwargs = _build_ax_optimize_kwargs(sem_config, measurement)
@@ -589,7 +722,7 @@ def test_optimize_blazed_smoke_run_writes_outputs(
         def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
             self.completed.append((trial_index, raw_data if raw_data is not None else data))
 
-    def fake_simulate_efficiency_curve(_config, trial_parameters, sampled_measurement):
+    def fake_simulate_efficiency_curve(_config, trial_parameters, sampled_measurement, *, backend):
         period = float(trial_parameters["period_lpermm"])
         blaze = float(
             trial_parameters.get("blaze_angle_deg", config.initial_grating.blaze_angle_deg)
@@ -682,7 +815,7 @@ def test_optimize_laminar_smoke_run_writes_outputs(
         def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
             self.completed.append((trial_index, raw_data if raw_data is not None else data))
 
-    def fake_simulate_efficiency_curve(_config, trial_parameters, sampled_measurement):
+    def fake_simulate_efficiency_curve(_config, trial_parameters, sampled_measurement, *, backend):
         period = float(trial_parameters["period_lpermm"])
         depth = float(trial_parameters["depth_nm"])
         target = 0.25 + 0.001 * (period - 400.0) - 0.001 * (depth - 14.9)
@@ -771,11 +904,11 @@ def test_optimize_laminar_early_stopping_stops_on_plateau(
     )
     monkeypatch.setattr(
         "grax_opt.optimize.evaluate_trial",
-        lambda _config, _trial_parameters, _measurement: next(loss_values),
+        lambda _config, _trial_parameters, _measurement, *, backend: next(loss_values),
     )
     monkeypatch.setattr(
         "grax_opt.optimize.simulate_efficiency_curve",
-        lambda _config, _trial_parameters, sampled_measurement: np.full(
+        lambda _config, _trial_parameters, sampled_measurement, *, backend: np.full(
             sampled_measurement.energy_ev.shape,
             0.2,
             dtype=float,
@@ -861,3 +994,246 @@ def test_create_ax_client_prints_compute_context_once(
     captured = capsys.readouterr()
     assert captured.out.count("BANNER") == 1
     assert isinstance(ax_client, FakeAxClient)
+
+
+def test_resolve_optimizer_backend_auto_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve optimizer backend from policy and numba availability."""
+
+    monkeypatch.setattr(optimize_module, "_is_numba_available", lambda: True)
+    assert optimize_module._resolve_optimizer_backend("auto") == "numba"
+    assert optimize_module._resolve_optimizer_backend("numba") == "numba"
+    assert optimize_module._resolve_optimizer_backend("numpy") == "numpy"
+
+    monkeypatch.setattr(optimize_module, "_is_numba_available", lambda: False)
+    assert optimize_module._resolve_optimizer_backend("auto") == "numpy"
+    assert optimize_module._resolve_optimizer_backend("numba") == "numpy"
+
+
+def test_example_configs_split_optimizer_and_simulation_backends() -> None:
+    """Ensure examples use auto only for optimizer config, not simulation runners."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    blazed_config = runpy.run_path(
+        str(repo_root / "examples" / "optimizer" / "optimizer_blazed" / "example_config.py")
+    )
+    laminar_config = runpy.run_path(
+        str(repo_root / "examples" / "optimizer" / "optmizer_laminar" / "example_config.py")
+    )
+
+    assert blazed_config["optimizer_backend"] == "auto"
+    assert blazed_config["simulation_backend"] in {"numba", "numpy"}
+    assert blazed_config["simulation_backend"] != "auto"
+
+    assert laminar_config["optimizer_backend"] == "auto"
+    assert laminar_config["simulation_backend"] in {"numba", "numpy"}
+    assert laminar_config["simulation_backend"] != "auto"
+
+
+def test_optimize_blazed_batch_mode_groups_trials_and_preserves_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run batched optimizer loop and verify ordering/completion semantics."""
+
+    base = build_test_config(tmp_path)
+    config = BlazedAxConfig(
+        initial_grating=base.initial_grating,
+        measurement_path=base.measurement_path,
+        output_dir=base.output_dir,
+        total_trials=5,
+        batch_size=3,
+        optimize_blaze_angle_deg=True,
+        evaluation_energies_ev=[150.0],
+    )
+
+    class FakeAxClient:
+        def __init__(self) -> None:
+            self._parameter_sets = [
+                {"period_lpermm": 600.0, "blaze_angle_deg": 0.70},
+                {"period_lpermm": 601.0, "blaze_angle_deg": 0.71},
+                {"period_lpermm": 602.0, "blaze_angle_deg": 0.72},
+                {"period_lpermm": 603.0, "blaze_angle_deg": 0.73},
+                {"period_lpermm": 604.0, "blaze_angle_deg": 0.74},
+            ]
+            self.completed: list[int] = []
+            self.issued = 0
+
+        def create_experiment(self, **_kwargs) -> None:
+            return None
+
+        def get_next_trial(self):
+            trial_index = self.issued
+            self.issued += 1
+            return self._parameter_sets[trial_index], trial_index
+
+        def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
+            self.completed.append(int(trial_index))
+
+    issued_candidates: list[list[int]] = []
+
+    def fake_evaluate_batch(candidates, *, config, measurement, backend_effective):
+        issued_candidates.append([int(index) for index, _ in candidates])
+        evaluated = []
+        for trial_index, parameters in candidates:
+            evaluated.append((int(trial_index), dict(parameters), float(10 - trial_index)))
+        return sorted(evaluated, key=lambda item: int(item[0]))
+
+    monkeypatch.setattr("grax_opt.optimize._create_ax_client_for_config", lambda _config: FakeAxClient())
+    monkeypatch.setattr("grax_opt.optimize._evaluate_candidate_batch", fake_evaluate_batch)
+    monkeypatch.setattr(
+        "grax_opt.optimize.simulate_efficiency_curve",
+        lambda _config, _trial_parameters, sampled_measurement, *, backend: np.full(
+            sampled_measurement.energy_ev.shape,
+            0.2,
+            dtype=float,
+        ),
+    )
+
+    result = optimize_blazed(config)
+
+    assert result.completed_trials == 5
+    assert [record.trial_index for record in result.trial_records] == [0, 1, 2, 3, 4]
+    assert issued_candidates == [[0, 1, 2], [3, 4]]
+
+
+def test_optimize_blazed_batch_mode_clamps_on_ax_max_parallelism(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure optimizer continues with partial batches when Ax blocks generation."""
+
+    base = build_test_config(tmp_path)
+    config = BlazedAxConfig(
+        initial_grating=base.initial_grating,
+        measurement_path=base.measurement_path,
+        output_dir=base.output_dir,
+        total_trials=5,
+        batch_size=3,
+        optimize_blaze_angle_deg=True,
+        evaluation_energies_ev=[150.0],
+    )
+
+    class FakeMaxParallelismReachedException(Exception):
+        """Fake Ax max parallelism exception."""
+
+    class FakeAxClient:
+        def __init__(self) -> None:
+            self._parameter_sets = [
+                {"period_lpermm": 600.0, "blaze_angle_deg": 0.70},
+                {"period_lpermm": 601.0, "blaze_angle_deg": 0.71},
+                {"period_lpermm": 602.0, "blaze_angle_deg": 0.72},
+                {"period_lpermm": 603.0, "blaze_angle_deg": 0.73},
+                {"period_lpermm": 604.0, "blaze_angle_deg": 0.74},
+            ]
+            self.issued = 0
+            self.completed: list[int] = []
+            self.max_running = 2
+
+        def create_experiment(self, **_kwargs) -> None:
+            return None
+
+        def get_next_trial(self):
+            if (self.issued - len(self.completed)) >= self.max_running:
+                raise FakeMaxParallelismReachedException("parallelism cap")
+            trial_index = self.issued
+            self.issued += 1
+            return self._parameter_sets[trial_index], trial_index
+
+        def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
+            self.completed.append(int(trial_index))
+
+    monkeypatch.setattr("grax_opt.optimize._create_ax_client_for_config", lambda _config: FakeAxClient())
+    monkeypatch.setattr(
+        "grax_opt.optimize._import_max_parallelism_exception",
+        lambda: FakeMaxParallelismReachedException,
+    )
+    monkeypatch.setattr(
+        "grax_opt.optimize.evaluate_trial",
+        lambda _config, trial_parameters, _measurement, *, backend: float(
+            trial_parameters["period_lpermm"] - 590.0
+        ),
+    )
+    monkeypatch.setattr(
+        "grax_opt.optimize.simulate_efficiency_curve",
+        lambda _config, _trial_parameters, sampled_measurement, *, backend: np.full(
+            sampled_measurement.energy_ev.shape,
+            0.2,
+            dtype=float,
+        ),
+    )
+
+    result = optimize_blazed(config)
+
+    assert result.completed_trials == 5
+    assert [record.trial_index for record in result.trial_records] == [0, 1, 2, 3, 4]
+    assert result.stopped_early is False
+
+
+def test_optimize_blazed_batch_mode_clamps_on_ax_data_required(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure optimizer continues with partial batches on Ax data-required blocks."""
+
+    base = build_test_config(tmp_path)
+    config = BlazedAxConfig(
+        initial_grating=base.initial_grating,
+        measurement_path=base.measurement_path,
+        output_dir=base.output_dir,
+        total_trials=5,
+        batch_size=3,
+        optimize_blaze_angle_deg=True,
+        evaluation_energies_ev=[150.0],
+    )
+
+    class FakeDataRequiredError(Exception):
+        """Fake Ax data-required exception."""
+
+    class FakeAxClient:
+        def __init__(self) -> None:
+            self._parameter_sets = [
+                {"period_lpermm": 600.0, "blaze_angle_deg": 0.70},
+                {"period_lpermm": 601.0, "blaze_angle_deg": 0.71},
+                {"period_lpermm": 602.0, "blaze_angle_deg": 0.72},
+                {"period_lpermm": 603.0, "blaze_angle_deg": 0.73},
+                {"period_lpermm": 604.0, "blaze_angle_deg": 0.74},
+            ]
+            self.issued = 0
+            self.completed: list[int] = []
+            self.max_running = 2
+
+        def create_experiment(self, **_kwargs) -> None:
+            return None
+
+        def get_next_trial(self):
+            if (self.issued - len(self.completed)) >= self.max_running:
+                raise FakeDataRequiredError("data required for next node")
+            trial_index = self.issued
+            self.issued += 1
+            return self._parameter_sets[trial_index], trial_index
+
+        def complete_trial(self, trial_index: int, raw_data=None, data=None) -> None:
+            self.completed.append(int(trial_index))
+
+    monkeypatch.setattr("grax_opt.optimize._create_ax_client_for_config", lambda _config: FakeAxClient())
+    monkeypatch.setattr("grax_opt.optimize._import_data_required_exception", lambda: FakeDataRequiredError)
+    monkeypatch.setattr(
+        "grax_opt.optimize.evaluate_trial",
+        lambda _config, trial_parameters, _measurement, *, backend: float(
+            trial_parameters["period_lpermm"] - 590.0
+        ),
+    )
+    monkeypatch.setattr(
+        "grax_opt.optimize.simulate_efficiency_curve",
+        lambda _config, _trial_parameters, sampled_measurement, *, backend: np.full(
+            sampled_measurement.energy_ev.shape,
+            0.2,
+            dtype=float,
+        ),
+    )
+
+    result = optimize_blazed(config)
+
+    assert result.completed_trials == 5
+    assert [record.trial_index for record in result.trial_records] == [0, 1, 2, 3, 4]
+    assert result.stopped_early is False

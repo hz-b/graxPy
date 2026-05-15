@@ -8,10 +8,25 @@ import numpy as np
 import pandas as pd
 
 import grax as rp
+from example_config import (
+    depth_nm,
+    diffraction_order,
+    fourier_orders,
+    grazing_angle_deg,
+    layer_thickness_nm,
+    left_wall_angle_deg,
+    measurement_path,
+    optical_constants_dir,
+    period_lpermm,
+    results_dir,
+    right_wall_angle_deg,
+    simulation_backend,
+    top_cap_thickness_nm,
+    width_to_period_ratio,
+    x_resolution_nm,
+    z_resolution_nm,
+)
 
-example_root = Path(__file__).resolve().parent
-optical_constants_dir = example_root / "optical_constants" / "old"
-results_dir = example_root / "results" / "laminar_fit"
 results_dir.mkdir(parents=True, exist_ok=True)
 
 silicon = pd.read_csv(
@@ -39,7 +54,7 @@ carbon = pd.read_csv(
 carbon.attrs["name"] = "C"
 
 measurement = pd.read_csv(
-    example_root / "measured_alpha4deg_order1.csv",
+    measurement_path,
     sep=";",
     skiprows=3,
     decimal=",",
@@ -48,34 +63,34 @@ measurement = pd.read_csv(
 energies = np.asarray(measurement["energy_ev"], dtype=float)
 
 design_grating = rp.LaminarGrating(
-    period_lpermm=400.0,
-    width_to_period_ratio=0.67,
-    depth_nm=14.9,
-    left_wall_angle_deg=15.0,
-    right_wall_angle_deg=15.0,
+    period_lpermm=period_lpermm,
+    width_to_period_ratio=width_to_period_ratio,
+    depth_nm=depth_nm,
+    left_wall_angle_deg=left_wall_angle_deg,
+    right_wall_angle_deg=right_wall_angle_deg,
     substrate_material=silicon,
     layer_material=platinum,
-    layer_thickness_nm=28.77,
+    layer_thickness_nm=layer_thickness_nm,
     top_cap_material=carbon,
-    top_cap_thickness_nm=0.3,
-    z_resolution_nm=0.1,
-    x_resolution_nm=0.1,
+    top_cap_thickness_nm=top_cap_thickness_nm,
+    z_resolution_nm=z_resolution_nm,
+    x_resolution_nm=x_resolution_nm,
 )
 
 cases = rp.fixed_angle_cases(
     grating=design_grating,
     energies_ev=energies,
-    grazing_angle_deg=4.0,
+    grazing_angle_deg=grazing_angle_deg,
 )
 
 runner = rp.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=15,
+    default_diffraction_order=diffraction_order,
+    default_fourier_orders=fourier_orders,
     max_workers="auto",
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
-    backend="numba",
+    backend=simulation_backend,
 )
 results = list(runner.run_cases(cases))
 
@@ -83,3 +98,8 @@ output_csv_path = results_dir / "simulated_curve_initial.csv"
 rp.write_all_orders_csv(results, output_csv_path)
 
 print(f"Initial-parameter simulation CSV: {output_csv_path}")
+print(
+    "Initial simulation settings: "
+    f"grazing_angle_deg={grazing_angle_deg}, "
+    f"fourier_orders={fourier_orders}, simulation_backend={simulation_backend}"
+)

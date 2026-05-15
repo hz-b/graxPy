@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 import grax as rp
+from example_config import (
+    diffraction_order as baseline_diffraction_order,
+    fourier_orders as baseline_fourier_orders,
+    grazing_angle_deg,
+    measurement_path,
+    optical_constants_dir,
+    results_dir,
+    simulation_backend as baseline_simulation_backend,
+)
 
-example_root = Path(__file__).resolve().parent
-optical_constants_dir = example_root / "optical_constants" / "old"
-results_dir = example_root / "results" / "laminar_fit"
 results_dir.mkdir(parents=True, exist_ok=True)
 
 fitted_parameters_path = results_dir / "fitted_parameters.json"
@@ -46,7 +51,7 @@ carbon = pd.read_csv(
 carbon.attrs["name"] = "C"
 
 measurement = pd.read_csv(
-    example_root / "measured_alpha4deg_order1.csv",
+    measurement_path,
     sep=";",
     skiprows=3,
     decimal=",",
@@ -64,17 +69,17 @@ fitted_grating = rp.LaminarGrating(**fitted_grating_parameters)
 cases = rp.fixed_angle_cases(
     grating=fitted_grating,
     energies_ev=energies,
-    grazing_angle_deg=4.0,
+    grazing_angle_deg=grazing_angle_deg,
 )
 
 runner = rp.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=int(payload.get("fourier_orders", 15)),
+    default_diffraction_order=int(payload.get("diffraction_order", baseline_diffraction_order)),
+    default_fourier_orders=int(payload.get("fourier_orders", baseline_fourier_orders)),
     max_workers="auto",
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
-    backend=str(payload.get("backend", "numba")),
+    backend=str(payload.get("backend", baseline_simulation_backend)),
 )
 results = list(runner.run_cases(cases))
 
@@ -82,3 +87,9 @@ output_csv_path = results_dir / "simulated_curve_fitted.csv"
 rp.write_all_orders_csv(results, output_csv_path)
 
 print(f"Fitted-parameter simulation CSV: {output_csv_path}")
+print(
+    "Fitted simulation settings: "
+    f"grazing_angle_deg={grazing_angle_deg}, "
+    f"fourier_orders={int(payload.get('fourier_orders', baseline_fourier_orders))}, "
+    f"simulation_backend={str(payload.get('backend', baseline_simulation_backend))}"
+)

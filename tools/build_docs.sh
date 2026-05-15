@@ -67,10 +67,11 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
     GRATING_IMAGE_DIR="${DOCS_DIR}/tutorials/images/gratings"
     SIM_IMAGE_DIR="${DOCS_DIR}/tutorials/images/simulation"
     OPTIMIZER_IMAGE_DIR="${DOCS_DIR}/tutorials/images/optimizer/laminar_fit"
+    OPTIMIZER_BLAZED_IMAGE_DIR="${DOCS_DIR}/tutorials/images/optimizer/blazed_fit"
     NUMBA_SPEED_IMAGE_DIR="${DOCS_DIR}/tutorials/images/numba_speed"
     COMPARISON_IMAGE_DIR="${DOCS_DIR}/comparison-to-other-codes/images"
     HOWTO_IMAGE_DIR="${DOCS_DIR}/how-to/images"
-    mkdir -p "${GRATING_IMAGE_DIR}" "${SIM_IMAGE_DIR}" "${OPTIMIZER_IMAGE_DIR}" "${NUMBA_SPEED_IMAGE_DIR}" "${COMPARISON_IMAGE_DIR}" "${HOWTO_IMAGE_DIR}"
+    mkdir -p "${GRATING_IMAGE_DIR}" "${SIM_IMAGE_DIR}" "${OPTIMIZER_IMAGE_DIR}" "${OPTIMIZER_BLAZED_IMAGE_DIR}" "${NUMBA_SPEED_IMAGE_DIR}" "${COMPARISON_IMAGE_DIR}" "${HOWTO_IMAGE_DIR}"
 
     cp "${PROJECT_ROOT}/examples/grating/results/laminar_no_top_cap.png" \
       "${GRATING_IMAGE_DIR}/laminar_no_top_cap.png"
@@ -99,12 +100,22 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${SIM_IMAGE_DIR}/multilayer_theta_search_workflow.png"
     cp "${PROJECT_ROOT}/examples/simulation/parameter_study/results/parameter_study_grid.png" \
       "${SIM_IMAGE_DIR}/parameter_study_grid.png"
-    cp "${PROJECT_ROOT}/examples/optimizer/results/laminar_fit/best_fit.png" \
+    cp "${PROJECT_ROOT}/examples/optimizer/optmizer_laminar/results/laminar_fit/best_fit.png" \
       "${OPTIMIZER_IMAGE_DIR}/best_fit.png"
-    cp "${PROJECT_ROOT}/examples/optimizer/results/laminar_fit/optimization_loss_history.png" \
+    cp "${PROJECT_ROOT}/examples/optimizer/optmizer_laminar/results/laminar_fit/optimization_loss_history.png" \
       "${OPTIMIZER_IMAGE_DIR}/optimization_loss_history.png"
-    cp "${PROJECT_ROOT}/examples/optimizer/results/laminar_fit/laminar_fit_measurement_comparison.png" \
+    cp "${PROJECT_ROOT}/examples/optimizer/optmizer_laminar/results/laminar_fit/laminar_fit_measurement_comparison.png" \
       "${OPTIMIZER_IMAGE_DIR}/laminar_fit_measurement_comparison.png"
+    if [[ -f "${PROJECT_ROOT}/examples/optimizer/optimizer_blazed/results/blazed_fit/best_fit.png" ]]; then
+      cp "${PROJECT_ROOT}/examples/optimizer/optimizer_blazed/results/blazed_fit/best_fit.png" \
+        "${OPTIMIZER_BLAZED_IMAGE_DIR}/best_fit.png"
+      cp "${PROJECT_ROOT}/examples/optimizer/optimizer_blazed/results/blazed_fit/optimization_loss_history.png" \
+        "${OPTIMIZER_BLAZED_IMAGE_DIR}/optimization_loss_history.png"
+      cp "${PROJECT_ROOT}/examples/optimizer/optimizer_blazed/results/blazed_fit/blazed_fit_measurement_comparison.png" \
+        "${OPTIMIZER_BLAZED_IMAGE_DIR}/blazed_fit_measurement_comparison.png"
+    else
+      echo "Warning: blazed optimizer images not found; run examples/optimizer/optimizer_blazed workflow first."
+    fi
     cp "${PROJECT_ROOT}/tools/numba_speed/results/multi_energy_numba_vs_legacy_plots.png" \
       "${NUMBA_SPEED_IMAGE_DIR}/multi_energy_numba_vs_legacy_plots.png"
     cp "${PROJECT_ROOT}/tools/numba_speed/results/multi_energy_multilayer_numba_vs_legacy_plots.png" \
@@ -199,5 +210,50 @@ fi
 if [[ "${LAUNCH_HTML}" == true ]]; then
     echo
     echo "Opening HTML documentation..."
-    xdg-open "${HTML_BUILD_DIR}/index.html" >/dev/null 2>&1 &
+    HTML_INDEX="${HTML_BUILD_DIR}/index.html"
+    DOCS_BROWSER="${DOCS_BROWSER:-google-chrome}"
+    if command -v "${DOCS_BROWSER}" >/dev/null 2>&1; then
+        if "${DOCS_BROWSER}" "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif "${DOCS_BROWSER}" "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v xdg-open >/dev/null 2>&1 && xdg-open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v gio >/dev/null 2>&1 && gio open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v python3 >/dev/null 2>&1 && python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        else
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    elif command -v xdg-open >/dev/null 2>&1; then
+        if xdg-open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v gio >/dev/null 2>&1 && gio open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v python3 >/dev/null 2>&1 && python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        else
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    elif command -v gio >/dev/null 2>&1; then
+        if gio open "${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        elif command -v python3 >/dev/null 2>&1 && python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            :
+        else
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    elif command -v python3 >/dev/null 2>&1; then
+        if ! python3 -m webbrowser "file://${HTML_INDEX}" >/dev/null 2>&1; then
+            echo "Could not auto-open browser."
+            echo "Open manually: ${HTML_INDEX}"
+        fi
+    else
+        echo "Could not auto-open browser."
+        echo "Open manually: ${HTML_INDEX}"
+    fi
 fi
