@@ -1,4 +1,4 @@
-# Laminar Optimizer Example
+# Optimizer Example
 
 This tutorial documents the maintained optimizer workflow in
 `examples/optimizer` for fitting a laminar grating model to measured
@@ -92,7 +92,7 @@ Key files:
 
 ## Design vs Optimized Parameters
 
-The laminar optimizer example starts from the design parameters defined in
+The optimizer example starts from the design parameters defined in
 `examples/optimizer/0_fit_laminar_grating.py` and writes optimized values in
 `examples/optimizer/results/laminar_fit/fitted_parameters.json`.
 
@@ -112,13 +112,13 @@ for this run (for example substrate/layer materials, `layer_thickness_nm`,
 Generated figures:
 
 ```{image} images/optimizer/laminar_fit/best_fit.png
-:alt: Measurement versus best-fit curve for laminar optimizer example
+:alt: Measurement versus best-fit curve for optimizer example
 :align: center
 :width: 80%
 ```
 
 ```{image} images/optimizer/laminar_fit/optimization_loss_history.png
-:alt: Optimization loss history for laminar optimizer example
+:alt: Optimization loss history for optimizer example
 :align: center
 :width: 80%
 ```
