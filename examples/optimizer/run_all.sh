@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python "${SCRIPT_DIR}/0_fit_laminar_grating.py"
 
 # Run simulation with design parameters
-python "${SCRIPT_DIR}/1_run_simulation_design_parameters.py"
+# python "${SCRIPT_DIR}/1_run_simulation_design_parameters.py"
 
 # Run simulation with fitted parameters
 python "${SCRIPT_DIR}/2_run_simulation_fitted_parameters.py"
