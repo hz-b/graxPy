@@ -9,4 +9,5 @@ helpers are intentionally left out of the user-facing API reference.
 
 gratings
 simulation
+optimization
 ```

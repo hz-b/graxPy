@@ -349,10 +349,14 @@ def _save_loss_history_plot(
     trial_indices = np.asarray([record.trial_index for record in trial_records], dtype=float)
     losses = np.asarray([record.loss for record in trial_records], dtype=float)
     running_best = np.minimum.accumulate(losses)
+    positive_mask = np.isfinite(losses) & (losses > 0.0)
+    positive_running_best = np.isfinite(running_best) & (running_best > 0.0)
 
     figure, axis = plt.subplots(figsize=(10, 6))
     axis.plot(trial_indices, losses, "o-", linewidth=1.0, label="Trial loss")
     axis.plot(trial_indices, running_best, "s-", linewidth=1.0, label="Running best")
+    if np.any(positive_mask) and np.any(positive_running_best):
+        axis.set_yscale("log")
     if stopped_early and trial_indices.size > 0:
         stop_trial_index = float(trial_indices[-1])
         axis.axvline(

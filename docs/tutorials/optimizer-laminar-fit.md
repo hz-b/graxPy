@@ -4,6 +4,9 @@ This tutorial documents the maintained optimizer workflow in
 `examples/optimizer` for fitting a laminar grating model to measured
 fixed-angle efficiency data.
 
+For API details of optimizer functions/configs, see
+[`grax_opt` optimization API](../api/optimization.md).
+
 ## Goal
 
 Run a full fit workflow that:
