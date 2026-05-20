@@ -46,27 +46,27 @@
     490.0,
     500.0
   ],
-  "best_loss": 1.7910175705768854e-06,
+  "best_loss": 2.3194259444652073e-06,
   "best_parameters": {
-    "width_to_period_ratio": 0.7155177642812152,
-    "depth_nm": 14.646524165478981,
-    "left_wall_angle_deg": 22.534389954459346,
-    "right_wall_angle_deg": 10.0,
-    "top_cap_thickness_nm": 0.7348973856066017
+    "width_to_period_ratio": 0.7211490506760888,
+    "depth_nm": 14.69842239342797,
+    "left_wall_angle_deg": 13.807623991787436,
+    "right_wall_angle_deg": 20.0,
+    "top_cap_thickness_nm": 0.7619989698773539
   },
   "best_grating_parameters": {
     "period_lpermm": 400.0,
-    "width_to_period_ratio": 0.7155177642812152,
-    "depth_nm": 14.646524165478981,
-    "left_wall_angle_deg": 22.534389954459346,
-    "right_wall_angle_deg": 10.0,
+    "width_to_period_ratio": 0.7211490506760888,
+    "depth_nm": 14.69842239342797,
+    "left_wall_angle_deg": 13.807623991787436,
+    "right_wall_angle_deg": 20.0,
     "substrate_material": "Si",
     "layer_material": "Pt",
     "layer_thickness_nm": 28.77,
     "top_cap_material": "C",
-    "top_cap_thickness_nm": 0.7348973856066017,
-    "z_resolution_nm": 0.1,
-    "x_resolution_nm": 0.1
+    "top_cap_thickness_nm": 0.7619989698773539,
+    "z_resolution_nm": 0.5,
+    "x_resolution_nm": 0.5
   },
   "best_solver_parameters": {
     "roughness_sigma_nm": null

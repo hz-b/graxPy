@@ -24,7 +24,7 @@ theta_search_order = theta_search_results[theta_search_results["order"] == -2].c
 theta_search_order = theta_search_order.sort_values("energy_ev")
 
 diffmod_results = pd.read_csv(
-    base_path / "simulation" / "DiffractMod_CrC_d4.8_N60.dat",
+    base_path / "simulation" / "DiffractMod_CrC_d4.8_N60_new.dat",
     sep=r"\s+",
     engine="python",
 )
@@ -44,7 +44,7 @@ plt.plot(
     theta_search_order["efficiency"],
     label="grax theta-search",
     linewidth=1.0,
-    marker="o",
+    # marker="o",
     linestyle="--",
 )
 plt.plot(
