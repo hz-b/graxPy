@@ -1,9 +1,9 @@
 # Blazed Grating
 
 This tutorial documents the blazed optimizer workflow in
-`examples/optimizer/optimizer_blazed`, implemented via the dynamic optimizer
-API, for fitting a blazed grating model to measured monochromator efficiency
-data.
+`examples/optimizer/optimizer_blazed`, implemented via the measurement-fit
+optimizer API, for fitting a blazed grating model to measured monochromator
+efficiency data.
 
 For API details of optimizer functions/configs, see
 [`grax_opt` optimization API](../api/optimization.md).

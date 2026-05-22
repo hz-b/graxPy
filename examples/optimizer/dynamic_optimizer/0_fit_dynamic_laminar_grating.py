@@ -7,7 +7,7 @@ import json
 import pandas as pd
 
 from grax import LaminarGrating
-from grax_opt import optimize_dynamic
+from grax_opt import optimize_to_measurements
 from example_config import (
     batch_size,
     design_depth_nm,
@@ -112,7 +112,7 @@ spec = {
 }
 
 try:
-    result = optimize_dynamic(spec)
+    result = optimize_to_measurements(spec)
 except ImportError as error:
     print(error)
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")

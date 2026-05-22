@@ -8,7 +8,7 @@ import pandas as pd
 from grax import BlazedGrating
 
 from grax_opt import (
-    optimize_dynamic,
+    optimize_to_measurements,
 )
 from example_config import (
     anti_blaze_angle_deg,
@@ -58,7 +58,7 @@ results_dir.mkdir(parents=True, exist_ok=True)
 top_cap_material = carbon if use_top_cap else None
 
 def build_grating(parameters: dict[str, float]) -> BlazedGrating:
-    """Build blazed grating from dynamic optimizer parameters."""
+    """Build blazed grating from measurement-fit parameters."""
 
     return BlazedGrating(
         period_lpermm=period_lpermm,
@@ -99,7 +99,7 @@ spec = {
 }
 
 try:
-    result = optimize_dynamic(spec)
+    result = optimize_to_measurements(spec)
 except ImportError as error:
     print(error)
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")

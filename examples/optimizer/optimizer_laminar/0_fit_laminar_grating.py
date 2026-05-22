@@ -8,7 +8,7 @@ import pandas as pd
 from grax import LaminarGrating
 
 from grax_opt import (
-    optimize_dynamic,
+    optimize_to_measurements,
 )
 from example_config import (
     angle_mode,
@@ -61,7 +61,7 @@ carbon.attrs["name"] = "C"
 results_dir.mkdir(parents=True, exist_ok=True)
 
 def build_grating(parameters: dict[str, float]) -> LaminarGrating:
-    """Build laminar grating from dynamic optimizer parameters."""
+    """Build laminar grating from measurement-fit parameters."""
 
     return LaminarGrating(
         period_lpermm=period_lpermm,
@@ -107,7 +107,7 @@ spec = {
 }
 
 try:
-    result = optimize_dynamic(spec)
+    result = optimize_to_measurements(spec)
 except ImportError as error:
     print(error)
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")

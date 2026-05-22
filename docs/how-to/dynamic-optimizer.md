@@ -1,10 +1,10 @@
-# Dynamic Optimizer Specs
+# Measurement Fit Specs
 
-Use this workflow when you want to fit a grating that is not hard-coded in
-`grax_opt`, or when you want to couple parameters together without changing the
-library source.
+Use this workflow when you want to fit a grating against measured efficiency
+data, especially when the grating is not hard-coded in `grax_opt` or when you
+want to couple parameters together without changing the library source.
 
-The dynamic optimizer accepts a plain Python mapping that defines:
+The measurement-fit optimizer accepts a plain Python mapping that defines:
 
 - which parameters are free
 - the bounds for each parameter
@@ -17,7 +17,7 @@ The dynamic optimizer accepts a plain Python mapping that defines:
 from pathlib import Path
 
 from grax import LaminarGrating
-from grax_opt import optimize_dynamic
+from grax_opt import optimize_to_measurements
 import pandas as pd
 
 
@@ -81,7 +81,7 @@ spec = {
     "evaluation_grazing_angles_deg": [4.0],
 }
 
-result = optimize_dynamic(spec)
+result = optimize_to_measurements(spec)
 ```
 
 In this example, Ax optimizes `left_wall_angle_deg` only once, and the dynamic
@@ -108,7 +108,7 @@ The optimizer rejects cycles and unknown parameter names early, before Ax runs.
 
 ## When to use it
 
-Use the dynamic optimizer when:
+Use the measurement-fit optimizer when:
 
 - you are experimenting with a new grating class or builder
 - you want to re-use the optimizer without editing the source tree

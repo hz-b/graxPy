@@ -8,15 +8,17 @@ import numpy as np
 import pytest
 
 from grax_opt import (
-    DynamicOptimizationConfig,
+    MeasurementFitConfig,
     ParameterBounds,
     build_dynamic_ax_parameters,
     build_evaluation_measurement,
     evaluate_trial,
     load_measurement_data,
-    optimize_dynamic,
+    optimize_simulation_convergence,
+    optimize_to_measurements,
     resolve_dynamic_trial_parameters,
     sample_measurement_data,
+    SimulationConvergenceConfig,
 )
 from grax_opt import dynamic as dynamic_module
 from grax_opt import optimize as optimize_module
@@ -50,10 +52,10 @@ def test_parameter_bounds_validation() -> None:
         ParameterBounds(1.0, 1.0)
 
 
-def _build_dynamic_config(tmp_path: Path) -> DynamicOptimizationConfig:
+def _build_dynamic_config(tmp_path: Path) -> MeasurementFitConfig:
     measurement_path = tmp_path / "dynamic_measurement.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
-    return DynamicOptimizationConfig(
+    return MeasurementFitConfig(
         build_grating=lambda parameters: type(
             "DynamicGrating",
             (),
@@ -95,7 +97,7 @@ def test_dynamic_optimizer_resolves_tied_parameters(tmp_path: Path) -> None:
 def test_dynamic_config_supports_energy_angle_pairs(tmp_path: Path) -> None:
     measurement_path = tmp_path / "dynamic_measurement.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
-    config = DynamicOptimizationConfig(
+    config = MeasurementFitConfig(
         build_grating=lambda parameters: type(
             "DynamicGrating",
             (),
@@ -115,7 +117,7 @@ def test_dynamic_config_rejects_many_energy_many_angle(tmp_path: Path) -> None:
     measurement_path = tmp_path / "dynamic_measurement.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
     with pytest.raises(ValueError, match="more than one value"):
-        DynamicOptimizationConfig(
+        MeasurementFitConfig(
             build_grating=lambda parameters: type(
                 "DynamicGrating",
                 (),
@@ -136,14 +138,14 @@ def test_evaluate_trial_requires_dynamic_build_hooks(tmp_path: Path) -> None:
     assert loss == pytest.approx(float(config.failure_penalty))
 
 
-def test_optimize_dynamic_smoke_run_writes_outputs(
+def test_optimize_to_measurements_smoke_run_writes_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     measurement_path = tmp_path / "dynamic_measurement.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
 
-    config = DynamicOptimizationConfig(
+    config = MeasurementFitConfig(
         build_grating=lambda parameters: type(
             "DynamicGrating",
             (),
@@ -206,25 +208,25 @@ def test_optimize_dynamic_smoke_run_writes_outputs(
     monkeypatch.setattr(dynamic_module, "_save_best_fit_plot", lambda **_kwargs: None)
     monkeypatch.setattr(dynamic_module, "_save_loss_history_plot", lambda **_kwargs: None)
 
-    result = optimize_dynamic(config)
+    result = optimize_to_measurements(config)
 
     assert result.result_json_path.exists()
     assert result.trial_history_csv_path.exists()
     assert result.completed_trials == 2
     assert observed_energies
     payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
-    assert payload["optimization_mode"] == "dynamic"
+    assert payload["optimization_mode"] == "measurement_fit"
     assert payload["evaluation_mode"] == "energy_only"
 
 
-def test_optimize_dynamic_pair_mode_uses_explicit_angles(
+def test_optimize_to_measurements_pair_mode_uses_explicit_angles(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     measurement_path = tmp_path / "dynamic_measurement.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
 
-    config = DynamicOptimizationConfig(
+    config = MeasurementFitConfig(
         build_grating=lambda parameters: type(
             "DynamicGrating",
             (),
@@ -260,7 +262,7 @@ def test_optimize_dynamic_pair_mode_uses_explicit_angles(
     monkeypatch.setattr(dynamic_module, "_save_best_fit_plot", lambda **_kwargs: None)
     monkeypatch.setattr(dynamic_module, "_save_loss_history_plot", lambda **_kwargs: None)
 
-    result = optimize_dynamic(config)
+    result = optimize_to_measurements(config)
 
     assert result.completed_trials == 1
     assert len(observed_angles) >= 2
@@ -270,6 +272,73 @@ def test_optimize_dynamic_pair_mode_uses_explicit_angles(
     )
     payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
     assert payload["evaluation_mode"] == "energy_angle_pairs"
+
+
+def test_optimize_simulation_convergence_selects_stable_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    grating = type(
+        "ConvergenceGrating",
+        (),
+        {
+            "period_lpermm": 400.0,
+            "x_resolution_nm": 1.0,
+            "z_resolution_nm": 1.0,
+        },
+    )()
+
+    config = SimulationConvergenceConfig(
+        grating=grating,
+        energies_ev=[100.0, 150.0],
+        grazing_angle_deg=4.0,
+        diffraction_order=1,
+        fourier_orders_values=[5, 7, 9],
+        x_resolution_values=[10.0, 1.0, 0.1],
+        z_resolution_values=[10.0, 1.0, 0.1],
+        relative_tolerance=0.05,
+    )
+
+    series_calls: list[str] = []
+
+    def fake_sweep(*, parameter: str, **_kwargs):
+        series_calls.append(parameter)
+        if parameter == "fourier_orders":
+            from grax.parameter_sweep import ParameterSweepSeries
+
+            return ParameterSweepSeries(
+                parameter=parameter,
+                values=np.array([5, 7, 9], dtype=int),
+                efficiencies=np.array([0.50, 0.53, 0.535], dtype=float),
+                errors=np.array([False, False, False]),
+            )
+        if parameter == "x_resolution_nm":
+            from grax.parameter_sweep import ParameterSweepSeries
+
+            return ParameterSweepSeries(
+                parameter=parameter,
+                values=np.array([10.0, 1.0, 0.1], dtype=float),
+                efficiencies=np.array([0.40, 0.46, 0.461], dtype=float),
+                errors=np.array([False, False, False]),
+            )
+        from grax.parameter_sweep import ParameterSweepSeries
+
+        return ParameterSweepSeries(
+            parameter=parameter,
+            values=np.array([10.0, 1.0, 0.1], dtype=float),
+            efficiencies=np.array([0.45, 0.48, 0.481], dtype=float),
+            errors=np.array([False, False, False]),
+        )
+
+    monkeypatch.setattr("grax_opt.convergence._run_convergence_sweep", fake_sweep)
+
+    result = optimize_simulation_convergence(config)
+
+    assert series_calls.count("fourier_orders") == 2
+    assert result.selected_fourier_orders == 7
+    assert result.selected_x_resolution_nm == pytest.approx(1.0)
+    assert result.selected_z_resolution_nm == pytest.approx(1.0)
+    assert result.converged is True
 
 
 def test_resolve_optimizer_backend_auto_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

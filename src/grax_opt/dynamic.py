@@ -194,7 +194,7 @@ class DynamicOptimizationConfig:
     random_seed: int | None = None
     equality_constraints: Mapping[str, str] = field(default_factory=dict)
     objective_name: str = "loss"
-    experiment_name: str = "dynamic_grating_fit"
+    experiment_name: str = "measurement_fit"
     loss_name: str = "mse"
     failure_penalty: float = 1.0e6
     objective_sem: float = 1.0e-6
@@ -321,7 +321,7 @@ class DynamicOptimizationConfig:
             batch_size=config.pop("batch_size", 1),
             random_seed=config.pop("random_seed", None),
             objective_name=config.pop("objective_name", "loss"),
-            experiment_name=config.pop("experiment_name", "dynamic_grating_fit"),
+            experiment_name=config.pop("experiment_name", "measurement_fit"),
             loss_name=config.pop("loss_name", "mse"),
             failure_penalty=config.pop("failure_penalty", 1.0e6),
             objective_sem=config.pop("objective_sem", 1.0e-6),
@@ -502,7 +502,7 @@ def _write_dynamic_result_json(
     """Write the best dynamic optimization result to JSON."""
 
     payload = {
-        "optimization_mode": "dynamic",
+        "optimization_mode": "measurement_fit",
         "experiment_name": config.experiment_name,
         "objective_name": config.objective_name,
         "measurement_path": str(config.measurement_path),

@@ -6,23 +6,10 @@ Install optional dependencies first:
 pip install .[opt]
 ```
 
-This page exposes the public optimizer entrypoints, including the dynamic
-spec-based variant for custom gratings.
+This page exposes the primary public optimizer API for end users.
 
 ```{eval-rst}
-.. autofunction:: grax_opt.optimize_dynamic
-```
-
-## Configuration classes
-
-```{eval-rst}
-.. autoclass:: grax_opt.ParameterBounds
-   :members:
-```
-
-```{eval-rst}
-.. autoclass:: grax_opt.DynamicOptimizationConfig
-   :members:
+.. autofunction:: grax_opt.optimize_to_measurements
 ```
 
 ## Result type
@@ -32,22 +19,9 @@ spec-based variant for custom gratings.
    :members:
 ```
 
-## Utility
-
-```{eval-rst}
-.. autofunction:: grax_opt.json_safe_grating_parameters
-```
-
-```{eval-rst}
-.. autofunction:: grax_opt.build_dynamic_ax_parameters
-```
-
-```{eval-rst}
-.. autofunction:: grax_opt.resolve_dynamic_trial_parameters
-```
-
 ## See tutorials
 
+- [Optimizer setup guide](../tutorials/optimizer.md)
 - [Laminar Grating](../tutorials/optimizer-laminar-fit.md)
 - [Blazed Grating](../tutorials/optimizer-blazed-fit.md)
 - [Dynamic optimizer how-to](../how-to/dynamic-optimizer.md)

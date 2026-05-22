@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# echo "==> Running dynamic optimizer workflow"
+# echo "==> Running measurement-fit optimizer workflow"
 # bash "${SCRIPT_DIR}/dynamic_optimizer/run_all.sh"
 
 echo "==> Running blazed optimizer workflow"
