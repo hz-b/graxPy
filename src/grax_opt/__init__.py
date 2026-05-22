@@ -9,10 +9,10 @@ from .convergence import (
 from .config import ParameterBounds
 from .data import MeasurementData, load_measurement_data, sample_measurement_data
 from .dynamic import (
-    DynamicOptimizationConfig as MeasurementFitConfig,
-    build_dynamic_ax_parameters,
-    optimize_dynamic as _optimize_to_measurements,
-    resolve_dynamic_trial_parameters,
+    MeasurementFitConfig,
+    build_measurement_fit_ax_parameters,
+    optimize_to_measurements as _optimize_to_measurements,
+    resolve_measurement_fit_trial_parameters,
 )
 from .objective import build_evaluation_measurement, evaluate_trial
 from .optimize import OptimizationResult, TrialRecord, json_safe_grating_parameters
@@ -40,12 +40,12 @@ __all__ = [
     "SimulationConvergenceResult",
     "TrialRecord",
     "build_evaluation_measurement",
-    "build_dynamic_ax_parameters",
+    "build_measurement_fit_ax_parameters",
     "evaluate_trial",
     "json_safe_grating_parameters",
     "load_measurement_data",
     "sample_measurement_data",
     "optimize_simulation_convergence",
     "optimize_to_measurements",
-    "resolve_dynamic_trial_parameters",
+    "resolve_measurement_fit_trial_parameters",
 ]

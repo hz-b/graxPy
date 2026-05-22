@@ -76,7 +76,7 @@ spec = {
         "right_wall_angle_deg": "left_wall_angle_deg",
     },
     "measurement_path": Path("measurement.dat"),
-    "output_dir": Path("results/dynamic_fit"),
+    "output_dir": Path("results/measurement_fit"),
     "evaluation_energies_ev": [100.0, 150.0, 200.0],
     "evaluation_grazing_angles_deg": [4.0],
 }
@@ -84,8 +84,9 @@ spec = {
 result = optimize_to_measurements(spec)
 ```
 
-In this example, Ax optimizes `left_wall_angle_deg` only once, and the dynamic
-resolver copies that value into `right_wall_angle_deg` before the grating is
+In this example, Ax optimizes `left_wall_angle_deg` only once, and the
+measurement-fit resolver copies that value into `right_wall_angle_deg` before
+the grating is
 built.
 
 `build_grating` must provide materials accepted by

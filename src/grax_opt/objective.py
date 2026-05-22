@@ -74,10 +74,10 @@ def simulate_efficiency_curve(
     """
 
     if build_grating_fn is None:
-        raise RuntimeError("build_grating_fn is required for dynamic-only optimizer execution.")
+        raise RuntimeError("build_grating_fn is required for measurement-fit optimizer execution.")
     if resolve_solver_parameters_fn is None:
         raise RuntimeError(
-            "resolve_solver_parameters_fn is required for dynamic-only optimizer execution."
+            "resolve_solver_parameters_fn is required for measurement-fit optimizer execution."
         )
     grating = build_grating_fn(trial_parameters)
     solver_parameters = resolve_solver_parameters_fn(trial_parameters)

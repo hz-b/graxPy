@@ -71,3 +71,6 @@ The candidate grids are normalized to coarse-to-fine order before evaluation:
 
 If you want to inspect the raw per-energy sweep curves, look at the
 `energy_results` field in the returned object.
+
+The matching runnable example lives in
+`examples/optimizer/convergence_optimizer/0_find_simulation_convergence.py`.

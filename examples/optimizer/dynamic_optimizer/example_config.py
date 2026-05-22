@@ -1,4 +1,4 @@
-"""Shared configuration for the dynamic laminar optimizer workflow."""
+"""Shared configuration for the measurement-fit laminar optimizer workflow."""
 
 from __future__ import annotations
 

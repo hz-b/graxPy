@@ -10,13 +10,13 @@ import pytest
 from grax_opt import (
     MeasurementFitConfig,
     ParameterBounds,
-    build_dynamic_ax_parameters,
+    build_measurement_fit_ax_parameters,
     build_evaluation_measurement,
     evaluate_trial,
     load_measurement_data,
     optimize_simulation_convergence,
     optimize_to_measurements,
-    resolve_dynamic_trial_parameters,
+    resolve_measurement_fit_trial_parameters,
     sample_measurement_data,
     SimulationConvergenceConfig,
 )
@@ -52,8 +52,8 @@ def test_parameter_bounds_validation() -> None:
         ParameterBounds(1.0, 1.0)
 
 
-def _build_dynamic_config(tmp_path: Path) -> MeasurementFitConfig:
-    measurement_path = tmp_path / "dynamic_measurement.dat"
+def _build_measurement_fit_config(tmp_path: Path) -> MeasurementFitConfig:
+    measurement_path = tmp_path / "measurement_fit.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
     return MeasurementFitConfig(
         build_grating=lambda parameters: type(
@@ -74,16 +74,16 @@ def _build_dynamic_config(tmp_path: Path) -> MeasurementFitConfig:
     )
 
 
-def test_dynamic_optimizer_resolves_tied_parameters(tmp_path: Path) -> None:
-    config = _build_dynamic_config(tmp_path)
-    parameters = build_dynamic_ax_parameters(config)
+def test_measurement_fit_optimizer_resolves_tied_parameters(tmp_path: Path) -> None:
+    config = _build_measurement_fit_config(tmp_path)
+    parameters = build_measurement_fit_ax_parameters(config)
     assert [parameter["name"] for parameter in parameters] == [
         "period_lpermm",
         "width_to_period_ratio",
         "left_wall_angle_deg",
     ]
 
-    resolved = resolve_dynamic_trial_parameters(
+    resolved = resolve_measurement_fit_trial_parameters(
         config,
         {
             "period_lpermm": 400.0,
@@ -94,8 +94,8 @@ def test_dynamic_optimizer_resolves_tied_parameters(tmp_path: Path) -> None:
     assert resolved["right_wall_angle_deg"] == pytest.approx(15.0)
 
 
-def test_dynamic_config_supports_energy_angle_pairs(tmp_path: Path) -> None:
-    measurement_path = tmp_path / "dynamic_measurement.dat"
+def test_measurement_fit_config_supports_energy_angle_pairs(tmp_path: Path) -> None:
+    measurement_path = tmp_path / "measurement_fit.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
     config = MeasurementFitConfig(
         build_grating=lambda parameters: type(
@@ -113,8 +113,8 @@ def test_dynamic_config_supports_energy_angle_pairs(tmp_path: Path) -> None:
     assert np.allclose(evaluation.energy_ev, np.array([150.0, 150.0]))
 
 
-def test_dynamic_config_rejects_many_energy_many_angle(tmp_path: Path) -> None:
-    measurement_path = tmp_path / "dynamic_measurement.dat"
+def test_measurement_fit_config_rejects_many_energy_many_angle(tmp_path: Path) -> None:
+    measurement_path = tmp_path / "measurement_fit.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
     with pytest.raises(ValueError, match="more than one value"):
         MeasurementFitConfig(
@@ -131,8 +131,8 @@ def test_dynamic_config_rejects_many_energy_many_angle(tmp_path: Path) -> None:
         )
 
 
-def test_evaluate_trial_requires_dynamic_build_hooks(tmp_path: Path) -> None:
-    config = _build_dynamic_config(tmp_path)
+def test_evaluate_trial_requires_measurement_fit_build_hooks(tmp_path: Path) -> None:
+    config = _build_measurement_fit_config(tmp_path)
     measurement = load_measurement_data(config.measurement_path)
     loss = evaluate_trial(config, {"period_lpermm": 400.0}, measurement, backend="numpy")
     assert loss == pytest.approx(float(config.failure_penalty))
@@ -142,7 +142,7 @@ def test_optimize_to_measurements_smoke_run_writes_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    measurement_path = tmp_path / "dynamic_measurement.dat"
+    measurement_path = tmp_path / "measurement_fit.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
 
     config = MeasurementFitConfig(
@@ -161,7 +161,7 @@ def test_optimize_to_measurements_smoke_run_writes_outputs(
         },
         equality_constraints={"right_wall_angle_deg": "left_wall_angle_deg"},
         measurement_path=measurement_path,
-        output_dir=tmp_path / "dynamic_out",
+        output_dir=tmp_path / "measurement_fit_out",
         total_trials=2,
         batch_size=1,
         evaluation_energies_ev=[150.0],
@@ -203,7 +203,11 @@ def test_optimize_to_measurements_smoke_run_writes_outputs(
         observed_energies.append(float(kwargs["energy_ev"]))
         return type("Result", (), {"selected_efficiency": 0.25})()
 
-    monkeypatch.setattr(dynamic_module, "_create_ax_client_for_dynamic_config", lambda _config: FakeAxClient())
+    monkeypatch.setattr(
+        dynamic_module,
+        "_create_ax_client_for_measurement_fit_config",
+        lambda _config: FakeAxClient(),
+    )
     monkeypatch.setattr("grax_opt.objective.run_simulation", fake_run_simulation)
     monkeypatch.setattr(dynamic_module, "_save_best_fit_plot", lambda **_kwargs: None)
     monkeypatch.setattr(dynamic_module, "_save_loss_history_plot", lambda **_kwargs: None)
@@ -223,7 +227,7 @@ def test_optimize_to_measurements_pair_mode_uses_explicit_angles(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    measurement_path = tmp_path / "dynamic_measurement.dat"
+    measurement_path = tmp_path / "measurement_fit.dat"
     measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
 
     config = MeasurementFitConfig(
@@ -234,7 +238,7 @@ def test_optimize_to_measurements_pair_mode_uses_explicit_angles(
         )(),
         parameter_bounds={"period_lpermm": ParameterBounds(380.0, 420.0)},
         measurement_path=measurement_path,
-        output_dir=tmp_path / "dynamic_out",
+        output_dir=tmp_path / "measurement_fit_out",
         total_trials=1,
         batch_size=1,
         evaluation_energies_ev=[150.0],
@@ -257,7 +261,11 @@ def test_optimize_to_measurements_pair_mode_uses_explicit_angles(
         observed_angles.append(float(kwargs["grazing_angle_deg"]))
         return type("Result", (), {"selected_efficiency": 0.25})()
 
-    monkeypatch.setattr(dynamic_module, "_create_ax_client_for_dynamic_config", lambda _config: FakeAxClient())
+    monkeypatch.setattr(
+        dynamic_module,
+        "_create_ax_client_for_measurement_fit_config",
+        lambda _config: FakeAxClient(),
+    )
     monkeypatch.setattr("grax_opt.objective.run_simulation", fake_run_simulation)
     monkeypatch.setattr(dynamic_module, "_save_best_fit_plot", lambda **_kwargs: None)
     monkeypatch.setattr(dynamic_module, "_save_loss_history_plot", lambda **_kwargs: None)
@@ -360,13 +368,26 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     laminar_config = runpy.run_path(
         str(repo_root / "examples" / "optimizer" / "optimizer_laminar" / "example_config.py")
     )
-    dynamic_config = runpy.run_path(
+    measurement_fit_config = runpy.run_path(
         str(repo_root / "examples" / "optimizer" / "dynamic_optimizer" / "example_config.py")
+    )
+    convergence_config = runpy.run_path(
+        str(
+            repo_root
+            / "examples"
+            / "optimizer"
+            / "convergence_optimizer"
+            / "example_config.py"
+        )
     )
 
     assert blazed_config["optimizer_backend"] == "auto"
     assert blazed_config["simulation_backend"] in {"numba", "numpy"}
     assert laminar_config["optimizer_backend"] == "auto"
     assert laminar_config["simulation_backend"] in {"numba", "numpy"}
-    assert dynamic_config["optimizer_backend"] == "auto"
-    assert dynamic_config["simulation_backend"] in {"numba", "numpy"}
+    assert measurement_fit_config["optimizer_backend"] == "auto"
+    assert measurement_fit_config["simulation_backend"] in {"numba", "numpy"}
+    assert convergence_config["backend"] == "auto"
+    assert convergence_config["fourier_orders_values"].ndim == 1
+    assert convergence_config["x_resolution_values"].ndim == 1
+    assert convergence_config["z_resolution_values"].ndim == 1

@@ -1,4 +1,4 @@
-"""Dynamic optimization helpers for user-defined grating problems."""
+"""Measurement-fit optimization helpers for user-defined grating problems."""
 
 from __future__ import annotations
 
@@ -139,8 +139,8 @@ def _default_solver_parameter_resolver(
 
 
 @dataclass(frozen=True)
-class DynamicOptimizationConfig:
-    """Run configuration for dynamic grating optimization.
+class MeasurementFitConfig:
+    """Run configuration for measurement-fit optimization.
 
     Attributes:
         build_grating: Callable that builds a grating from resolved parameters.
@@ -284,27 +284,27 @@ class DynamicOptimizationConfig:
             )
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, object]) -> "DynamicOptimizationConfig":
-        """Build a dynamic optimizer config from a plain mapping.
+    def from_mapping(cls, mapping: Mapping[str, object]) -> "MeasurementFitConfig":
+        """Build a measurement-fit optimizer config from a plain mapping.
 
         Args:
             mapping: Plain mapping with the same keys accepted by the dataclass
                 constructor.
 
         Returns:
-            Normalized dynamic optimizer configuration.
+            Normalized measurement-fit optimizer configuration.
         """
 
         config = dict(mapping)
         if "build_grating" not in config:
-            raise ValueError("build_grating must be provided in the dynamic spec.")
+            raise ValueError("build_grating must be provided in the measurement-fit spec.")
         parameter_bounds = config.pop("parameter_bounds", None)
         if parameter_bounds is None:
-            raise ValueError("parameter_bounds must be provided in the dynamic spec.")
+            raise ValueError("parameter_bounds must be provided in the measurement-fit spec.")
         equality_constraints = config.pop("equality_constraints", {})
         if equality_constraints is None:
             equality_constraints = {}
-        dynamic_config = cls(
+        measurement_fit_config = cls(
             build_grating=config.pop("build_grating"),
             parameter_bounds=parameter_bounds,
             equality_constraints=equality_constraints,
@@ -342,15 +342,15 @@ class DynamicOptimizationConfig:
             solver_parameter_resolver=config.pop("solver_parameter_resolver", None),
         )
         if config:
-            raise ValueError(f"Unexpected dynamic spec keys: {sorted(config)}")
-        return dynamic_config
+            raise ValueError(f"Unexpected measurement-fit spec keys: {sorted(config)}")
+        return measurement_fit_config
 
 
-def build_free_parameter_names(config: DynamicOptimizationConfig) -> list[str]:
+def build_free_parameter_names(config: MeasurementFitConfig) -> list[str]:
     """Return the names of parameters optimized directly by Ax.
 
     Args:
-        config: Dynamic optimizer configuration.
+        config: Measurement-fit optimizer configuration.
 
     Returns:
         Parameter names that remain free variables in Ax.
@@ -364,11 +364,11 @@ def build_free_parameter_names(config: DynamicOptimizationConfig) -> list[str]:
     ]
 
 
-def build_dynamic_ax_parameters(config: DynamicOptimizationConfig) -> list[dict[str, object]]:
-    """Build Ax parameter definitions for a dynamic optimization config.
+def build_measurement_fit_ax_parameters(config: MeasurementFitConfig) -> list[dict[str, object]]:
+    """Build Ax parameter definitions for a measurement-fit optimization config.
 
     Args:
-        config: Dynamic optimizer configuration.
+        config: Measurement-fit optimizer configuration.
 
     Returns:
         Ax parameter definitions for the free variables.
@@ -386,14 +386,14 @@ def build_dynamic_ax_parameters(config: DynamicOptimizationConfig) -> list[dict[
     ]
 
 
-def resolve_dynamic_trial_parameters(
-    config: DynamicOptimizationConfig,
+def resolve_measurement_fit_trial_parameters(
+    config: MeasurementFitConfig,
     trial_parameters: Mapping[str, float],
 ) -> dict[str, float]:
     """Expand a free-parameter Ax arm into the full constrained parameter set.
 
     Args:
-        config: Dynamic optimizer configuration.
+        config: Measurement-fit optimizer configuration.
         trial_parameters: Free parameter values proposed by Ax.
 
     Returns:
@@ -423,7 +423,9 @@ def resolve_dynamic_trial_parameters(
         if name in resolved:
             return resolved[name]
         if name not in config.equality_constraints:
-            raise ValueError(f"Parameter {name!r} is not available in the dynamic spec.")
+            raise ValueError(
+                f"Parameter {name!r} is not available in the measurement-fit spec."
+            )
         source = config.equality_constraints[name]
         value = float(resolve(source))
         resolved[name] = value
@@ -442,19 +444,19 @@ def resolve_dynamic_trial_parameters(
     return resolved
 
 
-def _resolve_dynamic_solver_parameters(
-    config: DynamicOptimizationConfig,
+def _resolve_measurement_fit_solver_parameters(
+    config: MeasurementFitConfig,
     resolved_parameters: Mapping[str, float],
 ) -> dict[str, float | None]:
-    """Resolve solver parameters for a dynamic optimization trial."""
+    """Resolve solver parameters for a measurement-fit optimization trial."""
 
     if config.solver_parameter_resolver is not None:
         return dict(config.solver_parameter_resolver(resolved_parameters))
     return _default_solver_parameter_resolver(resolved_parameters)
 
 
-def _create_ax_client_for_dynamic_config(config: DynamicOptimizationConfig):
-    """Create and initialize an Ax client for one dynamic optimization run."""
+def _create_ax_client_for_measurement_fit_config(config: MeasurementFitConfig):
+    """Create and initialize an Ax client for one measurement-fit optimization run."""
 
     _patch_torch_fork_rng_for_cpu_only()
     print(_describe_optimizer_compute_context())
@@ -467,7 +469,7 @@ def _create_ax_client_for_dynamic_config(config: DynamicOptimizationConfig):
 
     create_signature = inspect.signature(ax_client.create_experiment)
     create_kwargs: dict[str, object] = {
-        "parameters": build_dynamic_ax_parameters(config),
+        "parameters": build_measurement_fit_ax_parameters(config),
         "name": config.experiment_name,
     }
     if "objective_name" in create_signature.parameters:
@@ -485,9 +487,9 @@ def _create_ax_client_for_dynamic_config(config: DynamicOptimizationConfig):
     return ax_client
 
 
-def _write_dynamic_result_json(
+def _write_measurement_fit_result_json(
     *,
-    config: DynamicOptimizationConfig,
+    config: MeasurementFitConfig,
     best_parameters: dict[str, float],
     best_grating_parameters: dict[str, object],
     best_solver_parameters: dict[str, float | None],
@@ -499,7 +501,7 @@ def _write_dynamic_result_json(
     backend_effective: str,
     output_path: Path,
 ) -> None:
-    """Write the best dynamic optimization result to JSON."""
+    """Write the best measurement-fit optimization result to JSON."""
 
     payload = {
         "optimization_mode": "measurement_fit",
@@ -542,9 +544,9 @@ def _write_dynamic_result_json(
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def _persist_dynamic_optimizer_artifacts(
+def _persist_measurement_fit_optimizer_artifacts(
     *,
-    config: DynamicOptimizationConfig,
+    config: MeasurementFitConfig,
     evaluation_measurement: MeasurementData,
     best_parameters: dict[str, float],
     best_grating_parameters: dict[str, object],
@@ -557,7 +559,7 @@ def _persist_dynamic_optimizer_artifacts(
     backend_requested: str,
     backend_effective: str,
 ) -> tuple[Path, Path, Path | None, Path | None]:
-    """Persist dynamic optimizer artifacts and return their paths."""
+    """Persist measurement-fit optimizer artifacts and return their paths."""
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     result_json_path = config.output_dir / "best_result.json"
@@ -570,7 +572,7 @@ def _persist_dynamic_optimizer_artifacts(
         if config.save_loss_plot
         else None
     )
-    _write_dynamic_result_json(
+    _write_measurement_fit_result_json(
         config=config,
         best_parameters=best_parameters,
         best_grating_parameters=best_grating_parameters,
@@ -591,11 +593,11 @@ def _persist_dynamic_optimizer_artifacts(
             evaluation_measurement,
             backend=backend_effective,
             build_grating_fn=lambda trial_parameters: config.build_grating(
-                resolve_dynamic_trial_parameters(config, trial_parameters)
+                resolve_measurement_fit_trial_parameters(config, trial_parameters)
             ),
-            resolve_solver_parameters_fn=lambda trial_parameters: _resolve_dynamic_solver_parameters(
+            resolve_solver_parameters_fn=lambda trial_parameters: _resolve_measurement_fit_solver_parameters(
                 config,
-                resolve_dynamic_trial_parameters(config, trial_parameters),
+                resolve_measurement_fit_trial_parameters(config, trial_parameters),
             ),
         )
         _save_best_fit_plot(
@@ -612,25 +614,25 @@ def _persist_dynamic_optimizer_artifacts(
     return result_json_path, trial_history_csv_path, best_fit_plot_path, loss_history_plot_path
 
 
-def optimize_dynamic(
-    config: DynamicOptimizationConfig | Mapping[str, object],
+def optimize_to_measurements(
+    config: MeasurementFitConfig | Mapping[str, object],
 ) -> OptimizationResult:
-    """Run Ax optimization for a dynamic grating configuration.
+    """Run Ax optimization for a measurement-fit grating configuration.
 
     Args:
-        config: Dynamic configuration or a plain mapping using the same keys.
+        config: Measurement-fit configuration or a plain mapping using the same keys.
 
     Returns:
         Optimization result bundle with persisted artifacts.
     """
 
-    if not isinstance(config, DynamicOptimizationConfig):
-        config = DynamicOptimizationConfig.from_mapping(config)
+    if not isinstance(config, MeasurementFitConfig):
+        config = MeasurementFitConfig.from_mapping(config)
 
     backend_effective = _resolve_optimizer_backend(config.backend)
     measurement = load_measurement_data(config.measurement_path)
     evaluation_measurement = build_evaluation_measurement(config, measurement)
-    ax_client = _create_ax_client_for_dynamic_config(config)
+    ax_client = _create_ax_client_for_measurement_fit_config(config)
     max_parallelism_exception = _import_max_parallelism_exception()
     data_required_exception = _import_data_required_exception()
 
@@ -646,11 +648,11 @@ def optimize_dynamic(
     no_improvement_trials = 0
 
     build_grating_fn = lambda trial_parameters: config.build_grating(
-        resolve_dynamic_trial_parameters(config, trial_parameters)
+        resolve_measurement_fit_trial_parameters(config, trial_parameters)
     )
-    resolve_solver_parameters_fn = lambda trial_parameters: _resolve_dynamic_solver_parameters(
+    resolve_solver_parameters_fn = lambda trial_parameters: _resolve_measurement_fit_solver_parameters(
         config,
-        resolve_dynamic_trial_parameters(config, trial_parameters),
+        resolve_measurement_fit_trial_parameters(config, trial_parameters),
     )
 
     while trial_index_cursor < config.total_trials:
@@ -694,8 +696,8 @@ def optimize_dynamic(
                 )
             )
             completed_trials += 1
-            current_grating_parameters = resolve_dynamic_trial_parameters(config, parameters)
-            current_solver_parameters = _resolve_dynamic_solver_parameters(
+            current_grating_parameters = resolve_measurement_fit_trial_parameters(config, parameters)
+            current_solver_parameters = _resolve_measurement_fit_solver_parameters(
                 config,
                 current_grating_parameters,
             )
@@ -708,7 +710,7 @@ def optimize_dynamic(
             else:
                 no_improvement_trials += 1
 
-            _persist_dynamic_optimizer_artifacts(
+            _persist_measurement_fit_optimizer_artifacts(
                 config=config,
                 evaluation_measurement=evaluation_measurement,
                 best_parameters=best_parameters,
@@ -742,14 +744,14 @@ def optimize_dynamic(
 
     if not best_parameters:
         best_parameters = dict(trial_records[-1].parameters)
-        best_grating_parameters = resolve_dynamic_trial_parameters(config, best_parameters)
-        best_solver_parameters = _resolve_dynamic_solver_parameters(
+        best_grating_parameters = resolve_measurement_fit_trial_parameters(config, best_parameters)
+        best_solver_parameters = _resolve_measurement_fit_solver_parameters(
             config,
             best_grating_parameters,
         )
         best_loss = float(trial_records[-1].loss)
 
-    result_paths = _persist_dynamic_optimizer_artifacts(
+    result_paths = _persist_measurement_fit_optimizer_artifacts(
         config=config,
         evaluation_measurement=evaluation_measurement,
         best_parameters=best_parameters,
@@ -778,3 +780,13 @@ def optimize_dynamic(
         completed_trials=completed_trials,
         early_stop_reason=early_stop_reason,
     )
+
+
+DynamicOptimizationConfig = MeasurementFitConfig
+build_dynamic_ax_parameters = build_measurement_fit_ax_parameters
+resolve_dynamic_trial_parameters = resolve_measurement_fit_trial_parameters
+_resolve_dynamic_solver_parameters = _resolve_measurement_fit_solver_parameters
+_create_ax_client_for_dynamic_config = _create_ax_client_for_measurement_fit_config
+_write_dynamic_result_json = _write_measurement_fit_result_json
+_persist_dynamic_optimizer_artifacts = _persist_measurement_fit_optimizer_artifacts
+optimize_dynamic = optimize_to_measurements

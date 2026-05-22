@@ -1,4 +1,4 @@
-"""Run fixed-angle simulation using the dynamic example fitted parameters."""
+"""Run fixed-angle simulation using the measurement-fit example fitted parameters."""
 
 from __future__ import annotations
 

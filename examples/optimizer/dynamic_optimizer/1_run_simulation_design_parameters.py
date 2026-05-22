@@ -1,4 +1,4 @@
-"""Run fixed-angle simulation using the dynamic example design parameters."""
+"""Run fixed-angle simulation using the measurement-fit example design parameters."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Plot measurement, design simulation, and fitted simulation for dynamic fit."""
+"""Plot measurement, design simulation, and fitted simulation for measurement fit."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ results_dir.mkdir(parents=True, exist_ok=True)
 fitted_parameters_path = results_dir / "fitted_parameters.json"
 initial_csv_path = results_dir / "simulated_curve_initial.csv"
 fitted_csv_path = results_dir / "simulated_curve_fitted.csv"
-comparison_plot_path = results_dir / "dynamic_fit_measurement_comparison.png"
+comparison_plot_path = results_dir / "measurement_fit_measurement_comparison.png"
 
 if not fitted_parameters_path.exists():
     raise FileNotFoundError(
@@ -73,7 +73,7 @@ if evaluation_energies_ev:
     axis.set_ylim(y_min, y_max)
 axis.set_xlabel("Energy (eV)")
 axis.set_ylabel("Efficiency")
-axis.set_title("Dynamic laminar fit: measurement vs initial vs fitted")
+axis.set_title("Measurement-fit laminar fit: measurement vs initial vs fitted")
 axis.legend(loc="best")
 figure.tight_layout()
 figure.savefig(comparison_plot_path, dpi=200, bbox_inches="tight")

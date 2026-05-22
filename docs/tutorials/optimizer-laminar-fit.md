@@ -108,7 +108,7 @@ The optimizer example starts from the design parameters defined in
 | `right_wall_angle_deg` | Yes | `15.0` | `5.0` |
 | `top_cap_thickness_nm` | Yes | `0.3` | `0.3811546815021951` |
 
-Additional geometry/material fields in the dynamic `build_grating` callable are
+Additional geometry/material fields in the measurement-fit `build_grating` callable are
 held fixed for this run (for example substrate/layer materials,
 `layer_thickness_nm`, `x_resolution_nm`, and `z_resolution_nm`).
 

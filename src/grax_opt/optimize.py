@@ -1,4 +1,4 @@
-"""Shared optimizer runtime helpers used by dynamic optimization."""
+"""Shared optimizer runtime helpers used by measurement-fit optimization."""
 
 from __future__ import annotations
 
@@ -347,7 +347,7 @@ def _save_best_fit_plot(
     axis.plot(measurement.energy_ev, simulated_efficiency, "s-", linewidth=1.0, label="Best fit")
     axis.set_xlabel("Photon Energy (eV)")
     axis.set_ylabel("Diffraction Efficiency")
-    axis.set_title("Dynamic Optimizer Best Fit")
+    axis.set_title("Measurement-Fit Optimizer Best Fit")
     axis.grid(True, alpha=0.3)
     axis.legend(loc="best")
     figure.tight_layout()

@@ -1,4 +1,4 @@
-"""Fit a custom laminar grating with dynamic parameter bounds and ties."""
+"""Fit a custom laminar grating with measurement-fit parameter bounds and ties."""
 
 from __future__ import annotations
 
@@ -58,12 +58,12 @@ carbon.attrs["name"] = "C"
 if not measurement_path.exists():
     raise FileNotFoundError(
         f"Missing measurement file: {measurement_path}. "
-        "Copy the laminar measurement file into the dynamic example directory."
+        "Copy the laminar measurement file into the measurement-fit example directory."
     )
 
 
 def build_custom_grating(parameters: dict[str, float]) -> LaminarGrating:
-    """Build a laminar grating from the resolved dynamic parameter set."""
+    """Build a laminar grating from the resolved measurement-fit parameter set."""
 
     # Parameters are optimized only if present in parameter_bounds.
     return LaminarGrating(
@@ -105,7 +105,7 @@ spec = {
     "random_seed": random_seed,
     "evaluation_energies_ev": list(evaluation_energies_ev),
     "evaluation_grazing_angles_deg": [],
-    "experiment_name": "dynamic_laminar_tied_walls",
+    "experiment_name": "measurement_fit_laminar_tied_walls",
     "backend": optimizer_backend,
     "save_best_fit_plot": True,
     "save_loss_plot": True,

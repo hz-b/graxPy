@@ -12,8 +12,8 @@ For complete API signatures, see
 For numerical convergence of Fourier and discretization settings, see
 [Convergence Optimizer](convergence-optimizer.md).
 
-For a full dynamic-spec example with tied parameters, see
-[Dynamic Optimizer Specs](../how-to/dynamic-optimizer.md).
+For a full measurement-fit example with tied parameters, see
+[Measurement Fit Specs](../how-to/dynamic-optimizer.md).
 
 ## Basic setup
 
@@ -49,7 +49,7 @@ spec = {
         "top_cap_thickness_nm": (0.0, 1.0),
     },
     "measurement_path": Path("measurement.dat"),
-    "output_dir": Path("results/optimizer"),
+    "output_dir": Path("results/measurement_fit"),
     "evaluation_energies_ev": [100.0, 150.0, 200.0],
     "angle_mode": "fixed",
     "grazing_angle_deg": 4.0,
