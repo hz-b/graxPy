@@ -9,13 +9,18 @@ import pandas as pd
 
 import grax as rp
 from example_config import (
+    anti_blaze_angle_deg as baseline_anti_blaze_angle_deg,
+    blaze_angle_deg as baseline_blaze_angle_deg,
     cff as baseline_cff,
     diffraction_order as baseline_diffraction_order,
     fourier_orders as baseline_fourier_orders,
+    layer_thickness_nm as baseline_layer_thickness_nm,
     measurement_path,
     optical_constants_dir,
+    period_lpermm as baseline_period_lpermm,
     results_dir,
     simulation_backend as baseline_simulation_backend,
+    top_cap_thickness_nm as baseline_top_cap_thickness_nm,
     use_top_cap,
     x_resolution_nm as baseline_x_resolution_nm,
     z_resolution_nm as baseline_z_resolution_nm,
@@ -50,7 +55,16 @@ measurement = pd.read_csv(
 energies = np.asarray(measurement["energy_ev"], dtype=float)
 
 payload = json.loads(fitted_parameters_path.read_text(encoding="utf-8"))
-fitted_grating_parameters = dict(payload["best_grating_parameters"])
+fitted_grating_parameters = {
+    "period_lpermm": float(baseline_period_lpermm),
+    "blaze_angle_deg": float(baseline_blaze_angle_deg),
+    "anti_blaze_angle_deg": float(baseline_anti_blaze_angle_deg),
+    "layer_thickness_nm": float(baseline_layer_thickness_nm),
+    "top_cap_thickness_nm": float(baseline_top_cap_thickness_nm),
+    "x_resolution_nm": float(baseline_x_resolution_nm),
+    "z_resolution_nm": float(baseline_z_resolution_nm),
+}
+fitted_grating_parameters.update(dict(payload.get("best_grating_parameters", {})))
 fitted_grating_parameters["substrate_material"] = silicon
 fitted_grating_parameters["layer_material"] = gold
 fitted_grating_parameters["top_cap_material"] = carbon if use_top_cap else None

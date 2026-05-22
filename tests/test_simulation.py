@@ -62,7 +62,9 @@ EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
 ]
-OPTIMIZER_EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "optimizer"
+OPTIMIZER_EXAMPLE_ROOT = (
+    Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
+)
 
 
 def build_test_grating() -> LaminarGrating:
@@ -1583,8 +1585,6 @@ def test_optimizer_example_assets_exist() -> None:
         OPTIMIZER_EXAMPLE_ROOT / "1_run_simulation_design_parameters.py",
         OPTIMIZER_EXAMPLE_ROOT / "2_run_simulation_fitted_parameters.py",
         OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py",
-        OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py",
-        OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py",
         OPTIMIZER_EXAMPLE_ROOT / "measured_alpha4deg_order1.csv",
         OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_Si_cxro.txt",
         OPTIMIZER_EXAMPLE_ROOT / "optical_constants" / "old" / "n_Pt_cxro.txt",
@@ -1601,8 +1601,6 @@ def test_optimizer_example_scripts_compile() -> None:
     py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "1_run_simulation_design_parameters.py"), doraise=True)
     py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "2_run_simulation_fitted_parameters.py"), doraise=True)
     py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "3_plot_laminar_fit_comparison.py"), doraise=True)
-    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "fit_laminar_grating.py"), doraise=True)
-    py_compile.compile(str(OPTIMIZER_EXAMPLE_ROOT / "plot_laminar_fit_comparison.py"), doraise=True)
 
 
 def test_optimizer_example_plot_uses_evaluation_energies() -> None:

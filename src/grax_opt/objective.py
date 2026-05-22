@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
 from grax import monochromator_grazing_angles_deg, run_simulation
 
-from .config import BlazedAxConfig, LaminarAxConfig
 from .data import MeasurementData, sample_measurement_data
-from .model import build_grating, resolve_solver_parameters
+from .evaluation import build_evaluation_cases
 
 LossFunction = Callable[[np.ndarray, np.ndarray], float]
+BuildGratingFunction = Callable[[Mapping[str, float]], object]
+ResolveSolverParametersFunction = Callable[[Mapping[str, float]], dict[str, float | None]]
 
 
 def mean_squared_error(
@@ -35,40 +36,74 @@ LOSS_FUNCTIONS: dict[str, LossFunction] = {
 
 
 def build_evaluation_measurement(
-    config: BlazedAxConfig | LaminarAxConfig,
+    config: Any,
     measurement: MeasurementData,
 ) -> MeasurementData:
     """Return the measurement data used for objective evaluation."""
 
-    return sample_measurement_data(measurement, config.evaluation_energies_ev)
+    evaluation_energies_ev, _evaluation_angles_deg, _evaluation_mode = build_evaluation_cases(
+        config.evaluation_energies_ev,
+        getattr(config, "evaluation_grazing_angles_deg", []),
+    )
+    return sample_measurement_data(measurement, evaluation_energies_ev)
 
 
 def simulate_efficiency_curve(
-    config: BlazedAxConfig | LaminarAxConfig,
+    config: Any,
     trial_parameters: Mapping[str, float],
     measurement: MeasurementData,
     *,
     backend: str,
+    build_grating_fn: BuildGratingFunction | None = None,
+    resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
 ) -> np.ndarray:
-    """Simulate the selected diffraction-order efficiency on the measurement grid."""
+    """Simulate the selected diffraction-order efficiency.
 
-    grating = build_grating(config, trial_parameters)
-    solver_parameters = resolve_solver_parameters(config, trial_parameters)
-    if isinstance(config, LaminarAxConfig) and config.angle_mode == "fixed":
+    Args:
+        config: Optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        measurement: Energy grid and target efficiencies used for evaluation.
+        backend: RCWA backend to use for the simulation.
+        build_grating_fn: Optional hook that builds a grating from the trial
+            parameter mapping.
+        resolve_solver_parameters_fn: Optional hook that resolves solver
+            parameters from the trial parameter mapping.
+
+    Returns:
+        Simulated efficiency values on the measurement grid.
+    """
+
+    if build_grating_fn is None:
+        raise RuntimeError("build_grating_fn is required for dynamic-only optimizer execution.")
+    if resolve_solver_parameters_fn is None:
+        raise RuntimeError(
+            "resolve_solver_parameters_fn is required for dynamic-only optimizer execution."
+        )
+    grating = build_grating_fn(trial_parameters)
+    solver_parameters = resolve_solver_parameters_fn(trial_parameters)
+    explicit_angles = getattr(config, "evaluation_grazing_angles_deg", [])
+    if len(explicit_angles) > 0:
+        evaluation_energies_ev, grazing_angles, _evaluation_mode = build_evaluation_cases(
+            config.evaluation_energies_ev,
+            explicit_angles,
+        )
+    elif getattr(config, "angle_mode", "fixed") == "fixed":
+        evaluation_energies_ev = measurement.energy_ev
         grazing_angles = np.full(
-            measurement.energy_ev.shape,
+            evaluation_energies_ev.shape,
             float(config.grazing_angle_deg),
             dtype=float,
         )
     else:
+        evaluation_energies_ev = measurement.energy_ev
         grazing_angles = monochromator_grazing_angles_deg(
-            measurement.energy_ev,
+            evaluation_energies_ev,
             period_lpermm=float(grating.period_lpermm),
             diffraction_order=config.diffraction_order,
             cff=config.cff,
         )
     efficiencies: list[float] = []
-    for energy_ev, grazing_angle_deg in zip(measurement.energy_ev, grazing_angles):
+    for energy_ev, grazing_angle_deg in zip(evaluation_energies_ev, grazing_angles):
         result = run_simulation(
             grating=grating,
             energy_ev=float(energy_ev),
@@ -85,27 +120,50 @@ def simulate_efficiency_curve(
 
 
 def evaluate_trial(
-    config: BlazedAxConfig | LaminarAxConfig,
+    config: Any,
     trial_parameters: Mapping[str, float],
     measurement: MeasurementData,
     *,
     loss_function: LossFunction | None = None,
     backend: str,
+    build_grating_fn: BuildGratingFunction | None = None,
+    resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
 ) -> float:
     """Evaluate one Ax trial and return a scalar loss.
 
     Any simulation failure is converted into a finite penalty so the optimizer
     can continue exploring the search space.
+
+    Args:
+        config: Optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        measurement: Energy grid and target efficiencies used for evaluation.
+        loss_function: Optional custom loss function.
+        backend: RCWA backend to use for the simulation.
+        build_grating_fn: Optional hook that builds a grating from the trial
+            parameter mapping.
+        resolve_solver_parameters_fn: Optional hook that resolves solver
+            parameters from the trial parameter mapping.
+
+    Returns:
+        Scalar loss value for the candidate.
     """
 
     selected_loss_function = loss_function or LOSS_FUNCTIONS[config.loss_name]
     evaluation_measurement = build_evaluation_measurement(config, measurement)
     try:
+        simulate_kwargs: dict[str, object] = {
+            "backend": backend,
+        }
+        if build_grating_fn is not None:
+            simulate_kwargs["build_grating_fn"] = build_grating_fn
+        if resolve_solver_parameters_fn is not None:
+            simulate_kwargs["resolve_solver_parameters_fn"] = resolve_solver_parameters_fn
         simulated_efficiency = simulate_efficiency_curve(
             config,
             trial_parameters,
             evaluation_measurement,
-            backend=backend,
+            **simulate_kwargs,
         )
     except Exception:
         return float(config.failure_penalty)

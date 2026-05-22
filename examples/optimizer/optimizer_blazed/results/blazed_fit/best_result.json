@@ -1,8 +1,10 @@
 {
+  "optimization_mode": "dynamic",
   "experiment_name": "blazed_fit",
   "objective_name": "loss",
   "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_blazed/GR600-BEIChem_energy-Cff2.5.dat",
-  "evaluation_mode": "discrete",
+  "evaluation_mode": "energy_only",
+  "evaluation_case_mode": "energy_only",
   "evaluation_energies_ev": [
     51.0,
     61.0,
@@ -54,6 +56,22 @@
     1800.0,
     1850.0
   ],
+  "evaluation_grazing_angles_deg": [],
+  "parameter_bounds": {
+    "blaze_angle_deg": [
+      0.5,
+      1.2
+    ],
+    "anti_blaze_angle_deg": [
+      2.0,
+      10.0
+    ],
+    "top_cap_thickness_nm": [
+      0.3,
+      2.0
+    ]
+  },
+  "equality_constraints": {},
   "best_loss": 3.422211971978115e-05,
   "best_parameters": {
     "blaze_angle_deg": 0.8594103033260448,
@@ -61,16 +79,9 @@
     "top_cap_thickness_nm": 2.0
   },
   "best_grating_parameters": {
-    "period_lpermm": 600.0,
     "blaze_angle_deg": 0.8594103033260448,
     "anti_blaze_angle_deg": 2.0,
-    "substrate_material": "Si",
-    "layer_material": "Au",
-    "layer_thickness_nm": 30.0,
-    "top_cap_material": "C",
-    "top_cap_thickness_nm": 2.0,
-    "z_resolution_nm": 0.5,
-    "x_resolution_nm": 0.5
+    "top_cap_thickness_nm": 2.0
   },
   "best_solver_parameters": {
     "roughness_sigma_nm": null
@@ -79,5 +90,9 @@
   "completed_trials": 50,
   "early_stop_reason": null,
   "backend_requested": "auto",
-  "backend_effective": "numba"
+  "backend_effective": "numba",
+  "diffraction_order": 1,
+  "fourier_orders": 10,
+  "angle_mode": "cff",
+  "cff": 2.25
 }

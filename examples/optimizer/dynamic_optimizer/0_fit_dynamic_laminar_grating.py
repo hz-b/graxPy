@@ -1,51 +1,51 @@
-"""Optimize a blazed grating against measured monochromator data."""
+"""Fit a custom laminar grating with dynamic parameter bounds and ties."""
 
 from __future__ import annotations
 
 import json
 
 import pandas as pd
-from grax import BlazedGrating
 
-from grax_opt import (
-    optimize_dynamic,
-)
+from grax import LaminarGrating
+from grax_opt import optimize_dynamic
 from example_config import (
-    anti_blaze_angle_deg,
-    optimizer_backend,
     batch_size,
-    blaze_angle_deg,
-    cff,
+    design_depth_nm,
+    design_layer_thickness_nm,
+    design_period_lpermm,
+    design_top_cap_thickness_nm,
+    design_width_to_period_ratio,
+    design_x_resolution_nm,
+    design_z_resolution_nm,
     diffraction_order,
     evaluation_energies_ev,
     fourier_orders,
-    layer_thickness_nm,
+    grazing_angle_deg,
     measurement_path,
     optical_constants_dir,
-    period_lpermm,
+    optimizer_backend,
     random_seed,
     results_dir,
-    top_cap_thickness_nm,
-    top_cap_material_name,
     total_trials,
-    use_top_cap,
-    x_resolution_nm,
-    z_resolution_nm,
 )
 
+results_dir.mkdir(parents=True, exist_ok=True)
+
 silicon = pd.read_csv(
-    optical_constants_dir / "OC_Si_SSTR.dat",
+    optical_constants_dir / "n_Si_cxro.txt",
+    skiprows=1,
     sep=r"\s*,\s*|\s+",
     engine="python",
 )
 silicon.attrs["name"] = "Si"
 
-gold = pd.read_csv(
-    optical_constants_dir / "OC_Au_SSTR.dat",
+platinum = pd.read_csv(
+    optical_constants_dir / "n_Pt_cxro.txt",
+    skiprows=1,
     sep=r"\s*,\s*|\s+",
     engine="python",
 )
-gold.attrs["name"] = "Au"
+platinum.attrs["name"] = "Pt"
 
 carbon = pd.read_csv(
     optical_constants_dir / "n_C_cxro.txt",
@@ -54,48 +54,61 @@ carbon = pd.read_csv(
     engine="python",
 )
 carbon.attrs["name"] = "C"
-results_dir.mkdir(parents=True, exist_ok=True)
-top_cap_material = carbon if use_top_cap else None
 
-def build_grating(parameters: dict[str, float]) -> BlazedGrating:
-    """Build blazed grating from dynamic optimizer parameters."""
+if not measurement_path.exists():
+    raise FileNotFoundError(
+        f"Missing measurement file: {measurement_path}. "
+        "Copy the laminar measurement file into the dynamic example directory."
+    )
 
-    return BlazedGrating(
-        period_lpermm=period_lpermm,
-        blaze_angle_deg=float(parameters["blaze_angle_deg"]),
-        anti_blaze_angle_deg=float(parameters["anti_blaze_angle_deg"]),
+
+def build_custom_grating(parameters: dict[str, float]) -> LaminarGrating:
+    """Build a laminar grating from the resolved dynamic parameter set."""
+
+    # Parameters are optimized only if present in parameter_bounds.
+    return LaminarGrating(
+        period_lpermm=design_period_lpermm,
+        width_to_period_ratio=float(parameters["width_to_period_ratio"]),
+        depth_nm=float(parameters["depth_nm"]),
+        left_wall_angle_deg=float(parameters["left_wall_angle_deg"]),
+        right_wall_angle_deg=float(parameters["right_wall_angle_deg"]),
         substrate_material=silicon,
-        layer_material=gold,
-        layer_thickness_nm=layer_thickness_nm,
-        top_cap_material=top_cap_material,
+        layer_material=platinum,
+        layer_thickness_nm=design_layer_thickness_nm,
+        top_cap_material=carbon,
         top_cap_thickness_nm=float(parameters["top_cap_thickness_nm"]),
-        z_resolution_nm=z_resolution_nm,
-        x_resolution_nm=x_resolution_nm,
+        x_resolution_nm=design_x_resolution_nm,
+        z_resolution_nm=design_z_resolution_nm,
     )
 
 
 spec = {
-    "build_grating": build_grating,
+    "build_grating": build_custom_grating,
     "parameter_bounds": {
-        "blaze_angle_deg": (0.5, 1.2),
-        "anti_blaze_angle_deg": (2.0, 10.0),
+        "width_to_period_ratio": (0.5, 0.8),
+        "depth_nm": (13.9, 15.9),
+        "left_wall_angle_deg": (5.0, 20.0),
+        "right_wall_angle_deg": (5.0, 20.0),
         "top_cap_thickness_nm": (0.3, 2.0),
+    },
+    "equality_constraints": {
+        "right_wall_angle_deg": "left_wall_angle_deg",
     },
     "measurement_path": measurement_path,
     "output_dir": results_dir,
-    "angle_mode": "cff",
-    "cff": cff,
+    "angle_mode": "fixed",
+    "grazing_angle_deg": grazing_angle_deg,
     "diffraction_order": diffraction_order,
     "fourier_orders": fourier_orders,
-    "validate_physical_results": True,
     "total_trials": total_trials,
     "batch_size": batch_size,
     "random_seed": random_seed,
-    "backend": optimizer_backend,
-    "experiment_name": "blazed_fit",
-    "loss_name": "mse",
-    "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
+    "evaluation_grazing_angles_deg": [],
+    "experiment_name": "dynamic_laminar_tied_walls",
+    "backend": optimizer_backend,
+    "save_best_fit_plot": True,
+    "save_loss_plot": True,
 }
 
 try:
@@ -117,19 +130,11 @@ payload["loss_history_plot_path"] = (
 )
 fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-print(f"Measurement: {result.measurement_path}")
-print(f"Optimizer backend request: {optimizer_backend}")
-print(
-    f"Baseline top-cap setting: use_top_cap={use_top_cap}, "
-    f"material={top_cap_material_name if use_top_cap else 'None'}, "
-    f"thickness_nm={top_cap_thickness_nm}"
-)
+print(f"Measurement: {measurement_path}")
 print(f"Best loss: {result.best_loss:.6g}")
 print(f"Best parameters: {result.best_parameters}")
 print(f"Completed trials: {result.completed_trials}")
 print(f"Stopped early: {result.stopped_early}")
-if result.early_stop_reason is not None:
-    print(f"Early-stop reason: {result.early_stop_reason}")
 print(f"Fitted parameters JSON: {fitted_parameters_path}")
 print(f"Best result JSON: {result.result_json_path}")
 print(f"Trial history CSV: {result.trial_history_csv_path}")

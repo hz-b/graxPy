@@ -8,5 +8,6 @@ task-specific guides.
 :maxdepth: 1
 
 custom-grating-profiles
+dynamic-optimizer
 user-defined-cases
 ```

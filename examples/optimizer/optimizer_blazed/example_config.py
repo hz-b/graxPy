@@ -33,3 +33,4 @@ random_seed = 7
 energy1 = np.arange(51, 201, 10)      # 51 to 200 inclusive, step 10
 energy2 = np.arange(200, 1851, 50)    # 200 to 1900 inclusive, step 50
 evaluation_energies_ev = np.concatenate((energy1, energy2))
+evaluation_grazing_angles_deg = []

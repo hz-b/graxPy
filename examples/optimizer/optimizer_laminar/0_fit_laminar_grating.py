@@ -5,13 +5,10 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+from grax import LaminarGrating
 
 from grax_opt import (
-    InitialLaminarGrating,
-    LaminarAxConfig,
-    ParameterBounds,
-    json_safe_grating_parameters,
-    optimize_laminar,
+    optimize_dynamic,
 )
 from example_config import (
     angle_mode,
@@ -63,76 +60,69 @@ carbon = pd.read_csv(
 carbon.attrs["name"] = "C"
 results_dir.mkdir(parents=True, exist_ok=True)
 
-config = LaminarAxConfig(
-    initial_grating=InitialLaminarGrating(
+def build_grating(parameters: dict[str, float]) -> LaminarGrating:
+    """Build laminar grating from dynamic optimizer parameters."""
+
+    return LaminarGrating(
         period_lpermm=period_lpermm,
-        width_to_period_ratio=width_to_period_ratio,
-        depth_nm=depth_nm,
-        left_wall_angle_deg=left_wall_angle_deg,
-        right_wall_angle_deg=right_wall_angle_deg,
+        width_to_period_ratio=float(parameters["width_to_period_ratio"]),
+        depth_nm=float(parameters["depth_nm"]),
+        left_wall_angle_deg=float(parameters["left_wall_angle_deg"]),
+        right_wall_angle_deg=float(parameters["right_wall_angle_deg"]),
         substrate_material=silicon,
         layer_material=platinum,
         layer_thickness_nm=layer_thickness_nm,
         top_cap_material=carbon,
-        top_cap_thickness_nm=top_cap_thickness_nm,
+        top_cap_thickness_nm=float(parameters["top_cap_thickness_nm"]),
         z_resolution_nm=z_resolution_nm,
         x_resolution_nm=x_resolution_nm,
-    ),
-    measurement_path=measurement_path,
-    output_dir=results_dir,
-    angle_mode=angle_mode,
-    grazing_angle_deg=grazing_angle_deg,
-    cff=cff,
-    diffraction_order=diffraction_order,
-    fourier_orders=fourier_orders,
-    validate_physical_results=True,
-    total_trials=60,
-    random_seed=7,
-    optimize_period_lpermm=False,
-    optimize_width_to_period_ratio=True,
-    optimize_depth_nm=True,
-    optimize_left_wall_angle_deg=True,
-    optimize_right_wall_angle_deg=True,
-    optimize_top_cap_thickness_nm=True,
-    optimize_roughness_sigma_nm=False,
-    width_to_period_ratio_bounds=ParameterBounds(0.5, 0.8),
-    depth_nm_bounds=ParameterBounds(13.9, 15.9),
-    left_wall_angle_deg_bounds=ParameterBounds(5.0, 20.0),
-    right_wall_angle_deg_bounds=ParameterBounds(5.0, 20.0),
-    top_cap_thickness_nm_bounds=ParameterBounds(0.3, 2.0),
-    experiment_name="laminar_fit",
-    loss_name="mse",
-    save_best_fit_plot=True,
-    evaluation_energies_ev=list(evaluation_energies_ev),
-)
+    )
+
+
+spec = {
+    "build_grating": build_grating,
+    "parameter_bounds": {
+        "width_to_period_ratio": (0.5, 0.8),
+        "depth_nm": (13.9, 15.9),
+        "left_wall_angle_deg": (5.0, 20.0),
+        "right_wall_angle_deg": (5.0, 20.0),
+        "top_cap_thickness_nm": (0.3, 2.0),
+    },
+    "measurement_path": measurement_path,
+    "output_dir": results_dir,
+    "angle_mode": angle_mode,
+    "grazing_angle_deg": grazing_angle_deg,
+    "cff": cff,
+    "diffraction_order": diffraction_order,
+    "fourier_orders": fourier_orders,
+    "validate_physical_results": True,
+    "total_trials": 60,
+    "batch_size": batch_size,
+    "random_seed": random_seed,
+    "experiment_name": "laminar_fit",
+    "loss_name": "mse",
+    "save_best_fit_plot": True,
+    "evaluation_energies_ev": list(evaluation_energies_ev),
+    "backend": optimizer_backend,
+}
 
 try:
-    result = optimize_laminar(config)
+    result = optimize_dynamic(spec)
 except ImportError as error:
     print(error)
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")
     raise SystemExit(1) from error
 
 fitted_parameters_path = results_dir / "fitted_parameters.json"
-best_result_payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
-payload = {
-    "measurement_path": str(config.measurement_path),
-    "angle_mode": config.angle_mode,
-    "grazing_angle_deg": config.grazing_angle_deg,
-    "cff": config.cff,
-    "diffraction_order": config.diffraction_order,
-    "fourier_orders": config.fourier_orders,
-    "backend": best_result_payload.get("backend_effective", "numba"),
-    "backend_requested": config.backend,
-    "backend_effective": best_result_payload.get("backend_effective", "numba"),
-    "evaluation_energies_ev": config.evaluation_energies_ev,
-    "best_loss": result.best_loss,
-    "best_parameters": result.best_parameters,
-    "best_grating_parameters": json_safe_grating_parameters(result.best_grating_parameters),
-    "stopped_early": result.stopped_early,
-    "completed_trials": result.completed_trials,
-    "early_stop_reason": result.early_stop_reason,
-}
+payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+payload["result_json_path"] = str(result.result_json_path)
+payload["trial_history_csv_path"] = str(result.trial_history_csv_path)
+payload["best_fit_plot_path"] = (
+    None if result.best_fit_plot_path is None else str(result.best_fit_plot_path)
+)
+payload["loss_history_plot_path"] = (
+    None if result.loss_history_plot_path is None else str(result.loss_history_plot_path)
+)
 fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 print(f"Measurement: {result.measurement_path}")

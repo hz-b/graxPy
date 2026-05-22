@@ -10,12 +10,7 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 echo "Running grating examples..."
 bash "$SCRIPT_DIR/grating/run_all.sh"
 
-echo "Running simulation examples..."
-
-for script_path in "$SCRIPT_DIR"/simulation/*/*.py; do
-    script_name="$(basename "$script_path")"
-    echo "  $PYTHON_BIN $script_name"
-    "$PYTHON_BIN" "$script_path"
-done
+echo "Running optimizer examples..."
+bash "$SCRIPT_DIR/optimizer/run_all.sh"
 
 echo "All curated examples completed."

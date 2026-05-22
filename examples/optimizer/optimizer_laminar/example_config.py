@@ -33,3 +33,4 @@ total_trials = 20
 batch_size = 15
 random_seed = 7
 evaluation_energies_ev = np.arange(100.0, 501.0, 10.0)
+evaluation_grazing_angles_deg = []

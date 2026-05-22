@@ -41,13 +41,13 @@ PY
 Run only the fit step:
 
 ```bash
-python examples/optimizer/0_fit_laminar_grating.py
+python examples/optimizer/optimizer_laminar/0_fit_laminar_grating.py
 ```
 
 Run the full workflow:
 
 ```bash
-./examples/optimizer/run_all.sh
+./examples/optimizer/optimizer_laminar/run_all.sh
 ```
 
 The full workflow runs:
@@ -80,7 +80,7 @@ Interpretation:
 
 Main output directory:
 
-- `examples/optimizer/optmizer_laminar/results/laminar_fit/`
+- `examples/optimizer/optimizer_laminar/results/laminar_fit/`
 
 Key files:
 
@@ -96,8 +96,8 @@ Key files:
 ## Design vs Optimized Parameters
 
 The optimizer example starts from the design parameters defined in
-`examples/optimizer/optmizer_laminar/0_fit_laminar_grating.py` and writes optimized values in
-`examples/optimizer/optmizer_laminar/results/laminar_fit/fitted_parameters.json`.
+`examples/optimizer/optimizer_laminar/0_fit_laminar_grating.py` and writes optimized values in
+`examples/optimizer/optimizer_laminar/results/laminar_fit/fitted_parameters.json`.
 
 | Parameter | Optimized in this example | Design value | Optimized value |
 | --- | --- | --- | --- |
@@ -108,9 +108,9 @@ The optimizer example starts from the design parameters defined in
 | `right_wall_angle_deg` | Yes | `15.0` | `5.0` |
 | `top_cap_thickness_nm` | Yes | `0.3` | `0.3811546815021951` |
 
-Additional geometry/material fields in `InitialLaminarGrating` are held fixed
-for this run (for example substrate/layer materials, `layer_thickness_nm`,
-`x_resolution_nm`, and `z_resolution_nm`).
+Additional geometry/material fields in the dynamic `build_grating` callable are
+held fixed for this run (for example substrate/layer materials,
+`layer_thickness_nm`, `x_resolution_nm`, and `z_resolution_nm`).
 
 Generated figures:
 

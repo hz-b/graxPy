@@ -100,11 +100,11 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${SIM_IMAGE_DIR}/multilayer_theta_search_workflow.png"
     cp "${PROJECT_ROOT}/examples/simulation/parameter_study/results/parameter_study_grid.png" \
       "${SIM_IMAGE_DIR}/parameter_study_grid.png"
-    cp "${PROJECT_ROOT}/examples/optimizer/optmizer_laminar/results/laminar_fit/best_fit.png" \
+    cp "${PROJECT_ROOT}/examples/optimizer/optimizer_laminar/results/laminar_fit/best_fit.png" \
       "${OPTIMIZER_IMAGE_DIR}/best_fit.png"
-    cp "${PROJECT_ROOT}/examples/optimizer/optmizer_laminar/results/laminar_fit/optimization_loss_history.png" \
+    cp "${PROJECT_ROOT}/examples/optimizer/optimizer_laminar/results/laminar_fit/optimization_loss_history.png" \
       "${OPTIMIZER_IMAGE_DIR}/optimization_loss_history.png"
-    cp "${PROJECT_ROOT}/examples/optimizer/optmizer_laminar/results/laminar_fit/laminar_fit_measurement_comparison.png" \
+    cp "${PROJECT_ROOT}/examples/optimizer/optimizer_laminar/results/laminar_fit/laminar_fit_measurement_comparison.png" \
       "${OPTIMIZER_IMAGE_DIR}/laminar_fit_measurement_comparison.png"
     if [[ -f "${PROJECT_ROOT}/examples/optimizer/optimizer_blazed/results/blazed_fit/best_fit.png" ]]; then
       cp "${PROJECT_ROOT}/examples/optimizer/optimizer_blazed/results/blazed_fit/best_fit.png" \
