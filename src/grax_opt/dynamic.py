@@ -161,7 +161,6 @@ class MeasurementFitConfig:
             parameter names.
         objective_name: Objective metric name reported to Ax.
         experiment_name: Experiment label persisted in optimizer artifacts.
-        loss_name: Loss metric used for trial scoring.
         failure_penalty: Finite penalty assigned to failed simulations.
         objective_sem: Reported objective standard error for Ax.
         enable_early_stopping: Whether early stopping logic is enabled.
@@ -195,7 +194,6 @@ class MeasurementFitConfig:
     equality_constraints: Mapping[str, str] = field(default_factory=dict)
     objective_name: str = "loss"
     experiment_name: str = "measurement_fit"
-    loss_name: str = "mse"
     failure_penalty: float = 1.0e6
     objective_sem: float = 1.0e-6
     enable_early_stopping: bool = False
@@ -322,7 +320,6 @@ class MeasurementFitConfig:
             random_seed=config.pop("random_seed", None),
             objective_name=config.pop("objective_name", "loss"),
             experiment_name=config.pop("experiment_name", "measurement_fit"),
-            loss_name=config.pop("loss_name", "mse"),
             failure_penalty=config.pop("failure_penalty", 1.0e6),
             objective_sem=config.pop("objective_sem", 1.0e-6),
             enable_early_stopping=config.pop("enable_early_stopping", False),

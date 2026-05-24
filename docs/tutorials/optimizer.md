@@ -9,9 +9,6 @@ optional key does, and what results are returned.
 For complete API signatures, see
 [`grax_opt` optimization API](../api/optimization.md).
 
-For numerical convergence of Fourier and discretization settings, see
-[Convergence Optimizer](convergence-optimizer.md).
-
 For a full measurement-fit example with tied parameters, see
 [Measurement Fit Specs](../how-to/dynamic-optimizer.md).
 
@@ -99,6 +96,7 @@ Important optional keys:
 - `diffraction_order`, `fourier_orders`: solver settings for each evaluation.
 - `total_trials`, `batch_size`, `random_seed`: optimization runtime controls.
 - `backend`: `"auto"`, `"numba"`, or `"numpy"`.
+- loss metric: fixed to mean squared error (MSE).
 - `enable_early_stopping` and related early-stop thresholds.
 - `save_best_fit_plot`, `save_loss_plot`: artifact toggles.
 
@@ -167,5 +165,4 @@ Written files in `output_dir`:
 
 optimizer-laminar-fit
 optimizer-blazed-fit
-convergence-optimizer
 ```

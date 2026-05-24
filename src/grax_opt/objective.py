@@ -30,11 +30,6 @@ def mean_squared_error(
     return float(np.mean(residual**2))
 
 
-LOSS_FUNCTIONS: dict[str, LossFunction] = {
-    "mse": mean_squared_error,
-}
-
-
 def build_evaluation_measurement(
     config: Any,
     measurement: MeasurementData,
@@ -149,7 +144,7 @@ def evaluate_trial(
         Scalar loss value for the candidate.
     """
 
-    selected_loss_function = loss_function or LOSS_FUNCTIONS[config.loss_name]
+    selected_loss_function = loss_function or mean_squared_error
     evaluation_measurement = build_evaluation_measurement(config, measurement)
     try:
         simulate_kwargs: dict[str, object] = {

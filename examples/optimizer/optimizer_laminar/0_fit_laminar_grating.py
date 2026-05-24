@@ -100,7 +100,6 @@ spec = {
     "batch_size": batch_size,
     "random_seed": random_seed,
     "experiment_name": "laminar_fit",
-    "loss_name": "mse",
     "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
     "backend": optimizer_backend,

@@ -93,7 +93,6 @@ spec = {
     "random_seed": random_seed,
     "backend": optimizer_backend,
     "experiment_name": "blazed_fit",
-    "loss_name": "mse",
     "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
 }

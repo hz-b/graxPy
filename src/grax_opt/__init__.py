@@ -1,11 +1,5 @@
 """Standalone optimization helpers for grax."""
 
-from .convergence import (
-    SimulationConvergenceConfig,
-    SimulationConvergenceEnergyResult,
-    SimulationConvergenceResult,
-    optimize_simulation_convergence,
-)
 from .config import ParameterBounds
 from .data import MeasurementData, load_measurement_data, sample_measurement_data
 from .dynamic import (
@@ -35,9 +29,6 @@ __all__ = [
     "MeasurementData",
     "OptimizationResult",
     "ParameterBounds",
-    "SimulationConvergenceConfig",
-    "SimulationConvergenceEnergyResult",
-    "SimulationConvergenceResult",
     "TrialRecord",
     "build_evaluation_measurement",
     "build_measurement_fit_ax_parameters",
@@ -45,7 +36,6 @@ __all__ = [
     "json_safe_grating_parameters",
     "load_measurement_data",
     "sample_measurement_data",
-    "optimize_simulation_convergence",
     "optimize_to_measurements",
     "resolve_measurement_fit_trial_parameters",
 ]

@@ -91,7 +91,7 @@
     "roughness_sigma_nm": null
   },
   "stopped_early": false,
-  "completed_trials": 5,
+  "completed_trials": 8,
   "early_stop_reason": null,
   "backend_requested": "auto",
   "backend_effective": "numba",

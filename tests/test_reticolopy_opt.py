@@ -14,11 +14,9 @@ from grax_opt import (
     build_evaluation_measurement,
     evaluate_trial,
     load_measurement_data,
-    optimize_simulation_convergence,
     optimize_to_measurements,
     resolve_measurement_fit_trial_parameters,
     sample_measurement_data,
-    SimulationConvergenceConfig,
 )
 from grax_opt import dynamic as dynamic_module
 from grax_opt import optimize as optimize_module
@@ -128,6 +126,26 @@ def test_measurement_fit_config_rejects_many_energy_many_angle(tmp_path: Path) -
             output_dir=tmp_path / "out",
             evaluation_energies_ev=[100.0, 150.0],
             evaluation_grazing_angles_deg=[3.0, 5.0],
+        )
+
+
+def test_measurement_fit_config_rejects_legacy_loss_name(tmp_path: Path) -> None:
+    measurement_path = tmp_path / "measurement_fit.dat"
+    measurement_path.write_text("100 0.2\n200 0.3\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unexpected measurement-fit spec keys"):
+        MeasurementFitConfig.from_mapping(
+            {
+                "build_grating": lambda parameters: type(
+                    "DynamicGrating",
+                    (),
+                    {"period_lpermm": float(parameters["period_lpermm"])},
+                )(),
+                "parameter_bounds": {"period_lpermm": (380.0, 420.0)},
+                "measurement_path": measurement_path,
+                "output_dir": tmp_path / "out",
+                "evaluation_energies_ev": [150.0],
+                "loss_name": "mse",
+            }
         )
 
 
@@ -282,73 +300,6 @@ def test_optimize_to_measurements_pair_mode_uses_explicit_angles(
     assert payload["evaluation_mode"] == "energy_angle_pairs"
 
 
-def test_optimize_simulation_convergence_selects_stable_settings(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    grating = type(
-        "ConvergenceGrating",
-        (),
-        {
-            "period_lpermm": 400.0,
-            "x_resolution_nm": 1.0,
-            "z_resolution_nm": 1.0,
-        },
-    )()
-
-    config = SimulationConvergenceConfig(
-        grating=grating,
-        energies_ev=[100.0, 150.0],
-        grazing_angle_deg=4.0,
-        diffraction_order=1,
-        fourier_orders_values=[5, 7, 9],
-        x_resolution_values=[10.0, 1.0, 0.1],
-        z_resolution_values=[10.0, 1.0, 0.1],
-        relative_tolerance=0.05,
-    )
-
-    series_calls: list[str] = []
-
-    def fake_sweep(*, parameter: str, **_kwargs):
-        series_calls.append(parameter)
-        if parameter == "fourier_orders":
-            from grax.parameter_sweep import ParameterSweepSeries
-
-            return ParameterSweepSeries(
-                parameter=parameter,
-                values=np.array([5, 7, 9], dtype=int),
-                efficiencies=np.array([0.50, 0.53, 0.535], dtype=float),
-                errors=np.array([False, False, False]),
-            )
-        if parameter == "x_resolution_nm":
-            from grax.parameter_sweep import ParameterSweepSeries
-
-            return ParameterSweepSeries(
-                parameter=parameter,
-                values=np.array([10.0, 1.0, 0.1], dtype=float),
-                efficiencies=np.array([0.40, 0.46, 0.461], dtype=float),
-                errors=np.array([False, False, False]),
-            )
-        from grax.parameter_sweep import ParameterSweepSeries
-
-        return ParameterSweepSeries(
-            parameter=parameter,
-            values=np.array([10.0, 1.0, 0.1], dtype=float),
-            efficiencies=np.array([0.45, 0.48, 0.481], dtype=float),
-            errors=np.array([False, False, False]),
-        )
-
-    monkeypatch.setattr("grax_opt.convergence._run_convergence_sweep", fake_sweep)
-
-    result = optimize_simulation_convergence(config)
-
-    assert series_calls.count("fourier_orders") == 2
-    assert result.selected_fourier_orders == 7
-    assert result.selected_x_resolution_nm == pytest.approx(1.0)
-    assert result.selected_z_resolution_nm == pytest.approx(1.0)
-    assert result.converged is True
-
-
 def test_resolve_optimizer_backend_auto_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(optimize_module, "_is_numba_available", lambda: True)
     assert optimize_module._resolve_optimizer_backend("auto") == "numba"
@@ -371,15 +322,6 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     measurement_fit_config = runpy.run_path(
         str(repo_root / "examples" / "optimizer" / "dynamic_optimizer" / "example_config.py")
     )
-    convergence_config = runpy.run_path(
-        str(
-            repo_root
-            / "examples"
-            / "optimizer"
-            / "convergence_optimizer"
-            / "example_config.py"
-        )
-    )
 
     assert blazed_config["optimizer_backend"] == "auto"
     assert blazed_config["simulation_backend"] in {"numba", "numpy"}
@@ -387,7 +329,3 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     assert laminar_config["simulation_backend"] in {"numba", "numpy"}
     assert measurement_fit_config["optimizer_backend"] == "auto"
     assert measurement_fit_config["simulation_backend"] in {"numba", "numpy"}
-    assert convergence_config["backend"] == "auto"
-    assert convergence_config["fourier_orders_values"].ndim == 1
-    assert convergence_config["x_resolution_values"].ndim == 1
-    assert convergence_config["z_resolution_values"].ndim == 1
