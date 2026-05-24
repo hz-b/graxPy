@@ -96,7 +96,7 @@ spec = {
     "diffraction_order": diffraction_order,
     "fourier_orders": fourier_orders,
     "validate_physical_results": True,
-    "total_trials": 60,
+    "total_trials": total_trials,
     "batch_size": batch_size,
     "random_seed": random_seed,
     "experiment_name": "laminar_fit",

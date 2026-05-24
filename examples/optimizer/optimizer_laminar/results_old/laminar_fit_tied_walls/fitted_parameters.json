@@ -2,7 +2,7 @@
   "optimization_mode": "measurement_fit",
   "experiment_name": "laminar_fit_tied_walls",
   "objective_name": "loss",
-  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
+  "measurement_path": "/home/simone/projects/graxpy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
   "evaluation_mode": "energy_only",
   "evaluation_case_mode": "energy_only",
   "evaluation_energies_ev": [
@@ -74,16 +74,16 @@
   "equality_constraints": {
     "right_wall_angle_deg": "left_wall_angle_deg"
   },
-  "best_loss": 4.210862085164015e-06,
+  "best_loss": 3.5013825158795614e-06,
   "best_parameters": {
-    "width_to_period_ratio": 0.7399114631988724,
-    "depth_nm": 14.689456819086626,
+    "width_to_period_ratio": 0.7430691707159561,
+    "depth_nm": 14.79190301894701,
     "left_wall_angle_deg": 5.0,
     "top_cap_thickness_nm": 0.3
   },
   "best_grating_parameters": {
-    "width_to_period_ratio": 0.7399114631988724,
-    "depth_nm": 14.689456819086626,
+    "width_to_period_ratio": 0.7430691707159561,
+    "depth_nm": 14.79190301894701,
     "left_wall_angle_deg": 5.0,
     "top_cap_thickness_nm": 0.3,
     "right_wall_angle_deg": 5.0
@@ -92,12 +92,16 @@
     "roughness_sigma_nm": null
   },
   "stopped_early": false,
-  "completed_trials": 20,
+  "completed_trials": 60,
   "early_stop_reason": null,
   "backend_requested": "auto",
   "backend_effective": "numba",
   "diffraction_order": 1,
   "fourier_orders": 15,
   "angle_mode": "fixed",
-  "grazing_angle_deg": 4.0
+  "grazing_angle_deg": 4.0,
+  "result_json_path": "/home/simone/projects/graxpy/examples/optimizer/optimizer_laminar/results/laminar_fit_tied_walls/best_result.json",
+  "trial_history_csv_path": "/home/simone/projects/graxpy/examples/optimizer/optimizer_laminar/results/laminar_fit_tied_walls/trial_history.csv",
+  "best_fit_plot_path": "/home/simone/projects/graxpy/examples/optimizer/optimizer_laminar/results/laminar_fit_tied_walls/best_fit.png",
+  "loss_history_plot_path": "/home/simone/projects/graxpy/examples/optimizer/optimizer_laminar/results/laminar_fit_tied_walls/optimization_loss_history.png"
 }

@@ -35,3 +35,7 @@ batch_size = 15
 random_seed = 7
 evaluation_energies_ev = np.arange(100.0, 501.0, 10.0)
 evaluation_grazing_angles_deg = []
+
+# Tied-wall workflow settings.
+tied_wall_experiment_name = "laminar_fit_tied_walls"
+tied_wall_equality_constraints = {"right_wall_angle_deg": "left_wall_angle_deg"}

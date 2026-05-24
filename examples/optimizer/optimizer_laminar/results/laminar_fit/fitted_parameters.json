@@ -1,17 +1,10 @@
 {
-  "optimization_mode": "laminar",
+  "optimization_mode": "measurement_fit",
+  "experiment_name": "laminar_fit",
+  "objective_name": "loss",
   "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
-  "angle_mode": "fixed",
-  "grazing_angle_deg": 4.0,
-  "cff": 2.5,
-  "diffraction_order": 1,
-  "fourier_orders": 15,
   "evaluation_mode": "energy_only",
   "evaluation_case_mode": "energy_only",
-  "evaluation_grazing_angles_deg": [],
-  "backend": "numba",
-  "backend_requested": "auto",
-  "backend_effective": "numba",
   "evaluation_energies_ev": [
     100.0,
     110.0,
@@ -55,29 +48,59 @@
     490.0,
     500.0
   ],
-  "best_loss": 2.3194259444652073e-06,
+  "evaluation_grazing_angles_deg": [],
+  "parameter_bounds": {
+    "width_to_period_ratio": [
+      0.5,
+      0.8
+    ],
+    "depth_nm": [
+      13.9,
+      15.9
+    ],
+    "left_wall_angle_deg": [
+      5.0,
+      20.0
+    ],
+    "right_wall_angle_deg": [
+      5.0,
+      20.0
+    ],
+    "top_cap_thickness_nm": [
+      0.3,
+      2.0
+    ]
+  },
+  "equality_constraints": {},
+  "best_loss": 5.266607734459274e-05,
   "best_parameters": {
-    "width_to_period_ratio": 0.7211490506760888,
-    "depth_nm": 14.69842239342797,
-    "left_wall_angle_deg": 13.807623991787436,
+    "width_to_period_ratio": 0.705950661777188,
+    "depth_nm": 14.150756203706413,
+    "left_wall_angle_deg": 13.222220727353854,
     "right_wall_angle_deg": 20.0,
-    "top_cap_thickness_nm": 0.7619989698773539
+    "top_cap_thickness_nm": 0.3
   },
   "best_grating_parameters": {
-    "period_lpermm": 400.0,
-    "width_to_period_ratio": 0.7211490506760888,
-    "depth_nm": 14.69842239342797,
-    "left_wall_angle_deg": 13.807623991787436,
+    "width_to_period_ratio": 0.705950661777188,
+    "depth_nm": 14.150756203706413,
+    "left_wall_angle_deg": 13.222220727353854,
     "right_wall_angle_deg": 20.0,
-    "substrate_material": "Si",
-    "layer_material": "Pt",
-    "layer_thickness_nm": 28.77,
-    "top_cap_material": "C",
-    "top_cap_thickness_nm": 0.7619989698773539,
-    "z_resolution_nm": 0.5,
-    "x_resolution_nm": 0.5
+    "top_cap_thickness_nm": 0.3
+  },
+  "best_solver_parameters": {
+    "roughness_sigma_nm": null
   },
   "stopped_early": false,
-  "completed_trials": 60,
-  "early_stop_reason": null
+  "completed_trials": 20,
+  "early_stop_reason": null,
+  "backend_requested": "auto",
+  "backend_effective": "numba",
+  "diffraction_order": 1,
+  "fourier_orders": 15,
+  "angle_mode": "fixed",
+  "grazing_angle_deg": 4.0,
+  "result_json_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/best_result.json",
+  "trial_history_csv_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/trial_history.csv",
+  "best_fit_plot_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/best_fit.png",
+  "loss_history_plot_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/optimization_loss_history.png"
 }

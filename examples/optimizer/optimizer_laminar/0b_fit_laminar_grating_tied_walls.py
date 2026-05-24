@@ -8,7 +8,7 @@ import pandas as pd
 from grax import LaminarGrating
 
 from grax_opt import optimize_to_measurements
-from example_config_tied_walls import (
+from example_config import (
     angle_mode,
     batch_size,
     cff,
@@ -23,7 +23,7 @@ from example_config_tied_walls import (
     optical_constants_dir,
     optimizer_backend,
     period_lpermm,
-    results_dir,
+    tied_wall_results_dir,
     right_wall_angle_deg,
     random_seed,
     top_cap_thickness_nm,
@@ -31,8 +31,8 @@ from example_config_tied_walls import (
     width_to_period_ratio,
     x_resolution_nm,
     z_resolution_nm,
-    equality_constraints,
-    experiment_name,
+    tied_wall_equality_constraints,
+    tied_wall_experiment_name,
 )
 
 silicon = pd.read_csv(
@@ -58,7 +58,7 @@ carbon = pd.read_csv(
     engine="python",
 )
 carbon.attrs["name"] = "C"
-results_dir.mkdir(parents=True, exist_ok=True)
+tied_wall_results_dir.mkdir(parents=True, exist_ok=True)
 
 
 def build_grating(parameters: dict[str, float]) -> LaminarGrating:
@@ -89,9 +89,9 @@ spec = {
         "right_wall_angle_deg": (5.0, 20.0),
         "top_cap_thickness_nm": (0.3, 2.0),
     },
-    "equality_constraints": equality_constraints,
+    "equality_constraints": tied_wall_equality_constraints,
     "measurement_path": measurement_path,
-    "output_dir": results_dir,
+    "output_dir": tied_wall_results_dir,
     "angle_mode": angle_mode,
     "grazing_angle_deg": grazing_angle_deg,
     "cff": cff,
@@ -101,7 +101,7 @@ spec = {
     "total_trials": total_trials,
     "batch_size": batch_size,
     "random_seed": random_seed,
-    "experiment_name": experiment_name,
+    "experiment_name": tied_wall_experiment_name,
     "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
     "backend": optimizer_backend,
@@ -114,7 +114,7 @@ except ImportError as error:
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")
     raise SystemExit(1) from error
 
-fitted_parameters_path = results_dir / "fitted_parameters.json"
+fitted_parameters_path = tied_wall_results_dir / "fitted_parameters.json"
 payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
 payload["result_json_path"] = str(result.result_json_path)
 payload["trial_history_csv_path"] = str(result.trial_history_csv_path)

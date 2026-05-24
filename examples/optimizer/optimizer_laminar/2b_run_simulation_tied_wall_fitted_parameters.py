@@ -8,19 +8,19 @@ import numpy as np
 import pandas as pd
 
 import grax as rp
-from example_config_tied_walls import (
+from example_config import (
     diffraction_order as baseline_diffraction_order,
     fourier_orders as baseline_fourier_orders,
     grazing_angle_deg,
     measurement_path,
     optical_constants_dir,
-    results_dir,
+    tied_wall_results_dir,
     simulation_backend as baseline_simulation_backend,
 )
 
-results_dir.mkdir(parents=True, exist_ok=True)
+tied_wall_results_dir.mkdir(parents=True, exist_ok=True)
 
-fitted_parameters_path = results_dir / "fitted_parameters.json"
+fitted_parameters_path = tied_wall_results_dir / "fitted_parameters.json"
 if not fitted_parameters_path.exists():
     raise FileNotFoundError(
         f"Missing fitted parameters file: {fitted_parameters_path}. "
@@ -84,7 +84,7 @@ runner = rp.BatchSimulationRunner(
 )
 results = list(runner.run_cases(cases))
 
-output_csv_path = results_dir / "simulated_curve_fitted.csv"
+output_csv_path = tied_wall_results_dir / "simulated_curve_fitted.csv"
 rp.write_all_orders_csv(results, output_csv_path)
 
 print(f"Tied-wall fitted-parameter simulation CSV: {output_csv_path}")
