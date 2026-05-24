@@ -322,6 +322,15 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     measurement_fit_config = runpy.run_path(
         str(repo_root / "examples" / "optimizer" / "dynamic_optimizer" / "example_config.py")
     )
+    laminar_tied_walls_config = runpy.run_path(
+        str(
+            repo_root
+            / "examples"
+            / "optimizer"
+            / "optimizer_laminar"
+            / "example_config_tied_walls.py"
+        )
+    )
 
     assert blazed_config["optimizer_backend"] == "auto"
     assert blazed_config["simulation_backend"] in {"numba", "numpy"}
@@ -329,3 +338,25 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     assert laminar_config["simulation_backend"] in {"numba", "numpy"}
     assert measurement_fit_config["optimizer_backend"] == "auto"
     assert measurement_fit_config["simulation_backend"] in {"numba", "numpy"}
+    assert laminar_config["results_dir"] != laminar_tied_walls_config["results_dir"]
+    assert laminar_tied_walls_config["results_dir"].name == "laminar_fit_tied_walls"
+    assert laminar_tied_walls_config["equality_constraints"] == {
+        "right_wall_angle_deg": "left_wall_angle_deg"
+    }
+
+    tied_wall_results_dir = laminar_tied_walls_config["results_dir"]
+    assert (tied_wall_results_dir / "best_result.json").exists()
+    assert (tied_wall_results_dir / "fitted_parameters.json").exists()
+    assert (tied_wall_results_dir / "simulated_curve_fitted.csv").exists()
+    assert (tied_wall_results_dir / "laminar_fit_tied_walls_measurement_comparison.png").exists()
+
+    tied_wall_best_result = json.loads(
+        (tied_wall_results_dir / "best_result.json").read_text(encoding="utf-8")
+    )
+    assert tied_wall_best_result["experiment_name"] == "laminar_fit_tied_walls"
+    assert tied_wall_best_result["equality_constraints"] == {
+        "right_wall_angle_deg": "left_wall_angle_deg"
+    }
+    assert tied_wall_best_result["best_grating_parameters"]["left_wall_angle_deg"] == pytest.approx(
+        tied_wall_best_result["best_grating_parameters"]["right_wall_angle_deg"]
+    )

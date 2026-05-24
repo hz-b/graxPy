@@ -10,6 +10,7 @@ example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants" / "old"
 measurement_path = example_root / "measured_alpha4deg_order1.csv"
 results_dir = example_root / "results" / "laminar_fit"
+tied_wall_results_dir = example_root / "results" / "laminar_fit_tied_walls"
 
 period_lpermm = 400.0
 width_to_period_ratio = 0.67
