@@ -8,4 +8,5 @@ This section groups grating-construction tutorials.
 gratings/laminar
 gratings/blazed
 gratings/blazed-multilayer-custom-stack
+gratings/afm-preprocessing-profile
 ```
