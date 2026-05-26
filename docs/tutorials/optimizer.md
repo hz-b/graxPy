@@ -78,9 +78,7 @@ the optimizer from changing parameters across trials.
 
 ## Spec keys
 
-`optimize_to_measurements` accepts either:
-
-- a plain dictionary (`spec`) with these keys
+`optimize_to_measurements` accepts a spec mapping with these keys:
 
 Required keys:
 

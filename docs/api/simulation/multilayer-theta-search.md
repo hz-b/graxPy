@@ -20,10 +20,8 @@ and final solve at the selected theta. Each stage has independent Fourier and
 
 ```{eval-rst}
 .. autoclass:: grax.ThetaSearchDiagnostics
-   :members:
 ```
 
 ```{eval-rst}
 .. autoclass:: grax.MultilayerThetaSearchSweepResult
-   :members:
 ```

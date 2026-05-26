@@ -16,10 +16,8 @@ Parameter-study APIs for convergence scans over Fourier and discretization setti
 
 ```{eval-rst}
 .. autoclass:: grax.ParameterStudyResult
-   :members:
 ```
 
 ```{eval-rst}
 .. autoclass:: grax.ParameterStudyEnergyResult
-   :members:
 ```

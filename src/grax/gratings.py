@@ -19,7 +19,7 @@ from .stacks import BaseStack, MultilayerStack, SingleLayerStack
 class BaseGrating(ABC):
     """Base class for grating profiles and material stacks.
 
-    Args:
+    Attributes:
         period_lpermm: Grating period in lines per millimeter.
         coating_stack: Optional coating stack configuration.
         substrate_material: Substrate material identifier.
@@ -504,7 +504,7 @@ class LaminarGrating(BaseGrating):
     of one period. Sidewall angles are measured from the horizontal,
     so ``90`` degrees corresponds to vertical walls.
 
-    Args:
+    Attributes:
         period_lpermm: Grating period in lines per millimeter.
         coating_stack: Optional coating stack configuration.
         substrate_material: Substrate material identifier.
@@ -573,7 +573,7 @@ class BlazedGrating(BaseGrating):
     of the period. When ``anti_blaze_angle_deg`` is provided, the profile is
     built as a two-facet triangle matching the original Reticolo helpers.
 
-    Args:
+    Attributes:
         period_lpermm: Grating period in lines per millimeter.
         coating_stack: Optional coating stack configuration.
         substrate_material: Substrate material identifier.

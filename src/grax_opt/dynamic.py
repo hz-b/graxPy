@@ -617,8 +617,8 @@ def optimize_to_measurements(
     """Run Ax optimization for a measurement-fit grating configuration.
 
     Args:
-        config: Measurement-fit configuration or plain mapping. When a mapping
-            is provided, it must contain:
+        config: Spec mapping describing the measurement-fit optimization run.
+            Required keys:
             build_grating: Callable that builds the grating from the resolved
                 parameter dictionary for one trial.
             parameter_bounds: Mapping of parameter names to lower/upper bounds.

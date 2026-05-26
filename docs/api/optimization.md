@@ -16,7 +16,6 @@ This page exposes the primary public optimizer API for end users.
 
 ```{eval-rst}
 .. autoclass:: grax_opt.OptimizationResult
-   :members:
 ```
 
 ## See tutorials
