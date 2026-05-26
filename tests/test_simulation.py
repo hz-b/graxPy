@@ -1848,6 +1848,7 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
     assert "rp.monochromator_cases(" in source
     assert "rp.BatchSimulationRunner(" in source
     assert "show_progress=True" in source
+    assert 'max_workers="auto"' in source
     assert 'sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))' in source
     assert '"memory_mode": "standard"' in source
     assert '"memory_mode": "low_memory"' in source
