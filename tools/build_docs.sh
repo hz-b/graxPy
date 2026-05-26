@@ -47,18 +47,28 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DOCS_DIR="${PROJECT_ROOT}/docs"
-PYTHON_BIN="${PYTHON_BIN:-python}"
-if [[ "${PYTHON_BIN}" == "python" && -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
-    PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python"
+DOCS_VENV_DIR="${PROJECT_ROOT}/venv_docs"
+UV_BIN="${UV_BIN:-uv}"
+
+if ! command -v "${UV_BIN}" >/dev/null 2>&1; then
+    echo "Error: 'uv' is required to bootstrap docs environment."
+    echo "Install uv first: https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
 fi
-if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    if command -v python3 >/dev/null 2>&1; then
-        PYTHON_BIN="python3"
-    else
-        echo "Python interpreter not found (tried '${PYTHON_BIN}' and 'python3')."
-        exit 1
-    fi
+
+if [[ ! -x "${DOCS_VENV_DIR}/bin/python" ]]; then
+    echo "============================================================"
+    echo "Creating docs virtual environment: ${DOCS_VENV_DIR}"
+    echo "============================================================"
+    "${UV_BIN}" venv --python 3.12 "${DOCS_VENV_DIR}"
 fi
+
+echo "============================================================"
+echo "Installing docs dependencies into ${DOCS_VENV_DIR}"
+echo "============================================================"
+"${UV_BIN}" pip install --python "${DOCS_VENV_DIR}/bin/python" -e "${PROJECT_ROOT}[docs]"
+
+PYTHON_BIN="${DOCS_VENV_DIR}/bin/python"
 
 HTML_BUILD_DIR="${DOCS_DIR}/_build/html"
 LATEX_BUILD_DIR="${DOCS_DIR}/_build/latex"
@@ -90,6 +100,15 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${GRATING_IMAGE_DIR}/blazed_multilayer_custom_stack_schematic.png"
     cp "${PROJECT_ROOT}/examples/grating/results/sinusoidal_custom_profile.png" \
       "${HOWTO_IMAGE_DIR}/sinusoidal_custom_profile.png"
+    mkdir -p "${GRATING_IMAGE_DIR}/afm_preprocessing"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/01_normalize_scan.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing/01_normalize_scan.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/02_find_troughs.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing/02_find_troughs.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/03_extract_period_averaged.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing/03_extract_period_averaged.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/04_periodicity_ramp.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing/04_periodicity_ramp.png"
 
     cp "${PROJECT_ROOT}/examples/simulation/batch_user_cases/results/batch_user_cases_orders_1_3_vs_depth.png" \
       "${SIM_IMAGE_DIR}/batch_user_cases_orders_1_3_vs_depth.png"

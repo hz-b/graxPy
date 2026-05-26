@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from .gratings import BaseGrating, BlazedGrating, LaminarGrating
+from .afm_grating import AFMGrating
+from .afm_preprocessing import AFMPreprocessing
+from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
     ParameterStudyResult,
@@ -47,6 +49,8 @@ from .simulation import (
 from .slag import SlagConfig, default_example_slag_config, run_example_slag, simulate_single_energy
 
 __all__ = [
+    "AFMGrating",
+    "AFMPreprocessing",
     "BaseGrating",
     "BaseStack",
     "BatchSimulationRunner",
@@ -54,6 +58,7 @@ __all__ = [
     "CaseExecutionResult",
     "CustomStack",
     "LaminarGrating",
+    "ProfileGrating",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
     "ParameterStudyEnergyResult",
