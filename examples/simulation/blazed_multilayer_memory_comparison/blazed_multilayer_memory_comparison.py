@@ -40,7 +40,7 @@ grating = rp.BlazedGrating(
     z_resolution_nm=0.1,
 )
 
-energies_ev = np.linspace(500.0, 3950.0, 10)
+energies_ev = np.linspace(3000.0, 3500.0, 50)
 base_cases = list(
     rp.monochromator_cases(
         grating=grating,
