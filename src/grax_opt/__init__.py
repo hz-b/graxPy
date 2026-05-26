@@ -15,10 +15,11 @@ def optimize_to_measurements(config):
     """Run the measurement-fit optimizer with the public renamed entrypoint.
 
     Args:
-        config: Measurement-fit configuration or plain mapping.
+        config: Measurement-fit configuration or plain mapping with the same
+            required keys as :func:`grax_opt.dynamic.optimize_to_measurements`.
 
     Returns:
-        Optimization result bundle with persisted artifacts.
+        OptimizationResult: Result bundle with persisted artifacts.
     """
 
     return _optimize_to_measurements(config)

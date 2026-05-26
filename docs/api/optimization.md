@@ -24,4 +24,3 @@ This page exposes the primary public optimizer API for end users.
 - [Optimizer setup guide](../tutorials/optimizer.md)
 - [Laminar Grating](../tutorials/optimizer-laminar-fit.md)
 - [Blazed Grating](../tutorials/optimizer-blazed-fit.md)
-- [Measurement Fit Specs](../how-to/dynamic-optimizer.md)

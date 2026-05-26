@@ -9,9 +9,6 @@ optional key does, and what results are returned.
 For complete API signatures, see
 [`grax_opt` optimization API](../api/optimization.md).
 
-For a full measurement-fit example with tied parameters, see
-[Measurement Fit Specs](../how-to/dynamic-optimizer.md).
-
 ## Basic setup
 
 ```python
@@ -57,6 +54,14 @@ print(result.best_loss)
 print(result.best_parameters)
 ```
 
+In `build_grating(parameters)`, fields read from `parameters[...]` are the
+optimizer-controlled trial variables, while literal constants (for example
+`period_lpermm=400.0` or `layer_thickness_nm=28.77`) stay fixed across all
+trials. A value is optimized only when it appears in both
+`parameter_bounds` and `build_grating(parameters)`. The `float(...)` casts keep
+numeric inputs normalized to plain Python floats before constructing the
+grating.
+
 ## Why `build_grating` is required
 
 The optimizer evaluates many trial parameter sets. For each trial, it must
@@ -76,7 +81,6 @@ the optimizer from changing parameters across trials.
 `optimize_to_measurements` accepts either:
 
 - a plain dictionary (`spec`) with these keys
-- a `MeasurementFitConfig` instance (advanced/programmatic usage)
 
 Required keys:
 

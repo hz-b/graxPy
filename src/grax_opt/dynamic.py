@@ -617,10 +617,28 @@ def optimize_to_measurements(
     """Run Ax optimization for a measurement-fit grating configuration.
 
     Args:
-        config: Measurement-fit configuration or a plain mapping using the same keys.
+        config: Measurement-fit configuration or plain mapping. When a mapping
+            is provided, it must contain:
+            build_grating: Callable that builds the grating from the resolved
+                parameter dictionary for one trial.
+            parameter_bounds: Mapping of parameter names to lower/upper bounds.
+                These names define the free optimization variables.
+            measurement_path: Path to the measured two-column dataset.
+            output_dir: Directory where optimizer artifacts are written.
+            evaluation_energies_ev: Non-empty list of positive energies used
+                for objective evaluation.
+            Optional keys include ``angle_mode``, ``grazing_angle_deg``, ``cff``,
+            ``evaluation_grazing_angles_deg``, ``equality_constraints``,
+            ``diffraction_order``, ``fourier_orders``, ``total_trials``,
+            ``batch_size``, ``random_seed``, ``backend``,
+            ``enable_early_stopping``, ``early_stopping_patience``,
+            ``early_stopping_min_relative_improvement``,
+            ``early_stopping_warmup_trials``, ``save_best_fit_plot``, and
+            ``save_loss_plot``.
 
     Returns:
-        Optimization result bundle with persisted artifacts.
+        OptimizationResult: Result bundle containing the best parameters, the
+        resolved grating parameters, and artifact paths written to disk.
     """
 
     if not isinstance(config, MeasurementFitConfig):

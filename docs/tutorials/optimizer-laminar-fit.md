@@ -50,6 +50,20 @@ held fixed for this run (for example substrate/layer materials,
 The tied-wall fit uses the same bounds as the standard fit, but ties
 `right_wall_angle_deg` to `left_wall_angle_deg`.
 
+## Standard Fit vs Tied-Wall Fit
+
+The two laminar optimizations use the same measurement target, same grating
+model, and same parameter bounds. The key difference is how wall angles are
+handled:
+
+- Standard fit: `left_wall_angle_deg` and `right_wall_angle_deg` are free
+  parameters that can vary independently.
+- Tied-wall fit: `right_wall_angle_deg` is constrained to equal
+  `left_wall_angle_deg`, so both walls always share one optimized angle value.
+
+In short: the standard fit allows wall-angle asymmetry, while the tied-wall fit
+enforces symmetric wall angles.
+
 Generated figures:
 
 ```{image} images/optimizer/laminar_fit/best_fit.png

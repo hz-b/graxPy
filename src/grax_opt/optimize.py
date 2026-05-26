@@ -235,7 +235,28 @@ class TrialRecord:
 
 @dataclass(frozen=True)
 class OptimizationResult:
-    """Result bundle returned by optimizer entrypoints."""
+    """Result bundle returned by optimizer entrypoints.
+
+    Attributes:
+        best_parameters: Best free parameters returned by Ax.
+        best_grating_parameters: Best resolved grating parameters after applying
+            equality constraints.
+        best_loss: Best objective value found during the optimization run.
+        measurement_path: Path to the measurement data used for the fit.
+        result_json_path: Path to the persisted JSON summary for the run.
+        trial_history_csv_path: Path to the persisted per-trial history CSV.
+        best_fit_plot_path: Path to the best-fit plot when plotting is enabled,
+            otherwise ``None``.
+        loss_history_plot_path: Path to the loss-history plot when plotting is
+            enabled, otherwise ``None``.
+        trial_records: Per-trial records including trial index, loss, and free
+            parameter values.
+        stopped_early: Whether early stopping ended the run before exhausting
+            ``total_trials``.
+        completed_trials: Number of trials successfully evaluated.
+        early_stop_reason: Human-readable reason for early stopping, or
+            ``None`` when the run completed normally.
+    """
 
     best_parameters: dict[str, float]
     best_grating_parameters: dict[str, object]
