@@ -239,8 +239,42 @@ class BaseGrating(ABC):
         photon_energy_ev: float,
         *,
         n_inc: complex = 1.0 + 0.0j,
+        memory_mode: str = "standard",
     ) -> tuple[list[object], tuple[np.ndarray, np.ndarray]]:
-        """Build textures and profile arrays for the discretized profile."""
+        """Build textures and profile arrays for the discretized profile.
+
+        Args:
+            photon_energy_ev: Photon energy used to resolve optical constants.
+            n_inc: Incident-medium refractive index.
+            memory_mode: Texture-generation mode. ``"standard"`` keeps the
+                existing dense grid path. ``"low_memory"`` generates one solver
+                row at a time and compresses consecutive identical rows before
+                RCWA conversion.
+
+        Returns:
+            Texture descriptors and the RCWA profile tuple.
+        """
+
+        if memory_mode not in {"standard", "low_memory"}:
+            raise ValueError("memory_mode must be 'standard' or 'low_memory'.")
+
+        if memory_mode == "low_memory":
+            return self._build_textures_low_memory(
+                photon_energy_ev,
+                n_inc=n_inc,
+            )
+        return self._build_textures_standard(
+            photon_energy_ev,
+            n_inc=n_inc,
+        )
+
+    def _build_textures_standard(
+        self,
+        photon_energy_ev: float,
+        *,
+        n_inc: complex,
+    ) -> tuple[list[object], tuple[np.ndarray, np.ndarray]]:
+        """Build textures using the dense 2D refractive-index grid path."""
 
         coating_stack = self.resolved_stack()
         n_sub = resolve_refractive_index(
@@ -278,6 +312,162 @@ class BaseGrating(ABC):
         )
         texture_sequence = np.arange(len(textures), dtype=int)
         return textures, (np.asarray(thicknesses, dtype=float), np.asarray(texture_sequence, dtype=int))
+
+    def _build_textures_low_memory(
+        self,
+        photon_energy_ev: float,
+        *,
+        n_inc: complex,
+    ) -> tuple[list[object], tuple[np.ndarray, np.ndarray]]:
+        """Build textures row-by-row without materializing a full 2D grid."""
+
+        coating_stack = self.resolved_stack()
+        n_sub = resolve_refractive_index(coating_stack.substrate_material, photon_energy_ev)
+        x_grid = self._build_x_grid(num_periods=1)
+        z_grid = self._build_solver_z_grid(coating_stack)
+        surface = self._surface_profile_on_grid(x_grid, num_periods=1)
+        texture_registry: dict[tuple[object, ...], int] = {}
+        textures: list[object] = []
+
+        def register_texture(texture: object) -> int:
+            signature = self._texture_descriptor_signature(texture)
+            if signature in texture_registry:
+                return texture_registry[signature]
+            texture_index = len(textures)
+            textures.append(texture)
+            texture_registry[signature] = texture_index
+            return texture_index
+
+        incident_index = register_texture(complex(n_inc))
+        profile_thicknesses: list[float] = [0.0]
+        profile_indices: list[int] = [incident_index]
+
+        for z_value in z_grid:
+            row_texture = self._texture_descriptor_for_row(
+                z_value=float(z_value),
+                x_grid=x_grid,
+                surface=surface,
+                coating_stack=coating_stack,
+                photon_energy_ev=photon_energy_ev,
+                n_inc=complex(n_inc),
+                n_sub=complex(n_sub),
+            )
+            row_index = register_texture(row_texture)
+            if len(profile_indices) > 1 and profile_indices[-1] == row_index:
+                profile_thicknesses[-1] += float(self.z_resolution_nm)
+            else:
+                profile_thicknesses.append(float(self.z_resolution_nm))
+                profile_indices.append(row_index)
+
+        substrate_index = register_texture(complex(n_sub))
+        profile_thicknesses.append(0.0)
+        profile_indices.append(substrate_index)
+        return textures, (
+            np.asarray(profile_thicknesses, dtype=float),
+            np.asarray(profile_indices, dtype=int),
+        )
+
+    def _texture_descriptor_for_row(
+        self,
+        *,
+        z_value: float,
+        x_grid: np.ndarray,
+        surface: np.ndarray,
+        coating_stack: BaseStack,
+        photon_energy_ev: float,
+        n_inc: complex,
+        n_sub: complex,
+    ) -> object:
+        """Return one RCWA texture descriptor for a single solver row."""
+
+        row_values = self._refractive_index_row(
+            z_value=z_value,
+            surface=surface,
+            coating_stack=coating_stack,
+            photon_energy_ev=photon_energy_ev,
+            n_inc=n_inc,
+            n_sub=n_sub,
+        )
+        row_changes = np.nonzero(np.diff(row_values) != 0)[0]
+        if len(row_changes) == 0:
+            return complex(row_values[0])
+        return [x_grid[row_changes + 1], row_values[row_changes]]
+
+    def _texture_descriptor_signature(self, texture: object) -> tuple[object, ...]:
+        """Return a hashable signature for one texture descriptor."""
+
+        if not isinstance(texture, (list, tuple)):
+            value = complex(texture)
+            return ("homogeneous", round(float(np.real(value)), 12), round(float(np.imag(value)), 12))
+        x_positions = np.asarray(texture[0], dtype=float).ravel()
+        n_left = np.asarray(texture[1], dtype=complex).ravel()
+        return (
+            "patterned",
+            tuple(np.round(x_positions, 12)),
+            tuple(
+                (round(float(np.real(value)), 12), round(float(np.imag(value)), 12))
+                for value in n_left
+            ),
+        )
+
+    def _refractive_index_row(
+        self,
+        *,
+        z_value: float,
+        surface: np.ndarray,
+        coating_stack: BaseStack,
+        photon_energy_ev: float,
+        n_inc: complex,
+        n_sub: complex,
+    ) -> np.ndarray:
+        """Return refractive indices for one solver row."""
+
+        row_values = np.full(surface.shape, n_sub, dtype=complex)
+
+        if isinstance(coating_stack, MultilayerStack):
+            n_material_a = resolve_refractive_index(coating_stack.material_a, photon_energy_ev)
+            n_material_b = resolve_refractive_index(coating_stack.material_b, photon_energy_ev)
+            bottom_material, top_material = coating_stack.bilayer_materials_bottom_up
+            bottom_thickness_nm, _ = coating_stack.bilayer_thicknesses_bottom_up
+            current_top = surface + 1.0 + coating_stack.d_period_nm * coating_stack.n_bilayers
+            for bilayer_index in range(coating_stack.n_bilayers):
+                lower_interface = surface + 1.0 + coating_stack.d_period_nm * bilayer_index
+                middle_interface = lower_interface + bottom_thickness_nm
+                upper_interface = lower_interface + coating_stack.d_period_nm
+                lower_mask = (z_value >= lower_interface) & (z_value < middle_interface)
+                upper_mask = (z_value >= middle_interface) & (z_value < upper_interface)
+                if np.any(lower_mask):
+                    row_values[lower_mask] = (
+                        n_material_a if _material_matches(bottom_material, coating_stack.material_a) else n_material_b
+                    )
+                if np.any(upper_mask):
+                    row_values[upper_mask] = (
+                        n_material_a if _material_matches(top_material, coating_stack.material_a) else n_material_b
+                    )
+            if coating_stack.top_cap_material is not None and coating_stack.top_cap_thickness_nm > 0.0:
+                n_top_cap = resolve_refractive_index(coating_stack.top_cap_material, photon_energy_ev)
+                top_cap_upper = current_top + coating_stack.top_cap_thickness_nm
+                top_cap_mask = (z_value >= current_top) & (z_value < top_cap_upper)
+                if np.any(top_cap_mask):
+                    row_values[top_cap_mask] = n_top_cap
+                current_top = top_cap_upper
+            incident_mask = z_value >= current_top
+            if np.any(incident_mask):
+                row_values[incident_mask] = n_inc
+            return row_values
+
+        current_lower = surface.copy()
+        for material_name, layer_thickness_nm in coating_stack.layer_sequence_bottom_up():
+            refractive_index = resolve_refractive_index(material_name, photon_energy_ev)
+            current_upper = current_lower + layer_thickness_nm
+            layer_mask = (z_value >= current_lower) & (z_value < current_upper)
+            if np.any(layer_mask):
+                row_values[layer_mask] = refractive_index
+            current_lower = current_upper
+        incident_mask = z_value >= current_lower
+        if np.any(incident_mask):
+            row_values[incident_mask] = n_inc
+        return row_values
 
     def _build_x_grid(self, *, num_periods: int) -> np.ndarray:
         """Return the x grid used for discretized structure generation."""
@@ -492,6 +682,18 @@ def _index_for_material(
         if isinstance(is_match, bool) and is_match:
             return refractive_index
     raise KeyError(f"Unable to resolve refractive index for {material_label(material)}.")
+
+
+def _material_matches(material: Any, candidate: Any) -> bool:
+    """Return whether two material identifiers should be treated as equal."""
+
+    if material is candidate:
+        return True
+    try:
+        is_match = material == candidate
+    except Exception:
+        return False
+    return bool(is_match) if isinstance(is_match, bool) else False
 
 
 @dataclass

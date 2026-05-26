@@ -61,6 +61,7 @@ EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_memory_comparison" / "blazed_multilayer_memory_comparison.py",
 ]
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
@@ -1723,6 +1724,31 @@ def test_blazed_multilayer_sweep_example_parity_quick_configuration(tmp_path: Pa
     assert len(results) == 1
     assert results[0].status == "ok"
     assert csv_path.exists()
+
+
+def test_blazed_multilayer_memory_comparison_example_structure() -> None:
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "simulation"
+        / "blazed_multilayer_memory_comparison"
+        / "blazed_multilayer_memory_comparison.py"
+    )
+
+    source = script_path.read_text(encoding="utf-8")
+
+    assert "rp.MultilayerStack(" in source
+    assert "rp.BlazedGrating(" in source
+    assert "rp.monochromator_cases(" in source
+    assert 'sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))' in source
+    assert 'memory_mode="standard"' in source
+    assert 'memory_mode="low_memory"' in source
+    assert "SolverProfiler()" in source
+    assert ".enable_memory_tracking()" in source
+    assert "blazed_multilayer_memory_comparison.csv" in source
+    assert "blazed_multilayer_memory_comparison.png" in source
+    assert "blazed_multilayer_profile.png" in source
+    assert "multilayer_stack_schematic.png" in source
 
 
 def test_energy_angle_example_parity_quick_configuration(tmp_path: Path) -> None:

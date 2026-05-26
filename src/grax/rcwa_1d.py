@@ -192,21 +192,44 @@ def res1(
             _profiler.set_metadata("fourier_backend_actual", resolved_backend.value)
             _profiler.set_metadata("numba_available", _NUMBA_AVAILABLE)
             _profiler.set_metadata("texture_count", len(textures))
+            _profiler.set_metadata("input_texture_count", len(textures))
             _profiler.set_metadata("harmonic_count", harmonic_count)
-            _profiler.set_metadata(
-                "unique_texture_signatures",
-                len({_texture_signature_for_metadata(texture, period) for texture in textures}),
+        unique_signatures = {_texture_signature_for_metadata(texture, period) for texture in textures}
+        if _profiler is not None:
+            _profiler.set_metadata("unique_texture_signatures", len(unique_signatures))
+        texture_cache: dict[tuple[Any, ...], Texture1D] = {}
+        converted: list[Texture1D] = []
+        cache_hits = 0
+        cache_misses = 0
+        max_order = 2 * int(np.max(np.abs(orders)))
+        for texture in textures:
+            cache_key = (
+                _texture_signature_for_metadata(texture, period),
+                float(period),
+                int(max_order),
+                resolved_backend.value,
             )
-        converted = [
-            _convert_texture(
+            if cache_key in texture_cache:
+                converted.append(texture_cache[cache_key])
+                cache_hits += 1
+                if _profiler is not None:
+                    _profiler.add_detail_count("texture_conversion_cache_hits", 1)
+                continue
+            converted_texture = _convert_texture(
                 texture,
                 period,
                 orders,
                 _profiler=_profiler,
                 _fourier_backend=resolved_backend,
             )
-            for texture in textures
-        ]
+            texture_cache[cache_key] = converted_texture
+            converted.append(converted_texture)
+            cache_misses += 1
+            if _profiler is not None:
+                _profiler.add_detail_count("texture_conversion_cache_misses", 1)
+        if _profiler is not None:
+            _profiler.set_metadata("texture_conversion_cache_hits", cache_hits)
+            _profiler.set_metadata("texture_conversion_cache_misses", cache_misses)
     return Res1Result(
         wavelength=float(wavelength),
         period=float(period),
@@ -646,8 +669,10 @@ def _solve_te_stack(
     derivative_bottom = 1j * np.diag(kz_bottom)
 
     eigen_cache: EigenCache = {}
-    layer_blocks = [
-        _layer_boundary_block(
+    stack_boundary: np.ndarray | None = None
+    with _profiler.record("layer_propagation_cascade") if _profiler is not None else _nullcontext():
+        for thickness, texture in layers:
+            block = _layer_boundary_block(
             thickness=thickness,
             texture=texture,
             orders=orders,
@@ -656,9 +681,18 @@ def _solve_te_stack(
             eigen_cache=eigen_cache,
             _profiler=_profiler,
         )
-        for thickness, texture in layers
-    ]
-    stack_boundary = _cascade_layer_boundary_blocks(layer_blocks, basis_size, _profiler=_profiler)
+            if _profiler is not None:
+                _profiler.add_detail_count("layer_boundary_blocks_constructed", 1)
+                _profiler.update_detail_peak("layer_boundary_block_temp_peak", 1.0)
+                _profiler.update_detail_peak("layer_boundary_block_bytes_peak", float(block.nbytes))
+            if stack_boundary is None:
+                stack_boundary = block
+                continue
+            stack_boundary = _cascade_boundary_pair(
+                stack_boundary,
+                block,
+                basis_size,
+            )
     top_stack_admittance = _top_admittance_from_boundary_block(
         stack_boundary=stack_boundary,
         derivative_bottom=derivative_bottom,
