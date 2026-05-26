@@ -70,9 +70,10 @@ cases = rp.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
     grazing_angle_deg=4.0,
-    label="fixed-angle",
-    solver_backend="s_matrix",
-    roughness_sigma_nm=roughness_sigma_nm,
+)
+cases = (
+    dict(case, label="fixed-angle", roughness_sigma_nm=roughness_sigma_nm)
+    for case in cases
 )
 
 runner = rp.BatchSimulationRunner(

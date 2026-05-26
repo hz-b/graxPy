@@ -251,6 +251,8 @@ def _case_result_to_record(result: CaseExecutionResult) -> dict[str, object]:
         "diffraction_angle_all": result.diffraction_angle_all.tolist(),
         "status": result.status,
         "error_message": result.error_message,
+        "peak_memory_bytes": result.peak_memory_bytes,
+        "wall_seconds": result.wall_seconds,
         "case_data": _json_safe_case_data(result.case_data),
         "theta_search_diagnostics": diagnostics_record,
         "retry_triggered": result.retry_triggered,
@@ -351,6 +353,10 @@ def _case_result_from_record(record: dict[str, object]) -> CaseExecutionResult:
         diffraction_angle_all=np.asarray(record.get("diffraction_angle_all", []), dtype=float),
         status=record["status"],  # type: ignore[arg-type]
         error_message=None if record.get("error_message") is None else str(record["error_message"]),
+        peak_memory_bytes=(
+            None if record.get("peak_memory_bytes") is None else int(record["peak_memory_bytes"])
+        ),
+        wall_seconds=None if record.get("wall_seconds") is None else float(record["wall_seconds"]),
         case_data=dict(record.get("case_data", {})),
         theta_search_diagnostics=diagnostics,
         retry_triggered=bool(record.get("retry_triggered", False)),
@@ -600,5 +606,3 @@ def _load_checkpoint_case_results(checkpoint_path: Path) -> dict[str, CaseExecut
                 continue
             loaded[case_result.case_id] = case_result
     return loaded
-
-

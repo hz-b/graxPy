@@ -76,6 +76,16 @@ Important runtime checks include:
 - The native Python path currently rejects unsupported dimensions and
   polarizations.
 
+## Memory-mode policy
+
+Low-memory is the only intended user-facing simulation mode. Public entrypoints
+default to the low-memory path and do not expose a user choice between solver
+memory strategies.
+
+The dense path remains only as an internal `legacy_dense` baseline for
+regression tests and developer debugging. It is not expected to be maintained
+as a public performance option.
+
 ## Internal solver reference
 
 These functions are developer-facing numerical entry points:

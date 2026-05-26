@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from ..gratings import BaseGrating
 from .core import _clone_grating_with_overrides, _refresh_interactive_figure, efficiency_for_order, run_simulation
+from ._profiling import SolverProfiler
 from .models import (
     AUTO_WORKER_MEMORY_RESERVE_BYTES,
     AUTO_WORKER_MEMORY_SAFETY_FACTOR,
@@ -53,6 +54,16 @@ def _simulation_api():
     """Return the public simulation package for monkeypatch-compatible dispatch."""
 
     return importlib.import_module("grax.simulation")
+
+
+def _case_memory_mode(case: dict[str, object]) -> str:
+    """Return the internal memory mode for one batch case."""
+
+    memory_mode = str(case.get("_memory_mode", case.get("memory_mode", "low_memory")))
+    if memory_mode not in {"low_memory", "legacy_dense"}:
+        raise ValueError("batch case memory_mode must be 'low_memory' or 'legacy_dense'.")
+    return memory_mode
+
 
 def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -> dict[str, object]:
     """Build the serializable payload used by inline and subprocess execution."""
@@ -119,6 +130,8 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "final_fourier_orders": final_fourier_orders,
             "final_x_resolution_nm": case.get("final_x_resolution_nm", 0.3),
             "final_z_resolution_nm": case.get("final_z_resolution_nm", 0.3),
+            "_memory_mode": _case_memory_mode(case),
+            "profile_memory": bool(case.get("profile_memory", False)),
             "roughness_sigma_nm": case.get("roughness_sigma_nm"),
             "validate_physical_results": bool(runner_settings["validate_physical_results"]),
             "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
@@ -138,6 +151,8 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "grazing_angle_deg": float(case["grazing_angle_deg"]),
         "diffraction_order": int(case.get("diffraction_order", runner_settings["default_diffraction_order"])),
         "fourier_orders": fourier_orders,
+        "_memory_mode": _case_memory_mode(case),
+        "profile_memory": bool(case.get("profile_memory", False)),
         "roughness_sigma_nm": case.get("roughness_sigma_nm"),
         "validate_physical_results": bool(runner_settings["validate_physical_results"]),
         "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
@@ -157,11 +172,39 @@ def _run_case_payload(
     if payload.get("workflow") == "multilayer_theta_search":
         theta_payload = dict(payload)
         theta_payload.pop("workflow", None)
+        theta_payload.pop("_memory_mode", None)
+        theta_payload.pop("profile_memory", None)
         return _simulation_api().run_multilayer_theta_search(  # type: ignore[arg-type]
             **theta_payload,
             diagnostic_callback=diagnostic_callback,
         )
-    return _simulation_api().run_simulation(**payload)  # type: ignore[arg-type]
+    run_payload = dict(payload)
+    run_payload.pop("profile_memory", None)
+    return _simulation_api().run_simulation(**run_payload)  # type: ignore[arg-type]
+
+
+def _run_case_payload_with_optional_memory_profile(
+    payload: dict[str, object],
+) -> tuple[SingleSimulationResult, int | None, float | None]:
+    """Execute one prepared case payload and optionally measure its peak memory."""
+
+    if not bool(payload.get("profile_memory", False)):
+        return _run_case_payload(payload), None, None
+
+    profiler = SolverProfiler()
+    profiler.enable_memory_tracking()
+    try:
+        result = _run_case_payload(payload)
+    finally:
+        profiler.finalize()
+    summary = profiler.summary_dict()
+    peak_memory_bytes = summary.get("peak_memory_bytes")
+    wall_seconds = summary.get("total_wall_seconds")
+    return (
+        result,
+        None if peak_memory_bytes is None else int(peak_memory_bytes),
+        None if wall_seconds is None else float(wall_seconds),
+    )
 
 
 def _run_payload(payload: dict[str, object]) -> SingleSimulationResult:
@@ -217,12 +260,22 @@ def _subprocess_worker(payload: dict[str, object], result_queue: mp.Queue) -> No
     """Run one case payload in a child process and send back a result record."""
 
     try:
-        result_queue.put({"success": True, "result": _single_result_to_record(_run_payload(payload))})
+        result, peak_memory_bytes, wall_seconds = _run_case_payload_with_optional_memory_profile(payload)
+        message: dict[str, object] = {"success": True, "result": _single_result_to_record(result)}
+        if peak_memory_bytes is not None:
+            message["peak_memory_bytes"] = peak_memory_bytes
+        if wall_seconds is not None:
+            message["wall_seconds"] = wall_seconds
+        result_queue.put(message)
     except Exception as error:  # pragma: no cover - exercised by parent error path
         result_queue.put({"success": False, "error": str(error)})
 
 
-def _run_payload_in_subprocess(payload: dict[str, object], *, timeout: float) -> SingleSimulationResult:
+def _run_payload_in_subprocess(
+    payload: dict[str, object],
+    *,
+    timeout: float,
+) -> tuple[SingleSimulationResult, int | None]:
     """Execute one prepared case payload in a spawned subprocess."""
 
     context = mp.get_context("spawn")
@@ -242,7 +295,13 @@ def _run_payload_in_subprocess(payload: dict[str, object], *, timeout: float) ->
         raise RuntimeError("Subprocess produced no result") from error
     if not message["success"]:
         raise RuntimeError(str(message["error"]))
-    return _single_result_from_record(message["result"])
+    peak_memory_bytes = message.get("peak_memory_bytes")
+    wall_seconds = message.get("wall_seconds")
+    return (
+        _single_result_from_record(message["result"]),
+        None if peak_memory_bytes is None else int(peak_memory_bytes),
+        None if wall_seconds is None else float(wall_seconds),
+    )
 
 
 
@@ -430,7 +489,13 @@ def _parallel_worker_execute(payload: dict[str, object]) -> dict[str, object]:
             float(payload["energy_ev"]),
             _worker_identity(),
         )
-        return {"success": True, "result": _single_result_to_record(_run_payload(payload))}
+        result, peak_memory_bytes, wall_seconds = _run_case_payload_with_optional_memory_profile(payload)
+        message: dict[str, object] = {"success": True, "result": _single_result_to_record(result)}
+        if peak_memory_bytes is not None:
+            message["peak_memory_bytes"] = peak_memory_bytes
+        if wall_seconds is not None:
+            message["wall_seconds"] = wall_seconds
+        return message
     except Exception as error:  # pragma: no cover - exercised in parent tests
         return {"success": False, "error": str(error)}
 
@@ -885,6 +950,8 @@ class BatchSimulationRunner:
                     message = future.result()
                     if message["success"]:
                         single = _single_result_from_record(message["result"])  # type: ignore[arg-type]
+                        peak_memory_bytes = message.get("peak_memory_bytes")
+                        wall_seconds = message.get("wall_seconds")
                         yield CaseExecutionResult(
                             case_id=case_id,
                             index=index,
@@ -904,6 +971,10 @@ class BatchSimulationRunner:
                             retry_status=single.retry_status,
                             selected_efficiency_is_exact_zero=single.selected_efficiency_is_exact_zero,
                             selected_efficiency_below_retry_threshold=single.selected_efficiency_below_retry_threshold,
+                            peak_memory_bytes=(
+                                None if peak_memory_bytes is None else int(peak_memory_bytes)
+                            ),
+                            wall_seconds=None if wall_seconds is None else float(wall_seconds),
                         )
                         continue
                     if self.on_error == "fail_fast":
@@ -924,6 +995,8 @@ class BatchSimulationRunner:
                         status="error",
                         error_message=str(message["error"]),
                         case_data=case_data,
+                        peak_memory_bytes=None,
+                        wall_seconds=None,
                     )
             except Exception:
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -968,11 +1041,10 @@ class BatchSimulationRunner:
         case_data = {key: value for key, value in case.items() if key != "grating"}
         try:
             payload = _case_payload(case, self._settings())
-            single = (
-                _simulation_api()._run_case_payload(payload)
-                if self.execution_mode == "inline"
-                else _run_payload_in_subprocess(payload, timeout=self.timeout)
-            )
+            if self.execution_mode == "inline":
+                single, peak_memory_bytes, wall_seconds = _run_case_payload_with_optional_memory_profile(payload)
+            else:
+                single, peak_memory_bytes, wall_seconds = _run_payload_in_subprocess(payload, timeout=self.timeout)
             retry_triggered = False
             retry_attempts = 0
             retry_status = "not_needed"
@@ -998,7 +1070,22 @@ class BatchSimulationRunner:
                     retry_case = dict(case)
                     retry_case["initial_grazing_angle_deg"] = float(base_initial) + float(jitter)
                     retry_payload = _case_payload(retry_case, self._settings())
-                    single = _simulation_api()._run_case_payload(retry_payload)
+                    retry_single, retry_peak_memory_bytes, retry_wall_seconds = _run_case_payload_with_optional_memory_profile(
+                        retry_payload
+                    )
+                    single = retry_single
+                    if retry_peak_memory_bytes is not None:
+                        peak_memory_bytes = (
+                            retry_peak_memory_bytes
+                            if peak_memory_bytes is None
+                            else max(int(peak_memory_bytes), int(retry_peak_memory_bytes))
+                        )
+                    if retry_wall_seconds is not None:
+                        wall_seconds = (
+                            float(retry_wall_seconds)
+                            if wall_seconds is None
+                            else float(wall_seconds) + float(retry_wall_seconds)
+                        )
                     selected_efficiency_is_exact_zero = bool(single.selected_efficiency == 0.0)
                     selected_efficiency_below_retry_threshold = bool(
                         single.selected_efficiency <= self.retry_selected_efficiency_threshold
@@ -1033,6 +1120,8 @@ class BatchSimulationRunner:
                 retry_status=single.retry_status,
                 selected_efficiency_is_exact_zero=single.selected_efficiency_is_exact_zero,
                 selected_efficiency_below_retry_threshold=single.selected_efficiency_below_retry_threshold,
+                peak_memory_bytes=peak_memory_bytes,
+                wall_seconds=wall_seconds,
             )
         except Exception as error:
             if self.on_error == "fail_fast":
@@ -1051,6 +1140,8 @@ class BatchSimulationRunner:
                 status="error",
                 error_message=str(error),
                 case_data=case_data,
+                peak_memory_bytes=None,
+                wall_seconds=None,
             )
 
     def _resolve_case_id(self, case: dict[str, object], index: int) -> str:
