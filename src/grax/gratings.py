@@ -239,36 +239,36 @@ class BaseGrating(ABC):
         photon_energy_ev: float,
         *,
         n_inc: complex = 1.0 + 0.0j,
-        memory_mode: str = "standard",
+        _memory_mode: str = "low_memory",
     ) -> tuple[list[object], tuple[np.ndarray, np.ndarray]]:
         """Build textures and profile arrays for the discretized profile.
 
         Args:
             photon_energy_ev: Photon energy used to resolve optical constants.
             n_inc: Incident-medium refractive index.
-            memory_mode: Texture-generation mode. ``"standard"`` keeps the
-                existing dense grid path. ``"low_memory"`` generates one solver
-                row at a time and compresses consecutive identical rows before
-                RCWA conversion.
+            _memory_mode: Internal texture-generation mode. ``"low_memory"``
+                generates one solver row at a time and compresses consecutive
+                identical rows before RCWA conversion. ``"legacy_dense"`` keeps
+                the older dense-grid path available for regression/debug use.
 
         Returns:
             Texture descriptors and the RCWA profile tuple.
         """
 
-        if memory_mode not in {"standard", "low_memory"}:
-            raise ValueError("memory_mode must be 'standard' or 'low_memory'.")
+        if _memory_mode not in {"legacy_dense", "low_memory"}:
+            raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
 
-        if memory_mode == "low_memory":
+        if _memory_mode == "low_memory":
             return self._build_textures_low_memory(
                 photon_energy_ev,
                 n_inc=n_inc,
             )
-        return self._build_textures_standard(
+        return self._build_textures_legacy_dense(
             photon_energy_ev,
             n_inc=n_inc,
         )
 
-    def _build_textures_standard(
+    def _build_textures_legacy_dense(
         self,
         photon_energy_ev: float,
         *,

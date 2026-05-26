@@ -55,6 +55,16 @@ def _simulation_api():
 
     return importlib.import_module("grax.simulation")
 
+
+def _case_memory_mode(case: dict[str, object]) -> str:
+    """Return the internal memory mode for one batch case."""
+
+    memory_mode = str(case.get("_memory_mode", case.get("memory_mode", "low_memory")))
+    if memory_mode not in {"low_memory", "legacy_dense"}:
+        raise ValueError("batch case memory_mode must be 'low_memory' or 'legacy_dense'.")
+    return memory_mode
+
+
 def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -> dict[str, object]:
     """Build the serializable payload used by inline and subprocess execution."""
 
@@ -120,7 +130,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "final_fourier_orders": final_fourier_orders,
             "final_x_resolution_nm": case.get("final_x_resolution_nm", 0.3),
             "final_z_resolution_nm": case.get("final_z_resolution_nm", 0.3),
-            "memory_mode": str(case.get("memory_mode", "standard")),
+            "_memory_mode": _case_memory_mode(case),
             "profile_memory": bool(case.get("profile_memory", False)),
             "roughness_sigma_nm": case.get("roughness_sigma_nm"),
             "validate_physical_results": bool(runner_settings["validate_physical_results"]),
@@ -141,7 +151,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "grazing_angle_deg": float(case["grazing_angle_deg"]),
         "diffraction_order": int(case.get("diffraction_order", runner_settings["default_diffraction_order"])),
         "fourier_orders": fourier_orders,
-        "memory_mode": str(case.get("memory_mode", "standard")),
+        "_memory_mode": _case_memory_mode(case),
         "profile_memory": bool(case.get("profile_memory", False)),
         "roughness_sigma_nm": case.get("roughness_sigma_nm"),
         "validate_physical_results": bool(runner_settings["validate_physical_results"]),
@@ -162,7 +172,7 @@ def _run_case_payload(
     if payload.get("workflow") == "multilayer_theta_search":
         theta_payload = dict(payload)
         theta_payload.pop("workflow", None)
-        theta_payload.pop("memory_mode", None)
+        theta_payload.pop("_memory_mode", None)
         theta_payload.pop("profile_memory", None)
         return _simulation_api().run_multilayer_theta_search(  # type: ignore[arg-type]
             **theta_payload,

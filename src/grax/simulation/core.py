@@ -110,7 +110,7 @@ def run_simulation(
     max_reflected_efficiency: float = 1.05,
     min_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
-    memory_mode: Literal["standard", "low_memory"] = "standard",
+    _memory_mode: Literal["legacy_dense", "low_memory"] = "low_memory",
     _profiler: SolverProfiler | None = None,
     backend: str = "numpy",
 ) -> SingleSimulationResult:
@@ -127,10 +127,9 @@ def run_simulation(
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
         min_efficiency: Minimum allowed efficiency.
         max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
-        memory_mode: Memory behavior for texture generation. ``"standard"``
-            keeps the existing dense grid path. ``"low_memory"`` generates
-            solver rows one at a time and compresses repeated rows before
-            Fourier conversion.
+        _memory_mode: Internal texture-generation mode. ``"low_memory"`` is the
+            public path. ``"legacy_dense"`` keeps the older dense-grid path
+            available for internal regression and debugging.
         backend: Fourier coefficient backend selector. Options: "numpy" (default, pure Python), "numba" (JIT-compiled, requires numba package).
 
     Returns:
@@ -141,15 +140,15 @@ def run_simulation(
         raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
     if not isinstance(grating, BaseGrating):
         raise TypeError("grating must derive from BaseGrating.")
-    if memory_mode not in {"standard", "low_memory"}:
-        raise ValueError("memory_mode must be 'standard' or 'low_memory'.")
+    if _memory_mode not in {"legacy_dense", "low_memory"}:
+        raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
 
     logger.info(
         "Running simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s, memory_mode=%s",
         energy_ev,
         grazing_angle_deg,
         fourier_orders,
-        memory_mode,
+        _memory_mode,
     )
     wavelength_nm = 1239.8 / float(energy_ev)
     k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
@@ -157,7 +156,7 @@ def run_simulation(
         textures, profile = grating.build_textures(
             float(energy_ev),
             n_inc=1.0 + 0.0j,
-            memory_mode=memory_mode,
+            _memory_mode=_memory_mode,
         )
 
     parm = res0(1)
@@ -221,7 +220,7 @@ run_simulation.__signature__ = inspect.signature(run_simulation).replace(
     parameters=[
         parameter
         for parameter in inspect.signature(run_simulation).parameters.values()
-        if parameter.name != "_profiler"
+        if parameter.name not in {"_profiler", "_memory_mode"}
     ]
 )
 

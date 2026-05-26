@@ -807,7 +807,7 @@ def test_batch_runner_can_profile_peak_memory_and_preserve_memory_mode(
                     "grating": build_test_grating(),
                     "energy_ev": 100.0,
                     "grazing_angle_deg": 4.0,
-                    "memory_mode": "low_memory",
+                    "_memory_mode": "low_memory",
                     "profile_memory": True,
                 }
             ]
@@ -815,7 +815,7 @@ def test_batch_runner_can_profile_peak_memory_and_preserve_memory_mode(
     )
 
     assert len(payloads) == 1
-    assert payloads[0]["memory_mode"] == "low_memory"
+    assert payloads[0]["_memory_mode"] == "low_memory"
     assert results[0].peak_memory_bytes == 123456
     assert results[0].wall_seconds == pytest.approx(9.87)
     assert results[0].status == "ok"
@@ -1850,8 +1850,8 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
     assert "show_progress=True" in source
     assert 'max_workers="auto"' in source
     assert 'sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))' in source
-    assert '"memory_mode": "standard"' in source
-    assert '"memory_mode": "low_memory"' in source
+    assert '"memory_mode"' not in source
+    assert '"_memory_mode"' not in source
     assert 'profile_memory": True' in source
     assert "blazed_multilayer_memory_comparison.csv" in source
     assert "blazed_multilayer_memory_comparison.png" in source

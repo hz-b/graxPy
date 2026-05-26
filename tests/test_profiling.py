@@ -42,20 +42,47 @@ def test_profiler_disabled_does_not_change_result() -> None:
     assert np.allclose(baseline.diffraction_angle_all, profiled.diffraction_angle_all)
 
 
+def test_run_simulation_public_default_matches_low_memory_escape_hatch() -> None:
+    public_default = run_simulation(grating=_grating(), energy_ev=200.0, grazing_angle_deg=4.0, fourier_orders=5)
+    low_memory = run_simulation(
+        grating=_grating(),
+        energy_ev=200.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+        _memory_mode="low_memory",
+    )
+
+    assert public_default.selected_efficiency == pytest.approx(low_memory.selected_efficiency, rel=1e-10, abs=1e-12)
+    assert np.allclose(public_default.efficiency_all, low_memory.efficiency_all, rtol=1e-10, atol=1e-12)
+    assert np.allclose(public_default.diffraction_angle_all, low_memory.diffraction_angle_all, rtol=1e-10, atol=1e-12)
+
+
 def test_run_simulation_signature_hides_profiler() -> None:
     signature = inspect.signature(run_simulation)
 
     assert "_profiler" not in signature.parameters
+    assert "_memory_mode" not in signature.parameters
 
 
-def test_run_simulation_rejects_invalid_memory_mode() -> None:
-    with pytest.raises(ValueError, match="memory_mode must be 'standard' or 'low_memory'"):
+def test_run_simulation_rejects_public_memory_mode_keyword() -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument 'memory_mode'"):
         run_simulation(
             grating=_grating(),
             energy_ev=200.0,
             grazing_angle_deg=4.0,
             fourier_orders=5,
-            memory_mode="invalid",  # type: ignore[arg-type]
+            memory_mode="low_memory",  # type: ignore[arg-type]
+        )
+
+
+def test_run_simulation_rejects_invalid_private_memory_mode() -> None:
+    with pytest.raises(ValueError, match="memory_mode must be 'low_memory' or 'legacy_dense'"):
+        run_simulation(
+            grating=_grating(),
+            energy_ev=200.0,
+            grazing_angle_deg=4.0,
+            fourier_orders=5,
+            _memory_mode="invalid",  # type: ignore[arg-type]
         )
 
 
@@ -141,25 +168,24 @@ def test_profiler_details_include_fourier_and_eigensolve_diagnostics() -> None:
     assert summary["derived_kpis"]["time_per_harmonic_seconds"] > 0.0
 
 
-def test_low_memory_mode_matches_standard_result() -> None:
-    standard = run_simulation(
+def test_low_memory_mode_matches_legacy_dense_result() -> None:
+    legacy_dense = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        memory_mode="standard",
+        _memory_mode="legacy_dense",
     )
     low_memory = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=5,
-        memory_mode="low_memory",
     )
 
-    assert low_memory.selected_efficiency == pytest.approx(standard.selected_efficiency, rel=1e-10, abs=1e-12)
-    assert np.allclose(low_memory.efficiency_all, standard.efficiency_all, rtol=1e-10, atol=1e-12)
-    assert np.allclose(low_memory.diffraction_angle_all, standard.diffraction_angle_all, rtol=1e-10, atol=1e-12)
+    assert low_memory.selected_efficiency == pytest.approx(legacy_dense.selected_efficiency, rel=1e-10, abs=1e-12)
+    assert np.allclose(low_memory.efficiency_all, legacy_dense.efficiency_all, rtol=1e-10, atol=1e-12)
+    assert np.allclose(low_memory.diffraction_angle_all, legacy_dense.diffraction_angle_all, rtol=1e-10, atol=1e-12)
 
 
 def test_low_memory_build_textures_skips_dense_index_grid(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -169,7 +195,7 @@ def test_low_memory_build_textures_skips_dense_index_grid(monkeypatch: pytest.Mo
         raise AssertionError("dense index grid should not be built")
 
     monkeypatch.setattr(grating, "_build_refractive_index_grid", fail_dense_grid)
-    textures, profile = grating.build_textures(200.0, memory_mode="low_memory")
+    textures, profile = grating.build_textures(200.0, _memory_mode="low_memory")
 
     assert len(textures) > 0
     assert len(profile[0]) == len(profile[1])
@@ -183,11 +209,11 @@ def test_low_memory_build_textures_compresses_consecutive_rows() -> None:
         x_resolution_nm=1.0,
         z_resolution_nm=0.02,
     )
-    standard_textures, standard_profile = grating.build_textures(200.0, memory_mode="standard")
-    low_memory_textures, low_memory_profile = grating.build_textures(200.0, memory_mode="low_memory")
+    legacy_dense_textures, legacy_dense_profile = grating.build_textures(200.0, _memory_mode="legacy_dense")
+    low_memory_textures, low_memory_profile = grating.build_textures(200.0, _memory_mode="low_memory")
 
-    assert len(low_memory_textures) <= len(standard_textures)
-    assert len(low_memory_profile[0]) < len(standard_profile[0])
+    assert len(low_memory_textures) <= len(legacy_dense_textures)
+    assert len(low_memory_profile[0]) < len(legacy_dense_profile[0])
 
 
 def test_res1_texture_conversion_cache_reuses_repeat_signatures() -> None:
@@ -227,15 +253,15 @@ def test_low_memory_mode_reduces_peak_memory_for_fine_z_case() -> None:
         x_resolution_nm=1.0,
         z_resolution_nm=0.02,
     )
-    standard_profiler = SolverProfiler()
-    standard_profiler.enable_memory_tracking()
+    legacy_dense_profiler = SolverProfiler()
+    legacy_dense_profiler.enable_memory_tracking()
     run_simulation(
         grating=grating,
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=20,
-        memory_mode="standard",
-        _profiler=standard_profiler,
+        _memory_mode="legacy_dense",
+        _profiler=legacy_dense_profiler,
     )
     low_memory_profiler = SolverProfiler()
     low_memory_profiler.enable_memory_tracking()
@@ -244,14 +270,13 @@ def test_low_memory_mode_reduces_peak_memory_for_fine_z_case() -> None:
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=20,
-        memory_mode="low_memory",
         _profiler=low_memory_profiler,
     )
 
-    assert low_memory_profiler.summary_dict()["peak_memory_bytes"] < standard_profiler.summary_dict()["peak_memory_bytes"]
+    assert low_memory_profiler.summary_dict()["peak_memory_bytes"] < legacy_dense_profiler.summary_dict()["peak_memory_bytes"]
 
 
-def test_incremental_cascade_matches_standard_mode_result_for_many_layers() -> None:
+def test_incremental_cascade_matches_legacy_dense_result_for_many_layers() -> None:
     grating = LaminarGrating(
         substrate_material=SI,
         layer_material=PT,
@@ -264,7 +289,7 @@ def test_incremental_cascade_matches_standard_mode_result_for_many_layers() -> N
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=20,
-        memory_mode="standard",
+        _memory_mode="legacy_dense",
     )
     profiled = SolverProfiler()
     profiled.enable_memory_tracking()
@@ -273,7 +298,6 @@ def test_incremental_cascade_matches_standard_mode_result_for_many_layers() -> N
         energy_ev=200.0,
         grazing_angle_deg=4.0,
         fourier_orders=20,
-        memory_mode="standard",
         _profiler=profiled,
     )
     summary = profiled.summary_dict()
