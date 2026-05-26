@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import os
 import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+import py_compile
 
 import json
 
@@ -1684,6 +1687,51 @@ def test_public_examples_do_not_expose_quick_mode_flags() -> None:
         assert "--quick" not in source
         assert "quick_mode" not in source
         assert "Quick mode" not in source
+
+
+def test_example_and_comparison_scripts_compile_and_use_current_case_helper_kwargs() -> None:
+    script_roots = [
+        Path(__file__).resolve().parents[1] / "examples",
+        Path(__file__).resolve().parents[1] / "comparison_to_other_codes",
+    ]
+    script_paths = sorted({path for root in script_roots for path in root.rglob("*.py")})
+
+    for path in script_paths:
+        py_compile.compile(str(path), doraise=True)
+
+    helper_functions = {
+        "fixed_angle_cases": fixed_angle_cases,
+        "monochromator_cases": monochromator_cases,
+        "energy_angle_cases": energy_angle_cases,
+        "multilayer_theta_search_cases": multilayer_theta_search_cases,
+    }
+    allowed_kwargs = {
+        name: set(inspect.signature(func).parameters)
+        for name, func in helper_functions.items()
+    }
+
+    unexpected_kwargs: list[str] = []
+    for path in script_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            helper_name = None
+            if isinstance(node.func, ast.Attribute):
+                helper_name = node.func.attr
+            elif isinstance(node.func, ast.Name):
+                helper_name = node.func.id
+            if helper_name not in allowed_kwargs:
+                continue
+            for keyword in node.keywords:
+                if keyword.arg is None:
+                    continue
+                if keyword.arg not in allowed_kwargs[helper_name]:
+                    unexpected_kwargs.append(
+                        f"{path}:{node.lineno}:{node.col_offset} -> {helper_name}({keyword.arg})"
+                    )
+
+    assert not unexpected_kwargs, "Unexpected helper kwargs found:\n" + "\n".join(unexpected_kwargs)
 
 
 def test_optimizer_example_assets_exist() -> None:
