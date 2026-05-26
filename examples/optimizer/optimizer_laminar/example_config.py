@@ -10,6 +10,7 @@ example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants" / "old"
 measurement_path = example_root / "measured_alpha4deg_order1.csv"
 results_dir = example_root / "results" / "laminar_fit"
+tied_wall_results_dir = example_root / "results" / "laminar_fit_tied_walls"
 
 period_lpermm = 400.0
 width_to_period_ratio = 0.67
@@ -33,3 +34,8 @@ total_trials = 20
 batch_size = 15
 random_seed = 7
 evaluation_energies_ev = np.arange(100.0, 501.0, 10.0)
+evaluation_grazing_angles_deg = []
+
+# Tied-wall workflow settings.
+tied_wall_experiment_name = "laminar_fit_tied_walls"
+tied_wall_equality_constraints = {"right_wall_angle_deg": "left_wall_angle_deg"}

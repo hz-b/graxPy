@@ -1,51 +1,55 @@
-"""Optimize a blazed grating against measured monochromator data."""
+"""Optimize a laminar grating against measured data with tied wall angles."""
 
 from __future__ import annotations
 
 import json
 
 import pandas as pd
-from grax import BlazedGrating
+from grax import LaminarGrating
 
-from grax_opt import (
-    optimize_to_measurements,
-)
+from grax_opt import optimize_to_measurements
 from example_config import (
-    anti_blaze_angle_deg,
-    optimizer_backend,
+    angle_mode,
     batch_size,
-    blaze_angle_deg,
     cff,
+    depth_nm,
     diffraction_order,
     evaluation_energies_ev,
     fourier_orders,
+    grazing_angle_deg,
     layer_thickness_nm,
+    left_wall_angle_deg,
     measurement_path,
     optical_constants_dir,
+    optimizer_backend,
     period_lpermm,
+    tied_wall_results_dir,
+    right_wall_angle_deg,
     random_seed,
-    results_dir,
     top_cap_thickness_nm,
-    top_cap_material_name,
     total_trials,
-    use_top_cap,
+    width_to_period_ratio,
     x_resolution_nm,
     z_resolution_nm,
+    tied_wall_equality_constraints,
+    tied_wall_experiment_name,
 )
 
 silicon = pd.read_csv(
-    optical_constants_dir / "OC_Si_SSTR.dat",
+    optical_constants_dir / "n_Si_cxro.txt",
+    skiprows=1,
     sep=r"\s*,\s*|\s+",
     engine="python",
 )
 silicon.attrs["name"] = "Si"
 
-gold = pd.read_csv(
-    optical_constants_dir / "OC_Au_SSTR.dat",
+platinum = pd.read_csv(
+    optical_constants_dir / "n_Pt_cxro.txt",
+    skiprows=1,
     sep=r"\s*,\s*|\s+",
     engine="python",
 )
-gold.attrs["name"] = "Au"
+platinum.attrs["name"] = "Pt"
 
 carbon = pd.read_csv(
     optical_constants_dir / "n_C_cxro.txt",
@@ -54,20 +58,22 @@ carbon = pd.read_csv(
     engine="python",
 )
 carbon.attrs["name"] = "C"
-results_dir.mkdir(parents=True, exist_ok=True)
-top_cap_material = carbon if use_top_cap else None
+tied_wall_results_dir.mkdir(parents=True, exist_ok=True)
 
-def build_grating(parameters: dict[str, float]) -> BlazedGrating:
-    """Build blazed grating from measurement-fit parameters."""
 
-    return BlazedGrating(
+def build_grating(parameters: dict[str, float]) -> LaminarGrating:
+    """Build laminar grating from the tied-wall measurement-fit parameters."""
+
+    return LaminarGrating(
         period_lpermm=period_lpermm,
-        blaze_angle_deg=float(parameters["blaze_angle_deg"]),
-        anti_blaze_angle_deg=float(parameters["anti_blaze_angle_deg"]),
+        width_to_period_ratio=float(parameters["width_to_period_ratio"]),
+        depth_nm=float(parameters["depth_nm"]),
+        left_wall_angle_deg=float(parameters["left_wall_angle_deg"]),
+        right_wall_angle_deg=float(parameters["right_wall_angle_deg"]),
         substrate_material=silicon,
-        layer_material=gold,
+        layer_material=platinum,
         layer_thickness_nm=layer_thickness_nm,
-        top_cap_material=top_cap_material,
+        top_cap_material=carbon,
         top_cap_thickness_nm=float(parameters["top_cap_thickness_nm"]),
         z_resolution_nm=z_resolution_nm,
         x_resolution_nm=x_resolution_nm,
@@ -77,13 +83,17 @@ def build_grating(parameters: dict[str, float]) -> BlazedGrating:
 spec = {
     "build_grating": build_grating,
     "parameter_bounds": {
-        "blaze_angle_deg": (0.5, 1.2),
-        "anti_blaze_angle_deg": (2.0, 10.0),
+        "width_to_period_ratio": (0.5, 0.8),
+        "depth_nm": (13.9, 15.9),
+        "left_wall_angle_deg": (5.0, 20.0),
+        "right_wall_angle_deg": (5.0, 20.0),
         "top_cap_thickness_nm": (0.3, 2.0),
     },
+    "equality_constraints": tied_wall_equality_constraints,
     "measurement_path": measurement_path,
-    "output_dir": results_dir,
-    "angle_mode": "cff",
+    "output_dir": tied_wall_results_dir,
+    "angle_mode": angle_mode,
+    "grazing_angle_deg": grazing_angle_deg,
     "cff": cff,
     "diffraction_order": diffraction_order,
     "fourier_orders": fourier_orders,
@@ -91,10 +101,10 @@ spec = {
     "total_trials": total_trials,
     "batch_size": batch_size,
     "random_seed": random_seed,
-    "backend": optimizer_backend,
-    "experiment_name": "blazed_fit",
+    "experiment_name": tied_wall_experiment_name,
     "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
+    "backend": optimizer_backend,
 }
 
 try:
@@ -104,7 +114,7 @@ except ImportError as error:
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")
     raise SystemExit(1) from error
 
-fitted_parameters_path = results_dir / "fitted_parameters.json"
+fitted_parameters_path = tied_wall_results_dir / "fitted_parameters.json"
 payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
 payload["result_json_path"] = str(result.result_json_path)
 payload["trial_history_csv_path"] = str(result.trial_history_csv_path)
@@ -118,11 +128,7 @@ fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8
 
 print(f"Measurement: {result.measurement_path}")
 print(f"Optimizer backend request: {optimizer_backend}")
-print(
-    f"Baseline top-cap setting: use_top_cap={use_top_cap}, "
-    f"material={top_cap_material_name if use_top_cap else 'None'}, "
-    f"thickness_nm={top_cap_thickness_nm}"
-)
+print(f"Batch size: {batch_size}")
 print(f"Best loss: {result.best_loss:.6g}")
 print(f"Best parameters: {result.best_parameters}")
 print(f"Completed trials: {result.completed_trials}")

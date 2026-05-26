@@ -32,12 +32,13 @@ source_suffix = {
 master_doc = "index"
 
 autosummary_generate = True
-autodoc_typehints = "description"
+autodoc_typehints = "signature"
 autodoc_member_order = "bysource"
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 napoleon_use_param = True
 napoleon_use_rtype = True
+napoleon_use_ivar = True
 
 myst_enable_extensions = [
     "colon_fence",

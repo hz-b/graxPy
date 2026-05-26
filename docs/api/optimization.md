@@ -6,47 +6,20 @@ Install optional dependencies first:
 pip install .[opt]
 ```
 
-This page intentionally exposes only the two public optimizer entrypoints.
+This page exposes the primary public optimizer API for end users.
 
 ```{eval-rst}
-.. autofunction:: grax_opt.optimize_laminar
-```
-
-```{eval-rst}
-.. autofunction:: grax_opt.optimize_blazed
-```
-
-## Configuration classes
-
-```{eval-rst}
-.. autoclass:: grax_opt.LaminarAxConfig
-   :members:
-```
-
-```{eval-rst}
-.. autoclass:: grax_opt.BlazedAxConfig
-   :members:
-```
-
-```{eval-rst}
-.. autoclass:: grax_opt.ParameterBounds
-   :members:
+.. autofunction:: grax_opt.optimize_to_measurements
 ```
 
 ## Result type
 
 ```{eval-rst}
 .. autoclass:: grax_opt.OptimizationResult
-   :members:
-```
-
-## Utility
-
-```{eval-rst}
-.. autofunction:: grax_opt.json_safe_grating_parameters
 ```
 
 ## See tutorials
 
+- [Optimizer setup guide](../tutorials/optimizer.md)
 - [Laminar Grating](../tutorials/optimizer-laminar-fit.md)
 - [Blazed Grating](../tutorials/optimizer-blazed-fit.md)
