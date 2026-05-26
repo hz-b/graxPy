@@ -19,7 +19,7 @@ from .stacks import BaseStack, MultilayerStack, SingleLayerStack
 class BaseGrating(ABC):
     """Base class for grating profiles and material stacks.
 
-    Args:
+    Attributes:
         period_lpermm: Grating period in lines per millimeter.
         coating_stack: Optional coating stack configuration.
         substrate_material: Substrate material identifier.
@@ -240,7 +240,7 @@ class BaseGrating(ABC):
         *,
         n_inc: complex = 1.0 + 0.0j,
     ) -> tuple[list[object], tuple[np.ndarray, np.ndarray]]:
-        """Build RETICOLO-compatible textures and profile arrays."""
+        """Build textures and profile arrays for the discretized profile."""
 
         coating_stack = self.resolved_stack()
         n_sub = resolve_refractive_index(
@@ -406,7 +406,7 @@ class BaseGrating(ABC):
         photon_energy_ev: float,
         n_inc: complex,
     ) -> np.ndarray:
-        """Return the refractive-index grid used to derive RETICOLO textures."""
+        """Return the refractive-index grid used to derive the textures."""
 
         n_sub = resolve_refractive_index(
             coating_stack.substrate_material,
@@ -498,13 +498,12 @@ def _index_for_material(
 class LaminarGrating(BaseGrating):
     """Laminar or trapezoidal grating profile.
 
-    The substrate surface follows the same convention as the MATLAB RETICOLO
-    helper: the land top is at ``z = 0`` and the groove floor is at
-    ``z = depth_nm``. ``width_to_period_ratio`` is the land-width fraction
-    of one period. Sidewall angles are measured from the horizontal,
+    The substrate surface places the land top at ``z = 0`` and the groove
+    floor at ``z = depth_nm``. ``width_to_period_ratio`` is the land-width
+    fraction of one period. Sidewall angles are measured from the horizontal,
     so ``90`` degrees corresponds to vertical walls.
 
-    Args:
+    Attributes:
         period_lpermm: Grating period in lines per millimeter.
         coating_stack: Optional coating stack configuration.
         substrate_material: Substrate material identifier.
@@ -571,9 +570,9 @@ class BlazedGrating(BaseGrating):
 
     The legacy form uses a single blaze angle and an abrupt reset at the end
     of the period. When ``anti_blaze_angle_deg`` is provided, the profile is
-    built as a two-facet triangle matching the original Reticolo helpers.
+    built as a two-facet triangle when ``anti_blaze_angle_deg`` is provided.
 
-    Args:
+    Attributes:
         period_lpermm: Grating period in lines per millimeter.
         coating_stack: Optional coating stack configuration.
         substrate_material: Substrate material identifier.

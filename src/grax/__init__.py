@@ -1,4 +1,4 @@
-"""Top-level package for the Python RETICOLO port."""
+"""Top-level package for grax."""
 
 from __future__ import annotations
 

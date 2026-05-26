@@ -1,40 +1,26 @@
 # Blazed Grating
 
 This tutorial documents the blazed optimizer workflow in
-`examples/optimizer_blazed` for fitting a blazed grating model to measured
-monochromator efficiency data.
+`examples/optimizer/optimizer_blazed`, implemented via the measurement-fit
+optimizer API, for fitting a blazed grating model to measured monochromator
+efficiency data.
 
 For API details of optimizer functions/configs, see
 [`grax_opt` optimization API](../api/optimization.md).
 
-## Goal
-
-Run a full fit workflow that:
-
-- optimizes selected blazed grating parameters against measurement data
-- writes fitted parameters and trial history artifacts
-- compares design-vs-fitted simulated curves against the measurement
-
-## Prerequisites
-
-Install optional optimizer dependencies:
-
-```bash
-pip install .[opt]
-```
 
 ## Run the Example
 
 Run only the fit step:
 
 ```bash
-python examples/optimizer_blazed/0_fit_blazed_grating.py
+python examples/optimizer/optimizer_blazed/0_fit_blazed_grating.py
 ```
 
 Run the full workflow:
 
 ```bash
-./examples/optimizer_blazed/run_all.sh
+./examples/optimizer/optimizer_blazed/run_all.sh
 ```
 
 The full workflow runs:
@@ -44,48 +30,18 @@ The full workflow runs:
 3. simulation with fitted parameters (`2_run_simulation_fitted_parameters.py`)
 4. comparison plot generation (`3_plot_blazed_fit_comparison.py`)
 
-## Compute Context Banner
-
-At optimizer startup, you should see a line like:
-
-```text
-Optimizer compute: GPU | model=... | torch=... | cuda=...
-```
-
-or:
-
-```text
-Optimizer compute: CPU | model=... | torch=... | cuda=...
-```
-
-## Output Artifacts
-
-Main output directory:
-
-- `examples/optimizer_blazed/results/blazed_fit/`
-
-Key files:
-
-- `best_result.json`
-- `trial_history.csv`
-- `fitted_parameters.json`
-- `simulated_curve_initial.csv`
-- `simulated_curve_fitted.csv`
-- `best_fit.png`
-- `optimization_loss_history.png`
-- `blazed_fit_measurement_comparison.png`
 
 ## Design vs Optimized Parameters
 
 The example starts from the design parameters in
 `examples/optimizer/optimizer_blazed/0_fit_blazed_grating.py`.
 
-| Parameter | Optimized in this example | Design value |
-| --- | --- | --- |
-| `period_lpermm` | Yes | `600.0` |
-| `blaze_angle_deg` | Yes | `0.729` |
-| `anti_blaze_angle_deg` | Yes | `5.597` |
-| `top_cap_thickness_nm` | No (fixed) | `0.0` |
+| Parameter | Optimized in this example | Design value | Best-fit value |
+| --- | --- | --- | --- |
+| `period_lpermm` | No (fixed) | `600.0` | `600.0` |
+| `blaze_angle_deg` | Yes | `0.729` | `0.8594103033260448` |
+| `anti_blaze_angle_deg` | Yes | `5.597` | `2.0` |
+| `top_cap_thickness_nm` | Yes | `0.7` | `2.0` |
 
 ## Generated figures
 

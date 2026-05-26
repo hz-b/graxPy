@@ -1,4 +1,4 @@
-"""Plot measurement, design-parameter simulation, and fitted simulation."""
+"""Plot measurement, design-parameter simulation, and both fitted simulations."""
 
 from __future__ import annotations
 
@@ -6,19 +6,27 @@ import json
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from example_config import measurement_path, results_dir
+from example_config import measurement_path, results_dir, tied_wall_results_dir
 
 results_dir.mkdir(parents=True, exist_ok=True)
+tied_wall_results_dir.mkdir(parents=True, exist_ok=True)
 
 fitted_parameters_path = results_dir / "fitted_parameters.json"
+tied_wall_fitted_parameters_path = tied_wall_results_dir / "fitted_parameters.json"
 initial_csv_path = results_dir / "simulated_curve_initial.csv"
 fitted_csv_path = results_dir / "simulated_curve_fitted.csv"
+tied_wall_fitted_csv_path = tied_wall_results_dir / "simulated_curve_fitted.csv"
 comparison_plot_path = results_dir / "laminar_fit_measurement_comparison.png"
 
 if not fitted_parameters_path.exists():
     raise FileNotFoundError(
         f"Missing fitted parameters file: {fitted_parameters_path}. "
         "Run 0_fit_laminar_grating.py first."
+    )
+if not tied_wall_fitted_parameters_path.exists():
+    raise FileNotFoundError(
+        f"Missing tied-wall fitted parameters file: {tied_wall_fitted_parameters_path}. "
+        "Run 0b_fit_laminar_grating_tied_walls.py first."
     )
 if not initial_csv_path.exists():
     raise FileNotFoundError(
@@ -30,6 +38,11 @@ if not fitted_csv_path.exists():
         f"Missing fitted simulation CSV: {fitted_csv_path}. "
         "Run 2_run_simulation_fitted_parameters.py first."
     )
+if not tied_wall_fitted_csv_path.exists():
+    raise FileNotFoundError(
+        f"Missing tied-wall fitted simulation CSV: {tied_wall_fitted_csv_path}. "
+        "Run 2b_run_simulation_tied_wall_fitted_parameters.py first."
+    )
 
 measurement = pd.read_csv(
     measurement_path,
@@ -40,18 +53,42 @@ measurement = pd.read_csv(
 ).dropna()
 initial_frame = pd.read_csv(initial_csv_path)
 fitted_frame = pd.read_csv(fitted_csv_path)
+tied_wall_fitted_frame = pd.read_csv(tied_wall_fitted_csv_path)
 fitted_parameters = json.loads(fitted_parameters_path.read_text(encoding="utf-8"))
+tied_wall_fitted_parameters = json.loads(
+    tied_wall_fitted_parameters_path.read_text(encoding="utf-8")
+)
 evaluation_energies_ev = [
     float(energy_ev) for energy_ev in fitted_parameters.get("evaluation_energies_ev", [])
+]
+tied_wall_evaluation_energies_ev = [
+    float(energy_ev)
+    for energy_ev in tied_wall_fitted_parameters.get("evaluation_energies_ev", [])
 ]
 
 initial_m1 = initial_frame[initial_frame["order"] == -1].sort_values("energy_ev")
 fitted_m1 = fitted_frame[fitted_frame["order"] == -1].sort_values("energy_ev")
+tied_wall_fitted_m1 = (
+    tied_wall_fitted_frame[tied_wall_fitted_frame["order"] == -1]
+    .sort_values("energy_ev")
+)
 
 figure, axis = plt.subplots(figsize=(11, 7))
-axis.plot(measurement["energy_ev"], measurement["efficiency"], "o", label="Measurement", markersize=3.0)
+axis.plot(
+    measurement["energy_ev"],
+    measurement["efficiency"],
+    "o",
+    label="Measurement",
+    markersize=3.0,
+)
 axis.plot(initial_m1["energy_ev"], initial_m1["efficiency"], "-", label="Initial design")
-axis.plot(fitted_m1["energy_ev"], fitted_m1["efficiency"], "-", label="Fitted")
+axis.plot(fitted_m1["energy_ev"], fitted_m1["efficiency"], "-", label="Standard fit")
+axis.plot(
+    tied_wall_fitted_m1["energy_ev"],
+    tied_wall_fitted_m1["efficiency"],
+    "-",
+    label="Tied-wall fit",
+)
 if evaluation_energies_ev:
     y_min, y_max = axis.get_ylim()
     axis.vlines(
@@ -64,9 +101,18 @@ if evaluation_energies_ev:
         label="Optimization energies",
     )
     axis.set_ylim(y_min, y_max)
+if tied_wall_evaluation_energies_ev and tied_wall_evaluation_energies_ev != evaluation_energies_ev:
+    axis.vlines(
+        tied_wall_evaluation_energies_ev,
+        *axis.get_ylim(),
+        colors="purple",
+        linestyles="--",
+        linewidth=0.6,
+        label="Tied-wall energies",
+    )
 axis.set_xlabel("Energy (eV)")
 axis.set_ylabel("Efficiency")
-axis.set_title("Laminar fit: measurement vs initial vs fitted")
+axis.set_title("Laminar fit: measurement vs initial, standard fit, and tied-wall fit")
 axis.legend(loc="best")
 figure.tight_layout()
 figure.savefig(comparison_plot_path, dpi=200, bbox_inches="tight")

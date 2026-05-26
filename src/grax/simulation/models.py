@@ -141,7 +141,7 @@ class SingleSimulationResult:
 class CaseExecutionResult:
     """Result for one batch-executed simulation case.
 
-    Args:
+    Attributes:
         case_id: Stable user-provided case identifier.
         index: Zero-based execution index among the provided cases.
         label: Optional case label.

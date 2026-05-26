@@ -5,13 +5,10 @@ from __future__ import annotations
 import json
 
 import pandas as pd
+from grax import BlazedGrating
 
 from grax_opt import (
-    BlazedAxConfig,
-    InitialBlazedGrating,
-    ParameterBounds,
-    json_safe_grating_parameters,
-    optimize_blazed,
+    optimize_to_measurements,
 )
 from example_config import (
     anti_blaze_angle_deg,
@@ -60,68 +57,63 @@ carbon.attrs["name"] = "C"
 results_dir.mkdir(parents=True, exist_ok=True)
 top_cap_material = carbon if use_top_cap else None
 
-config = BlazedAxConfig(
-    initial_grating=InitialBlazedGrating(
+def build_grating(parameters: dict[str, float]) -> BlazedGrating:
+    """Build blazed grating from measurement-fit parameters."""
+
+    return BlazedGrating(
         period_lpermm=period_lpermm,
-        blaze_angle_deg=blaze_angle_deg,
-        anti_blaze_angle_deg=anti_blaze_angle_deg,
+        blaze_angle_deg=float(parameters["blaze_angle_deg"]),
+        anti_blaze_angle_deg=float(parameters["anti_blaze_angle_deg"]),
         substrate_material=silicon,
         layer_material=gold,
         layer_thickness_nm=layer_thickness_nm,
         top_cap_material=top_cap_material,
-        top_cap_thickness_nm=top_cap_thickness_nm,
+        top_cap_thickness_nm=float(parameters["top_cap_thickness_nm"]),
         z_resolution_nm=z_resolution_nm,
         x_resolution_nm=x_resolution_nm,
-    ),
-    measurement_path=measurement_path,
-    output_dir=results_dir,
-    cff=cff,
-    diffraction_order=diffraction_order,
-    fourier_orders=fourier_orders,
-    validate_physical_results=True,
-    total_trials=total_trials,
-    batch_size=batch_size,
-    random_seed=random_seed,
-    backend=optimizer_backend,
-    optimize_period_lpermm=False,
-    optimize_blaze_angle_deg=True,
-    optimize_anti_blaze_angle_deg=True,
-    optimize_top_cap_thickness_nm=True,
-    # period_lpermm_bounds=ParameterBounds(600.0, 610.0),
-    blaze_angle_deg_bounds=ParameterBounds(0.5, 1.2),
-    anti_blaze_angle_deg_bounds=ParameterBounds(4.0, 6.0),
-    top_cap_thickness_nm_bounds=ParameterBounds(0.3, 1.2),
-    experiment_name="blazed_fit",
-    loss_name="mse",
-    save_best_fit_plot=True,
-    evaluation_energies_ev=list(evaluation_energies_ev),
-)
+    )
+
+
+spec = {
+    "build_grating": build_grating,
+    "parameter_bounds": {
+        "blaze_angle_deg": (0.5, 1.2),
+        "anti_blaze_angle_deg": (2.0, 10.0),
+        "top_cap_thickness_nm": (0.3, 2.0),
+    },
+    "measurement_path": measurement_path,
+    "output_dir": results_dir,
+    "angle_mode": "cff",
+    "cff": cff,
+    "diffraction_order": diffraction_order,
+    "fourier_orders": fourier_orders,
+    "validate_physical_results": True,
+    "total_trials": total_trials,
+    "batch_size": batch_size,
+    "random_seed": random_seed,
+    "backend": optimizer_backend,
+    "experiment_name": "blazed_fit",
+    "save_best_fit_plot": True,
+    "evaluation_energies_ev": list(evaluation_energies_ev),
+}
 
 try:
-    result = optimize_blazed(config)
+    result = optimize_to_measurements(spec)
 except ImportError as error:
     print(error)
     print("Install the optional optimizer dependency first: `pip install .[opt]`.")
     raise SystemExit(1) from error
 
 fitted_parameters_path = results_dir / "fitted_parameters.json"
-best_result_payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
-payload = {
-    "measurement_path": str(config.measurement_path),
-    "cff": config.cff,
-    "diffraction_order": config.diffraction_order,
-    "fourier_orders": config.fourier_orders,
-    "backend": best_result_payload.get("backend_effective", "numba"),
-    "backend_requested": config.backend,
-    "backend_effective": best_result_payload.get("backend_effective", "numba"),
-    "evaluation_energies_ev": config.evaluation_energies_ev,
-    "best_loss": result.best_loss,
-    "best_parameters": result.best_parameters,
-    "best_grating_parameters": json_safe_grating_parameters(result.best_grating_parameters),
-    "stopped_early": result.stopped_early,
-    "completed_trials": result.completed_trials,
-    "early_stop_reason": result.early_stop_reason,
-}
+payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+payload["result_json_path"] = str(result.result_json_path)
+payload["trial_history_csv_path"] = str(result.trial_history_csv_path)
+payload["best_fit_plot_path"] = (
+    None if result.best_fit_plot_path is None else str(result.best_fit_plot_path)
+)
+payload["loss_history_plot_path"] = (
+    None if result.loss_history_plot_path is None else str(result.loss_history_plot_path)
+)
 fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 print(f"Measurement: {result.measurement_path}")

@@ -1,36 +1,41 @@
 """Standalone optimization helpers for grax."""
 
-from .config import (
-    BlazedAxConfig,
-    InitialBlazedGrating,
-    InitialLaminarGrating,
-    LaminarAxConfig,
-    ParameterBounds,
-)
+from .config import ParameterBounds
 from .data import MeasurementData, load_measurement_data, sample_measurement_data
-from .objective import build_evaluation_measurement, evaluate_trial
-from .optimize import (
-    OptimizationResult,
-    TrialRecord,
-    json_safe_grating_parameters,
-    optimize_blazed,
-    optimize_laminar,
+from .dynamic import (
+    MeasurementFitConfig,
+    build_measurement_fit_ax_parameters,
+    optimize_to_measurements as _optimize_to_measurements,
+    resolve_measurement_fit_trial_parameters,
 )
+from .objective import build_evaluation_measurement, evaluate_trial
+from .optimize import OptimizationResult, TrialRecord, json_safe_grating_parameters
+
+def optimize_to_measurements(config):
+    """Run the measurement-fit optimizer with the public renamed entrypoint.
+
+    Args:
+        config: Spec mapping describing the measurement-fit optimization run.
+
+    Returns:
+        OptimizationResult: Result bundle with persisted artifacts.
+    """
+
+    return _optimize_to_measurements(config)
+
 
 __all__ = [
-    "BlazedAxConfig",
-    "InitialBlazedGrating",
-    "InitialLaminarGrating",
-    "LaminarAxConfig",
+    "MeasurementFitConfig",
     "MeasurementData",
     "OptimizationResult",
     "ParameterBounds",
     "TrialRecord",
     "build_evaluation_measurement",
+    "build_measurement_fit_ax_parameters",
     "evaluate_trial",
     "json_safe_grating_parameters",
     "load_measurement_data",
     "sample_measurement_data",
-    "optimize_blazed",
-    "optimize_laminar",
+    "optimize_to_measurements",
+    "resolve_measurement_fit_trial_parameters",
 ]

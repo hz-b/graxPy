@@ -35,7 +35,7 @@ ret_mat_eff = ret_mat['DiffractionEfficiency']
 
 # Load REFLEC results (DAT file: energy efficiency)
 reflec = pd.read_csv(
-    base_path / "simulations" / "GT-1.dat",
+    base_path / "simulations" / "REFLEC.dat",
     sep=r'\s+',
     header=None,
     names=['energy', 'eff'],
@@ -45,7 +45,7 @@ reflec_eff = reflec['eff']
 
 # Load DiffMod results (DAT file: energy efficiency)
 diffmod = pd.read_csv(
-    base_path / "simulations" / "RR-test-bGR600-BElChem_1order_dm_de_r_m1_single.dat",
+    base_path / "simulations" / "DiffractMod.dat",
     sep=r'\s+',
     header=None,
     names=['energy', 'eff'],

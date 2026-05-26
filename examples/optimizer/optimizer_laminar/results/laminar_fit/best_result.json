@@ -1,0 +1,102 @@
+{
+  "optimization_mode": "measurement_fit",
+  "experiment_name": "laminar_fit",
+  "objective_name": "loss",
+  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
+  "evaluation_mode": "energy_only",
+  "evaluation_case_mode": "energy_only",
+  "evaluation_energies_ev": [
+    100.0,
+    110.0,
+    120.0,
+    130.0,
+    140.0,
+    150.0,
+    160.0,
+    170.0,
+    180.0,
+    190.0,
+    200.0,
+    210.0,
+    220.0,
+    230.0,
+    240.0,
+    250.0,
+    260.0,
+    270.0,
+    280.0,
+    290.0,
+    300.0,
+    310.0,
+    320.0,
+    330.0,
+    340.0,
+    350.0,
+    360.0,
+    370.0,
+    380.0,
+    390.0,
+    400.0,
+    410.0,
+    420.0,
+    430.0,
+    440.0,
+    450.0,
+    460.0,
+    470.0,
+    480.0,
+    490.0,
+    500.0
+  ],
+  "evaluation_grazing_angles_deg": [],
+  "parameter_bounds": {
+    "width_to_period_ratio": [
+      0.5,
+      0.8
+    ],
+    "depth_nm": [
+      13.9,
+      15.9
+    ],
+    "left_wall_angle_deg": [
+      5.0,
+      20.0
+    ],
+    "right_wall_angle_deg": [
+      5.0,
+      20.0
+    ],
+    "top_cap_thickness_nm": [
+      0.3,
+      2.0
+    ]
+  },
+  "equality_constraints": {},
+  "best_loss": 5.266607734459274e-05,
+  "best_parameters": {
+    "width_to_period_ratio": 0.705950661777188,
+    "depth_nm": 14.150756203706413,
+    "left_wall_angle_deg": 13.222220727353854,
+    "right_wall_angle_deg": 20.0,
+    "top_cap_thickness_nm": 0.3
+  },
+  "best_grating_parameters": {
+    "width_to_period_ratio": 0.705950661777188,
+    "depth_nm": 14.150756203706413,
+    "left_wall_angle_deg": 13.222220727353854,
+    "right_wall_angle_deg": 20.0,
+    "top_cap_thickness_nm": 0.3
+  },
+  "best_solver_parameters": {
+    "roughness_sigma_nm": null
+  },
+  "stopped_early": false,
+  "completed_trials": 20,
+  "early_stop_reason": null,
+  "backend_requested": "auto",
+  "backend_effective": "numba",
+  "diffraction_order": 1,
+  "fourier_orders": 15,
+  "angle_mode": "fixed",
+  "grazing_angle_deg": 4.0
+}
