@@ -6,13 +6,13 @@ import csv
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
-
 import matplotlib.pyplot as plt
 import numpy as np
-import grax as rp
-from grax.simulation._profiling import SolverProfiler
 from xrt.backends.raycing import materials as xrt_materials
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
+
+import grax as rp
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 chromium = xrt_materials.Material("Cr", rho=7.19, table="Henke", name="Cr")
@@ -41,7 +41,7 @@ grating = rp.BlazedGrating(
 )
 
 energies_ev = np.linspace(500.0, 3950.0, 10)
-cases = list(
+base_cases = list(
     rp.monochromator_cases(
         grating=grating,
         energies_ev=energies_ev,
@@ -50,57 +50,34 @@ cases = list(
     )
 )
 
-standard_records = []
-for case in cases:
-    profiler = SolverProfiler()
-    profiler.enable_memory_tracking()
-    result = rp.run_simulation(
-        grating=case["grating"],
-        energy_ev=float(case["energy_ev"]),
-        grazing_angle_deg=float(case["grazing_angle_deg"]),
-        diffraction_order=int(case.get("diffraction_order", 1)),
-        fourier_orders=20,
-        memory_mode="standard",
-        _profiler=profiler,
-        backend="numba",
-    )
-    summary = profiler.summary_dict()
-    standard_records.append(
-        {
-            "energy_ev": float(case["energy_ev"]),
-            "grazing_angle_deg": float(case["grazing_angle_deg"]),
-            "selected_efficiency": float(result.selected_efficiency),
-            "selected_diffraction_angle_deg": float(result.selected_diffraction_angle_deg),
-            "peak_memory_mb": float(summary["peak_memory_bytes"]) / (1024.0 * 1024.0),
-            "wall_seconds": float(summary["total_wall_seconds"]),
-        }
-    )
+standard_cases = [
+    {
+        **case,
+        "memory_mode": "standard",
+        "profile_memory": True,
+    }
+    for case in base_cases
+]
+low_memory_cases = [
+    {
+        **case,
+        "memory_mode": "low_memory",
+        "profile_memory": True,
+    }
+    for case in base_cases
+]
 
-low_memory_records = []
-for case in cases:
-    profiler = SolverProfiler()
-    profiler.enable_memory_tracking()
-    result = rp.run_simulation(
-        grating=case["grating"],
-        energy_ev=float(case["energy_ev"]),
-        grazing_angle_deg=float(case["grazing_angle_deg"]),
-        diffraction_order=int(case.get("diffraction_order", 1)),
-        fourier_orders=20,
-        memory_mode="low_memory",
-        _profiler=profiler,
-        backend="numba",
-    )
-    summary = profiler.summary_dict()
-    low_memory_records.append(
-        {
-            "energy_ev": float(case["energy_ev"]),
-            "grazing_angle_deg": float(case["grazing_angle_deg"]),
-            "selected_efficiency": float(result.selected_efficiency),
-            "selected_diffraction_angle_deg": float(result.selected_diffraction_angle_deg),
-            "peak_memory_mb": float(summary["peak_memory_bytes"]) / (1024.0 * 1024.0),
-            "wall_seconds": float(summary["total_wall_seconds"]),
-        }
-    )
+runner = rp.BatchSimulationRunner(
+    show_progress=True,
+    default_fourier_orders=20,
+    backend="numba",
+)
+
+standard_results = list(runner.run_cases(standard_cases))
+low_memory_results = list(runner.run_cases(low_memory_cases))
+
+standard_by_case_id = {result.case_id: result for result in standard_results}
+low_memory_by_case_id = {result.case_id: result for result in low_memory_results}
 
 csv_path = output_dir / "blazed_multilayer_memory_comparison.csv"
 plot_path = output_dir / "blazed_multilayer_memory_comparison.png"
@@ -124,28 +101,48 @@ with csv_path.open("w", newline="", encoding="utf-8") as handle:
             "efficiency_abs_diff",
         ]
     )
-    for standard_record, low_memory_record in zip(standard_records, low_memory_records):
+    for case in base_cases:
+        standard_result = standard_by_case_id[case["case_id"]]
+        low_memory_result = low_memory_by_case_id[case["case_id"]]
         writer.writerow(
             [
-                standard_record["energy_ev"],
-                standard_record["grazing_angle_deg"],
-                standard_record["selected_efficiency"],
-                low_memory_record["selected_efficiency"],
-                standard_record["selected_diffraction_angle_deg"],
-                low_memory_record["selected_diffraction_angle_deg"],
-                standard_record["peak_memory_mb"],
-                low_memory_record["peak_memory_mb"],
-                standard_record["wall_seconds"],
-                low_memory_record["wall_seconds"],
-                abs(standard_record["selected_efficiency"] - low_memory_record["selected_efficiency"]),
+                float(case["energy_ev"]),
+                float(case["grazing_angle_deg"]),
+                float(standard_result.selected_efficiency),
+                float(low_memory_result.selected_efficiency),
+                float(standard_result.selected_diffraction_angle_deg),
+                float(low_memory_result.selected_diffraction_angle_deg),
+                float(standard_result.peak_memory_bytes or 0) / (1024.0 * 1024.0),
+                float(low_memory_result.peak_memory_bytes or 0) / (1024.0 * 1024.0),
+                float(standard_result.wall_seconds or 0.0),
+                float(low_memory_result.wall_seconds or 0.0),
+                abs(float(standard_result.selected_efficiency) - float(low_memory_result.selected_efficiency)),
             ]
         )
 
-energy_values = np.asarray([record["energy_ev"] for record in standard_records], dtype=float)
-standard_efficiency = np.asarray([record["selected_efficiency"] for record in standard_records], dtype=float)
-low_memory_efficiency = np.asarray([record["selected_efficiency"] for record in low_memory_records], dtype=float)
-standard_peak_memory = np.asarray([record["peak_memory_mb"] for record in standard_records], dtype=float)
-low_memory_peak_memory = np.asarray([record["peak_memory_mb"] for record in low_memory_records], dtype=float)
+energy_values = np.asarray([float(case["energy_ev"]) for case in base_cases], dtype=float)
+standard_efficiency = np.asarray(
+    [float(standard_by_case_id[case["case_id"]].selected_efficiency) for case in base_cases],
+    dtype=float,
+)
+low_memory_efficiency = np.asarray(
+    [float(low_memory_by_case_id[case["case_id"]].selected_efficiency) for case in base_cases],
+    dtype=float,
+)
+standard_peak_memory = np.asarray(
+    [
+        float(standard_by_case_id[case["case_id"]].peak_memory_bytes or 0) / (1024.0 * 1024.0)
+        for case in base_cases
+    ],
+    dtype=float,
+)
+low_memory_peak_memory = np.asarray(
+    [
+        float(low_memory_by_case_id[case["case_id"]].peak_memory_bytes or 0) / (1024.0 * 1024.0)
+        for case in base_cases
+    ],
+    dtype=float,
+)
 max_abs_diff = float(np.max(np.abs(standard_efficiency - low_memory_efficiency)))
 max_standard_peak = float(np.max(standard_peak_memory))
 max_low_memory_peak = float(np.max(low_memory_peak_memory))
@@ -180,7 +177,8 @@ memory_axis.legend(loc="best")
 memory_axis.text(
     0.01,
     0.02,
-    f"max peak: std={max_standard_peak:.2f} MB, low={max_low_memory_peak:.2f} MB\nreduction factor = {reduction_factor:.2f}x",
+    f"max peak: std={max_standard_peak:.2f} MB, low={max_low_memory_peak:.2f} MB\n"
+    f"reduction factor = {reduction_factor:.2f}x",
     transform=memory_axis.transAxes,
     va="bottom",
     ha="left",
