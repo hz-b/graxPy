@@ -229,7 +229,7 @@ def res2(
 
     Args:
         aa: Fourier-space texture data returned by :func:`res1`.
-        profile: RETICOLO-style thickness and texture-index profile.
+        profile: Thickness and texture-index profile for one RCWA layer stack.
         parm: Optional solver parameters.
         roughness_sigma_nm: Optional rms interface roughness in nanometers. When
             provided, reflected and transmitted diffraction efficiencies are
