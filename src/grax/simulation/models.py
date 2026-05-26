@@ -154,6 +154,8 @@ class CaseExecutionResult:
         diffraction_angle_all: Diffraction angle for all calculated diffraction orders.
         status: Case execution status.
         error_message: Error message if the case failed.
+        peak_memory_bytes: Peak tracked memory during execution, when profiling is enabled.
+        wall_seconds: Total wall time during execution, when profiling is enabled.
         case_data: Original serializable case metadata without the grating object.
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
@@ -184,6 +186,8 @@ class CaseExecutionResult:
     diffraction_angle_all: np.ndarray
     status: CaseStatus
     error_message: str | None = None
+    peak_memory_bytes: int | None = None
+    wall_seconds: float | None = None
     case_data: dict[str, object] = field(default_factory=dict)
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False

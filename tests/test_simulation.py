@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import os
 import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+import py_compile
 
 import json
 
@@ -43,6 +46,7 @@ from grax.simulation import (
     run_simulation,
     write_all_orders_csv,
 )
+from grax.simulation import batch as simulation_batch_module
 from grax.stacks import MultilayerStack
 from tests.optical_constants import load_optical_constants_table
 
@@ -61,6 +65,7 @@ EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_memory_comparison" / "blazed_multilayer_memory_comparison.py",
 ]
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
@@ -768,6 +773,87 @@ def test_batch_runner_executes_generator_cases_in_order(monkeypatch: pytest.Monk
     assert [case.label for case in results] == ["first", "second"]
     assert [case.status for case in results] == ["ok", "ok"]
     assert np.allclose([case.energy_ev for case in results], np.array([100.0, 150.0]))
+
+
+def test_batch_runner_can_profile_peak_memory_and_preserve_memory_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payloads: list[dict[str, object]] = []
+
+    class FakeProfiler:
+        def enable_memory_tracking(self) -> None:
+            return None
+
+        def finalize(self) -> None:
+            return None
+
+        def summary_dict(self) -> dict[str, object]:
+            return {"peak_memory_bytes": 123456, "total_wall_seconds": 9.87}
+
+    def fake_run_case_payload(payload: dict[str, object], *, diagnostic_callback: object = None) -> SingleSimulationResult:
+        del diagnostic_callback
+        payloads.append(payload)
+        return fake_single_result(
+            energy_ev=float(payload["energy_ev"]),
+            grazing_angle_deg=float(payload["grazing_angle_deg"]),
+        )
+
+    monkeypatch.setattr(simulation_batch_module, "SolverProfiler", FakeProfiler)
+    monkeypatch.setattr(simulation_batch_module, "_run_case_payload", fake_run_case_payload)
+
+    runner = BatchSimulationRunner()
+    results = list(
+        runner.run_cases(
+            [
+                {
+                    "case_id": "case-1",
+                    "grating": build_test_grating(),
+                    "energy_ev": 100.0,
+                    "grazing_angle_deg": 4.0,
+                    "_memory_mode": "low_memory",
+                    "profile_memory": True,
+                }
+            ]
+        )
+    )
+
+    assert len(payloads) == 1
+    assert payloads[0]["_memory_mode"] == "low_memory"
+    assert results[0].peak_memory_bytes == 123456
+    assert results[0].wall_seconds == pytest.approx(9.87)
+    assert results[0].status == "ok"
+
+
+def test_batch_runner_does_not_profile_memory_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run_case_payload(payload: dict[str, object], *, diagnostic_callback: object = None) -> SingleSimulationResult:
+        del diagnostic_callback
+        return fake_single_result(
+            energy_ev=float(payload["energy_ev"]),
+            grazing_angle_deg=float(payload["grazing_angle_deg"]),
+        )
+
+    class ForbiddenProfiler:
+        def __init__(self) -> None:
+            raise AssertionError("Profiler should not be instantiated unless profile_memory=True.")
+
+    monkeypatch.setattr(simulation_batch_module, "SolverProfiler", ForbiddenProfiler)
+    monkeypatch.setattr(simulation_batch_module, "_run_case_payload", fake_run_case_payload)
+
+    runner = BatchSimulationRunner()
+    results = list(
+        runner.run_cases(
+            [
+                {
+                    "case_id": "case-1",
+                    "grating": build_test_grating(),
+                    "energy_ev": 100.0,
+                    "grazing_angle_deg": 4.0,
+                }
+            ]
+        )
+    )
+
+    assert results[0].peak_memory_bytes is None
 
 
 def test_batch_runner_rejects_resume_without_checkpoint_dir() -> None:
@@ -1571,12 +1657,81 @@ def test_theta_search_diagnostics_fit_fields_round_trip_through_case_record() ->
     assert np.allclose(restored.theta_search_diagnostics.precise_peak_fitted_efficiencies, [0.32, 0.36, 0.31])
 
 
+def test_case_execution_result_round_trip_preserves_peak_memory_bytes() -> None:
+    case = CaseExecutionResult(
+        case_id="case-1",
+        index=0,
+        label="case",
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        orders=np.asarray([-1, 0, 1], dtype=int),
+        selected_efficiency=0.1,
+        selected_diffraction_angle_deg=2.0,
+        efficiency_all=np.asarray([0.1, 0.2, 0.3], dtype=float),
+        diffraction_angle_all=np.asarray([1.0, 2.0, 3.0], dtype=float),
+        status="ok",
+        peak_memory_bytes=123456,
+        wall_seconds=9.87,
+    )
+
+    record = simulation_module._case_result_to_record(case)
+    restored = simulation_module._case_result_from_record(record)
+
+    assert restored.peak_memory_bytes == 123456
+    assert restored.wall_seconds == pytest.approx(9.87)
+
+
 def test_public_examples_do_not_expose_quick_mode_flags() -> None:
     for example_path in EXAMPLE_SCRIPT_PATHS:
         source = example_path.read_text(encoding="utf-8")
         assert "--quick" not in source
         assert "quick_mode" not in source
         assert "Quick mode" not in source
+
+
+def test_example_and_comparison_scripts_compile_and_use_current_case_helper_kwargs() -> None:
+    script_roots = [
+        Path(__file__).resolve().parents[1] / "examples",
+        Path(__file__).resolve().parents[1] / "comparison_to_other_codes",
+    ]
+    script_paths = sorted({path for root in script_roots for path in root.rglob("*.py")})
+
+    for path in script_paths:
+        py_compile.compile(str(path), doraise=True)
+
+    helper_functions = {
+        "fixed_angle_cases": fixed_angle_cases,
+        "monochromator_cases": monochromator_cases,
+        "energy_angle_cases": energy_angle_cases,
+        "multilayer_theta_search_cases": multilayer_theta_search_cases,
+    }
+    allowed_kwargs = {
+        name: set(inspect.signature(func).parameters)
+        for name, func in helper_functions.items()
+    }
+
+    unexpected_kwargs: list[str] = []
+    for path in script_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            helper_name = None
+            if isinstance(node.func, ast.Attribute):
+                helper_name = node.func.attr
+            elif isinstance(node.func, ast.Name):
+                helper_name = node.func.id
+            if helper_name not in allowed_kwargs:
+                continue
+            for keyword in node.keywords:
+                if keyword.arg is None:
+                    continue
+                if keyword.arg not in allowed_kwargs[helper_name]:
+                    unexpected_kwargs.append(
+                        f"{path}:{node.lineno}:{node.col_offset} -> {helper_name}({keyword.arg})"
+                    )
+
+    assert not unexpected_kwargs, "Unexpected helper kwargs found:\n" + "\n".join(unexpected_kwargs)
 
 
 def test_optimizer_example_assets_exist() -> None:
@@ -1723,6 +1878,33 @@ def test_blazed_multilayer_sweep_example_parity_quick_configuration(tmp_path: Pa
     assert len(results) == 1
     assert results[0].status == "ok"
     assert csv_path.exists()
+
+
+def test_blazed_multilayer_memory_comparison_example_structure() -> None:
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "simulation"
+        / "blazed_multilayer_memory_comparison"
+        / "blazed_multilayer_memory_comparison.py"
+    )
+
+    source = script_path.read_text(encoding="utf-8")
+
+    assert "rp.MultilayerStack(" in source
+    assert "rp.BlazedGrating(" in source
+    assert "rp.monochromator_cases(" in source
+    assert "rp.BatchSimulationRunner(" in source
+    assert "show_progress=True" in source
+    assert 'max_workers="auto"' in source
+    assert 'sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))' in source
+    assert '"memory_mode"' not in source
+    assert '"_memory_mode"' not in source
+    assert 'profile_memory": True' in source
+    assert "blazed_multilayer_memory_comparison.csv" in source
+    assert "blazed_multilayer_memory_comparison.png" in source
+    assert "blazed_multilayer_profile.png" in source
+    assert "multilayer_stack_schematic.png" in source
 
 
 def test_energy_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
@@ -1927,7 +2109,7 @@ def test_batch_runner_theta_retry_uses_threshold(monkeypatch: pytest.MonkeyPatch
             selected_efficiency=selected_efficiency,
         )
 
-    monkeypatch.setattr(simulation_module, "_run_case_payload", fake_run_case_payload)
+    monkeypatch.setattr(simulation_batch_module, "_run_case_payload", fake_run_case_payload)
     cases = list(
         multilayer_theta_search_cases(
             grating=build_blazed_multilayer_angle_parity_grating(),
@@ -1986,7 +2168,7 @@ def test_batch_runner_passes_min_reflected_efficiency_to_payload(monkeypatch: py
             grazing_angle_deg=float(payload["grazing_angle_deg"]),
         )
 
-    monkeypatch.setattr(simulation_module, "_run_case_payload", fake_run_case_payload)
+    monkeypatch.setattr(simulation_batch_module, "_run_case_payload", fake_run_case_payload)
     runner = BatchSimulationRunner(min_reflected_efficiency=-0.125)
 
     list(

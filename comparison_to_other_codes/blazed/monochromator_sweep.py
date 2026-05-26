@@ -62,12 +62,11 @@ cases = rp.monochromator_cases(
     period_lpermm=period_lpermm,
     diffraction_order=1,
     cff=2.25,
-    fourier_orders=20,
 )
 
 runner = rp.BatchSimulationRunner(
     default_diffraction_order=1,
-    default_fourier_orders=15,
+    default_fourier_orders=20,
     show_progress=True,
     live_plot=True,
     live_plot_x_key="energy_ev",

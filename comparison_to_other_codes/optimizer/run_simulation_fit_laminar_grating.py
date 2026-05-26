@@ -65,7 +65,6 @@ grating = rp.LaminarGrating(**grating_parameters)
 angle_mode = fitted_payload.get("angle_mode", "fixed")
 diffraction_order = int(fitted_payload["diffraction_order"])
 fourier_orders = 5 if quick_mode else int(fitted_payload["fourier_orders"])
-solver_backend = fitted_payload["solver_backend"]
 energies = (
     np.asarray([100.0, 300.0, 600.0], dtype=float)
     if quick_mode
@@ -76,18 +75,16 @@ if angle_mode == "fixed":
         grating=grating,
         energies_ev=energies,
         grazing_angle_deg=float(fitted_payload["grazing_angle_deg"]),
-        label="fixed-angle",
-        solver_backend=solver_backend,
     )
+    cases = (dict(case, label="fixed-angle") for case in cases)
 else:
     cases = rp.monochromator_cases(
         grating=grating,
         energies_ev=energies,
         diffraction_order=diffraction_order,
         cff=float(fitted_payload["cff"]),
-        label="monochromator",
-        solver_backend=solver_backend,
     )
+    cases = (dict(case, label="monochromator") for case in cases)
 
 runner = rp.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
