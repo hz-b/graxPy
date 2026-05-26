@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import hashlib
@@ -694,6 +694,54 @@ def _material_matches(material: Any, candidate: Any) -> bool:
     except Exception:
         return False
     return bool(is_match) if isinstance(is_match, bool) else False
+
+
+@dataclass
+class ProfileGrating(BaseGrating):
+    """Grating profile defined by explicit sampled points.
+
+    Attributes:
+        period_lpermm: Grating period in lines per millimeter.
+        coating_stack: Optional coating stack configuration.
+        substrate_material: Substrate material identifier.
+        layer_material: Layer material identifier.
+        layer_thickness_nm: Layer thickness in nanometers.
+        top_cap_material: Optional top cap material identifier.
+        top_cap_thickness_nm: Top cap thickness in nanometers.
+        z_resolution_nm: Vertical resolution for profile discretization.
+        x_resolution_nm: Horizontal resolution for profile discretization.
+        x_points_nm: Profile x coordinates for one period in nanometers.
+        z_points_nm: Profile z coordinates for one period in nanometers.
+    """
+
+    x_points_nm: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
+    z_points_nm: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
+
+    def __post_init__(self) -> None:
+        """Validate explicit profile arrays."""
+
+        self.x_points_nm = np.asarray(self.x_points_nm, dtype=float)
+        self.z_points_nm = np.asarray(self.z_points_nm, dtype=float)
+        if self.x_points_nm.ndim != 1 or self.z_points_nm.ndim != 1:
+            raise ValueError("x_points_nm and z_points_nm must be one-dimensional arrays.")
+        if self.x_points_nm.size != self.z_points_nm.size:
+            raise ValueError("x_points_nm and z_points_nm must have equal length.")
+        if self.x_points_nm.size < 2:
+            raise ValueError("x_points_nm and z_points_nm must contain at least two points.")
+        if not np.all(np.isfinite(self.x_points_nm)) or not np.all(np.isfinite(self.z_points_nm)):
+            raise ValueError("x_points_nm and z_points_nm must contain finite values.")
+        if not np.all(np.diff(self.x_points_nm) >= 0.0):
+            raise ValueError("x_points_nm must be monotonically non-decreasing.")
+
+    def profile_points(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return explicit profile points for one period."""
+
+        return self.x_points_nm, self.z_points_nm
+
+    def profile_depth_nm(self) -> float:
+        """Return the explicit profile peak-to-trough depth."""
+
+        return float(np.max(self.z_points_nm) - np.min(self.z_points_nm))
 
 
 @dataclass

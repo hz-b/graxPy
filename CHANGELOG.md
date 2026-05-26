@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 - 2026-05-26
+
+- Integrated AFM preprocessing and AFM-derived profile grating support into the public API.
+- Added AFM preprocessing tests and a canonical AFM example with anonymized sample scan data.
+- Expanded AFM tutorial/docs, including step-by-step plots and updated diagnostics behavior.
+
 ## 0.2.0 - 2026-05-26
 
 - Simulation API now defaults to the low-memory solver path for user-facing workflows.
