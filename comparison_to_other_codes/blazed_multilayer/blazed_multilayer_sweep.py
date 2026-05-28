@@ -62,8 +62,8 @@ if args.quick:
     default_fourier_orders = 15
 else:
     sampled_reference = reference_data.iloc[::1].copy()
-    x_resolution_nm = 0.5
-    z_resolution_nm = 0.5
+    x_resolution_nm = 0.01
+    z_resolution_nm = 0.01
     default_fourier_orders = 15
 
 energy_angle_pairs = list(
@@ -106,9 +106,9 @@ runner = rp.BatchSimulationRunner(
     live_plot_order_count=1,
     live_plot_reference_data=sampled_reference[["Energy", "Efficiency(GR)"]].to_numpy(dtype=float),
     on_error="fail_fast",
-    max_workers=15,
+    max_workers='auto',
     checkpoint_dir=output_dir / "checkpoints",
-    resume=True,
+    resume=False,
 )
 
 csv_path = output_dir / "blazed_multilayer_all_orders.csv"
