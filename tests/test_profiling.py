@@ -13,6 +13,7 @@ import pytest
 
 import grax as rp
 from grax.gratings import BaseGrating, LaminarGrating
+from grax import rcwa_1d
 from grax.rcwa_1d import res0, res1
 from grax.simulation import core as simulation_core_module
 from grax.simulation import run_simulation
@@ -148,6 +149,69 @@ def _build_test_blazed_multilayer_grating() -> object:
         coating_stack=multilayer_stack,
         x_resolution_nm=2.0,
         z_resolution_nm=0.5,
+    )
+
+
+def _build_repeating_blazed_multilayer_grating() -> object:
+    """Return a blazed multilayer grating with repeated layer-block signatures."""
+
+    optical_constants_dir = (
+        Path(__file__).resolve().parents[1]
+        / "comparison_to_other_codes"
+        / "blazed_multilayer"
+        / "optical_constants"
+    )
+    silicon = pd.read_csv(optical_constants_dir / "OC_Si_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
+    silicon.attrs["name"] = "Si"
+    chromium = pd.read_csv(optical_constants_dir / "OC_Cr_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
+    chromium.attrs["name"] = "Cr"
+    carbon = pd.read_csv(optical_constants_dir / "OC_C_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
+    carbon.attrs["name"] = "C"
+    multilayer_stack = rp.MultilayerStack(
+        substrate_material=silicon,
+        material_a=chromium,
+        material_b=carbon,
+        d_period_nm=4.8,
+        gamma=0.4,
+        n_bilayers=20,
+        top_material=carbon,
+    )
+    return rp.BlazedGrating(
+        period_lpermm=2400,
+        blaze_angle_deg=1.37,
+        anti_blaze_angle_deg=3.25,
+        coating_stack=multilayer_stack,
+        x_resolution_nm=1.0,
+        z_resolution_nm=1.0,
+    )
+
+
+def _legacy_cascade_boundary_pair(left: np.ndarray, right: np.ndarray, basis_size: int) -> np.ndarray:
+    """Return the pre-optimization boundary-pair cascade result."""
+
+    l11 = left[:basis_size, :basis_size]
+    l12 = left[:basis_size, basis_size:]
+    l21 = left[basis_size:, :basis_size]
+    l22 = left[basis_size:, basis_size:]
+    r11 = right[:basis_size, :basis_size]
+    r12 = right[:basis_size, basis_size:]
+    r21 = right[basis_size:, :basis_size]
+    r22 = right[basis_size:, basis_size:]
+
+    matrix_to_solve = l22 - r11
+    solved_l21 = np.linalg.solve(matrix_to_solve, l21)
+    solved_r12 = np.linalg.solve(matrix_to_solve, r12)
+    return np.block(
+        [
+            [
+                l11 - l12 @ solved_l21,
+                l12 @ solved_r12,
+            ],
+            [
+                -r21 @ solved_l21,
+                r22 + r21 @ solved_r12,
+            ],
+        ]
     )
 
 
@@ -600,6 +664,87 @@ def test_low_memory_multilayer_blazed_case_matches_legacy_dense_result() -> None
         rtol=1e-10,
         atol=1e-12,
     )
+
+
+def test_cascade_boundary_pair_matches_legacy_implementation() -> None:
+    """Verify the optimized cascade pair algebra matches the legacy result."""
+
+    rng = np.random.default_rng(1234)
+    basis_size = 3
+    matrix_size = 2 * basis_size
+    left = rng.standard_normal((matrix_size, matrix_size)) + 1j * rng.standard_normal(
+        (matrix_size, matrix_size)
+    )
+    right = rng.standard_normal((matrix_size, matrix_size)) + 1j * rng.standard_normal(
+        (matrix_size, matrix_size)
+    )
+    right[:basis_size, :basis_size] = left[basis_size:, basis_size:] - np.eye(basis_size, dtype=complex)
+
+    optimized = rcwa_1d._cascade_boundary_pair(left, right, basis_size)
+    legacy = _legacy_cascade_boundary_pair(left, right, basis_size)
+
+    assert np.allclose(optimized, legacy, rtol=1e-12, atol=1e-12)
+
+
+def test_blazed_multilayer_optimized_cascade_matches_legacy_cascade() -> None:
+    """Verify cascade optimization preserves blazed multilayer efficiencies."""
+
+    grating = _build_test_blazed_multilayer_grating()
+    optimized = run_simulation(
+        grating=grating,
+        energy_ev=500.0,
+        grazing_angle_deg=14.176,
+        fourier_orders=5,
+        diffraction_order=2,
+        _memory_mode="low_memory",
+    )
+
+    original_cascade = rcwa_1d._cascade_boundary_pair
+    try:
+        rcwa_1d._cascade_boundary_pair = _legacy_cascade_boundary_pair
+        legacy = run_simulation(
+            grating=grating,
+            energy_ev=500.0,
+            grazing_angle_deg=14.176,
+            fourier_orders=5,
+            diffraction_order=2,
+            _memory_mode="low_memory",
+        )
+    finally:
+        rcwa_1d._cascade_boundary_pair = original_cascade
+
+    assert optimized.selected_efficiency == pytest.approx(
+        legacy.selected_efficiency,
+        rel=1e-10,
+        abs=1e-12,
+    )
+    assert np.allclose(optimized.efficiency_all, legacy.efficiency_all, rtol=1e-10, atol=1e-12)
+    assert np.allclose(
+        optimized.diffraction_angle_all,
+        legacy.diffraction_angle_all,
+        rtol=1e-10,
+        atol=1e-12,
+    )
+
+
+def test_blazed_multilayer_profile_uses_boundary_block_cache() -> None:
+    """Verify repeated blazed multilayer slices reuse cached boundary blocks."""
+
+    profiler = SolverProfiler()
+    run_simulation(
+        grating=_build_repeating_blazed_multilayer_grating(),
+        energy_ev=500.0,
+        grazing_angle_deg=14.176,
+        fourier_orders=5,
+        diffraction_order=2,
+        _memory_mode="low_memory",
+        _profiler=profiler,
+    )
+    counts = profiler.summary_dict()["details"]["counts"]
+
+    assert counts["layer_boundary_block_cache_hits"] > 0
+    assert counts["layer_boundary_block_cache_misses"] > 0
+    assert counts["layer_boundary_blocks_constructed"] > counts["layer_boundary_block_cache_misses"]
 
 
 def test_res1_texture_conversion_cache_reuses_repeat_signatures() -> None:
