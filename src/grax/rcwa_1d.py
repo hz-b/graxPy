@@ -913,7 +913,9 @@ def _cascade_boundary_pair(
 
         with _profiler.record("layer_cascade_pair_matrix_setup") if _profiler is not None else _nullcontext():
             matrix_to_solve = l22 - r11
-            rhs = np.hstack((l21, r12))
+            rhs = np.empty((basis_size, 2 * basis_size), dtype=left.dtype)
+            rhs[:, :basis_size] = l21
+            rhs[:, basis_size:] = r12
         logger.debug("  _cascade_boundary_pair: solving interface system...")
         if logger.isEnabledFor(logging.DEBUG):
             try:
@@ -930,9 +932,10 @@ def _cascade_boundary_pair(
             logger.error(f"  np.linalg.solve failed in cascade: {e}")
             raise
 
+        solved_l21 = solved_blocks[:, :basis_size]
+        solved_r12 = solved_blocks[:, basis_size:]
+
         with _profiler.record("layer_cascade_pair_multiply") if _profiler is not None else _nullcontext():
-            solved_l21 = solved_blocks[:, :basis_size]
-            solved_r12 = solved_blocks[:, basis_size:]
             top_left = l11 - (l12 @ solved_l21)
             top_right = l12 @ solved_r12
             bottom_left = -(r21 @ solved_l21)

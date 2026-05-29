@@ -1,0 +1,118 @@
+RCWA Profiling Summary
+total_wall_seconds=2.341169
+
+metadata
+- backend: numba
+- case_index: 0
+- energy_ev: 500.0
+- fourier_backend_actual: numba
+- fourier_backend_requested: numba
+- fourier_orders: 10
+- grazing_angle_deg: 14.17636
+- harmonic_count: 21
+- input_texture_count: 1042
+- numba_available: True
+- numpy_version: 1.26.4
+- profile_case: blazed_multilayer_single_case
+- python_version: 3.10.12
+- texture_conversion_cache_hits: 0
+- texture_conversion_cache_misses: 1042
+- texture_count: 1042
+- unique_texture_signatures: 1042
+- x_resolution_nm: 0.1
+- z_resolution_nm: 0.1
+
+stage                      excl_s    excl_%    incl_s   calls
+-------------------------------------------------------------
+layer_propagation_cascade  0.397606    19.36%  1.516501      1
+layer_eigensolve           0.304281    14.82%  0.304281   1042
+texture_generation         0.259161    12.62%  0.259161      1
+fourier_coefficients       0.185921     9.05%  0.185921   1042
+layer_cascade_pair_solve   0.142096     6.92%  0.142096   2951
+layer_cascade_pair_multiply 0.139429     6.79%  0.139429   2951
+layer_modal_matrices       0.132895     6.47%  0.132895   1042
+layer_block_cascade_pair   0.123555     6.02%  0.556609   2951
+layer_cascade_pair_assemble 0.096709     4.71%  0.096709   2951
+res1_total                 0.081597     3.97%  0.267518      1
+layer_modal_values         0.064816     3.16%  0.064816   1042
+layer_operator_build       0.039392     1.92%  0.039392   1042
+layer_cascade_pair_matrix_setup 0.033025     1.61%  0.033025   2951
+layer_cascade_pair_partition 0.021796     1.06%  0.021796   2951
+layer_block_assembly       0.020902     1.02%  0.020902   1042
+res2_total                 0.010253     0.50%  1.526847      1
+matrix_solves              0.000092     0.00%  0.000092      2
+postprocessing             0.000030     0.00%  0.000030      1
+
+profiled_exclusive_seconds=2.053557
+unprofiled_seconds=0.287613
+
+derived_kpis
+- bytes_per_fourier_call: 824.813820
+- time_per_fourier_call_seconds: 0.000178
+- time_per_harmonic_seconds: 0.000004
+
+counters
+- layer_eigensolve_calls: 1042
+
+memory
+- peak_memory_mb: 54.390
+- stage_peak_mb[fourier_coefficients]: 16.856
+- stage_peak_mb[layer_block_assembly]: 54.354
+- stage_peak_mb[layer_block_cascade_pair]: 54.390
+- stage_peak_mb[layer_cascade_pair_assemble]: 54.390
+- stage_peak_mb[layer_cascade_pair_matrix_setup]: 54.354
+- stage_peak_mb[layer_cascade_pair_multiply]: 54.373
+- stage_peak_mb[layer_cascade_pair_partition]: 54.354
+- stage_peak_mb[layer_cascade_pair_solve]: 54.354
+- stage_peak_mb[layer_eigensolve]: 54.354
+- stage_peak_mb[layer_modal_matrices]: 54.354
+- stage_peak_mb[layer_modal_values]: 54.354
+- stage_peak_mb[layer_operator_build]: 54.354
+- stage_peak_mb[layer_propagation_cascade]: 54.390
+- stage_peak_mb[matrix_solves]: 54.390
+- stage_peak_mb[postprocessing]: 54.390
+- stage_peak_mb[res1_total]: 16.856
+- stage_peak_mb[res2_total]: 54.390
+- stage_peak_mb[texture_generation]: 4.080
+
+detail_timings
+- fourier_call_total: calls=1042, total_s=0.179288, mean_s=0.000172, max_s=0.162115
+- fourier_exp: calls=1042, total_s=0.179288, mean_s=0.000172, max_s=0.162115
+- fourier_loop_overhead: calls=1042, total_s=0.000000, mean_s=0.000000, max_s=0.000000
+- fourier_sum: calls=1042, total_s=0.000000, mean_s=0.000000, max_s=0.000000
+- layer_eigensolve_call: calls=1042, total_s=0.301484, mean_s=0.000289, max_s=0.000589
+- layer_modal_matrices_call: calls=1042, total_s=0.129875, mean_s=0.000125, max_s=0.008872
+
+detail_counts
+- fourier_allocation_bytes: 859456
+- fourier_backend_calls: 1042
+- fourier_calls: 1042
+- fourier_exp_calls: 558560
+- fourier_harmonics_total: 42722
+- fourier_loop_iterations: 42722
+- fourier_numba_calls: 1042
+- fourier_segments_total: 6982
+- fourier_sum_calls: 42722
+- layer_boundary_block_cache_hits: 1910
+- layer_boundary_block_cache_misses: 1042
+- layer_boundary_blocks_constructed: 2952
+- layer_cascade_pair_calls: 2951
+- layer_eigensolve_cache_misses: 1042
+- layer_modal_matrices_calls: 1042
+- layer_operator_calls: 1042
+- layer_operator_cols_total: 21882
+- layer_operator_rows_total: 21882
+- texture_conversion_cache_misses: 1042
+
+detail_peaks
+- fourier_harmonic_count_peak: 41.000000
+- fourier_segment_count_peak: 9.000000
+- fourier_temp_buffer_bytes_peak: 656.000000
+- layer_boundary_block_bytes_peak: 28224.000000
+- layer_boundary_block_temp_peak: 1.000000
+- layer_operator_cols_peak: 21.000000
+- layer_operator_rows_peak: 21.000000
+
+detail_unique_counts
+- fourier_backend_actual: 1
+- layer_operator_unique: 1042
