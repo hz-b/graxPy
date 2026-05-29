@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 ArrayLike = Any
 EigenCache = Dict[Tuple[Any, ...], Tuple[np.ndarray, np.ndarray]]
+BoundaryBlockCache = Dict[Tuple[Any, ...], np.ndarray]
 
 
 class FourierBackend(str, Enum):
@@ -669,18 +670,20 @@ def _solve_te_stack(
     derivative_bottom = 1j * np.diag(kz_bottom)
 
     eigen_cache: EigenCache = {}
+    boundary_block_cache: BoundaryBlockCache = {}
     stack_boundary: np.ndarray | None = None
     with _profiler.record("layer_propagation_cascade") if _profiler is not None else _nullcontext():
         for thickness, texture in layers:
             block = _layer_boundary_block(
-            thickness=thickness,
-            texture=texture,
-            orders=orders,
-            k0=k0,
-            kx_matrix_sq=kx_matrix_sq,
-            eigen_cache=eigen_cache,
-            _profiler=_profiler,
-        )
+                thickness=thickness,
+                texture=texture,
+                orders=orders,
+                k0=k0,
+                kx_matrix_sq=kx_matrix_sq,
+                eigen_cache=eigen_cache,
+                boundary_block_cache=boundary_block_cache,
+                _profiler=_profiler,
+            )
             if _profiler is not None:
                 _profiler.add_detail_count("layer_boundary_blocks_constructed", 1)
                 _profiler.update_detail_peak("layer_boundary_block_temp_peak", 1.0)
@@ -692,6 +695,7 @@ def _solve_te_stack(
                 stack_boundary,
                 block,
                 basis_size,
+                _profiler=_profiler,
             )
     top_stack_admittance = _top_admittance_from_boundary_block(
         stack_boundary=stack_boundary,
@@ -745,6 +749,7 @@ def _layer_boundary_block(
     k0: float,
     kx_matrix_sq: np.ndarray,
     eigen_cache: EigenCache,
+    boundary_block_cache: BoundaryBlockCache,
     _profiler: SolverProfiler | None = None,
 ) -> np.ndarray:
     """Return the interface-response block for one finite RCWA layer."""
@@ -756,10 +761,25 @@ def _layer_boundary_block(
         raise ValueError(f"Fourier orders too large: {basis_size} modes. "
                         "Try reducing fourier_orders to 50 or less.")
 
-    epsilon_conv = _convolution_matrix(texture.epsilon_fourier, orders)
-    operator = kx_matrix_sq - (k0**2) * epsilon_conv
-    if np.any(np.isnan(operator)) or np.any(np.isinf(operator)):
-        raise ValueError("Layer operator contains NaN/Inf values")
+    boundary_cache_key = (
+        texture.signature,
+        float(thickness),
+        tuple(int(order) for order in orders),
+        float(k0),
+    )
+    cached_block = boundary_block_cache.get(boundary_cache_key)
+    if cached_block is not None:
+        if _profiler is not None:
+            _profiler.add_detail_count("layer_boundary_block_cache_hits", 1)
+        return cached_block
+    if _profiler is not None:
+        _profiler.add_detail_count("layer_boundary_block_cache_misses", 1)
+
+    with _profiler.record("layer_operator_build") if _profiler is not None else _nullcontext():
+        epsilon_conv = _convolution_matrix(texture.epsilon_fourier, orders)
+        operator = kx_matrix_sq - (k0**2) * epsilon_conv
+        if np.any(np.isnan(operator)) or np.any(np.isinf(operator)):
+            raise ValueError("Layer operator contains NaN/Inf values")
 
     cache_key = (
         texture.signature,
@@ -790,18 +810,24 @@ def _layer_boundary_block(
     if _profiler is not None:
         _profiler.increment("layer_eigensolve_calls")
 
-    q_values = np.sqrt(eigenvalues + 0j)
-    q_coth = _modal_q_coth(q_values, thickness)
-    q_csch = _modal_q_csch(q_values, thickness)
-    admittance = _modal_function_matrix(eigenvectors, q_coth)
-    coupling = _modal_function_matrix(eigenvectors, q_csch)
-
-    return np.block(
-        [
-            [-admittance, coupling],
-            [-coupling, admittance],
-        ]
-    )
+    with _profiler.record("layer_modal_values") if _profiler is not None else _nullcontext():
+        q_values = np.sqrt(eigenvalues + 0j)
+        q_coth = _modal_q_coth(q_values, thickness)
+        q_csch = _modal_q_csch(q_values, thickness)
+    with _profiler.record("layer_modal_matrices") if _profiler is not None else _nullcontext():
+        t0 = perf_counter() if _profiler is not None else None
+        admittance, coupling = _modal_function_matrices(eigenvectors, q_coth, q_csch)
+        if _profiler is not None and t0 is not None:
+            _profiler.add_detail_timing("layer_modal_matrices_call", perf_counter() - t0)
+            _profiler.add_detail_count("layer_modal_matrices_calls", 1)
+    with _profiler.record("layer_block_assembly") if _profiler is not None else _nullcontext():
+        block = np.empty((2 * basis_size, 2 * basis_size), dtype=complex)
+        block[:basis_size, :basis_size] = -admittance
+        block[:basis_size, basis_size:] = coupling
+        block[basis_size:, :basis_size] = -coupling
+        block[basis_size:, basis_size:] = admittance
+    boundary_block_cache[boundary_cache_key] = block
+    return block
 
 
 def _modal_q_coth(q_values: np.ndarray, thickness: float) -> np.ndarray:
@@ -839,50 +865,92 @@ def _modal_function_matrix(
     return result
 
 
-def _cascade_boundary_pair(left: np.ndarray, right: np.ndarray, basis_size: int) -> np.ndarray:
+def _modal_function_matrices(
+    eigenvectors: np.ndarray,
+    first_modal_values: np.ndarray,
+    second_modal_values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return two ``V @ diag(m) @ V^-1`` matrices from one shared solve."""
+
+    first_left_factor = eigenvectors * first_modal_values[np.newaxis, :]
+    second_left_factor = eigenvectors * second_modal_values[np.newaxis, :]
+    stacked_rhs = np.hstack((first_left_factor.T, second_left_factor.T))
+    solved = np.linalg.solve(eigenvectors.T, stacked_rhs)
+    split_index = eigenvectors.shape[0]
+    first_result = solved[:, :split_index].T
+    second_result = solved[:, split_index:].T
+    if (
+        np.any(np.isnan(first_result))
+        or np.any(np.isinf(first_result))
+        or np.any(np.isnan(second_result))
+        or np.any(np.isinf(second_result))
+    ):
+        raise ValueError("Modal layer function produced NaN/Inf values")
+    return first_result, second_result
+
+
+def _cascade_boundary_pair(
+    left: np.ndarray,
+    right: np.ndarray,
+    basis_size: int,
+    *,
+    _profiler: SolverProfiler | None = None,
+) -> np.ndarray:
     """Cascade two adjacent interface-response blocks into one block."""
 
-    l11 = left[:basis_size, :basis_size]
-    l12 = left[:basis_size, basis_size:]
-    l21 = left[basis_size:, :basis_size]
-    l22 = left[basis_size:, basis_size:]
-    r11 = right[:basis_size, :basis_size]
-    r12 = right[:basis_size, basis_size:]
-    r21 = right[basis_size:, :basis_size]
-    r22 = right[basis_size:, basis_size:]
+    if _profiler is not None:
+        _profiler.add_detail_count("layer_cascade_pair_calls", 1)
+    with _profiler.record("layer_block_cascade_pair") if _profiler is not None else _nullcontext():
+        with _profiler.record("layer_cascade_pair_partition") if _profiler is not None else _nullcontext():
+            l11 = left[:basis_size, :basis_size]
+            l12 = left[:basis_size, basis_size:]
+            l21 = left[basis_size:, :basis_size]
+            l22 = left[basis_size:, basis_size:]
+            r11 = right[:basis_size, :basis_size]
+            r12 = right[:basis_size, basis_size:]
+            r21 = right[basis_size:, :basis_size]
+            r22 = right[basis_size:, basis_size:]
 
-    matrix_to_solve = l22 - r11
-    logger.debug("  _cascade_boundary_pair: solving interface system...")
-    try:
-        cond = np.linalg.cond(matrix_to_solve)
-        if cond > 1e12:
-            logger.warning(f"  interface matrix is nearly singular (cond={cond:.2e})")
-    except Exception:
-        pass
-    
-    try:
-        solved_l21 = np.linalg.solve(matrix_to_solve, l21)
-        solved_r12 = np.linalg.solve(matrix_to_solve, r12)
-    except np.linalg.LinAlgError as e:
-        logger.error(f"  np.linalg.solve failed in cascade: {e}")
-        raise
-    
-    result = np.block(
-        [
-            [
-                l11 - l12 @ solved_l21,
-                l12 @ solved_r12,
-            ],
-            [
-                -r21 @ solved_l21,
-                r22 + r21 @ solved_r12,
-            ],
-        ]
-    )
-    
-    if np.any(np.isnan(result)) or np.any(np.isinf(result)):
-        logger.warning("  cascade produced NaN/Inf values")
-    
+        with _profiler.record("layer_cascade_pair_matrix_setup") if _profiler is not None else _nullcontext():
+            matrix_to_solve = l22 - r11
+            rhs = np.empty((basis_size, 2 * basis_size), dtype=left.dtype)
+            rhs[:, :basis_size] = l21
+            rhs[:, basis_size:] = r12
+        logger.debug("  _cascade_boundary_pair: solving interface system...")
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                cond = np.linalg.cond(matrix_to_solve)
+                if cond > 1e12:
+                    logger.warning(f"  interface matrix is nearly singular (cond={cond:.2e})")
+            except Exception:
+                pass
+
+        try:
+            with _profiler.record("layer_cascade_pair_solve") if _profiler is not None else _nullcontext():
+                solved_blocks = np.linalg.solve(matrix_to_solve, rhs)
+        except np.linalg.LinAlgError as e:
+            logger.error(f"  np.linalg.solve failed in cascade: {e}")
+            raise
+
+        solved_l21 = solved_blocks[:, :basis_size]
+        solved_r12 = solved_blocks[:, basis_size:]
+
+        with _profiler.record("layer_cascade_pair_multiply") if _profiler is not None else _nullcontext():
+            top_left = l11 - (l12 @ solved_l21)
+            top_right = l12 @ solved_r12
+            bottom_left = -(r21 @ solved_l21)
+            bottom_right = r22 + (r21 @ solved_r12)
+
+        with _profiler.record("layer_cascade_pair_assemble") if _profiler is not None else _nullcontext():
+            result = np.empty_like(left)
+            result[:basis_size, :basis_size] = top_left
+            result[:basis_size, basis_size:] = top_right
+            result[basis_size:, :basis_size] = bottom_left
+            result[basis_size:, basis_size:] = bottom_right
+
+            if np.any(np.isnan(result)) or np.any(np.isinf(result)):
+                logger.warning("  cascade produced NaN/Inf values")
+
     return result
 
 
@@ -903,6 +971,7 @@ def _cascade_layer_boundary_blocks(
                 stack_boundary,
                 block,
                 basis_size,
+                _profiler=_profiler,
             )
     return stack_boundary
 

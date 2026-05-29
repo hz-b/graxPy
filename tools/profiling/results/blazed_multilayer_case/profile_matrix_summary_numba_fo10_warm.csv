@@ -1,0 +1,2 @@
+label,energy_ev,grazing_angle_deg,fourier_orders,x_resolution_nm,z_resolution_nm,total_wall_seconds,texture_generation_seconds,fourier_coefficients_seconds,layer_propagation_cascade_seconds,profiled_exclusive_seconds,peak_memory_bytes,texture_count,unique_texture_count,selected_efficiency
+numba_fo10_warm,500.0,14.17636,10,0.1,0.1,2.6033787089399993,0.2593241680879146,0.21046274318359792,1.292727872962132,2.311080630403012,56983410,1042,1042,0.00914754616210766

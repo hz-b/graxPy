@@ -22,6 +22,7 @@ Both scripts use hardcoded RCWA settings:
 Single-case script also uses:
 
 - `energy_ev = 200.0`
+- backend selection: `compare-numpy-numba`
 
 Multi-energy script uses a configurable energy range with defaults:
 
@@ -52,7 +53,7 @@ Optional arguments:
 - Multi-energy:
   - none (fully reproducible fixed settings)
 - Plotting:
-  - `--csv-path` (default: `tools/numba_speed/results/multi_energy_numba_vs_legacy.csv`)
+  - `--csv-path` (default: `tools/numba_speed/results/multi_energy_numba_vs_numpy.csv`)
   - `--output-dir` (default: `tools/numba_speed/results`)
 
 ## Created results
@@ -60,19 +61,16 @@ Optional arguments:
 Single-case script writes:
 
 - `single_rcwa_profile_report.txt` (copy of first backend report)
-- `single_rcwa_profile_report_baseline.txt`
-- `single_rcwa_profile_report_numba_optional.txt`
-- `single_rcwa_profile_comparison_numba_vs_legacy.txt`
+- `single_rcwa_profile_report_numpy.txt`
+- `single_rcwa_profile_report_numba.txt`
+- `single_rcwa_profile_comparison_numba_vs_numpy.txt`
 
-When `--fourier-backend all` is used, it also writes backend-specific reports for:
-
-- `baseline`
-- `numba-optional`
+The first backend is `numpy`; the second backend is `numba`.
 
 Multi-energy script writes:
 
 - `multi_energy_numba_vs_legacy.txt` (human-readable summary)
-- `multi_energy_numba_vs_legacy.csv` (per-energy tabular data)
+- `multi_energy_numba_vs_numpy.csv` (per-energy tabular data)
 
 Plot script writes:
 
@@ -80,12 +78,12 @@ Plot script writes:
 
 The plot includes:
 
-- Total runtime vs energy (baseline vs numba)
-- Fourier-stage runtime vs energy (baseline vs numba)
+- Total runtime vs energy (numpy vs numba)
+- Fourier-stage runtime vs energy (numpy vs numba)
 - Speedup vs energy
 - Fourier fraction of runtime
 - Peak memory vs energy
-- Diffracted-efficiency comparison panel (baseline reference vs numba values)
+- Diffracted-efficiency comparison panel (numpy reference vs numba values)
 
 All subplot axes are rendered without scientific-notation tick labels.
 

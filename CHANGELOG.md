@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 - 2026-05-29
+
+- Added per-simulation peak RAM logging and a dedicated blazed-multilayer profiling tool under `tools/profiling/`.
+- Optimized the multilayer cascade path and added profiler substage breakdowns for the cascade pair algebra.
+- Made repository example and comparison scripts explicitly use the `numba` backend and removed stale solver-backend metadata from the checked-in workflows.
+- Refreshed the numba-speed benchmark scripts, reports, plots, and docs so they reproduce the current backend comparison results.
+
 ## 0.2.1 - 2026-05-26
 
 - Integrated AFM preprocessing and AFM-derived profile grating support into the public API.

@@ -1,0 +1,93 @@
+RCWA Profiling Summary
+total_wall_seconds=23.475430
+
+metadata
+- backend: numpy
+- case_index: 0
+- energy_ev: 500.0
+- fourier_backend_actual: numpy
+- fourier_backend_requested: numpy
+- fourier_orders: 5
+- grazing_angle_deg: 14.17636
+- harmonic_count: 11
+- input_texture_count: 2079
+- numba_available: True
+- numpy_version: 2.4.4
+- profile_case: blazed_multilayer_single_case
+- python_version: 3.12.12
+- texture_conversion_cache_hits: 0
+- texture_conversion_cache_misses: 2079
+- texture_count: 2079
+- unique_texture_signatures: 2079
+- x_resolution_nm: 0.1
+- z_resolution_nm: 0.05
+
+stage                      excl_s    excl_%    incl_s   calls
+-------------------------------------------------------------
+texture_generation         18.206514    79.57%  18.206514      1
+layer_propagation_cascade  2.203442     9.63%  2.415286      1
+fourier_coefficients       1.958632     8.56%  1.958632   2079
+res1_total                 0.291664     1.27%  2.250296      1
+layer_eigensolve           0.211844     0.93%  0.211844   2079
+res2_total                 0.008148     0.04%  2.423534      1
+postprocessing             0.000256     0.00%  0.000256      1
+matrix_solves              0.000100     0.00%  0.000100      2
+
+profiled_exclusive_seconds=22.880600
+unprofiled_seconds=0.594831
+
+derived_kpis
+- bytes_per_fourier_call: 5066.593555
+- time_per_fourier_call_seconds: 0.000942
+- time_per_harmonic_seconds: 0.000045
+
+counters
+- layer_eigensolve_calls: 5902
+
+memory
+- peak_memory_mb: 12.846
+- stage_peak_mb[fourier_coefficients]: 8.948
+- stage_peak_mb[layer_eigensolve]: 12.843
+- stage_peak_mb[layer_propagation_cascade]: 12.846
+- stage_peak_mb[matrix_solves]: 12.846
+- stage_peak_mb[postprocessing]: 12.846
+- stage_peak_mb[res1_total]: 8.948
+- stage_peak_mb[res2_total]: 12.846
+- stage_peak_mb[texture_generation]: 4.532
+
+detail_timings
+- fourier_call_total: calls=2079, total_s=1.885026, mean_s=0.000907, max_s=0.001121
+- fourier_exp: calls=2079, total_s=1.045111, mean_s=0.000503, max_s=0.000610
+- fourier_loop_overhead: calls=2079, total_s=0.175679, mean_s=0.000085, max_s=0.000141
+- fourier_sum: calls=2079, total_s=0.664236, mean_s=0.000319, max_s=0.000441
+- layer_eigensolve_call: calls=2079, total_s=0.124744, mean_s=0.000060, max_s=0.000136
+
+detail_counts
+- fourier_allocation_bytes: 10533448
+- fourier_backend_calls: 2079
+- fourier_calls: 2079
+- fourier_exp_calls: 557000
+- fourier_harmonics_total: 43659
+- fourier_loop_iterations: 43659
+- fourier_segments_total: 13925
+- fourier_sum_calls: 43659
+- layer_boundary_blocks_constructed: 5902
+- layer_eigensolve_cache_hits: 3823
+- layer_eigensolve_cache_misses: 2079
+- layer_operator_calls: 5902
+- layer_operator_cols_total: 64922
+- layer_operator_rows_total: 64922
+- texture_conversion_cache_misses: 2079
+
+detail_peaks
+- fourier_harmonic_count_peak: 21.000000
+- fourier_segment_count_peak: 9.000000
+- fourier_temp_buffer_bytes_peak: 648.000000
+- layer_boundary_block_bytes_peak: 7744.000000
+- layer_boundary_block_temp_peak: 1.000000
+- layer_operator_cols_peak: 11.000000
+- layer_operator_rows_peak: 11.000000
+
+detail_unique_counts
+- fourier_backend_actual: 1
+- layer_operator_unique: 2079

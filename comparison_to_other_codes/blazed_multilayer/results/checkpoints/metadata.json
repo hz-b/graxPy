@@ -1,9 +1,8 @@
 {
-  "created": "2026-05-08T08:28:03.827415",
+  "created": "2026-05-29T10:15:20.117203",
   "execution_mode": "inline",
   "max_workers": "auto",
   "resolved_max_workers": 30,
   "default_diffraction_order": 2,
-  "default_fourier_orders": 15,
-  "default_solver_backend": "s_matrix"
+  "default_fourier_orders": 15
 }

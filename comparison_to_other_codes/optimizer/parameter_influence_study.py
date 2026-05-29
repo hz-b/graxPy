@@ -84,6 +84,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     on_error="continue",
     resume=False,
+    backend="numba",
 )
 
 for energy_ev in ENERGIES_EEV:
@@ -104,7 +105,7 @@ for energy_ev in ENERGIES_EEV:
                 "grating": grating,
                 "energy_ev": float(energy_ev),
                 "grazing_angle_deg": grazing_angle_deg,
-                "solver_backend": "s_matrix",
+                "backend": "numba",
             }
             if parameter == "fourier_orders":
                 case["fourier_orders"] = int(value)

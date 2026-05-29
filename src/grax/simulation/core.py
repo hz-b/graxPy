@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import inspect
 import csv
 import importlib
+import inspect
 import logging
 from collections.abc import Iterable, Iterator
+from contextlib import nullcontext as _nullcontext
 from copy import copy
 from pathlib import Path
-from contextlib import nullcontext as _nullcontext
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -17,8 +17,14 @@ import numpy as np
 
 from ..gratings import BaseGrating
 from ..rcwa_1d import res0, res1, res2
+from ._memory import PeakMemorySampler, format_memory_mb
 from ._profiling import SolverProfiler
-from .models import BatchSimulationResult, CaseExecutionResult, SimulationResult, SingleSimulationResult
+from .models import (
+    BatchSimulationResult,
+    CaseExecutionResult,
+    SimulationResult,
+    SingleSimulationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,7 @@ def _simulation_api():
     """Return the public simulation package for monkeypatch-compatible dispatch."""
 
     return importlib.import_module("grax.simulation")
+
 
 def _supports_interactive_pause() -> bool:
     """Return whether the active Matplotlib backend supports interactive pause."""
@@ -98,6 +105,30 @@ def _validate_reflected_efficiencies(
         )
 
 
+def _log_simulation_memory_usage(
+    *,
+    energy_ev: float,
+    grazing_angle_deg: float,
+    sampler: PeakMemorySampler,
+) -> None:
+    """Log peak process RSS for a completed simulation when available.
+
+    Args:
+        energy_ev: Photon energy in electronvolts.
+        grazing_angle_deg: Grazing incidence angle in degrees.
+        sampler: Completed peak memory sampler.
+    """
+    if sampler.peak_memory_bytes is None or sampler.memory_delta_bytes is None:
+        return
+    logger.info(
+        "Simulation completed at %.2f eV, grazing=%.3f deg, peak_ram=%s, ram_delta=%s",
+        energy_ev,
+        grazing_angle_deg,
+        format_memory_mb(sampler.peak_memory_bytes),
+        format_memory_mb(sampler.memory_delta_bytes),
+    )
+
+
 def run_simulation(
     *,
     grating: BaseGrating,
@@ -130,7 +161,7 @@ def run_simulation(
         _memory_mode: Internal texture-generation mode. ``"low_memory"`` is the
             public path. ``"legacy_dense"`` keeps the older dense-grid path
             available for internal regression and debugging.
-        backend: Fourier coefficient backend selector. Options: "numpy" (default, pure Python), "numba" (JIT-compiled, requires numba package).
+        backend: Fourier coefficient backend selector.
 
     Returns:
         Single-case RCWA result.
@@ -150,70 +181,81 @@ def run_simulation(
         fourier_orders,
         _memory_mode,
     )
-    wavelength_nm = 1239.8 / float(energy_ev)
-    k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
-    with _profiler.record("texture_generation") if _profiler is not None else _nullcontext():
-        textures, profile = grating.build_textures(
-            float(energy_ev),
-            n_inc=1.0 + 0.0j,
-            _memory_mode=_memory_mode,
+    with PeakMemorySampler() as memory_sampler:
+        wavelength_nm = 1239.8 / float(energy_ev)
+        k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
+        with _profiler.record("texture_generation") if _profiler is not None else _nullcontext():
+            textures, profile = grating.build_textures(
+                float(energy_ev),
+                n_inc=1.0 + 0.0j,
+                _memory_mode=_memory_mode,
+            )
+
+        parm = res0(1)
+        aa = res1(
+            wavelength_nm,
+            grating.period_nm,
+            textures,
+            int(fourier_orders),
+            k_parallel,
+            parm,
+            _profiler=_profiler,
+            _fourier_backend=backend,
+        )
+        ef = res2(
+            aa,
+            profile,
+            parm,
+            roughness_sigma_nm=roughness_sigma_nm,
+            _profiler=_profiler,
         )
 
-    parm = res0(1)
-    aa = res1(
-        wavelength_nm,
-        grating.period_nm,
-        textures,
-        int(fourier_orders),
-        k_parallel,
-        parm,
-        _profiler=_profiler,
-        _fourier_backend=backend,
-    )
-    ef = res2(
-        aa,
-        profile,
-        parm,
-        roughness_sigma_nm=roughness_sigma_nm,
-        _profiler=_profiler,
-    )
+        with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
+            order_index = np.where(ef.inc_top_reflected.order == -int(diffraction_order))[0]
+            if len(order_index) != 1:
+                raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
+            idx = int(order_index[0])
 
-    with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
-        order_index = np.where(ef.inc_top_reflected.order == -int(diffraction_order))[0]
-        if len(order_index) != 1:
-            raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
-        idx = int(order_index[0])
+            orders = np.asarray(ef.inc_top_reflected.order, dtype=int)
+            all_efficiency = np.asarray(
+                np.real_if_close(ef.inc_top_reflected.efficiency),
+                dtype=float,
+            )
+            all_diffraction_angle_deg = np.asarray(90.0 - ef.inc_top_reflected.theta, dtype=float)
+        if validate_physical_results:
+            _validate_reflected_efficiencies(
+                photon_energy_ev=float(energy_ev),
+                grazing_angle_deg=float(grazing_angle_deg),
+                period_nm=grating.period_nm,
+                orders=orders,
+                efficiency_all=all_efficiency,
+                min_efficiency=min_efficiency,
+                max_reflected_efficiency=max_reflected_efficiency,
+                max_total_reflected_efficiency=max_total_reflected_efficiency,
+            )
 
-        orders = np.asarray(ef.inc_top_reflected.order, dtype=int)
-        all_efficiency = np.asarray(np.real_if_close(ef.inc_top_reflected.efficiency), dtype=float)
-        all_diffraction_angle_deg = np.asarray(90.0 - ef.inc_top_reflected.theta, dtype=float)
-    if validate_physical_results:
-        _validate_reflected_efficiencies(
-            photon_energy_ev=float(energy_ev),
+        if _profiler is not None:
+            _profiler.finalize()
+
+        result = SingleSimulationResult(
+            energy_ev=float(energy_ev),
             grazing_angle_deg=float(grazing_angle_deg),
-            period_nm=grating.period_nm,
             orders=orders,
+            selected_efficiency=float(np.real_if_close(ef.inc_top_reflected.efficiency[idx])),
+            selected_diffraction_angle_deg=float(90.0 - ef.inc_top_reflected.theta[idx]),
             efficiency_all=all_efficiency,
-            min_efficiency=min_efficiency,
-            max_reflected_efficiency=max_reflected_efficiency,
-            max_total_reflected_efficiency=max_total_reflected_efficiency,
+            diffraction_angle_all=all_diffraction_angle_deg,
+            diffraction_order=int(diffraction_order),
+            fourier_orders=int(fourier_orders),
+            roughness_sigma_nm=roughness_sigma_nm,
         )
 
-    if _profiler is not None:
-        _profiler.finalize()
-
-    return SingleSimulationResult(
+    _log_simulation_memory_usage(
         energy_ev=float(energy_ev),
         grazing_angle_deg=float(grazing_angle_deg),
-        orders=orders,
-        selected_efficiency=float(np.real_if_close(ef.inc_top_reflected.efficiency[idx])),
-        selected_diffraction_angle_deg=float(90.0 - ef.inc_top_reflected.theta[idx]),
-        efficiency_all=all_efficiency,
-        diffraction_angle_all=all_diffraction_angle_deg,
-        diffraction_order=int(diffraction_order),
-        fourier_orders=int(fourier_orders),
-        roughness_sigma_nm=roughness_sigma_nm,
+        sampler=memory_sampler,
     )
+    return result
 
 
 run_simulation.__signature__ = inspect.signature(run_simulation).replace(

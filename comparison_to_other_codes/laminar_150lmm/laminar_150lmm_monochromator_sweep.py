@@ -72,6 +72,7 @@ runner = rp.BatchSimulationRunner(
     on_error="fail_fast",
     max_workers='auto',
     resume=False,
+    backend="numba",
 )
 
 grating.plot_profile(profile_plot_path)

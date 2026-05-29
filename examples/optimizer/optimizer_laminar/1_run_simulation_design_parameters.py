@@ -90,7 +90,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
-    backend=simulation_backend,
+    backend="numba",
 )
 results = list(runner.run_cases(cases))
 
@@ -101,5 +101,5 @@ print(f"Initial-parameter simulation CSV: {output_csv_path}")
 print(
     "Initial simulation settings: "
     f"grazing_angle_deg={grazing_angle_deg}, "
-    f"fourier_orders={fourier_orders}, simulation_backend={simulation_backend}"
+    f"fourier_orders={fourier_orders}, simulation_backend=numba"
 )

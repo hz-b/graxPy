@@ -58,7 +58,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     default_fourier_orders=20,
     max_workers="auto",
-    backend="numpy",
+    backend="numba",
 )
 
 results = list(runner.run_cases(cases))

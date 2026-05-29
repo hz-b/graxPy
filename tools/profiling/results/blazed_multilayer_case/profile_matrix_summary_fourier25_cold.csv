@@ -1,0 +1,2 @@
+label,energy_ev,grazing_angle_deg,fourier_orders,x_resolution_nm,z_resolution_nm,total_wall_seconds,texture_generation_seconds,fourier_coefficients_seconds,layer_propagation_cascade_seconds,profiled_exclusive_seconds,peak_memory_bytes,texture_count,unique_texture_count,selected_efficiency
+fourier25_cold,500.0,14.17636,25,0.1,0.1,226.6160857549403,0.2595525949727744,0.2019630209542811,0.8035706407390535,226.326427370077,240658324,1042,1042,0.0091473979143459
