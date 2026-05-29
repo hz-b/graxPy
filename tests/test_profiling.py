@@ -426,8 +426,6 @@ def test_blazed_multilayer_profile_tool_parses_case_configuration() -> None:
             "--fourier-orders",
             "11",
             "13",
-            "--backend",
-            "numba",
             "--no-live-stage-log",
         ]
     )
@@ -436,7 +434,6 @@ def test_blazed_multilayer_profile_tool_parses_case_configuration() -> None:
     assert args.x_resolution_nm == pytest.approx([0.02, 0.2])
     assert args.z_resolution_nm == pytest.approx([0.004, 0.4])
     assert args.fourier_orders == [11, 13]
-    assert args.backend == "numba"
     assert args.no_live_stage_log is True
 
 

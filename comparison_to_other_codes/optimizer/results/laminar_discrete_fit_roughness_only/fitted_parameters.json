@@ -6,7 +6,7 @@
   "cff": 2.5,
   "diffraction_order": 1,
   "fourier_orders": 15,
-  "solver_backend": "s_matrix",
+  "backend": "numba",
   "evaluation_mode": "discrete",
   "evaluation_energies_ev": [
     100.0,

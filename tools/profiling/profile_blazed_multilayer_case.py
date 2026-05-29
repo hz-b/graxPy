@@ -27,6 +27,7 @@ BLAZED_MULTILAYER_DIR = PROJECT_ROOT / "comparison_to_other_codes" / "blazed_mul
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "results" / "blazed_multilayer_case"
 DEFAULT_FOURIER_ORDERS = [5, 10, 15]
 DEFAULT_RESOLUTIONS_NM = [0.05, 0.1, 1.0]
+DEFAULT_BACKEND = "numba"
 
 
 @dataclass(frozen=True)
@@ -87,12 +88,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Fourier truncation order values on one side of zero.",
     )
     parser.add_argument(
-        "--backend",
-        choices=("numpy", "numba"),
-        default="numpy",
-        help="Fourier coefficient backend.",
-    )
-    parser.add_argument(
         "--label",
         default="run",
         help="Run label used in output filenames and matrix summary rows.",
@@ -133,6 +128,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("all --fourier-orders values must be >= 1.")
     if not str(args.label).strip():
         raise ValueError("--label must not be empty.")
+    if getattr(args, "backend", DEFAULT_BACKEND) != DEFAULT_BACKEND:
+        raise ValueError("The profiling tool requires the numba backend.")
 
 
 def _load_materials() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -232,7 +229,7 @@ def configure_profiler(
     profiler.set_metadata("fourier_orders", int(fourier_orders))
     profiler.set_metadata("x_resolution_nm", float(x_resolution_nm))
     profiler.set_metadata("z_resolution_nm", float(z_resolution_nm))
-    profiler.set_metadata("backend", str(args.backend))
+    profiler.set_metadata("backend", DEFAULT_BACKEND)
     profiler.set_metadata("python_version", sys.version.split()[0])
     profiler.set_metadata("numpy_version", np.__version__)
     return profiler
@@ -390,7 +387,7 @@ def run_profile_cases(args: argparse.Namespace) -> list[ProfileRun]:
             diffraction_order=2,
             fourier_orders=int(fourier_orders),
             _profiler=profiler,
-            backend=str(args.backend),
+            backend=DEFAULT_BACKEND,
         )
         runs.append(
             ProfileRun(

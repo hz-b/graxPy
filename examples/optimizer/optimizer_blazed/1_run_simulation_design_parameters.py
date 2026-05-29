@@ -77,7 +77,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
-    backend=simulation_backend,
+    backend="numba",
 )
 results = list(runner.run_cases(cases))
 
@@ -87,7 +87,7 @@ print(f"Initial-parameter simulation CSV: {output_csv_path}")
 print(
     "Initial simulation settings: "
     f"cff={cff}, fourier_orders={fourier_orders}, "
-    f"simulation_backend={simulation_backend}, "
+    "simulation_backend=numba, "
     f"x_resolution_nm={x_resolution_nm}, z_resolution_nm={z_resolution_nm}, "
     f"top_cap_material={'C' if use_top_cap else 'None'}, "
     f"top_cap_thickness_nm={top_cap_thickness_nm}"

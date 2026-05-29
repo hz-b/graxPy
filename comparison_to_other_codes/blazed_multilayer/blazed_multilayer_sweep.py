@@ -57,13 +57,13 @@ reference_data = reference_data.reset_index(drop=True)
 
 if args.quick:
     sampled_reference = reference_data.iloc[::100].copy()
-    x_resolution_nm = 0.05
-    z_resolution_nm = 0.05
-    default_fourier_orders = 15
+    x_resolution_nm = 1
+    z_resolution_nm = 1
+    default_fourier_orders = 10
 else:
     sampled_reference = reference_data.iloc[::1].copy()
-    x_resolution_nm = 0.01
-    z_resolution_nm = 0.01
+    x_resolution_nm = 0.1
+    z_resolution_nm = 0.1
     default_fourier_orders = 15
 
 energy_angle_pairs = list(
@@ -101,14 +101,15 @@ runner = rp.BatchSimulationRunner(
     default_diffraction_order=2,
     default_fourier_orders=default_fourier_orders,
     show_progress=True,
-    live_plot=False,
+    live_plot=True,
     live_plot_x_key="energy_ev",
-    live_plot_order_count=1,
+    live_plot_order_count=2,
     live_plot_reference_data=sampled_reference[["Energy", "Efficiency(GR)"]].to_numpy(dtype=float),
     on_error="fail_fast",
     max_workers='auto',
     checkpoint_dir=output_dir / "checkpoints",
     resume=False,
+    backend="numba",
 )
 
 csv_path = output_dir / "blazed_multilayer_all_orders.csv"

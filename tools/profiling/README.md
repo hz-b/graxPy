@@ -19,6 +19,8 @@ From the repository root:
 python3 tools/profiling/profile_blazed_multilayer_case.py
 ```
 
+This profiler always uses the `numba` Fourier backend.
+
 ## Branch Workflow
 
 Baseline on `develop`:
@@ -49,7 +51,7 @@ Default footprint:
 - `x_resolution_nm = 0.01, 0.1, 1.0`
 - `z_resolution_nm = 0.01, 0.1, 1.0`
 - `fourier_orders = 5, 10, 15`
-- `backend = numpy`
+- `backend = numba`
 
 Useful overrides:
 
