@@ -735,6 +735,9 @@ def test_layer_propagation_cascade_reports_substage_timings() -> None:
     assert "layer_modal_matrices" in stage_names
     assert "layer_block_assembly" in stage_names
     assert "layer_block_cascade_pair" in stage_names
+    assert "layer_cascade_pair_solve" in stage_names
+    assert "layer_cascade_pair_multiply" in stage_names
+    assert "layer_cascade_pair_assemble" in stage_names
 
 
 def test_blazed_multilayer_optimized_cascade_matches_legacy_cascade() -> None:

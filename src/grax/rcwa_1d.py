@@ -901,16 +901,19 @@ def _cascade_boundary_pair(
     if _profiler is not None:
         _profiler.add_detail_count("layer_cascade_pair_calls", 1)
     with _profiler.record("layer_block_cascade_pair") if _profiler is not None else _nullcontext():
-        l11 = left[:basis_size, :basis_size]
-        l12 = left[:basis_size, basis_size:]
-        l21 = left[basis_size:, :basis_size]
-        l22 = left[basis_size:, basis_size:]
-        r11 = right[:basis_size, :basis_size]
-        r12 = right[:basis_size, basis_size:]
-        r21 = right[basis_size:, :basis_size]
-        r22 = right[basis_size:, basis_size:]
+        with _profiler.record("layer_cascade_pair_partition") if _profiler is not None else _nullcontext():
+            l11 = left[:basis_size, :basis_size]
+            l12 = left[:basis_size, basis_size:]
+            l21 = left[basis_size:, :basis_size]
+            l22 = left[basis_size:, basis_size:]
+            r11 = right[:basis_size, :basis_size]
+            r12 = right[:basis_size, basis_size:]
+            r21 = right[basis_size:, :basis_size]
+            r22 = right[basis_size:, basis_size:]
 
-        matrix_to_solve = l22 - r11
+        with _profiler.record("layer_cascade_pair_matrix_setup") if _profiler is not None else _nullcontext():
+            matrix_to_solve = l22 - r11
+            rhs = np.hstack((l21, r12))
         logger.debug("  _cascade_boundary_pair: solving interface system...")
         if logger.isEnabledFor(logging.DEBUG):
             try:
@@ -921,26 +924,29 @@ def _cascade_boundary_pair(
                 pass
 
         try:
-            solved_blocks = np.linalg.solve(matrix_to_solve, np.hstack((l21, r12)))
+            with _profiler.record("layer_cascade_pair_solve") if _profiler is not None else _nullcontext():
+                solved_blocks = np.linalg.solve(matrix_to_solve, rhs)
         except np.linalg.LinAlgError as e:
             logger.error(f"  np.linalg.solve failed in cascade: {e}")
             raise
 
-        solved_l21 = solved_blocks[:, :basis_size]
-        solved_r12 = solved_blocks[:, basis_size:]
-        top_left = l11 - (l12 @ solved_l21)
-        top_right = l12 @ solved_r12
-        bottom_left = -(r21 @ solved_l21)
-        bottom_right = r22 + (r21 @ solved_r12)
+        with _profiler.record("layer_cascade_pair_multiply") if _profiler is not None else _nullcontext():
+            solved_l21 = solved_blocks[:, :basis_size]
+            solved_r12 = solved_blocks[:, basis_size:]
+            top_left = l11 - (l12 @ solved_l21)
+            top_right = l12 @ solved_r12
+            bottom_left = -(r21 @ solved_l21)
+            bottom_right = r22 + (r21 @ solved_r12)
 
-        result = np.empty_like(left)
-        result[:basis_size, :basis_size] = top_left
-        result[:basis_size, basis_size:] = top_right
-        result[basis_size:, :basis_size] = bottom_left
-        result[basis_size:, basis_size:] = bottom_right
+        with _profiler.record("layer_cascade_pair_assemble") if _profiler is not None else _nullcontext():
+            result = np.empty_like(left)
+            result[:basis_size, :basis_size] = top_left
+            result[:basis_size, basis_size:] = top_right
+            result[basis_size:, :basis_size] = bottom_left
+            result[basis_size:, basis_size:] = bottom_right
 
-        if np.any(np.isnan(result)) or np.any(np.isinf(result)):
-            logger.warning("  cascade produced NaN/Inf values")
+            if np.any(np.isnan(result)) or np.any(np.isinf(result)):
+                logger.warning("  cascade produced NaN/Inf values")
 
     return result
 
