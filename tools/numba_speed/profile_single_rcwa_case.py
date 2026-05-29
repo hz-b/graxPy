@@ -177,7 +177,7 @@ grazing_angle_deg = 4.0
 fourier_orders = 20
 x_resolution_nm = 0.1
 z_resolution_nm = 0.1
-fourier_backend_selection = "compare-numba-legacy"
+fourier_backend_selection = "compare-numpy-numba"
 output_dir = Path(__file__).resolve().parent / "results"
 
 output_dir.mkdir(parents=True, exist_ok=True)
