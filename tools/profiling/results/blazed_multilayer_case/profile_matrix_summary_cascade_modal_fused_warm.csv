@@ -1,0 +1,2 @@
+label,energy_ev,grazing_angle_deg,fourier_orders,x_resolution_nm,z_resolution_nm,total_wall_seconds,texture_generation_seconds,fourier_coefficients_seconds,layer_propagation_cascade_seconds,profiled_exclusive_seconds,peak_memory_bytes,texture_count,unique_texture_count,selected_efficiency
+cascade_modal_fused_warm,500.0,14.17636,10,0.1,0.1,2.2265311060473323,0.25916630192659795,0.18166187009774148,0.40180034353397787,1.9386725509539247,57010666,1042,1042,0.009147546162107882

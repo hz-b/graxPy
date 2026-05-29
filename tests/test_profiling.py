@@ -186,9 +186,16 @@ def _build_repeating_blazed_multilayer_grating() -> object:
     )
 
 
-def _legacy_cascade_boundary_pair(left: np.ndarray, right: np.ndarray, basis_size: int) -> np.ndarray:
+def _legacy_cascade_boundary_pair(
+    left: np.ndarray,
+    right: np.ndarray,
+    basis_size: int,
+    *,
+    _profiler: SolverProfiler | None = None,
+) -> np.ndarray:
     """Return the pre-optimization boundary-pair cascade result."""
 
+    del _profiler
     l11 = left[:basis_size, :basis_size]
     l12 = left[:basis_size, basis_size:]
     l21 = left[basis_size:, :basis_size]
@@ -569,9 +576,12 @@ def test_profiler_details_include_fourier_and_eigensolve_diagnostics() -> None:
     assert counts["layer_operator_calls"] > 0
     assert counts["layer_eigensolve_cache_misses"] >= 0
     assert counts["layer_boundary_blocks_constructed"] > 0
+    assert counts["layer_modal_matrices_calls"] > 0
+    assert counts["layer_cascade_pair_calls"] > 0
     assert timings["fourier_exp"]["calls"] > 0
     assert timings["fourier_sum"]["calls"] > 0
     assert timings["layer_eigensolve_call"]["calls"] > 0
+    assert timings["layer_modal_matrices_call"]["calls"] > 0
     assert unique_counts["layer_operator_unique"] > 0
     assert summary["peak_memory_bytes"] >= 0
     assert details["peaks"]["layer_boundary_block_temp_peak"] == pytest.approx(1.0)
@@ -681,6 +691,50 @@ def test_cascade_boundary_pair_matches_legacy_implementation() -> None:
     legacy = _legacy_cascade_boundary_pair(left, right, basis_size)
 
     assert np.allclose(optimized, legacy, rtol=1e-12, atol=1e-12)
+
+
+def test_fused_modal_function_matrices_match_individual_solves() -> None:
+    """Verify fused modal matrix construction preserves the existing algebra."""
+
+    rng = np.random.default_rng(4321)
+    matrix_size = 5
+    eigenvectors = rng.standard_normal((matrix_size, matrix_size)) + 1j * rng.standard_normal(
+        (matrix_size, matrix_size)
+    )
+    eigenvectors += np.eye(matrix_size, dtype=complex)
+    first_modal_values = rng.standard_normal(matrix_size) + 1j * rng.standard_normal(matrix_size)
+    second_modal_values = rng.standard_normal(matrix_size) + 1j * rng.standard_normal(matrix_size)
+
+    first_fused, second_fused = rcwa_1d._modal_function_matrices(
+        eigenvectors,
+        first_modal_values,
+        second_modal_values,
+    )
+    first_baseline = rcwa_1d._modal_function_matrix(eigenvectors, first_modal_values)
+    second_baseline = rcwa_1d._modal_function_matrix(eigenvectors, second_modal_values)
+
+    assert np.allclose(first_fused, first_baseline, rtol=1e-12, atol=1e-12)
+    assert np.allclose(second_fused, second_baseline, rtol=1e-12, atol=1e-12)
+
+
+def test_layer_propagation_cascade_reports_substage_timings() -> None:
+    """Verify cascade profiling attributes the internal dense linear algebra work."""
+
+    profiler = SolverProfiler()
+    run_simulation(
+        grating=_grating(),
+        energy_ev=200.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+        _profiler=profiler,
+    )
+    stage_names = {stage["stage"] for stage in profiler.summary_dict()["stages"]}
+
+    assert "layer_operator_build" in stage_names
+    assert "layer_modal_values" in stage_names
+    assert "layer_modal_matrices" in stage_names
+    assert "layer_block_assembly" in stage_names
+    assert "layer_block_cascade_pair" in stage_names
 
 
 def test_blazed_multilayer_optimized_cascade_matches_legacy_cascade() -> None:

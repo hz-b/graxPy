@@ -695,6 +695,7 @@ def _solve_te_stack(
                 stack_boundary,
                 block,
                 basis_size,
+                _profiler=_profiler,
             )
     top_stack_admittance = _top_admittance_from_boundary_block(
         stack_boundary=stack_boundary,
@@ -774,10 +775,11 @@ def _layer_boundary_block(
     if _profiler is not None:
         _profiler.add_detail_count("layer_boundary_block_cache_misses", 1)
 
-    epsilon_conv = _convolution_matrix(texture.epsilon_fourier, orders)
-    operator = kx_matrix_sq - (k0**2) * epsilon_conv
-    if np.any(np.isnan(operator)) or np.any(np.isinf(operator)):
-        raise ValueError("Layer operator contains NaN/Inf values")
+    with _profiler.record("layer_operator_build") if _profiler is not None else _nullcontext():
+        epsilon_conv = _convolution_matrix(texture.epsilon_fourier, orders)
+        operator = kx_matrix_sq - (k0**2) * epsilon_conv
+        if np.any(np.isnan(operator)) or np.any(np.isinf(operator)):
+            raise ValueError("Layer operator contains NaN/Inf values")
 
     cache_key = (
         texture.signature,
@@ -808,16 +810,22 @@ def _layer_boundary_block(
     if _profiler is not None:
         _profiler.increment("layer_eigensolve_calls")
 
-    q_values = np.sqrt(eigenvalues + 0j)
-    q_coth = _modal_q_coth(q_values, thickness)
-    q_csch = _modal_q_csch(q_values, thickness)
-    admittance = _modal_function_matrix(eigenvectors, q_coth)
-    coupling = _modal_function_matrix(eigenvectors, q_csch)
-    block = np.empty((2 * basis_size, 2 * basis_size), dtype=complex)
-    block[:basis_size, :basis_size] = -admittance
-    block[:basis_size, basis_size:] = coupling
-    block[basis_size:, :basis_size] = -coupling
-    block[basis_size:, basis_size:] = admittance
+    with _profiler.record("layer_modal_values") if _profiler is not None else _nullcontext():
+        q_values = np.sqrt(eigenvalues + 0j)
+        q_coth = _modal_q_coth(q_values, thickness)
+        q_csch = _modal_q_csch(q_values, thickness)
+    with _profiler.record("layer_modal_matrices") if _profiler is not None else _nullcontext():
+        t0 = perf_counter() if _profiler is not None else None
+        admittance, coupling = _modal_function_matrices(eigenvectors, q_coth, q_csch)
+        if _profiler is not None and t0 is not None:
+            _profiler.add_detail_timing("layer_modal_matrices_call", perf_counter() - t0)
+            _profiler.add_detail_count("layer_modal_matrices_calls", 1)
+    with _profiler.record("layer_block_assembly") if _profiler is not None else _nullcontext():
+        block = np.empty((2 * basis_size, 2 * basis_size), dtype=complex)
+        block[:basis_size, :basis_size] = -admittance
+        block[:basis_size, basis_size:] = coupling
+        block[basis_size:, :basis_size] = -coupling
+        block[basis_size:, basis_size:] = admittance
     boundary_block_cache[boundary_cache_key] = block
     return block
 
@@ -857,49 +865,82 @@ def _modal_function_matrix(
     return result
 
 
-def _cascade_boundary_pair(left: np.ndarray, right: np.ndarray, basis_size: int) -> np.ndarray:
+def _modal_function_matrices(
+    eigenvectors: np.ndarray,
+    first_modal_values: np.ndarray,
+    second_modal_values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return two ``V @ diag(m) @ V^-1`` matrices from one shared solve."""
+
+    first_left_factor = eigenvectors * first_modal_values[np.newaxis, :]
+    second_left_factor = eigenvectors * second_modal_values[np.newaxis, :]
+    stacked_rhs = np.hstack((first_left_factor.T, second_left_factor.T))
+    solved = np.linalg.solve(eigenvectors.T, stacked_rhs)
+    split_index = eigenvectors.shape[0]
+    first_result = solved[:, :split_index].T
+    second_result = solved[:, split_index:].T
+    if (
+        np.any(np.isnan(first_result))
+        or np.any(np.isinf(first_result))
+        or np.any(np.isnan(second_result))
+        or np.any(np.isinf(second_result))
+    ):
+        raise ValueError("Modal layer function produced NaN/Inf values")
+    return first_result, second_result
+
+
+def _cascade_boundary_pair(
+    left: np.ndarray,
+    right: np.ndarray,
+    basis_size: int,
+    *,
+    _profiler: SolverProfiler | None = None,
+) -> np.ndarray:
     """Cascade two adjacent interface-response blocks into one block."""
 
-    l11 = left[:basis_size, :basis_size]
-    l12 = left[:basis_size, basis_size:]
-    l21 = left[basis_size:, :basis_size]
-    l22 = left[basis_size:, basis_size:]
-    r11 = right[:basis_size, :basis_size]
-    r12 = right[:basis_size, basis_size:]
-    r21 = right[basis_size:, :basis_size]
-    r22 = right[basis_size:, basis_size:]
+    if _profiler is not None:
+        _profiler.add_detail_count("layer_cascade_pair_calls", 1)
+    with _profiler.record("layer_block_cascade_pair") if _profiler is not None else _nullcontext():
+        l11 = left[:basis_size, :basis_size]
+        l12 = left[:basis_size, basis_size:]
+        l21 = left[basis_size:, :basis_size]
+        l22 = left[basis_size:, basis_size:]
+        r11 = right[:basis_size, :basis_size]
+        r12 = right[:basis_size, basis_size:]
+        r21 = right[basis_size:, :basis_size]
+        r22 = right[basis_size:, basis_size:]
 
-    matrix_to_solve = l22 - r11
-    logger.debug("  _cascade_boundary_pair: solving interface system...")
-    if logger.isEnabledFor(logging.DEBUG):
+        matrix_to_solve = l22 - r11
+        logger.debug("  _cascade_boundary_pair: solving interface system...")
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                cond = np.linalg.cond(matrix_to_solve)
+                if cond > 1e12:
+                    logger.warning(f"  interface matrix is nearly singular (cond={cond:.2e})")
+            except Exception:
+                pass
+
         try:
-            cond = np.linalg.cond(matrix_to_solve)
-            if cond > 1e12:
-                logger.warning(f"  interface matrix is nearly singular (cond={cond:.2e})")
-        except Exception:
-            pass
+            solved_blocks = np.linalg.solve(matrix_to_solve, np.hstack((l21, r12)))
+        except np.linalg.LinAlgError as e:
+            logger.error(f"  np.linalg.solve failed in cascade: {e}")
+            raise
 
-    try:
-        solved_blocks = np.linalg.solve(matrix_to_solve, np.hstack((l21, r12)))
-    except np.linalg.LinAlgError as e:
-        logger.error(f"  np.linalg.solve failed in cascade: {e}")
-        raise
+        solved_l21 = solved_blocks[:, :basis_size]
+        solved_r12 = solved_blocks[:, basis_size:]
+        top_left = l11 - (l12 @ solved_l21)
+        top_right = l12 @ solved_r12
+        bottom_left = -(r21 @ solved_l21)
+        bottom_right = r22 + (r21 @ solved_r12)
 
-    solved_l21 = solved_blocks[:, :basis_size]
-    solved_r12 = solved_blocks[:, basis_size:]
-    top_left = l11 - (l12 @ solved_l21)
-    top_right = l12 @ solved_r12
-    bottom_left = -(r21 @ solved_l21)
-    bottom_right = r22 + (r21 @ solved_r12)
+        result = np.empty_like(left)
+        result[:basis_size, :basis_size] = top_left
+        result[:basis_size, basis_size:] = top_right
+        result[basis_size:, :basis_size] = bottom_left
+        result[basis_size:, basis_size:] = bottom_right
 
-    result = np.empty_like(left)
-    result[:basis_size, :basis_size] = top_left
-    result[:basis_size, basis_size:] = top_right
-    result[basis_size:, :basis_size] = bottom_left
-    result[basis_size:, basis_size:] = bottom_right
-
-    if np.any(np.isnan(result)) or np.any(np.isinf(result)):
-        logger.warning("  cascade produced NaN/Inf values")
+        if np.any(np.isnan(result)) or np.any(np.isinf(result)):
+            logger.warning("  cascade produced NaN/Inf values")
 
     return result
 
@@ -921,6 +962,7 @@ def _cascade_layer_boundary_blocks(
                 stack_boundary,
                 block,
                 basis_size,
+                _profiler=_profiler,
             )
     return stack_boundary
 
