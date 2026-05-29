@@ -73,6 +73,7 @@ runner = rp.BatchSimulationRunner(
     live_plot_order_count=3,
     checkpoint_dir=results_dir / "checkpoints",
     resume=False,  # Set to False to force restart from beginning
+    backend="numba",
 )
 
 grating.plot_profile(profile_plot_path)
@@ -87,7 +88,7 @@ batch_result = list(runner.run_cases(
         "layer_material": "Au",
         "layer_thickness_nm": 30.0,
         "fourier_orders": 20,
-        "solver_backend": "s_matrix",
+        "backend": "numba",
         "description": "Blazed grating monochromator sweep",
     }
 ))

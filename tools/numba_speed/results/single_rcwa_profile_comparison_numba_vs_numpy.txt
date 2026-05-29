@@ -1,0 +1,12 @@
+RCWA Fourier Backend Comparison
+
+baseline_actual_backend=numpy
+
+backend                    actual_backend              total_s    fourier_s   peak_mb   speedup_vs_baseline
+-----------------------------------------------------------------------------------------------------------
+numpy                     numpy                     1.529602  0.992214   41.864            1.000000
+numba                     numba                     0.752052  0.236705   54.776            2.033904
+
+order_minus_1_efficiency_deltas_vs_numpy
+- numpy: 0.000000000000e+00
+- numba: -6.269706975814e-12

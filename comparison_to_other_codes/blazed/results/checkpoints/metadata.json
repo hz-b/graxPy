@@ -7,11 +7,11 @@
   "layer_material": "Au",
   "layer_thickness_nm": 30.0,
   "fourier_orders": 20,
-  "solver_backend": "s_matrix",
+  "backend": "numba",
   "description": "Blazed grating monochromator sweep",
   "created": "2026-05-07T11:07:19.899843",
   "execution_mode": "inline",
   "default_diffraction_order": 1,
   "default_fourier_orders": 15,
-  "default_solver_backend": "s_matrix"
+  "default_backend": "numba"
 }

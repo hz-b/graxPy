@@ -79,7 +79,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
-    backend=str(payload.get("backend", baseline_simulation_backend)),
+    backend="numba",
 )
 results = list(runner.run_cases(cases))
 
@@ -91,5 +91,5 @@ print(
     "Fitted simulation settings: "
     f"grazing_angle_deg={grazing_angle_deg}, "
     f"fourier_orders={int(payload.get('fourier_orders', baseline_fourier_orders))}, "
-    f"simulation_backend={str(payload.get('backend', baseline_simulation_backend))}"
+    "simulation_backend=numba"
 )

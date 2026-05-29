@@ -170,7 +170,7 @@ for energy_ev in tqdm(ENERGIES_EV, desc="Multilayer RCWA comparison", unit="ener
 
 csv_path = OUTPUT_DIR / "multi_energy_multilayer_numba_vs_numpy.csv"
 with csv_path.open("w", encoding="utf-8", newline="") as handle:
-    writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+    writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()), lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows)
 

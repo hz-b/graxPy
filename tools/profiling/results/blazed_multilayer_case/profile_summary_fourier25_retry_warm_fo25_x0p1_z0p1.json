@@ -1,0 +1,262 @@
+{
+  "counters": {
+    "layer_eigensolve_calls": 1042
+  },
+  "derived_kpis": {
+    "bytes_per_fourier_call": 1784.813819577735,
+    "time_per_fourier_call_seconds": 0.0001933903707327203,
+    "time_per_harmonic_seconds": 1.914756145868518e-06
+  },
+  "details": {
+    "counts": {
+      "fourier_allocation_bytes": 1859776,
+      "fourier_backend_calls": 1042,
+      "fourier_calls": 1042,
+      "fourier_exp_calls": 1396400,
+      "fourier_harmonics_total": 105242,
+      "fourier_loop_iterations": 105242,
+      "fourier_numba_calls": 1042,
+      "fourier_segments_total": 6982,
+      "fourier_sum_calls": 105242,
+      "layer_boundary_block_cache_hits": 1910,
+      "layer_boundary_block_cache_misses": 1042,
+      "layer_boundary_blocks_constructed": 2952,
+      "layer_cascade_pair_calls": 2951,
+      "layer_eigensolve_cache_misses": 1042,
+      "layer_modal_matrices_calls": 1042,
+      "layer_operator_calls": 1042,
+      "layer_operator_cols_total": 53142,
+      "layer_operator_rows_total": 53142,
+      "texture_conversion_cache_misses": 1042
+    },
+    "peaks": {
+      "fourier_harmonic_count_peak": 101.0,
+      "fourier_segment_count_peak": 9.0,
+      "fourier_temp_buffer_bytes_peak": 1616.0,
+      "layer_boundary_block_bytes_peak": 166464.0,
+      "layer_boundary_block_temp_peak": 1.0,
+      "layer_operator_cols_peak": 51.0,
+      "layer_operator_rows_peak": 51.0
+    },
+    "timings": {
+      "fourier_call_total": {
+        "calls": 1042.0,
+        "max_seconds": 0.16165369097143412,
+        "mean_seconds": 0.0001872152498084873,
+        "total_seconds": 0.19507829030044377
+      },
+      "fourier_exp": {
+        "calls": 1042.0,
+        "max_seconds": 0.16165369097143412,
+        "mean_seconds": 0.0001872152498084873,
+        "total_seconds": 0.19507829030044377
+      },
+      "fourier_loop_overhead": {
+        "calls": 1042.0,
+        "max_seconds": 0.0,
+        "mean_seconds": 0.0,
+        "total_seconds": 0.0
+      },
+      "fourier_sum": {
+        "calls": 1042.0,
+        "max_seconds": 0.0,
+        "mean_seconds": 0.0,
+        "total_seconds": 0.0
+      },
+      "layer_eigensolve_call": {
+        "calls": 1042.0,
+        "max_seconds": 0.004419431090354919,
+        "mean_seconds": 0.0020842976149103663,
+        "total_seconds": 2.1718381147366017
+      },
+      "layer_modal_matrices_call": {
+        "calls": 1042.0,
+        "max_seconds": 0.006491187959909439,
+        "mean_seconds": 0.00028294103305908405,
+        "total_seconds": 0.29482455644756556
+      }
+    },
+    "unique_counts": {
+      "fourier_backend_actual": 1,
+      "layer_operator_unique": 1042
+    }
+  },
+  "label": "fourier25_retry_warm",
+  "metadata": {
+    "backend": "numba",
+    "case_index": 0,
+    "energy_ev": 500.0,
+    "fourier_backend_actual": "numba",
+    "fourier_backend_requested": "numba",
+    "fourier_orders": 25,
+    "grazing_angle_deg": 14.17636,
+    "harmonic_count": 51,
+    "input_texture_count": 1042,
+    "numba_available": true,
+    "numpy_version": "1.26.4",
+    "profile_case": "blazed_multilayer_single_case",
+    "python_version": "3.10.12",
+    "texture_conversion_cache_hits": 0,
+    "texture_conversion_cache_misses": 1042,
+    "texture_count": 1042,
+    "unique_texture_signatures": 1042,
+    "x_resolution_nm": 0.1,
+    "z_resolution_nm": 0.1
+  },
+  "peak_memory_bytes": 240655610,
+  "profiled_exclusive_seconds": 5.0160980799701065,
+  "result": {
+    "selected_diffraction_angle_deg": 16.735473054396437,
+    "selected_efficiency": 0.0091473979143459
+  },
+  "stage_peak_memory_bytes": {
+    "fourier_coefficients": 18675423,
+    "layer_block_assembly": 240443849,
+    "layer_block_cascade_pair": 240655610,
+    "layer_cascade_pair_assemble": 240655610,
+    "layer_cascade_pair_matrix_setup": 240443849,
+    "layer_cascade_pair_multiply": 240553724,
+    "layer_cascade_pair_partition": 240443849,
+    "layer_cascade_pair_solve": 240443849,
+    "layer_eigensolve": 240443849,
+    "layer_modal_matrices": 240443849,
+    "layer_modal_values": 240443849,
+    "layer_operator_build": 240443849,
+    "layer_propagation_cascade": 240655610,
+    "matrix_solves": 240655610,
+    "postprocessing": 240655610,
+    "res1_total": 18675423,
+    "res2_total": 240655610,
+    "texture_generation": 4277835
+  },
+  "stages": [
+    {
+      "calls": 1042,
+      "percent_exclusive": 43.361305125985325,
+      "seconds_exclusive": 2.175045593874529,
+      "seconds_inclusive": 2.175045593874529,
+      "stage": "layer_eigensolve"
+    },
+    {
+      "calls": 1,
+      "percent_exclusive": 10.53899740138172,
+      "seconds_exclusive": 0.5286464462988079,
+      "seconds_inclusive": 4.466674748109654,
+      "stage": "layer_propagation_cascade"
+    },
+    {
+      "calls": 2951,
+      "percent_exclusive": 9.976044359635123,
+      "seconds_exclusive": 0.5004081695806235,
+      "seconds_inclusive": 0.5004081695806235,
+      "stage": "layer_cascade_pair_solve"
+    },
+    {
+      "calls": 2951,
+      "percent_exclusive": 8.471829776198296,
+      "seconds_exclusive": 0.4249552907422185,
+      "seconds_inclusive": 0.4249552907422185,
+      "stage": "layer_cascade_pair_multiply"
+    },
+    {
+      "calls": 1042,
+      "percent_exclusive": 5.946730785547475,
+      "seconds_exclusive": 0.2982938487548381,
+      "seconds_inclusive": 0.2982938487548381,
+      "stage": "layer_modal_matrices"
+    },
+    {
+      "calls": 1,
+      "percent_exclusive": 5.120554702599486,
+      "seconds_exclusive": 0.25685204612091184,
+      "seconds_inclusive": 0.25685204612091184,
+      "stage": "texture_generation"
+    },
+    {
+      "calls": 1042,
+      "percent_exclusive": 4.0173210948198905,
+      "seconds_exclusive": 0.20151276630349457,
+      "seconds_inclusive": 0.20151276630349457,
+      "stage": "fourier_coefficients"
+    },
+    {
+      "calls": 2951,
+      "percent_exclusive": 3.2096913738625825,
+      "seconds_exclusive": 0.16100126737728715,
+      "seconds_inclusive": 0.16100126737728715,
+      "stage": "layer_cascade_pair_assemble"
+    },
+    {
+      "calls": 2951,
+      "percent_exclusive": 2.640722947920449,
+      "seconds_exclusive": 0.13246125308796763,
+      "seconds_inclusive": 1.2972439078148454,
+      "stage": "layer_block_cascade_pair"
+    },
+    {
+      "calls": 1,
+      "percent_exclusive": 1.584085564707681,
+      "seconds_exclusive": 0.0794592855963856,
+      "seconds_inclusive": 0.28097205189988017,
+      "stage": "res1_total"
+    },
+    {
+      "calls": 1042,
+      "percent_exclusive": 1.4878427502970575,
+      "seconds_exclusive": 0.07463165163062513,
+      "seconds_inclusive": 0.07463165163062513,
+      "stage": "layer_modal_values"
+    },
+    {
+      "calls": 1042,
+      "percent_exclusive": 1.1433785397803127,
+      "seconds_exclusive": 0.057352988980710506,
+      "seconds_inclusive": 0.057352988980710506,
+      "stage": "layer_operator_build"
+    },
+    {
+      "calls": 2951,
+      "percent_exclusive": 1.0792755523546076,
+      "seconds_exclusive": 0.05413752025924623,
+      "seconds_inclusive": 0.05413752025924623,
+      "stage": "layer_cascade_pair_matrix_setup"
+    },
+    {
+      "calls": 1042,
+      "percent_exclusive": 0.7069301714193927,
+      "seconds_exclusive": 0.03546031075529754,
+      "seconds_inclusive": 0.03546031075529754,
+      "stage": "layer_block_assembly"
+    },
+    {
+      "calls": 2951,
+      "percent_exclusive": 0.4840496812543811,
+      "seconds_exclusive": 0.024280406767502427,
+      "seconds_inclusive": 0.024280406767502427,
+      "stage": "layer_cascade_pair_partition"
+    },
+    {
+      "calls": 1,
+      "percent_exclusive": 0.2250840712189582,
+      "seconds_exclusive": 0.011290437774732709,
+      "seconds_inclusive": 4.4782373500056565,
+      "stage": "res2_total"
+    },
+    {
+      "calls": 2,
+      "percent_exclusive": 0.0054258133898331135,
+      "seconds_exclusive": 0.00027216412127017975,
+      "seconds_inclusive": 0.00027216412127017975,
+      "stage": "matrix_solves"
+    },
+    {
+      "calls": 1,
+      "percent_exclusive": 0.0007302876274343619,
+      "seconds_exclusive": 3.663194365799427e-05,
+      "seconds_inclusive": 3.663194365799427e-05,
+      "stage": "postprocessing"
+    }
+  ],
+  "total_wall_seconds": 5.304316716967151,
+  "unprofiled_seconds": 0.2882186369970441
+}

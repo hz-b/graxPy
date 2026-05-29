@@ -106,6 +106,7 @@ runner = rp.BatchSimulationRunner(
     live_plot_order_count=1,
     on_error="fail_fast",
     resume=not quick_mode,
+    backend="numba",
 )
 grating.plot_profile(profile_plot_path)
 batch_result = list(runner.run_cases(cases))

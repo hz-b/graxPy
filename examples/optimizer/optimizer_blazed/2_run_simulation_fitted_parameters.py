@@ -85,7 +85,7 @@ runner = rp.BatchSimulationRunner(
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
-    backend=str(payload.get("backend", baseline_simulation_backend)),
+    backend="numba",
 )
 results = list(runner.run_cases(cases))
 
@@ -96,7 +96,7 @@ print(
     "Fitted simulation settings: "
     f"cff={float(payload.get('cff', baseline_cff))}, "
     f"fourier_orders={int(payload.get('fourier_orders', baseline_fourier_orders))}, "
-    f"simulation_backend={str(payload.get('backend', baseline_simulation_backend))}, "
+    "simulation_backend=numba, "
     f"x_resolution_nm={fitted_grating.x_resolution_nm}, "
     f"z_resolution_nm={fitted_grating.z_resolution_nm}, "
     f"top_cap_material={'C' if use_top_cap else 'None'}, "

@@ -328,23 +328,9 @@ class BaseGrating(ABC):
         surface = self._surface_profile_on_grid(x_grid, num_periods=1)
         texture_registry: dict[tuple[object, ...], int] = {}
         textures: list[object] = []
-
-        def register_texture(texture: object) -> int:
-            signature = self._texture_descriptor_signature(texture)
-            if signature in texture_registry:
-                return texture_registry[signature]
-            texture_index = len(textures)
-            textures.append(texture)
-            texture_registry[signature] = texture_index
-            return texture_index
-
-        incident_index = register_texture(complex(n_inc))
-        profile_thicknesses: list[float] = [0.0]
-        profile_indices: list[int] = [incident_index]
-
-        for z_value in z_grid:
-            row_texture = self._texture_descriptor_for_row(
-                z_value=float(z_value),
+        prepared_multilayer = None
+        if isinstance(coating_stack, MultilayerStack):
+            prepared_multilayer = _prepare_multilayer_texture_builder(
                 x_grid=x_grid,
                 surface=surface,
                 coating_stack=coating_stack,
@@ -352,7 +338,42 @@ class BaseGrating(ABC):
                 n_inc=complex(n_inc),
                 n_sub=complex(n_sub),
             )
-            row_index = register_texture(row_texture)
+
+        def register_texture(texture: object, *, signature: tuple[object, ...] | None = None) -> int:
+            texture_signature = (
+                self._texture_descriptor_signature(texture)
+                if signature is None
+                else signature
+            )
+            if texture_signature in texture_registry:
+                return texture_registry[texture_signature]
+            texture_index = len(textures)
+            textures.append(texture)
+            texture_registry[texture_signature] = texture_index
+            return texture_index
+
+        incident_index = register_texture(complex(n_inc))
+        profile_thicknesses: list[float] = [0.0]
+        profile_indices: list[int] = [incident_index]
+
+        for z_value in z_grid:
+            if prepared_multilayer is not None:
+                row_texture, row_signature = _texture_descriptor_for_prepared_multilayer_row(
+                    z_value=float(z_value),
+                    prepared=prepared_multilayer,
+                )
+                row_index = register_texture(row_texture, signature=row_signature)
+            else:
+                row_texture = self._texture_descriptor_for_row(
+                    z_value=float(z_value),
+                    x_grid=x_grid,
+                    surface=surface,
+                    coating_stack=coating_stack,
+                    photon_energy_ev=photon_energy_ev,
+                    n_inc=complex(n_inc),
+                    n_sub=complex(n_sub),
+                )
+                row_index = register_texture(row_texture)
             if len(profile_indices) > 1 and profile_indices[-1] == row_index:
                 profile_thicknesses[-1] += float(self.z_resolution_nm)
             else:
@@ -682,6 +703,106 @@ def _index_for_material(
         if isinstance(is_match, bool) and is_match:
             return refractive_index
     raise KeyError(f"Unable to resolve refractive index for {material_label(material)}.")
+
+
+@dataclass(frozen=True)
+class _PreparedMultilayerTextureBuilder:
+    """Precomputed constants for one multilayer low-memory texture build."""
+
+    x_grid: np.ndarray
+    surface_base_nm: np.ndarray
+    bilayer_period_nm: float
+    stack_height_nm: float
+    bottom_thickness_nm: float
+    top_cap_thickness_nm: float
+    n_sub: complex
+    n_inc: complex
+    n_bottom: complex
+    n_top: complex
+    n_top_cap: complex | None
+
+
+def _prepare_multilayer_texture_builder(
+    *,
+    x_grid: np.ndarray,
+    surface: np.ndarray,
+    coating_stack: MultilayerStack,
+    photon_energy_ev: float,
+    n_inc: complex,
+    n_sub: complex,
+) -> _PreparedMultilayerTextureBuilder:
+    """Return cached constants for one multilayer texture-generation pass."""
+
+    n_material_a = resolve_refractive_index(coating_stack.material_a, photon_energy_ev)
+    n_material_b = resolve_refractive_index(coating_stack.material_b, photon_energy_ev)
+    refractive_index_by_material = [
+        (coating_stack.material_a, n_material_a),
+        (coating_stack.material_b, n_material_b),
+    ]
+    bottom_material, top_material = coating_stack.bilayer_materials_bottom_up
+    bottom_thickness_nm, _ = coating_stack.bilayer_thicknesses_bottom_up
+    n_top_cap = None
+    if coating_stack.top_cap_material is not None and coating_stack.top_cap_thickness_nm > 0.0:
+        n_top_cap = resolve_refractive_index(coating_stack.top_cap_material, photon_energy_ev)
+    return _PreparedMultilayerTextureBuilder(
+        x_grid=np.asarray(x_grid, dtype=float),
+        surface_base_nm=np.asarray(surface, dtype=float) + 1.0,
+        bilayer_period_nm=float(coating_stack.d_period_nm),
+        stack_height_nm=float(coating_stack.d_period_nm * coating_stack.n_bilayers),
+        bottom_thickness_nm=float(bottom_thickness_nm),
+        top_cap_thickness_nm=float(coating_stack.top_cap_thickness_nm),
+        n_sub=complex(n_sub),
+        n_inc=complex(n_inc),
+        n_bottom=_index_for_material(bottom_material, refractive_index_by_material),
+        n_top=_index_for_material(top_material, refractive_index_by_material),
+        n_top_cap=None if n_top_cap is None else complex(n_top_cap),
+    )
+
+
+def _texture_descriptor_for_prepared_multilayer_row(
+    *,
+    z_value: float,
+    prepared: _PreparedMultilayerTextureBuilder,
+) -> tuple[object, tuple[object, ...]]:
+    """Return one row texture descriptor and its signature for a multilayer row."""
+
+    row_values = np.full(prepared.surface_base_nm.shape, prepared.n_sub, dtype=complex)
+    relative_height_nm = float(z_value) - prepared.surface_base_nm
+    multilayer_mask = (relative_height_nm >= 0.0) & (relative_height_nm < prepared.stack_height_nm)
+    if np.any(multilayer_mask):
+        bilayer_phase_nm = np.mod(relative_height_nm[multilayer_mask], prepared.bilayer_period_nm)
+        row_values[multilayer_mask] = np.where(
+            bilayer_phase_nm < prepared.bottom_thickness_nm,
+            prepared.n_bottom,
+            prepared.n_top,
+        )
+    if prepared.top_cap_thickness_nm > 0.0 and prepared.n_top_cap is not None:
+        top_cap_mask = (
+            (relative_height_nm >= prepared.stack_height_nm)
+            & (relative_height_nm < prepared.stack_height_nm + prepared.top_cap_thickness_nm)
+        )
+        if np.any(top_cap_mask):
+            row_values[top_cap_mask] = prepared.n_top_cap
+    incident_mask = relative_height_nm >= prepared.stack_height_nm + prepared.top_cap_thickness_nm
+    if np.any(incident_mask):
+        row_values[incident_mask] = prepared.n_inc
+
+    row_changes = np.flatnonzero(np.diff(row_values) != 0)
+    if row_changes.size == 0:
+        value = complex(row_values[0])
+        return value, ("homogeneous", round(float(np.real(value)), 12), round(float(np.imag(value)), 12))
+
+    x_positions = prepared.x_grid[row_changes + 1]
+    n_left = row_values[row_changes]
+    signature = (
+        "patterned",
+        tuple(np.round(x_positions, 12)),
+        tuple(
+            (round(float(np.real(value)), 12), round(float(np.imag(value)), 12))
+            for value in n_left
+        ),
+    )
+    return [x_positions, n_left], signature
 
 
 def _material_matches(material: Any, candidate: Any) -> bool:

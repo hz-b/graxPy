@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import tracemalloc
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from time import perf_counter
-import tracemalloc
 
 
 @dataclass(frozen=True)
@@ -26,9 +27,18 @@ class SolverProfiler:
     This class is internal and intended for one-case RCWA profiling only.
     """
 
-    def __init__(self) -> None:
-        """Initialize empty timing and counter registries."""
+    def __init__(
+        self,
+        *,
+        log_stages: bool = False,
+        logger_name: str = "grax.simulation.profiling",
+    ) -> None:
+        """Initialize empty timing and counter registries.
 
+        Args:
+            log_stages: Whether to log stage start and end messages.
+            logger_name: Logger used for live stage timing messages.
+        """
         self._stage_seconds: dict[str, float] = defaultdict(float)
         self._stage_exclusive_seconds: dict[str, float] = defaultdict(float)
         self._stage_calls: dict[str, int] = defaultdict(int)
@@ -44,14 +54,16 @@ class SolverProfiler:
         self._detail_peaks: dict[str, float] = {}
         self._unique_sets: dict[str, set[str]] = defaultdict(set)
         self._metadata: dict[str, object] = {}
+        self._log_stages = bool(log_stages)
+        self._logger = logging.getLogger(logger_name)
 
     @contextmanager
     def record(self, stage: str):
         """Record elapsed time spent in one named stage."""
-
         start = perf_counter()
         frame: list[float | str] = [stage, start, 0.0]
         self._active_stack.append(frame)
+        self._log_stage_start(stage)
         try:
             yield
         finally:
@@ -68,42 +80,40 @@ class SolverProfiler:
             self._stage_exclusive_seconds[stage] += exclusive_elapsed
             self._stage_calls[stage] += 1
             self._update_memory(stage)
+            self._log_stage_end(
+                stage,
+                elapsed_seconds=elapsed,
+                exclusive_seconds=exclusive_elapsed,
+            )
 
     def increment(self, name: str, value: int = 1) -> None:
         """Increment an integer counter."""
-
         self._counters[name] += int(value)
 
     def add_detail_timing(self, name: str, seconds: float) -> None:
         """Store one detailed timing sample for an internal operation."""
-
         self._detail_lists[name].append(float(seconds))
 
     def add_detail_count(self, name: str, value: int = 1) -> None:
         """Accumulate one detailed integer counter."""
-
         self._detail_counts[name] += int(value)
 
     def add_unique_value(self, name: str, value: str) -> None:
         """Track unique string identifiers for repeated operations."""
-
         self._unique_sets[name].add(value)
 
     def update_detail_peak(self, name: str, value: float) -> None:
         """Track the maximum observed value for one detailed metric."""
-
         current = self._detail_peaks.get(name)
         if current is None or float(value) > current:
             self._detail_peaks[name] = float(value)
 
     def set_metadata(self, name: str, value: object) -> None:
         """Store run metadata for reproducible benchmark reports."""
-
         self._metadata[name] = value
 
     def enable_memory_tracking(self) -> None:
         """Enable lightweight peak memory tracking via ``tracemalloc``."""
-
         if not tracemalloc.is_tracing():
             tracemalloc.start()
             self._tracked_memory = True
@@ -111,7 +121,6 @@ class SolverProfiler:
 
     def finalize(self) -> None:
         """Stop overall wall-clock timer if not already stopped."""
-
         if self._run_end is None:
             self._run_end = perf_counter()
         self._update_memory(None)
@@ -121,7 +130,6 @@ class SolverProfiler:
 
     def _update_memory(self, stage: str | None) -> None:
         """Update global and stage-local peak memory values."""
-
         if not tracemalloc.is_tracing():
             return
         _current, peak = tracemalloc.get_traced_memory()
@@ -132,17 +140,35 @@ class SolverProfiler:
                 int(peak),
             )
 
+    def _log_stage_start(self, stage: str) -> None:
+        """Log stage start when live stage logging is enabled."""
+        if self._log_stages:
+            self._logger.info("stage start: %s", stage)
+
+    def _log_stage_end(
+        self,
+        stage: str,
+        *,
+        elapsed_seconds: float,
+        exclusive_seconds: float,
+    ) -> None:
+        """Log stage completion when live stage logging is enabled."""
+        if self._log_stages:
+            self._logger.info(
+                "stage end: %s elapsed=%.6fs exclusive=%.6fs",
+                stage,
+                elapsed_seconds,
+                exclusive_seconds,
+            )
+
     @property
     def total_wall_seconds(self) -> float:
         """Return total wall-clock duration for the profiled run."""
-
         end = self._run_end if self._run_end is not None else perf_counter()
         return max(0.0, end - self._run_start)
 
     def stage_timings(self) -> list[StageTiming]:
         """Return stage timings sorted by descending runtime."""
-
-        total = self.total_wall_seconds
         total_exclusive = float(sum(self._stage_exclusive_seconds.values()))
         entries: list[StageTiming] = []
         for stage, seconds_inclusive in self._stage_seconds.items():
@@ -164,7 +190,6 @@ class SolverProfiler:
 
     def summary_dict(self) -> dict[str, object]:
         """Return structured timing summary data."""
-
         stage_entries = self.stage_timings()
         return {
             "total_wall_seconds": self.total_wall_seconds,
@@ -193,13 +218,14 @@ class SolverProfiler:
 
     def _derived_kpis(self) -> dict[str, float]:
         """Return derived solver KPIs for the current profiling run."""
-
         kpis: dict[str, float] = {}
         fourier_seconds = float(self._stage_exclusive_seconds.get("fourier_coefficients", 0.0))
         fourier_calls = int(self._detail_counts.get("fourier_calls", 0))
         harmonics = int(self._detail_counts.get("fourier_harmonics_total", 0))
         allocation_bytes = int(self._detail_counts.get("fourier_allocation_bytes", 0))
-        phase_cache_peak = float(self._detail_peaks.get("fourier_phase_table_cache_bytes_peak", 0.0))
+        phase_cache_peak = float(
+            self._detail_peaks.get("fourier_phase_table_cache_bytes_peak", 0.0)
+        )
 
         if fourier_calls > 0:
             kpis["time_per_fourier_call_seconds"] = fourier_seconds / float(fourier_calls)
@@ -215,7 +241,6 @@ class SolverProfiler:
 
     def _details_summary(self) -> dict[str, object]:
         """Return aggregated detailed diagnostics."""
-
         detail_timings: dict[str, dict[str, float]] = {}
         for name, values in self._detail_lists.items():
             if not values:
@@ -236,7 +261,6 @@ class SolverProfiler:
 
     def format_report(self) -> str:
         """Return a concise human-readable timing report."""
-
         entries = self.stage_timings()
         lines = [
             "RCWA Profiling Summary",
@@ -257,7 +281,8 @@ class SolverProfiler:
             lines.append("(no recorded stages)")
         for entry in entries:
             lines.append(
-                f"{entry.stage:<26} {entry.seconds_exclusive:>8.6f}  {entry.percent_exclusive:>7.2f}%  "
+                f"{entry.stage:<26} {entry.seconds_exclusive:>8.6f}  "
+                f"{entry.percent_exclusive:>7.2f}%  "
                 f"{entry.seconds_inclusive:>8.6f}  {entry.calls:>5d}"
             )
         profiled_exclusive = float(sum(self._stage_exclusive_seconds.values()))
