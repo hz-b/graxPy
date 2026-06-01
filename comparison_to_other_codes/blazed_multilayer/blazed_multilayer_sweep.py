@@ -62,9 +62,9 @@ if args.quick:
     default_fourier_orders = 10
 else:
     sampled_reference = reference_data.iloc[::1].copy()
-    x_resolution_nm = 0.1
-    z_resolution_nm = 0.1
-    default_fourier_orders = 15
+    x_resolution_nm = 0.01
+    z_resolution_nm = 0.01
+    default_fourier_orders = 25
 
 energy_angle_pairs = list(
     zip(
