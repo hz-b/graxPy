@@ -15,7 +15,7 @@ ENERGIES_EV = [5000.0, 6000.0]
 PARAMETERS = {
     "x_resolution_nm": np.array([0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0], dtype=float),
     "z_resolution_nm": np.array([0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0], dtype=float),
-    "fourier_orders": np.arange(5, 26, 5, dtype=int),
+    "fourier_orders": np.arange(5, 36, 5, dtype=int),
 }
 
 rp.setup_logging(level="INFO", run_id="blazed_multilayer_parameter_study")
