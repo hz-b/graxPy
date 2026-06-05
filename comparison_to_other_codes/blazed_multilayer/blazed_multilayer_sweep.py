@@ -63,8 +63,8 @@ if args.quick:
 else:
     sampled_reference = reference_data.iloc[::1].copy()
     x_resolution_nm = 0.1
-    z_resolution_nm = 0.05
-    default_fourier_orders = 20
+    z_resolution_nm = 0.01
+    default_fourier_orders = 35
 
 energy_angle_pairs = list(
     zip(
