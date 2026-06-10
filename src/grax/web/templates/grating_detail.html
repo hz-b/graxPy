@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ grating.name }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ grating.name }}</h1>
+    <p>{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm</p>
+  </div>
+  <a class="button" href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit</a>
+</section>
+
+<img class="preview" src="{{ preview_url }}" alt="Grating profile preview">
+
+<form class="form run-form" method="post" action="{{ url_for('create_run', grating_id=grating.id) }}">
+  <fieldset>
+    <legend>Run sweep</legend>
+    <label>Workflow
+      <select name="workflow">
+        <option value="fixed_angle">Fixed angle</option>
+        <option value="monochromator">Monochromator</option>
+        <option value="multilayer_theta_search">Multilayer theta search</option>
+        <option value="parameter_study">Parameter study</option>
+      </select>
+    </label>
+    <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="100"></label>
+    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="120"></label>
+    <label>Energy points <input name="energy_points" type="number" step="1" value="3"></label>
+    <label>Grazing angle, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+    <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
+    <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
+    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
+  </fieldset>
+  <button class="button primary" type="submit">Run sweep</button>
+</form>
+{% endblock %}

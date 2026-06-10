@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Grax Web{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('index') }}">Grax Web</a>
+      <nav>
+        <a href="{{ url_for('new_grating') }}">New grating</a>
+      </nav>
+    </header>
+    <main class="shell">
+      {% block body %}{% endblock %}
+    </main>
+  </body>
+</html>

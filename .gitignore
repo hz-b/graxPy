@@ -1,6 +1,7 @@
 build
 examples/reference_baselines/**/results/latest.csv
 .venv*
+.grax-web/
 *theta_scans*
 .codex
 uv.lock

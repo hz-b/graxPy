@@ -48,6 +48,9 @@ docs = [
   "furo>=2024.8.6",
   "sphinxcontrib-bibtex>=2.6",
 ]
+web = [
+  "flask>=3.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -73,3 +76,6 @@ convention = "google"
 
 [project.urls]
 "RETICOLO DOI" = "https://doi.org/10.5281/zenodo.14631950"
+
+[project.scripts]
+grax-web = "grax.web.app:main"

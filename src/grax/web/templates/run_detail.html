@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.id }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ run.workflow }}</h1>
+    <p>{{ run.grating_name }} · {{ run.created_at }}</p>
+  </div>
+</section>
+
+{% if run.artifacts %}
+<section>
+  <h2>Artifacts</h2>
+  <div class="list compact">
+    {% for artifact in run.artifacts %}
+      <a class="row" href="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/' ~ artifact) }}">{{ artifact }}</a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if run.cases %}
+<section>
+  <h2>Cases</h2>
+  <table>
+    <thead><tr><th>Energy eV</th><th>Grazing deg</th><th>Efficiency</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for case in run.cases %}
+        <tr>
+          <td>{{ "%.3f"|format(case.energy_ev) }}</td>
+          <td>{{ "%.5f"|format(case.grazing_angle_deg) }}</td>
+          <td>{{ "%.6g"|format(case.selected_efficiency) }}</td>
+          <td>{{ case.status }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}
