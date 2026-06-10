@@ -98,7 +98,7 @@ tools/build_docs.sh
 - `--pdf`: build LaTeX and PDF only
 - `--open`: open generated HTML index in your browser after the build
 - `--skip-image-sync` or `--skip-example-sync`: skip copying images from
-  `examples/` and `comparison_to_other_codes/` into `docs/`
+  `examples/` and `validation/` into `docs/`
 
 ### Common usage examples
 

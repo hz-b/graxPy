@@ -1,6 +1,6 @@
 # Blazed Grating
 
-This comparison uses the blazed-grating workflow from `comparison_to_other_codes/blazed`.
+This comparison uses the blazed-grating workflow from `validation/blazed`.
 
 All simulation curves use the same optical constants, and measured data is shown for comparison.
 

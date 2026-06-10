@@ -82,7 +82,7 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
     OPTIMIZER_IMAGE_DIR="${DOCS_DIR}/tutorials/images/optimizer/laminar_fit"
     OPTIMIZER_BLAZED_IMAGE_DIR="${DOCS_DIR}/tutorials/images/optimizer/blazed_fit"
     NUMBA_SPEED_IMAGE_DIR="${DOCS_DIR}/tutorials/images/numba_speed"
-    COMPARISON_IMAGE_DIR="${DOCS_DIR}/comparison-to-other-codes/images"
+    COMPARISON_IMAGE_DIR="${DOCS_DIR}/validation/images"
     HOWTO_IMAGE_DIR="${DOCS_DIR}/how-to/images"
     mkdir -p "${GRATING_IMAGE_DIR}" "${SIM_IMAGE_DIR}" "${OPTIMIZER_IMAGE_DIR}" "${OPTIMIZER_BLAZED_IMAGE_DIR}" "${NUMBA_SPEED_IMAGE_DIR}" "${COMPARISON_IMAGE_DIR}" "${HOWTO_IMAGE_DIR}"
 
@@ -144,38 +144,38 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${NUMBA_SPEED_IMAGE_DIR}/multi_energy_multilayer_numba_vs_legacy_plots.png"
 
     cp "${PROJECT_ROOT}/examples/simulation/blazed_multilayer_sweep/results/blazed_multilayer_all_orders.csv" \
-      "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/simulation/grax_multilayer_theta_search_all_orders.csv"
+      "${PROJECT_ROOT}/validation/blazed_multilayer/simulation/grax_multilayer_theta_search_all_orders.csv"
     (
-      cd "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer"
+      cd "${PROJECT_ROOT}/validation/blazed_multilayer"
       "${PYTHON_BIN}" comparison_blazed_multilayer_sweep.py
       "${PYTHON_BIN}" comparison_blazed_multilayer_grating_angle.py
     )
 
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/blazed/comparison_blazed_monochromator_sweep.png" \
+    cp "${PROJECT_ROOT}/validation/blazed/comparison_blazed_monochromator_sweep.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_blazed_monochromator_sweep.png"
 
     # Regenerate blazed-multilayer comparison figures from current example results.
     # The scripts read theta-search CSVs directly from examples/ and only emit PNGs.
     "${PYTHON_BIN}" \
-      "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/comparison_blazed_multilayer_sweep.py" >/dev/null
+      "${PROJECT_ROOT}/validation/blazed_multilayer/comparison_blazed_multilayer_sweep.py" >/dev/null
     "${PYTHON_BIN}" \
-      "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/comparison_blazed_multilayer_grating_angle.py" >/dev/null
+      "${PROJECT_ROOT}/validation/blazed_multilayer/comparison_blazed_multilayer_grating_angle.py" >/dev/null
 
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/results/multilayer_stack_schematic.png" \
+    cp "${PROJECT_ROOT}/validation/blazed_multilayer/results/multilayer_stack_schematic.png" \
       "${COMPARISON_IMAGE_DIR}/multilayer_stack_schematic.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/results/blazed_multilayer_profile.png" \
+    cp "${PROJECT_ROOT}/validation/blazed_multilayer/results/blazed_multilayer_profile.png" \
       "${COMPARISON_IMAGE_DIR}/blazed_multilayer_profile.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/comparison_blazed_multilayer_sweep.png" \
+    cp "${PROJECT_ROOT}/validation/blazed_multilayer/comparison_blazed_multilayer_sweep.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_blazed_multilayer_sweep.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/comparison_blazed_multilayer_sweep_550_600eV.png" \
+    cp "${PROJECT_ROOT}/validation/blazed_multilayer/comparison_blazed_multilayer_sweep_550_600eV.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_blazed_multilayer_sweep_550_600eV.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/blazed_multilayer/comparison_blazed_multilayer_grating_angle.png" \
+    cp "${PROJECT_ROOT}/validation/blazed_multilayer/comparison_blazed_multilayer_grating_angle.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_blazed_multilayer_grating_angle.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/laminar/comparison_laminar_fixed_angle.png" \
+    cp "${PROJECT_ROOT}/validation/laminar/comparison_laminar_fixed_angle.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_laminar_fixed_angle.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/laminar_150lmm/results/laminar_150lmm_monochromator_profile.png" \
+    cp "${PROJECT_ROOT}/validation/laminar_150lmm/results/laminar_150lmm_monochromator_profile.png" \
       "${COMPARISON_IMAGE_DIR}/laminar_150lmm_monochromator_profile.png"
-    cp "${PROJECT_ROOT}/comparison_to_other_codes/laminar_150lmm/comparison_laminar_150lmm_monochromator.png" \
+    cp "${PROJECT_ROOT}/validation/laminar_150lmm/comparison_laminar_150lmm_monochromator.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_laminar_150lmm_monochromator.png"
     echo
 fi

@@ -1,7 +1,7 @@
 {
   "experiment_name": "laminar_discrete_fit_with_top_layer",
   "objective_name": "loss",
-  "measurement_path": "/home/jny/projects/grax/comparison_to_other_codes/laminar/measured_alpha4deg_order1.csv",
+  "measurement_path": "/home/jny/projects/grax/validation/laminar/measured_alpha4deg_order1.csv",
   "evaluation_mode": "discrete",
   "evaluation_energies_ev": [
     100.0,

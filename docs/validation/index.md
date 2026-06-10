@@ -1,4 +1,4 @@
-# Comparison to Other Codes
+# Validation
 
 This section compares `grax` with three external references:
 

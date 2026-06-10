@@ -1,6 +1,6 @@
 # Blazed Multilayer Grating
 
-This comparison uses the blazed multilayer workflow from `comparison_to_other_codes/blazed_multilayer`.
+This comparison uses the blazed multilayer workflow from `validation/blazed_multilayer`.
 
 All simulation curves use the same optical constants. The comparison plot includes
 the external DiffraMod reference together with two grax workflows applied to
@@ -39,9 +39,9 @@ the same second diffraction order.
 The three curves in the comparison figure are obtained as follows:
 
 - `DiffraMod`: reference efficiencies from
-  `comparison_to_other_codes/blazed_multilayer/simulation/DiffractMod_CrC_d4.8_N60.dat`
+  `validation/blazed_multilayer/simulation/DiffractMod_CrC_d4.8_N60.dat`
 - `grax energy-angle`: the grax sweep in
-  `comparison_to_other_codes/blazed_multilayer/blazed_multilayer_sweep.py`, where
+  `validation/blazed_multilayer/blazed_multilayer_sweep.py`, where
   each grax simulation uses the energy and grazing angle pair taken directly
   from the DiffraMod table
 - `grax theta-search`: the adaptive multilayer theta-search workflow, where

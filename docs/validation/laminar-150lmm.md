@@ -1,7 +1,7 @@
 # Laminar Grating (150 l/mm, monochromator sweep)
 
 This comparison uses the monochromator workflow from
-`comparison_to_other_codes/laminar_150lmm` with `cff = 2.25`.
+`validation/laminar_150lmm` with `cff = 2.25`.
 
 ## Grating design parameters
 
@@ -35,7 +35,7 @@ This comparison uses the monochromator workflow from
 ## Comparison result
 
 External reference files are read from
-`comparison_to_other_codes/laminar_150lmm/simulation`.
+`validation/laminar_150lmm/simulation`.
 
 ```{image} images/comparison_laminar_150lmm_monochromator.png
 :alt: Laminar 150 l/mm monochromator comparison

@@ -12,9 +12,9 @@ from tqdm import tqdm
 import grax as rp
 from grax.simulation._profiling import SolverProfiler
 
-EXAMPLE_ROOT = Path(__file__).resolve().parents[2] / "comparison_to_other_codes" / "blazed_multilayer"
-OPTICAL_CONSTANTS_DIR = EXAMPLE_ROOT / "optical_constants"
-REFERENCE_PATH = EXAMPLE_ROOT / "simulation" / "DiffractMod_CrC_d4.8_N60.dat"
+VALIDATION_ROOT = Path(__file__).resolve().parents[2] / "validation" / "blazed_multilayer"
+OPTICAL_CONSTANTS_DIR = VALIDATION_ROOT / "optical_constants"
+REFERENCE_PATH = VALIDATION_ROOT / "simulation" / "DiffractMod_CrC_d4.8_N60.dat"
 
 ENERGIES_EV = np.arange(500.0, 5000.0 + 1.0, 500.0, dtype=float)
 FOURIER_ORDERS = 20
