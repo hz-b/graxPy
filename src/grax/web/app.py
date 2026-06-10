@@ -10,6 +10,7 @@ from typing import Any
 
 import matplotlib
 import numpy as np
+import matplotlib.pyplot as plt
 
 matplotlib.use("Agg")
 
@@ -53,6 +54,8 @@ def create_app(*, data_dir: str | Path | None = None):
             "index.html",
             gratings=store().list(),
             runs=_list_runs(app.config["GRAx_DATA_DIR"] / "runs"),
+            results_dir=app.config["GRAx_DATA_DIR"] / "runs",
+            plots_dir=app.config["GRAx_DATA_DIR"] / "plots",
         )
 
     @app.get("/gratings/new")
@@ -128,7 +131,43 @@ def create_app(*, data_dir: str | Path | None = None):
             abort(404)
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
+        manifest["results_dir"] = run_dir
         return render_template("run_detail.html", run=manifest)
+
+    @app.get("/plots")
+    def plot_index():
+        plot_root = app.config["GRAx_DATA_DIR"] / "plots"
+        return render_template(
+            "plot_form.html",
+            runs=_list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs"),
+            plots=_list_plots(plot_root),
+            plots_dir=plot_root,
+            results_dir=app.config["GRAx_DATA_DIR"] / "runs",
+        )
+
+    @app.post("/plots")
+    def create_plot():
+        plot = _build_combined_plot(
+            data_dir=app.config["GRAx_DATA_DIR"],
+            run_ids=request.form.getlist("run_ids"),
+            order_selection={
+                run_id: [int(value) for value in request.form.getlist(f"orders_{run_id}")]
+                for run_id in request.form.getlist("run_ids")
+            },
+            title=str(request.form.get("title", "")).strip() or "Combined plot",
+        )
+        return redirect(url_for("plot_detail", plot_id=plot["id"]))
+
+    @app.get("/plots/<plot_id>")
+    def plot_detail(plot_id: str):
+        plot_dir = app.config["GRAx_DATA_DIR"] / "plots" / plot_id
+        manifest_path = plot_dir / "manifest.json"
+        if not manifest_path.exists():
+            abort(404)
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        manifest["plots_dir"] = app.config["GRAx_DATA_DIR"] / "plots"
+        return render_template("plot_detail.html", plot=manifest)
 
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
@@ -169,6 +208,12 @@ def _default_form_values() -> dict[str, str]:
         "top_cap_material": "",
         "top_cap_thickness_nm": "0.0",
     }
+
+
+def _run_result_location(data_dir: Path, run_id: str) -> Path:
+    """Return the directory holding one run's saved artifacts."""
+
+    return data_dir / "runs" / run_id
 
 
 def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
@@ -446,6 +491,221 @@ def _list_runs(run_dir: Path) -> list[dict[str, Any]]:
         with path.open("r", encoding="utf-8") as handle:
             runs.append(json.load(handle))
     return sorted(runs, key=lambda run: str(run.get("created_at", "")), reverse=True)
+
+
+def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
+    """Return run manifests augmented with available plot orders."""
+
+    runs = []
+    for run in _list_runs(run_dir):
+        run_id = str(run["id"])
+        run_dir_for_id = _run_result_location(run_dir.parent, run_id)
+        runs.append(
+            {
+                **run,
+                "results_dir": run_dir_for_id,
+                "available_orders": _available_orders(run_dir_for_id),
+            }
+        )
+    return runs
+
+
+def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
+    """Return saved combined plot manifests newest first."""
+
+    if not plot_dir.exists():
+        return []
+    plots = []
+    for path in plot_dir.glob("*/manifest.json"):
+        with path.open("r", encoding="utf-8") as handle:
+            plots.append(json.load(handle))
+    return sorted(plots, key=lambda plot: str(plot.get("created_at", "")), reverse=True)
+
+
+def _available_orders(run_dir: Path) -> list[int]:
+    """Return positive diffraction orders available for one run."""
+
+    all_orders_path = run_dir / "all_orders.csv"
+    if not all_orders_path.exists():
+        return []
+    orders: set[int] = set()
+    with all_orders_path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            try:
+                orders.add(abs(int(float(row["order"]))))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return sorted(orders)
+
+
+def _load_run_case_results(run_dir: Path) -> list[Any]:
+    """Reconstruct batch-style case results from a run's all-orders CSV."""
+
+    all_orders_path = run_dir / "all_orders.csv"
+    if not all_orders_path.exists():
+        return []
+    grouped: dict[str, dict[str, Any]] = {}
+    with all_orders_path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            case_id = str(row["case_id"])
+            entry = grouped.setdefault(
+                case_id,
+                {
+                    "case_id": case_id,
+                    "energy_ev": float(row["energy_ev"]),
+                    "grazing_angle_deg": float(row["grazing_angle_deg"]),
+                    "orders": [],
+                    "efficiency_all": [],
+                    "diffraction_angle_all": [],
+                },
+            )
+            entry["orders"].append(int(float(row["order"])))
+            entry["efficiency_all"].append(float(row["efficiency"]))
+            entry["diffraction_angle_all"].append(float(row["diffraction_angle_deg"]))
+    from grax.simulation.models import CaseExecutionResult
+
+    results = [
+        CaseExecutionResult(
+            case_id=str(entry["case_id"]),
+            index=index,
+            label=None,
+            energy_ev=float(entry["energy_ev"]),
+            grazing_angle_deg=float(entry["grazing_angle_deg"]),
+            orders=np.asarray(entry["orders"], dtype=int),
+            selected_efficiency=float(entry["efficiency_all"][0]),
+            selected_diffraction_angle_deg=float(entry["diffraction_angle_all"][0]),
+            efficiency_all=np.asarray(entry["efficiency_all"], dtype=float),
+            diffraction_angle_all=np.asarray(entry["diffraction_angle_all"], dtype=float),
+            status="ok",
+            case_data={},
+        )
+        for index, entry in enumerate(grouped.values())
+    ]
+    return results
+
+
+def _build_combined_plot(
+    *,
+    data_dir: Path,
+    run_ids: list[str],
+    order_selection: dict[str, list[int]],
+    title: str,
+) -> dict[str, Any]:
+    """Build and save a combined plot for several runs and selected orders."""
+
+    plot_root = data_dir / "plots"
+    plot_root.mkdir(parents=True, exist_ok=True)
+    plot_id = _plot_id()
+    plot_dir = plot_root / plot_id
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    run_summaries: list[dict[str, Any]] = []
+    selected_series: list[dict[str, Any]] = []
+    for run_id in run_ids:
+        run_dir = data_dir / "runs" / run_id
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        orders = order_selection.get(run_id) or _available_orders(run_dir)
+        run_summaries.append(
+            {
+                "id": run_id,
+                "name": manifest.get("grating_name", run_id),
+                "orders": orders,
+            }
+        )
+        for order in orders:
+            series = _load_order_series(
+                run_dir,
+                order=order,
+                label=str(manifest.get("grating_name", run_id)),
+            )
+            if series is not None:
+                selected_series.append(series)
+
+    if not selected_series:
+        raise ValueError("Select at least one run and one diffraction order.")
+
+    figure, axis = plt.subplots(figsize=(10, 6))
+    markers = ["o", "s", "^", "d", "v", "x", "*"]
+    for index, series in enumerate(selected_series):
+        axis.plot(
+            np.asarray(series["energies"], dtype=float),
+            np.asarray(series["efficiencies"], dtype=float),
+            marker=markers[index % len(markers)],
+            linewidth=1.2,
+            label=f"{series['label']} · Order {series['order']}",
+        )
+    axis.set_xlabel("Photon Energy (eV)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title(title)
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    plot_path = plot_dir / "combined.png"
+    figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+
+    manifest = {
+        "id": plot_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "title": title,
+        "selected_runs": run_summaries,
+        "plot_path": "combined.png",
+    }
+    with (plot_dir / "manifest.json").open("w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+        handle.write("\n")
+    return manifest
+
+
+def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, Any] | None:
+    """Load one order-vs-energy series from a saved run."""
+
+    all_orders_path = run_dir / "all_orders.csv"
+    if not all_orders_path.exists():
+        return None
+
+    rows: list[dict[str, float]] = []
+    with all_orders_path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            try:
+                row_order = abs(int(float(row["order"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if row_order != abs(int(order)):
+                continue
+            try:
+                rows.append(
+                    {
+                        "energy_ev": float(row["energy_ev"]),
+                        "efficiency": float(row["efficiency"]),
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    if not rows:
+        return None
+
+    rows.sort(key=lambda row: row["energy_ev"])
+    return {
+        "label": label,
+        "order": int(order),
+        "energies": [row["energy_ev"] for row in rows],
+        "efficiencies": [row["efficiency"] for row in rows],
+    }
+
+
+def _plot_id() -> str:
+    """Return a filesystem-safe plot identifier."""
+
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
 def _run_id(workflow: str, grating_id: str) -> str:

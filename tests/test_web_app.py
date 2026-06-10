@@ -138,6 +138,18 @@ def test_flask_app_creates_grating_and_lists_it(tmp_path: Path) -> None:
     assert len(GratingStore(tmp_path / "saved_gratings").list()) == 1
 
 
+def test_index_mentions_result_locations(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    response = create_app(data_dir=tmp_path).test_client().get("/")
+
+    assert response.status_code == 200
+    assert b".grax-web/runs/" in response.data
+    assert b".grax-web/plots/" in response.data
+
+
 def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -279,3 +291,99 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert captured_cases
     assert captured_cases[0]["x_resolution_nm"] == pytest.approx(0.75)
     assert captured_cases[0]["z_resolution_nm"] == pytest.approx(0.25)
+
+
+def test_flask_app_plots_selected_orders_across_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.simulation.models import CaseExecutionResult
+    from grax.web.app import create_app
+
+    def fake_run_cases(self, cases, metadata=None):  # type: ignore[no-untyped-def]
+        for index, case in enumerate(cases):
+            yield CaseExecutionResult(
+                case_id=str(case["case_id"]),
+                index=index,
+                label=None,
+                energy_ev=float(case["energy_ev"]),
+                grazing_angle_deg=float(case["grazing_angle_deg"]),
+                orders=__import__("numpy").asarray([-2, -1, 1]),
+                selected_efficiency=0.25,
+                selected_diffraction_angle_deg=1.2,
+                efficiency_all=__import__("numpy").asarray([0.15, 0.25, 0.05]),
+                diffraction_angle_all=__import__("numpy").asarray([1.5, 1.2, 0.9]),
+                status="ok",
+                case_data={key: value for key, value in case.items() if key != "grating"},
+            )
+
+    monkeypatch.setattr("grax.simulation.BatchSimulationRunner.run_cases", fake_run_cases)
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+
+    for name, energy_start in [("Run A", "100"), ("Run B", "130")]:
+        response = client.post(
+            "/gratings",
+            data={
+                "name": name,
+                "grating_type": "blazed",
+                "period_lpermm": "600",
+                "x_resolution_nm": "2.0",
+                "z_resolution_nm": "0.5",
+                "blaze_angle_deg": "0.75",
+                "anti_blaze_angle_deg": "",
+                "stack_type": "single_layer",
+                "substrate_material": "Si",
+                "layer_material": "Au",
+                "layer_thickness_nm": "30.0",
+            },
+        )
+        assert response.status_code == 302
+        grating_id = GratingStore(tmp_path / "saved_gratings").list()[-1]["id"]
+        client.post(
+            f"/gratings/{grating_id}/runs",
+            data={
+                "workflow": "fixed_angle",
+                "energy_start_ev": energy_start,
+                "energy_stop_ev": str(float(energy_start) + 20.0),
+                "energy_points": "3",
+                "grazing_angle_deg": "1.5",
+                "diffraction_order": "1",
+                "fourier_orders": "5",
+                "run_x_resolution_nm": "0.75",
+                "run_z_resolution_nm": "0.25",
+            },
+            follow_redirects=True,
+        )
+
+    runs = client.get("/").data
+    assert b"Run A" in runs
+    assert b"Run B" in runs
+
+    plot_index = client.get("/plots")
+    assert plot_index.status_code == 200
+    assert b"orders_" in plot_index.data
+
+    run_ids = sorted(
+        path.parent.name
+        for path in (tmp_path / "runs").glob("*/manifest.json")
+    )
+    assert len(run_ids) == 2
+
+    plot_response = client.post(
+        "/plots",
+        data=[
+            ("run_ids", run_ids[0]),
+            ("run_ids", run_ids[1]),
+            ("orders_%s" % run_ids[0], "1"),
+            ("orders_%s" % run_ids[0], "2"),
+            ("orders_%s" % run_ids[1], "1"),
+        ],
+        follow_redirects=True,
+    )
+
+    assert plot_response.status_code == 200
+    assert b"Combined plot" in plot_response.data
+    assert list((tmp_path / "plots").glob("*/*.png"))
