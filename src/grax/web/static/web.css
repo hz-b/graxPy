@@ -94,6 +94,13 @@ p {
   gap: 28px;
 }
 
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 28px;
+  align-items: start;
+}
+
 .list {
   display: grid;
   gap: 10px;
@@ -217,6 +224,31 @@ select {
   margin-bottom: 24px;
 }
 
+.preview-panel {
+  position: sticky;
+  top: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fbfcfd 0%, #f4f7f8 100%);
+}
+
+.preview-head {
+  margin-bottom: 16px;
+}
+
+.preview-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: #fff;
+}
+
 .plot-preview {
   margin-top: 8px;
 }
@@ -256,6 +288,29 @@ select {
   white-space: nowrap;
 }
 
+.plot-run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.export-dialog {
+  width: min(820px, 92vw);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.export-dialog::backdrop {
+  background: rgba(32, 35, 38, 0.25);
+}
+
+.export-browser {
+  max-height: 320px;
+  overflow: auto;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -279,7 +334,15 @@ td {
     grid-template-columns: 1fr;
   }
 
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
   .row {
     flex-direction: column;
+  }
+
+  .preview-panel {
+    position: static;
   }
 }

@@ -17,58 +17,71 @@
 
 <div class="grid two">
   <section>
-    <form class="form" method="post" action="{{ url_for('create_plot') }}">
+    <form
+      class="form"
+      method="post"
+      action="{{ url_for('create_plot') }}"
+      data-plot-workspace
+      data-order-field-prefix="orders_"
+      data-preview-url="{{ url_for('preview_plot') }}"
+      data-export-dialog-url="{{ url_for('plot_export_dialog') }}"
+      data-export-post-url="{{ url_for('export_plot') }}"
+    >
       <label>
         Plot title
         <input name="title" type="text" value="Combined plot">
       </label>
 
-      {% if runs %}
-        {% for run in runs %}
-          <fieldset class="plot-run">
-            <legend>
-              <label class="inline-check">
-                <input type="checkbox" name="run_ids" value="{{ run.id }}" data-plot-run-toggle>
-                <span>{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}</span>
-              </label>
-            </legend>
-            <p class="subtle">{{ run.created_at }}</p>
-            {% if run.available_orders %}
-              <div class="order-grid" data-plot-run-orders>
-                {% for order in run.available_orders %}
-                  <label class="inline-check">
-                    <input type="checkbox" name="orders_{{ run.id }}" value="{{ order }}">
-                    <span>Order {{ order }}</span>
-                  </label>
-                {% endfor %}
-              </div>
-            {% else %}
-              <p class="empty">No order data available for this run.</p>
-            {% endif %}
-          </fieldset>
-        {% endfor %}
+      {% if run_options %}
+        <label>
+          Add saved run
+          <select data-run-picker>
+            <option value="">Choose a run</option>
+            {% for run in run_options %}
+              <option
+                value="{{ run.id }}"
+                data-run-name="{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}"
+                data-run-orders="{{ run.available_orders | join(',') }}"
+              >
+                {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="list" data-plot-run-list></div>
       {% else %}
         <p class="empty">No saved runs yet.</p>
       {% endif %}
-
-      <button class="button primary" type="submit">Create plot</button>
     </form>
   </section>
 
-  <section>
-    <h2>Saved plots</h2>
-    {% if plots %}
-      <div class="list compact">
-        {% for plot in plots %}
-          <a class="row" href="{{ url_for('plot_detail', plot_id=plot.id) }}">
-            <strong>{{ plot.title }}</strong>
-            <span>{{ plot.created_at }}</span>
-          </a>
-        {% endfor %}
+  <section class="preview-panel">
+    <div class="section-head preview-head">
+      <div>
+        <h2>Live plot preview</h2>
+        <p data-plot-preview-status>Select saved runs and orders to see the combined plot.</p>
       </div>
-    {% else %}
-      <p class="empty">No plots yet.</p>
-    {% endif %}
+      <div class="actions">
+        <span class="preview-pill" data-plot-preview-loading>Idle</span>
+        <button class="button" type="button" data-save-plot disabled>Save plot</button>
+      </div>
+    </div>
+    <img class="preview is-hidden" src="" alt="Combined plot preview" data-plot-preview-image>
+    <div class="list compact" data-selected-run-summary></div>
+    <dialog class="export-dialog" data-export-dialog></dialog>
   </section>
 </div>
+
+<template data-plot-run-template>
+  <fieldset class="plot-run" data-plot-run-item>
+    <legend>
+      <div class="plot-run-head">
+        <strong data-run-title></strong>
+        <button class="button" type="button" data-remove-run>Remove</button>
+      </div>
+    </legend>
+    <input type="hidden" name="run_ids" value="" data-run-id-field>
+    <div class="order-grid" data-order-grid></div>
+  </fieldset>
+</template>
 {% endblock %}

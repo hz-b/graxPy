@@ -329,6 +329,84 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert manifest["display_name"] == "Run grating · fixed_angle"
 
 
+def test_grating_form_includes_live_preview_panel(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    response = create_app(data_dir=tmp_path).test_client().get("/gratings/new")
+
+    assert response.status_code == 200
+    assert b'data-grating-preview-form' in response.data
+    assert b'data-grating-preview-image' in response.data
+    assert b'data-grating-preview-status' in response.data
+
+
+def test_grating_preview_endpoint_returns_preview_and_validation(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+
+    preview_response = client.post(
+        "/_preview/grating",
+        data={
+            "name": "Preview laminar",
+            "grating_type": "laminar",
+            "period_lpermm": "400",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "width_to_period_ratio": "0.67",
+            "depth_nm": "14.9",
+            "left_wall_angle_deg": "15.0",
+            "right_wall_angle_deg": "15.0",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Pt",
+            "layer_thickness_nm": "28.77",
+            "material_a": "Cr",
+            "material_b": "C",
+            "d_period_nm": "6.5",
+            "gamma": "0.45",
+            "n_bilayers": "40",
+            "top_material": "C",
+            "top_cap_material": "",
+            "top_cap_thickness_nm": "0.0",
+        },
+    )
+
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.get_json()
+    assert preview_payload["ok"] is True
+    assert preview_payload["preview_url"].startswith("/_data/previews/live/")
+
+    invalid_response = client.post(
+        "/_preview/grating",
+        data={
+            "name": "Broken laminar",
+            "grating_type": "laminar",
+            "period_lpermm": "400",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "width_to_period_ratio": "",
+            "depth_nm": "14.9",
+            "left_wall_angle_deg": "15.0",
+            "right_wall_angle_deg": "15.0",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Pt",
+            "layer_thickness_nm": "28.77",
+        },
+    )
+
+    assert invalid_response.status_code == 200
+    invalid_payload = invalid_response.get_json()
+    assert invalid_payload["ok"] is False
+    assert invalid_payload["error"]
+    assert invalid_payload["preview_url"] is None
+
+
 def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -342,8 +420,84 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert b"Alpha run" in response.data
-    assert b"Order 3" in response.data
-    assert b"Order 2" in response.data
+    assert b'data-plot-workspace' in response.data
+    assert b'data-plot-preview-image' in response.data
+    assert b'data-run-picker' in response.data
+
+
+def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1, 3))
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", orders=(0, 2))
+
+    client = create_app(data_dir=tmp_path).test_client()
+
+    response = client.post(
+        "/_preview/plot",
+        data={
+            "title": "Workspace preview",
+            "run_ids": ["run-1", "run-2"],
+            "orders_run-1": ["0", "3"],
+            "orders_run-2": ["2"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["preview_url"].startswith("/_data/previews/live/")
+    assert payload["selected_runs"][0]["orders"] == [0, 3]
+
+    invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
+    assert invalid_response.status_code == 200
+    invalid_payload = invalid_response.get_json()
+    assert invalid_payload["ok"] is False
+    assert invalid_payload["error"]
+
+
+def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+
+    client = create_app(data_dir=tmp_path).test_client()
+    preview_response = client.post(
+        "/_preview/plot",
+        data={
+            "title": "Export me",
+            "run_ids": ["run-1"],
+            "orders_run-1": ["0"],
+        },
+    )
+    preview_payload = preview_response.get_json()
+    assert preview_payload["ok"] is True
+    preview_id = preview_payload["preview_id"]
+
+    dialog_response = client.get(f"/plots/export?preview_id={preview_id}&path={export_dir}")
+    assert dialog_response.status_code == 200
+    assert b"Save plot" in dialog_response.data
+    assert bytes(str(export_dir), "utf-8") in dialog_response.data
+
+    save_response = client.post(
+        "/plots/export",
+        data={
+            "preview_id": preview_id,
+            "directory": str(export_dir),
+            "filename": "combined.png",
+            "overwrite": "1",
+        },
+    )
+    assert save_response.status_code == 200
+    save_payload = save_response.get_json()
+    assert save_payload["ok"] is True
+    assert (export_dir / "combined.png").exists()
 
 
 def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> None:
@@ -383,6 +537,33 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     )
     assert delete_response.status_code == 200
     assert not (tmp_path / "runs" / "run-2").exists()
+
+
+def test_load_order_series_uses_selected_diffraction_order_convention(tmp_path: Path) -> None:
+    from grax.web.app import _load_order_series
+
+    run_dir = tmp_path / "runs" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "all_orders.csv").write_text(
+        "\n".join(
+            [
+                "case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg",
+                "case-1,100.0,1.5,-1,0.11,1.2",
+                "case-1,100.0,1.5,1,0.00,-1.2",
+                "case-2,200.0,1.5,-1,0.22,1.3",
+                "case-2,200.0,1.5,1,0.00,-1.3",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    series = _load_order_series(run_dir, order=1, label="Demo")
+
+    assert series is not None
+    assert series["order"] == 1
+    assert series["energies"] == [100.0, 200.0]
+    assert series["efficiencies"] == [0.11, 0.22]
 
 
 def test_flask_app_plots_selected_orders_across_runs(

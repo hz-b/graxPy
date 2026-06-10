@@ -9,27 +9,227 @@ function syncGratingSections(select) {
   });
 }
 
+function debounce(fn, delayMs) {
+  let timerId = null;
+  return (...args) => {
+    if (timerId !== null) {
+      window.clearTimeout(timerId);
+    }
+    timerId = window.setTimeout(() => fn(...args), delayMs);
+  };
+}
+
+function initGratingPreview(form) {
+  const previewUrl = form.dataset.previewUrl;
+  const image = document.querySelector("[data-grating-preview-image]");
+  const status = document.querySelector("[data-grating-preview-status]");
+  const loading = document.querySelector("[data-grating-preview-loading]");
+  let requestId = 0;
+
+  const updatePreview = debounce(async () => {
+    requestId += 1;
+    const currentRequest = requestId;
+    loading.textContent = "Rendering";
+    try {
+      const response = await fetch(previewUrl, {
+        method: "POST",
+        body: new FormData(form),
+      });
+      const payload = await response.json();
+      if (currentRequest !== requestId) {
+        return;
+      }
+      loading.textContent = "Ready";
+      if (payload.ok) {
+        image.src = payload.preview_url;
+        image.classList.remove("is-hidden");
+        status.textContent = "Ready";
+      } else {
+        status.textContent = payload.error || "Preview unavailable.";
+      }
+    } catch (error) {
+      if (currentRequest !== requestId) {
+        return;
+      }
+      loading.textContent = "Error";
+      status.textContent = "Preview request failed.";
+    }
+  }, 250);
+
+  form.querySelectorAll("input, select, textarea").forEach((field) => {
+    field.addEventListener("input", updatePreview);
+    field.addEventListener("change", updatePreview);
+  });
+}
+
+function createOrderCheckbox(runId, order) {
+  const label = document.createElement("label");
+  label.className = "inline-check";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = `orders_${runId}`;
+  input.value = String(order);
+  const span = document.createElement("span");
+  span.textContent = `Order ${order}`;
+  label.append(input, span);
+  return label;
+}
+
+function initPlotWorkspace(form) {
+  const previewUrl = form.dataset.previewUrl;
+  const exportDialogUrl = form.dataset.exportDialogUrl;
+  const exportPostUrl = form.dataset.exportPostUrl;
+  const picker = form.querySelector("[data-run-picker]");
+  const runList = form.querySelector("[data-plot-run-list]");
+  const template = document.querySelector("[data-plot-run-template]");
+  const previewImage = document.querySelector("[data-plot-preview-image]");
+  const previewStatus = document.querySelector("[data-plot-preview-status]");
+  const loading = document.querySelector("[data-plot-preview-loading]");
+  const saveButton = document.querySelector("[data-save-plot]");
+  const selectedRunSummary = document.querySelector("[data-selected-run-summary]");
+  const exportDialog = document.querySelector("[data-export-dialog]");
+  let requestId = 0;
+  let latestPreviewId = "";
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    refreshPreview();
+  });
+
+  function summarizeRuns(selectedRuns) {
+    selectedRunSummary.replaceChildren();
+    selectedRuns.forEach((run) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      const title = document.createElement("strong");
+      title.textContent = run.name;
+      const orders = document.createElement("span");
+      orders.textContent = `Orders: ${run.orders.join(", ")}`;
+      row.append(title, orders);
+      selectedRunSummary.append(row);
+    });
+  }
+
+  const refreshPreview = debounce(async () => {
+    requestId += 1;
+    const currentRequest = requestId;
+    loading.textContent = "Rendering";
+    try {
+      const response = await fetch(previewUrl, {
+        method: "POST",
+        body: new FormData(form),
+      });
+      const payload = await response.json();
+      if (currentRequest !== requestId) {
+        return;
+      }
+      loading.textContent = payload.ok ? "Ready" : "Idle";
+      if (payload.ok) {
+        latestPreviewId = payload.preview_id;
+        previewImage.src = payload.preview_url;
+        previewImage.classList.remove("is-hidden");
+        previewStatus.textContent = "Ready";
+        saveButton.disabled = false;
+        summarizeRuns(payload.selected_runs || []);
+      } else {
+        previewStatus.textContent = payload.error || "Select runs and orders.";
+        saveButton.disabled = true;
+      }
+    } catch (error) {
+      if (currentRequest !== requestId) {
+        return;
+      }
+      loading.textContent = "Error";
+      previewStatus.textContent = "Preview request failed.";
+      saveButton.disabled = true;
+    }
+  }, 250);
+
+  function bindRunItem(item) {
+    item.querySelectorAll("input").forEach((field) => {
+      field.addEventListener("change", refreshPreview);
+    });
+    item.querySelector("[data-remove-run]").addEventListener("click", () => {
+      item.remove();
+      refreshPreview();
+    });
+  }
+
+  picker?.addEventListener("change", () => {
+    const option = picker.selectedOptions[0];
+    if (!option || option.value === "") {
+      return;
+    }
+    if (runList.querySelector(`[data-plot-run-item][data-run-id="${option.value}"]`)) {
+      picker.value = "";
+      return;
+    }
+    const item = template.content.firstElementChild.cloneNode(true);
+    item.dataset.runId = option.value;
+    item.querySelector("[data-run-title]").textContent = option.dataset.runName;
+    item.querySelector("[data-run-id-field]").value = option.value;
+    const orderGrid = item.querySelector("[data-order-grid]");
+    const orders = (option.dataset.runOrders || "")
+      .split(",")
+      .filter((value) => value !== "")
+      .map((value) => Number.parseInt(value, 10));
+    orders.forEach((order, index) => {
+      const checkbox = createOrderCheckbox(option.value, order);
+      checkbox.querySelector("input").checked = index === 0;
+      orderGrid.append(checkbox);
+    });
+    runList.append(item);
+    bindRunItem(item);
+    picker.value = "";
+    refreshPreview();
+  });
+
+  form.querySelector('input[name="title"]')?.addEventListener("input", refreshPreview);
+
+  saveButton?.addEventListener("click", async () => {
+    if (!latestPreviewId) {
+      return;
+    }
+    const response = await fetch(`${exportDialogUrl}?preview_id=${encodeURIComponent(latestPreviewId)}`);
+    exportDialog.innerHTML = await response.text();
+    bindExportDialog();
+    exportDialog.showModal();
+  });
+
+  function bindExportDialog() {
+    const closeButton = exportDialog.querySelector("[data-close-export]");
+    const exportForm = exportDialog.querySelector("[data-export-form]");
+    closeButton?.addEventListener("click", () => exportDialog.close());
+    exportDialog.querySelectorAll("[data-browse-link]").forEach((link) => {
+      link.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const response = await fetch(link.href);
+        exportDialog.innerHTML = await response.text();
+        bindExportDialog();
+      });
+    });
+    exportForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = exportDialog.querySelector("[data-export-status]");
+      const response = await fetch(exportPostUrl, {
+        method: "POST",
+        body: new FormData(exportForm),
+      });
+      const payload = await response.json();
+      if (payload.ok) {
+        status.textContent = `Saved to ${payload.output_path}`;
+        window.setTimeout(() => exportDialog.close(), 250);
+      } else {
+        status.textContent = payload.error || "Could not save plot.";
+      }
+    });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
     select.addEventListener("change", () => syncGratingSections(select));
-  });
-
-  document.querySelectorAll("[data-plot-run-toggle]").forEach((toggle) => {
-    const fieldset = toggle.closest("fieldset");
-    const orders = fieldset ? fieldset.querySelectorAll("[data-plot-run-orders] input") : [];
-    const sync = () => {
-      orders.forEach((field) => {
-        field.disabled = !toggle.checked;
-      });
-      if (!toggle.checked) {
-        orders.forEach((field) => {
-          field.checked = false;
-        });
-      }
-    };
-    sync();
-    toggle.addEventListener("change", sync);
   });
 
   document.querySelectorAll("[data-confirm]").forEach((button) => {
@@ -40,4 +240,14 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   });
+
+  const gratingPreviewForm = document.querySelector("[data-grating-preview-form]");
+  if (gratingPreviewForm) {
+    initGratingPreview(gratingPreviewForm);
+  }
+
+  const plotWorkspace = document.querySelector("[data-plot-workspace]");
+  if (plotWorkspace) {
+    initPlotWorkspace(plotWorkspace);
+  }
 });

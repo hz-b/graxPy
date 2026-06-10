@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -31,6 +33,7 @@ def create_app(*, data_dir: str | Path | None = None):
         from flask import (
             Flask,
             abort,
+            jsonify,
             redirect,
             render_template,
             request,
@@ -52,6 +55,9 @@ def create_app(*, data_dir: str | Path | None = None):
     def run_store() -> RunStore:
         return RunStore(app.config["GRAx_DATA_DIR"] / "runs")
 
+    def preview_root() -> Path:
+        return app.config["GRAx_DATA_DIR"] / "previews" / "live"
+
     @app.get("/")
     def index():
         return render_template(
@@ -64,12 +70,18 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.get("/gratings/new")
     def new_grating():
+        preview = _build_grating_preview(
+            data_dir=app.config["GRAx_DATA_DIR"],
+            catalog=catalog,
+            form_data=_default_form_values(),
+        )
         return render_template(
             "grating_form.html",
             materials=sorted(catalog),
             defaults=_default_form_values(),
             action_url=url_for("create_grating"),
             submit_label="Save grating",
+            preview=preview,
         )
 
     @app.post("/gratings")
@@ -96,12 +108,19 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.get("/gratings/<grating_id>/edit")
     def edit_grating(grating_id: str):
         spec = store().load(grating_id)
+        defaults = _form_values_from_spec(spec)
+        preview = _build_grating_preview(
+            data_dir=app.config["GRAx_DATA_DIR"],
+            catalog=catalog,
+            form_data=defaults,
+        )
         return render_template(
             "grating_form.html",
             materials=sorted(catalog),
-            defaults=_form_values_from_spec(spec),
+            defaults=defaults,
             action_url=url_for("update_grating", grating_id=grating_id),
             submit_label="Update grating",
+            preview=preview,
         )
 
     @app.post("/gratings/<grating_id>")
@@ -126,6 +145,15 @@ def create_app(*, data_dir: str | Path | None = None):
             form=request.form,
         )
         return redirect(url_for("run_detail", run_id=run["id"]))
+
+    @app.post("/_preview/grating")
+    def preview_grating():
+        preview = _build_grating_preview(
+            data_dir=app.config["GRAx_DATA_DIR"],
+            catalog=catalog,
+            form_data=request.form,
+        )
+        return jsonify(preview)
 
     @app.get("/runs/manage")
     def manage_runs():
@@ -163,14 +191,54 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.get("/plots")
     @app.get("/runs/compare")
     def plot_index():
-        plot_root = app.config["GRAx_DATA_DIR"] / "plots"
+        runs = _list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs")
         return render_template(
             "plot_form.html",
-            runs=_list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs"),
-            plots=_list_plots(plot_root),
-            plots_dir=plot_root,
+            runs=runs,
+            run_options=runs,
             results_dir=app.config["GRAx_DATA_DIR"] / "runs",
+            preview=None,
         )
+
+    @app.post("/_preview/plot")
+    def preview_plot():
+        preview = _build_plot_preview(
+            data_dir=app.config["GRAx_DATA_DIR"],
+            form_data=request.form,
+        )
+        return jsonify(preview)
+
+    @app.get("/plots/export")
+    def plot_export_dialog():
+        preview_id = str(request.args.get("preview_id", "")).strip()
+        browse_path = _safe_browse_path(request.args.get("path"))
+        return render_template(
+            "plot_export_dialog.html",
+            preview_id=preview_id,
+            current_path=str(browse_path),
+            parent_path=str(browse_path.parent) if browse_path.parent != browse_path else None,
+            entries=_list_directory_entries(browse_path),
+        )
+
+    @app.post("/plots/export")
+    def export_plot():
+        preview_id = str(request.form.get("preview_id", "")).strip()
+        directory = _safe_browse_path(request.form.get("directory"))
+        filename = str(request.form.get("filename", "")).strip()
+        overwrite = str(request.form.get("overwrite", "")).strip() == "1"
+        if not filename:
+            return jsonify({"ok": False, "error": "Choose a filename."})
+        if not filename.lower().endswith(".png"):
+            filename = f"{filename}.png"
+        source_path = preview_root() / f"{preview_id}.png"
+        if not source_path.exists():
+            return jsonify({"ok": False, "error": "Preview image is no longer available."})
+        output_path = directory / Path(filename).name
+        if output_path.exists() and not overwrite:
+            return jsonify({"ok": False, "error": "Target file already exists.", "exists": True})
+        directory.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, output_path)
+        return jsonify({"ok": True, "output_path": str(output_path)})
 
     @app.post("/plots")
     @app.post("/runs/compare")
@@ -292,6 +360,36 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
         )
         return spec
     raise ValueError("Unsupported grating_type.")
+
+
+def _build_grating_preview(
+    *,
+    data_dir: Path,
+    catalog: dict[str, Any],
+    form_data: Any,
+) -> dict[str, Any]:
+    """Build a live grating preview payload from form data."""
+    try:
+        spec = _spec_from_form(form_data)
+        grating = build_grating_from_spec(spec, catalog)
+    except (KeyError, TypeError, ValueError) as error:
+        return {
+            "ok": False,
+            "error": str(error),
+            "preview_id": None,
+            "preview_url": None,
+        }
+
+    preview_id = uuid4().hex
+    preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    grating.plot_profile(preview_path)
+    return {
+        "ok": True,
+        "error": "",
+        "preview_id": preview_id,
+        "preview_url": f"/_data/previews/live/{preview_id}.png",
+    }
 
 
 def _stack_spec_from_form(form: Any) -> dict[str, Any]:
@@ -549,6 +647,69 @@ def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
     return sorted(plots, key=lambda plot: str(plot.get("created_at", "")), reverse=True)
 
 
+def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
+    """Build a live combined-plot preview from saved runs and selected orders."""
+    run_ids = [str(run_id) for run_id in form_data.getlist("run_ids")]
+    if not run_ids:
+        return {
+            "ok": False,
+            "error": "Select at least one saved run.",
+            "preview_id": None,
+            "preview_url": None,
+            "selected_runs": [],
+        }
+
+    order_selection: dict[str, list[int]] = {}
+    selected_runs: list[dict[str, Any]] = []
+    for run_id in run_ids:
+        orders = [int(value) for value in form_data.getlist(f"orders_{run_id}") if str(value).strip() != ""]
+        if not orders:
+            return {
+                "ok": False,
+                "error": f"Select at least one diffraction order for run {run_id}.",
+                "preview_id": None,
+                "preview_url": None,
+                "selected_runs": [],
+            }
+        order_selection[run_id] = orders
+        run_manifest = RunStore(data_dir / "runs").load(run_id)
+        selected_runs.append(
+            {
+                "id": run_id,
+                "name": str(run_manifest.get("display_name") or run_manifest.get("grating_name", run_id)),
+                "orders": orders,
+            }
+        )
+
+    preview_id = uuid4().hex
+    preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _render_combined_plot_image(
+            data_dir=data_dir,
+            run_ids=run_ids,
+            order_selection=order_selection,
+            title=str(form_data.get("title", "")).strip() or "Combined plot",
+            output_path=preview_path,
+        )
+    except ValueError as error:
+        return {
+            "ok": False,
+            "error": str(error),
+            "preview_id": None,
+            "preview_url": None,
+            "selected_runs": [],
+        }
+
+    return {
+        "ok": True,
+        "error": "",
+        "preview_id": preview_id,
+        "preview_url": f"/_data/previews/live/{preview_id}.png",
+        "selected_runs": selected_runs,
+    }
+
+
 def _available_orders(run_dir: Path) -> list[int]:
     """Return positive diffraction orders available for one run."""
     all_orders_path = run_dir / "all_orders.csv"
@@ -579,6 +740,37 @@ def _build_combined_plot(
     plot_dir = plot_root / plot_id
     plot_dir.mkdir(parents=True, exist_ok=True)
 
+    plot_path = plot_dir / "combined.png"
+    run_summaries = _render_combined_plot_image(
+        data_dir=data_dir,
+        run_ids=run_ids,
+        order_selection=order_selection,
+        title=title,
+        output_path=plot_path,
+    )
+
+    manifest = {
+        "id": plot_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "title": title,
+        "selected_runs": run_summaries,
+        "plot_path": "combined.png",
+    }
+    with (plot_dir / "manifest.json").open("w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+        handle.write("\n")
+    return manifest
+
+
+def _render_combined_plot_image(
+    *,
+    data_dir: Path,
+    run_ids: list[str],
+    order_selection: dict[str, list[int]],
+    title: str,
+    output_path: Path,
+) -> list[dict[str, Any]]:
+    """Render a combined plot image and return the selected run summary."""
     run_summaries: list[dict[str, Any]] = []
     selected_series: list[dict[str, Any]] = []
     for run_id in run_ids:
@@ -590,21 +782,9 @@ def _build_combined_plot(
             manifest = json.load(handle)
         run_label = str(manifest.get("display_name") or manifest.get("grating_name", run_id))
         orders = order_selection.get(run_id) or _available_orders(run_dir)
-        run_summaries.append(
-            {
-                "id": run_id,
-                "name": run_label,
-                "orders": orders,
-            }
-        )
-        if not orders:
-            continue
+        run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
         for order in orders:
-            series = _load_order_series(
-                run_dir,
-                order=order,
-                label=run_label,
-            )
+            series = _load_order_series(run_dir, order=order, label=run_label)
             if series is not None:
                 selected_series.append(series)
 
@@ -627,21 +807,10 @@ def _build_combined_plot(
     axis.grid(True, alpha=0.3)
     axis.legend(loc="best")
     figure.tight_layout()
-    plot_path = plot_dir / "combined.png"
-    figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(figure)
-
-    manifest = {
-        "id": plot_id,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-        "title": title,
-        "selected_runs": run_summaries,
-        "plot_path": "combined.png",
-    }
-    with (plot_dir / "manifest.json").open("w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
-        handle.write("\n")
-    return manifest
+    return run_summaries
 
 
 def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, Any] | None:
@@ -650,15 +819,16 @@ def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, An
     if not all_orders_path.exists():
         return None
 
+    requested_order = 0 if int(order) == 0 else -abs(int(order))
     rows: list[dict[str, float]] = []
     with all_orders_path.open("r", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             try:
-                row_order = abs(int(float(row["order"])))
+                row_order = int(float(row["order"]))
             except (KeyError, TypeError, ValueError):
                 continue
-            if row_order != abs(int(order)):
+            if row_order != requested_order:
                 continue
             try:
                 rows.append(
@@ -691,6 +861,29 @@ def _run_id(workflow: str, grating_id: str) -> str:
     """Return a filesystem-safe run ID."""
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return f"{stamp}-{grating_id}-{workflow}".replace("_", "-")
+
+
+def _safe_browse_path(raw_path: Any) -> Path:
+    """Return a normalized filesystem path for the export dialog."""
+    if raw_path in (None, ""):
+        return Path.home().resolve()
+    return Path(str(raw_path)).expanduser().resolve()
+
+
+def _list_directory_entries(directory: Path) -> list[dict[str, Any]]:
+    """Return browseable directory entries for the export dialog."""
+    if not directory.exists():
+        return []
+    entries = []
+    for path in sorted(directory.iterdir(), key=lambda candidate: (not candidate.is_dir(), candidate.name.lower())):
+        entries.append(
+            {
+                "name": path.name,
+                "path": str(path.resolve()),
+                "is_dir": path.is_dir(),
+            }
+        )
+    return entries
 
 
 if __name__ == "__main__":
