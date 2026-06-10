@@ -53,6 +53,16 @@ Local data is stored in `.grax-web/` by default:
 - combined plots: `.grax-web/plots/`
 - grating previews: `.grax-web/previews/`
 
+Each saved run lives in `.grax-web/runs/<run_id>/` and includes:
+
+- `manifest.json`
+- `summary.csv`
+- `all_orders.csv`
+- `selected_efficiency.png`
+
+Use `Plots` to combine saved runs and choose which diffraction orders to
+overlay for each run. Use `Manage runs` to rename runs or bulk delete them.
+
 ## Repository at a glance
 
 - `src/grax/`: core package source code
