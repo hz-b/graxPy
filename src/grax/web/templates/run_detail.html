@@ -3,7 +3,7 @@
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>{{ run.workflow }}</h1>
+    <h1>{{ run.display_name | default(run.workflow, true) }}</h1>
     <p>{{ run.grating_name }} · {{ run.created_at }}</p>
   </div>
   <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>

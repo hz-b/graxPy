@@ -66,6 +66,7 @@ class RunStore:
         payload["id"] = run_id
         payload.setdefault("display_name", self._default_display_name(payload))
         path = self._manifest_path(run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")

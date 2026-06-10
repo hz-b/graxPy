@@ -45,7 +45,8 @@ def _write_run_fixture(
         for energy in (100.0, 110.0):
             for order in orders:
                 handle.write(
-                    f"case-{energy:.1f},{energy:.1f},1.5,{order},{0.05 * order + energy / 1000:.6f},{order * 1.2:.6f}\n"
+                    f"case-{energy:.1f},{energy:.1f},1.5,{order},"
+                    f"{0.05 * order + energy / 1000:.6f},{order * 1.2:.6f}\n"
                 )
 
 
@@ -322,6 +323,10 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert (tmp_path / "runs").exists()
     assert captured_cases
     assert captured_cases[0]["x_resolution_nm"] == pytest.approx(0.75)
+    run_id = next((path.parent.name for path in (tmp_path / "runs").glob("*/manifest.json")), None)
+    assert run_id is not None
+    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
+    assert manifest["display_name"] == "Run grating · fixed_angle"
 
 
 def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
@@ -378,7 +383,6 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     )
     assert delete_response.status_code == 200
     assert not (tmp_path / "runs" / "run-2").exists()
-    assert captured_cases[0]["z_resolution_nm"] == pytest.approx(0.25)
 
 
 def test_flask_app_plots_selected_orders_across_runs(

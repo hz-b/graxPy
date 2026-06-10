@@ -161,6 +161,7 @@ def create_app(*, data_dir: str | Path | None = None):
         return render_template("run_detail.html", run=manifest)
 
     @app.get("/plots")
+    @app.get("/runs/compare")
     def plot_index():
         plot_root = app.config["GRAx_DATA_DIR"] / "plots"
         return render_template(
@@ -172,6 +173,7 @@ def create_app(*, data_dir: str | Path | None = None):
         )
 
     @app.post("/plots")
+    @app.post("/runs/compare")
     def create_plot():
         run_ids = request.form.getlist("run_ids")
         if not run_ids:
@@ -586,11 +588,12 @@ def _build_combined_plot(
             continue
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
+        run_label = str(manifest.get("display_name") or manifest.get("grating_name", run_id))
         orders = order_selection.get(run_id) or _available_orders(run_dir)
         run_summaries.append(
             {
                 "id": run_id,
-                "name": manifest.get("grating_name", run_id),
+                "name": run_label,
                 "orders": orders,
             }
         )
@@ -600,7 +603,7 @@ def _build_combined_plot(
             series = _load_order_series(
                 run_dir,
                 order=order,
-                label=str(manifest.get("grating_name", run_id)),
+                label=run_label,
             )
             if series is not None:
                 selected_series.append(series)
