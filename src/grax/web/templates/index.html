@@ -6,7 +6,17 @@
     <h1>Saved gratings</h1>
     <p>Local prototype workspace</p>
   </div>
-  <a class="button primary" href="{{ url_for('new_grating') }}">Create grating</a>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
+    <a class="button primary" href="{{ url_for('new_grating') }}">Create grating</a>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Saved runs live in <code>{{ results_dir }}/</code> and combined plots live in
+    <code>{{ plots_dir }}/</code>.
+  </p>
 </section>
 
 <div class="grid two">
@@ -30,7 +40,7 @@
       <div class="list compact">
         {% for run in runs %}
           <a class="row" href="{{ url_for('run_detail', run_id=run.id) }}">
-            <strong>{{ run.workflow }}</strong>
+            <strong>{{ run.display_name | default(run.workflow, true) }}</strong>
             <span>{{ run.grating_name }} · {{ run.created_at }}</span>
           </a>
         {% endfor %}

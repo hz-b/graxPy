@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Plots{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Compare saved runs</h1>
+    <p>Combine saved runs and select the diffraction orders to overlay.</p>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Saved runs are read from <code>{{ results_dir }}/</code> and plots are written to
+    <code>{{ plots_dir }}/</code>.
+  </p>
+</section>
+
+<div class="grid two">
+  <section>
+    <form class="form" method="post" action="{{ url_for('create_plot') }}">
+      <label>
+        Plot title
+        <input name="title" type="text" value="Combined plot">
+      </label>
+
+      {% if runs %}
+        {% for run in runs %}
+          <fieldset class="plot-run">
+            <legend>
+              <label class="inline-check">
+                <input type="checkbox" name="run_ids" value="{{ run.id }}" data-plot-run-toggle>
+                <span>{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}</span>
+              </label>
+            </legend>
+            <p class="subtle">{{ run.created_at }}</p>
+            {% if run.available_orders %}
+              <div class="order-grid" data-plot-run-orders>
+                {% for order in run.available_orders %}
+                  <label class="inline-check">
+                    <input type="checkbox" name="orders_{{ run.id }}" value="{{ order }}">
+                    <span>Order {{ order }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="empty">No order data available for this run.</p>
+            {% endif %}
+          </fieldset>
+        {% endfor %}
+      {% else %}
+        <p class="empty">No saved runs yet.</p>
+      {% endif %}
+
+      <button class="button primary" type="submit">Create plot</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Saved plots</h2>
+    {% if plots %}
+      <div class="list compact">
+        {% for plot in plots %}
+          <a class="row" href="{{ url_for('plot_detail', plot_id=plot.id) }}">
+            <strong>{{ plot.title }}</strong>
+            <span>{{ plot.created_at }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No plots yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

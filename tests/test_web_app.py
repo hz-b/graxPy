@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from werkzeug.datastructures import MultiDict
 
 from grax.gratings import BlazedGrating, LaminarGrating
 from grax.stacks import MultilayerStack
@@ -15,6 +16,37 @@ from grax.web.persistence import (
     grating_to_spec,
     load_material_catalog,
 )
+
+
+def _write_run_fixture(
+    base_dir: Path,
+    *,
+    run_id: str,
+    display_name: str,
+    grating_name: str = "Demo grating",
+    workflow: str = "fixed_angle",
+    orders: tuple[int, ...] = (1, 2),
+) -> None:
+    run_dir = base_dir / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "id": run_id,
+        "created_at": "2026-06-10T12:00:00",
+        "workflow": workflow,
+        "grating_id": "grating-1",
+        "grating_name": grating_name,
+        "display_name": display_name,
+        "status": "ok",
+        "artifacts": ["all_orders.csv"],
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    with (run_dir / "all_orders.csv").open("w", encoding="utf-8", newline="") as handle:
+        handle.write("case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg\n")
+        for energy in (100.0, 110.0):
+            for order in orders:
+                handle.write(
+                    f"case-{energy:.1f},{energy:.1f},1.5,{order},{0.05 * order + energy / 1000:.6f},{order * 1.2:.6f}\n"
+                )
 
 
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
@@ -143,7 +175,7 @@ def test_index_mentions_result_locations(tmp_path: Path) -> None:
 
     from grax.web.app import create_app
 
-    response = create_app(data_dir=tmp_path).test_client().get("/")
+    response = create_app(data_dir=tmp_path / ".grax-web").test_client().get("/")
 
     assert response.status_code == 200
     assert b".grax-web/runs/" in response.data
@@ -290,6 +322,62 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert (tmp_path / "runs").exists()
     assert captured_cases
     assert captured_cases[0]["x_resolution_nm"] == pytest.approx(0.75)
+
+
+def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(1, 3))
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", orders=(2,))
+
+    app = create_app(data_dir=tmp_path)
+    response = app.test_client().get("/plots")
+
+    assert response.status_code == 200
+    assert b"Alpha run" in response.data
+    assert b"Order 3" in response.data
+    assert b"Order 2" in response.data
+
+
+def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run")
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run")
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+
+    page = client.get("/runs/manage")
+    assert page.status_code == 200
+    assert b"data-confirm=\"Delete the selected runs?" in page.data
+
+    rename_response = client.post(
+        "/runs/manage",
+        data={
+            "action": "save",
+            "display_name_run-1": "Renamed run",
+            "display_name_run-2": "Beta run",
+        },
+        follow_redirects=True,
+    )
+    assert rename_response.status_code == 200
+    assert b"Renamed run" in rename_response.data
+
+    delete_response = client.post(
+        "/runs/manage",
+        data={
+            "action": "delete",
+            "delete_run_id": ["run-2"],
+        },
+        follow_redirects=True,
+    )
+    assert delete_response.status_code == 200
+    assert not (tmp_path / "runs" / "run-2").exists()
     assert captured_cases[0]["z_resolution_nm"] == pytest.approx(0.25)
 
 
@@ -374,13 +462,15 @@ def test_flask_app_plots_selected_orders_across_runs(
 
     plot_response = client.post(
         "/plots",
-        data=[
-            ("run_ids", run_ids[0]),
-            ("run_ids", run_ids[1]),
-            ("orders_%s" % run_ids[0], "1"),
-            ("orders_%s" % run_ids[0], "2"),
-            ("orders_%s" % run_ids[1], "1"),
-        ],
+        data=MultiDict(
+            [
+                ("run_ids", run_ids[0]),
+                ("run_ids", run_ids[1]),
+                (f"orders_{run_ids[0]}", "1"),
+                (f"orders_{run_ids[0]}", "2"),
+                (f"orders_{run_ids[1]}", "1"),
+            ]
+        ),
         follow_redirects=True,
     )
 

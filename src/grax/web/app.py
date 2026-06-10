@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 matplotlib.use("Agg")
 
 from .persistence import GratingStore, build_grating_from_spec, load_material_catalog
+from .runs import RunStore
 
 
 def create_app(*, data_dir: str | Path | None = None):
@@ -48,12 +49,15 @@ def create_app(*, data_dir: str | Path | None = None):
     def store() -> GratingStore:
         return GratingStore(app.config["GRAx_DATA_DIR"] / "saved_gratings")
 
+    def run_store() -> RunStore:
+        return RunStore(app.config["GRAx_DATA_DIR"] / "runs")
+
     @app.get("/")
     def index():
         return render_template(
             "index.html",
             gratings=store().list(),
-            runs=_list_runs(app.config["GRAx_DATA_DIR"] / "runs"),
+            runs=_list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs"),
             results_dir=app.config["GRAx_DATA_DIR"] / "runs",
             plots_dir=app.config["GRAx_DATA_DIR"] / "plots",
         )
@@ -123,6 +127,28 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         return redirect(url_for("run_detail", run_id=run["id"]))
 
+    @app.get("/runs/manage")
+    def manage_runs():
+        return render_template(
+            "run_manage.html",
+            runs=_list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs"),
+        )
+
+    @app.post("/runs/manage")
+    def update_runs():
+        action = str(request.form.get("action", "save"))
+        store = run_store()
+        if action == "delete":
+            store.delete_many(request.form.getlist("delete_run_id"))
+            return redirect(url_for("manage_runs"))
+
+        for run in store.list():
+            run_id = str(run["id"])
+            field_name = f"display_name_{run_id}"
+            if field_name in request.form:
+                store.rename(run_id, str(request.form.get(field_name, "")))
+        return redirect(url_for("manage_runs"))
+
     @app.get("/runs/<run_id>")
     def run_detail(run_id: str):
         run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
@@ -147,13 +173,20 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.post("/plots")
     def create_plot():
+        run_ids = request.form.getlist("run_ids")
+        if not run_ids:
+            abort(400, "Select at least one saved run.")
+        order_selection = {
+            run_id: [int(value) for value in request.form.getlist(f"orders_{run_id}")]
+            for run_id in run_ids
+        }
+        for run_id, orders in order_selection.items():
+            if not orders:
+                abort(400, f"Select at least one diffraction order for run {run_id}.")
         plot = _build_combined_plot(
             data_dir=app.config["GRAx_DATA_DIR"],
-            run_ids=request.form.getlist("run_ids"),
-            order_selection={
-                run_id: [int(value) for value in request.form.getlist(f"orders_{run_id}")]
-                for run_id in request.form.getlist("run_ids")
-            },
+            run_ids=run_ids,
+            order_selection=order_selection,
             title=str(request.form.get("title", "")).strip() or "Combined plot",
         )
         return redirect(url_for("plot_detail", plot_id=plot["id"]))
@@ -212,7 +245,6 @@ def _default_form_values() -> dict[str, str]:
 
 def _run_result_location(data_dir: Path, run_id: str) -> Path:
     """Return the directory holding one run's saved artifacts."""
-
     return data_dir / "runs" / run_id
 
 
@@ -316,6 +348,7 @@ def _run_sweep(
         "workflow": workflow,
         "grating_id": grating_id,
         "grating_name": grating_name,
+        "display_name": f"{grating_name} · {workflow}",
         "status": "ok",
         "artifacts": [],
     }
@@ -484,18 +517,11 @@ def _write_summary_csv(results: list[Any], output_path: Path) -> None:
 
 def _list_runs(run_dir: Path) -> list[dict[str, Any]]:
     """Return persisted run manifests newest first."""
-    if not run_dir.exists():
-        return []
-    runs = []
-    for path in run_dir.glob("*/manifest.json"):
-        with path.open("r", encoding="utf-8") as handle:
-            runs.append(json.load(handle))
-    return sorted(runs, key=lambda run: str(run.get("created_at", "")), reverse=True)
+    return RunStore(run_dir).list()
 
 
 def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
     """Return run manifests augmented with available plot orders."""
-
     runs = []
     for run in _list_runs(run_dir):
         run_id = str(run["id"])
@@ -512,7 +538,6 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
 
 def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
     """Return saved combined plot manifests newest first."""
-
     if not plot_dir.exists():
         return []
     plots = []
@@ -524,7 +549,6 @@ def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
 
 def _available_orders(run_dir: Path) -> list[int]:
     """Return positive diffraction orders available for one run."""
-
     all_orders_path = run_dir / "all_orders.csv"
     if not all_orders_path.exists():
         return []
@@ -539,53 +563,6 @@ def _available_orders(run_dir: Path) -> list[int]:
     return sorted(orders)
 
 
-def _load_run_case_results(run_dir: Path) -> list[Any]:
-    """Reconstruct batch-style case results from a run's all-orders CSV."""
-
-    all_orders_path = run_dir / "all_orders.csv"
-    if not all_orders_path.exists():
-        return []
-    grouped: dict[str, dict[str, Any]] = {}
-    with all_orders_path.open("r", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            case_id = str(row["case_id"])
-            entry = grouped.setdefault(
-                case_id,
-                {
-                    "case_id": case_id,
-                    "energy_ev": float(row["energy_ev"]),
-                    "grazing_angle_deg": float(row["grazing_angle_deg"]),
-                    "orders": [],
-                    "efficiency_all": [],
-                    "diffraction_angle_all": [],
-                },
-            )
-            entry["orders"].append(int(float(row["order"])))
-            entry["efficiency_all"].append(float(row["efficiency"]))
-            entry["diffraction_angle_all"].append(float(row["diffraction_angle_deg"]))
-    from grax.simulation.models import CaseExecutionResult
-
-    results = [
-        CaseExecutionResult(
-            case_id=str(entry["case_id"]),
-            index=index,
-            label=None,
-            energy_ev=float(entry["energy_ev"]),
-            grazing_angle_deg=float(entry["grazing_angle_deg"]),
-            orders=np.asarray(entry["orders"], dtype=int),
-            selected_efficiency=float(entry["efficiency_all"][0]),
-            selected_diffraction_angle_deg=float(entry["diffraction_angle_all"][0]),
-            efficiency_all=np.asarray(entry["efficiency_all"], dtype=float),
-            diffraction_angle_all=np.asarray(entry["diffraction_angle_all"], dtype=float),
-            status="ok",
-            case_data={},
-        )
-        for index, entry in enumerate(grouped.values())
-    ]
-    return results
-
-
 def _build_combined_plot(
     *,
     data_dir: Path,
@@ -594,7 +571,6 @@ def _build_combined_plot(
     title: str,
 ) -> dict[str, Any]:
     """Build and save a combined plot for several runs and selected orders."""
-
     plot_root = data_dir / "plots"
     plot_root.mkdir(parents=True, exist_ok=True)
     plot_id = _plot_id()
@@ -618,6 +594,8 @@ def _build_combined_plot(
                 "orders": orders,
             }
         )
+        if not orders:
+            continue
         for order in orders:
             series = _load_order_series(
                 run_dir,
@@ -665,7 +643,6 @@ def _build_combined_plot(
 
 def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, Any] | None:
     """Load one order-vs-energy series from a saved run."""
-
     all_orders_path = run_dir / "all_orders.csv"
     if not all_orders_path.exists():
         return None
@@ -704,7 +681,6 @@ def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, An
 
 def _plot_id() -> str:
     """Return a filesystem-safe plot identifier."""
-
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 

@@ -6,6 +6,13 @@
     <h1>{{ run.workflow }}</h1>
     <p>{{ run.grating_name }} · {{ run.created_at }}</p>
   </div>
+  <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
+</section>
+
+<section class="notice">
+  <p>
+    This run is saved in <code>{{ run.results_dir }}</code>.
+  </p>
 </section>
 
 {% if run.artifacts %}

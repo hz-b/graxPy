@@ -42,8 +42,16 @@ python -m pip install -e ".[web]"
 grax-web
 ```
 
-Then open <http://127.0.0.1:5050>. The web app stores local saved gratings,
-previews, and run artifacts in `.grax-web/`.
+Then open <http://127.0.0.1:5050>. Use the home page to create and save
+gratings, then open the plot page to combine saved runs and select the
+diffraction orders to overlay.
+
+Local data is stored in `.grax-web/` by default:
+
+- saved gratings: `.grax-web/saved_gratings/`
+- run results: `.grax-web/runs/`
+- combined plots: `.grax-web/plots/`
+- grating previews: `.grax-web/previews/`
 
 ## Repository at a glance
 

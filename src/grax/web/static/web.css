@@ -52,6 +52,19 @@ a {
   margin-bottom: 24px;
 }
 
+.actions,
+.manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 h1,
 h2 {
   margin: 0 0 8px;
@@ -60,6 +73,19 @@ h2 {
 p {
   margin: 0;
   color: var(--muted);
+}
+
+.subtle {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.notice {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 24px;
+  background: #fcfcfc;
 }
 
 .grid.two {
@@ -110,6 +136,20 @@ p {
   color: #fff;
 }
 
+.button.danger {
+  border-color: #b42318;
+  background: #b42318;
+  color: #fff;
+}
+
+.notice {
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
 .form {
   display: grid;
   gap: 18px;
@@ -127,6 +167,28 @@ fieldset {
 legend {
   padding: 0 6px;
   font-weight: 700;
+}
+
+.plot-run {
+  grid-template-columns: 1fr;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.order-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.subtle {
+  font-size: 0.92rem;
 }
 
 label {
@@ -155,8 +217,43 @@ select {
   margin-bottom: 24px;
 }
 
+.plot-preview {
+  margin-top: 8px;
+}
+
 .is-hidden {
   display: none;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plot-run {
+  gap: 12px;
+}
+
+.order-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.run-manage-row {
+  align-items: start;
+  justify-content: space-between;
+}
+
+.run-manage-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.manage-delete {
+  margin-top: 24px;
+  white-space: nowrap;
 }
 
 table {
