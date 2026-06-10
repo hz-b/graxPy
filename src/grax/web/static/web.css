@@ -155,6 +155,10 @@ select {
   margin-bottom: 24px;
 }
 
+.is-hidden {
+  display: none;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

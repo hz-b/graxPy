@@ -29,6 +29,8 @@
     <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
     <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
     <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
+    <label>X resolution, nm <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
+    <label>Z resolution, nm <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
   </fieldset>
   <button class="button primary" type="submit">Run sweep</button>
 </form>

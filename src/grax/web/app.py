@@ -276,14 +276,16 @@ def _run_sweep(
     }
 
     if workflow == "parameter_study":
+        run_x_resolution_nm = float(form.get("run_x_resolution_nm") or grating.x_resolution_nm)
+        run_z_resolution_nm = float(form.get("run_z_resolution_nm") or grating.z_resolution_nm)
         result = parameter_sweep.run_parameter_study(
             grating=grating,
             energies_ev=energies,
             grazing_angle_deg=float(form["grazing_angle_deg"]),
             diffraction_order=diffraction_order,
             fourier_orders_values=[fourier_orders],
-            x_resolution_values=[float(grating.x_resolution_nm)],
-            z_resolution_values=[float(grating.z_resolution_nm)],
+            x_resolution_values=[run_x_resolution_nm],
+            z_resolution_values=[run_z_resolution_nm],
             output_dir=run_dir,
             save_csv=True,
             show_progress=False,
@@ -360,6 +362,9 @@ def _cases_for_workflow(
     fourier_orders: int,
 ) -> list[dict[str, Any]]:
     """Return batch cases for one supported workflow."""
+    run_x_resolution_nm = float(form.get("run_x_resolution_nm") or grating.x_resolution_nm)
+    run_z_resolution_nm = float(form.get("run_z_resolution_nm") or grating.z_resolution_nm)
+
     if workflow == "fixed_angle":
         cases = list(
             simulation.fixed_angle_cases(
@@ -383,7 +388,13 @@ def _cases_for_workflow(
                 grating=grating,
                 energies_ev=energies,
                 diffraction_order=diffraction_order,
+                rough_x_resolution_nm=run_x_resolution_nm,
+                rough_z_resolution_nm=run_z_resolution_nm,
+                fine_x_resolution_nm=run_x_resolution_nm,
+                fine_z_resolution_nm=run_z_resolution_nm,
                 final_fourier_orders=fourier_orders,
+                final_x_resolution_nm=run_x_resolution_nm,
+                final_z_resolution_nm=run_z_resolution_nm,
             )
         )
     else:
@@ -391,6 +402,9 @@ def _cases_for_workflow(
     for index, case in enumerate(cases):
         case["case_id"] = f"{workflow}-{index:08d}"
         case["fourier_orders"] = fourier_orders
+        if workflow != "multilayer_theta_search":
+            case["x_resolution_nm"] = run_x_resolution_nm
+            case["z_resolution_nm"] = run_z_resolution_nm
     return cases
 
 

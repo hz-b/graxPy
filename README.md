@@ -33,6 +33,18 @@ For local editable installs:
 python -m pip install -e .
 ```
 
+## Local web app
+
+Install the optional web extra and start the local server:
+
+```bash
+python -m pip install -e ".[web]"
+grax-web
+```
+
+Then open <http://127.0.0.1:5050>. The web app stores local saved gratings,
+previews, and run artifacts in `.grax-web/`.
+
 ## Repository at a glance
 
 - `src/grax/`: core package source code

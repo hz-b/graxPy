@@ -138,6 +138,20 @@ def test_flask_app_creates_grating_and_lists_it(tmp_path: Path) -> None:
     assert len(GratingStore(tmp_path / "saved_gratings").list()) == 1
 
 
+def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    app = create_app(data_dir=tmp_path)
+    response = app.test_client().get("/gratings/new")
+
+    assert response.status_code == 200
+    assert b'data-grating-section="laminar"' in response.data
+    assert b'data-grating-section="blazed"' in response.data
+    assert b"web.js" in response.data
+
+
 def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -201,8 +215,11 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     from grax.simulation.models import CaseExecutionResult
     from grax.web.app import create_app
 
+    captured_cases = []
+
     def fake_run_cases(self, cases, metadata=None):  # type: ignore[no-untyped-def]
         for index, case in enumerate(cases):
+            captured_cases.append(case)
             yield CaseExecutionResult(
                 case_id=str(case["case_id"]),
                 index=index,
@@ -250,6 +267,8 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
             "grazing_angle_deg": "1.5",
             "diffraction_order": "1",
             "fourier_orders": "5",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
         },
         follow_redirects=True,
     )
@@ -257,3 +276,6 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert run_response.status_code == 200
     assert b"fixed_angle" in run_response.data
     assert (tmp_path / "runs").exists()
+    assert captured_cases
+    assert captured_cases[0]["x_resolution_nm"] == pytest.approx(0.75)
+    assert captured_cases[0]["z_resolution_nm"] == pytest.approx(0.25)
