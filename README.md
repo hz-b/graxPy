@@ -44,7 +44,8 @@ grax-web
 
 Then open <http://127.0.0.1:5050>. Use the home page to create and save
 gratings, then open the plot page to combine saved runs and select the
-diffraction orders to overlay.
+diffraction orders to overlay. Plot previews, saved comparison pages, and
+run-progress plots are interactive Plotly figures in the browser.
 
 Start on a different port when needed:
 
@@ -73,10 +74,12 @@ Each saved run lives in `.grax-web/runs/<run_id>/` and includes:
 - `manifest.json`
 - `summary.csv`
 - `all_orders.csv`
-- `selected_efficiency.png`
+- `selected_efficiency.json`
 
 Use `Plots` to combine saved runs and choose which diffraction orders to
-overlay for each run. Use `Manage runs` to rename runs or bulk delete them.
+overlay for each run. Interactive plots can still be exported as PNG files
+through the built-in folder browser. Use `Manage runs` to rename runs or bulk
+delete them.
 
 ## Repository at a glance
 
