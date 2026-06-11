@@ -30,9 +30,17 @@
               >
             </label>
             <p class="subtle">
-              {{ run.grating_name }} · {{ run.workflow }} · {{ run.created_at }}
+              {{ run.summary_meta }}
             </p>
+            {% if run.resumable %}
+              <p class="subtle">Checkpointed {{ run.checkpoint_completed_points }} / {{ run.checkpoint_total_points }} points.</p>
+            {% endif %}
           </div>
+          {% if run.resumable %}
+            <button class="button" type="submit" name="action" value="resume" formaction="{{ url_for('update_runs') }}" formmethod="post" onclick="this.form.elements.namedItem('run_id').value='{{ run.id }}'">
+              Resume
+            </button>
+          {% endif %}
           <label class="inline-check manage-delete">
             <input type="checkbox" name="delete_run_id" value="{{ run.id }}">
             <span>Delete</span>
@@ -40,6 +48,7 @@
         </div>
       {% endfor %}
     </div>
+    <input type="hidden" name="run_id" value="">
   </form>
 {% else %}
   <p class="empty">No runs have been saved yet.</p>

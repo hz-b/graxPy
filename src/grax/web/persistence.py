@@ -57,6 +57,13 @@ class GratingStore:
             handle.write("\n")
         return payload
 
+    def delete(self, grating_id: str) -> None:
+        """Delete one saved grating by ID if it exists."""
+
+        path = self._path_for_id(grating_id)
+        if path.exists():
+            path.unlink()
+
     def _path_for_id(self, grating_id: str) -> Path:
         """Return the JSON path for one grating ID."""
         safe_id = _slugify(grating_id)

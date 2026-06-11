@@ -6,32 +6,64 @@
     <h1>{{ grating.name }}</h1>
     <p>{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm</p>
   </div>
-  <a class="button" href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit</a>
+  <div class="actions">
+    <a class="button" href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit</a>
+    <a class="button danger" href="{{ url_for('delete_grating_prompt', grating_id=grating.id) }}">Delete grating</a>
+  </div>
 </section>
 
 <img class="preview" src="{{ preview_url }}" alt="Grating profile preview">
 
-<form class="form run-form" method="post" action="{{ url_for('create_run', grating_id=grating.id) }}">
+<form
+  class="form run-form"
+  method="post"
+  action="{{ url_for('create_run', grating_id=grating.id) }}"
+>
   <fieldset>
     <legend>Run sweep</legend>
     <label>Workflow
-      <select name="workflow">
+      <select name="workflow" data-run-workflow>
         <option value="fixed_angle">Fixed angle</option>
         <option value="monochromator">Monochromator</option>
         <option value="multilayer_theta_search">Multilayer theta search</option>
         <option value="parameter_study">Parameter study</option>
       </select>
     </label>
+    <label>Workers
+      <select name="max_workers_mode" data-worker-mode>
+        <option value="auto" selected>Auto</option>
+        <option value="manual">Manual</option>
+      </select>
+    </label>
+    <label data-manual-workers class="is-hidden">Manual worker count <input name="max_workers" type="number" min="1" step="1" value="1"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search parameter_study">
+    <legend>Energy sweep</legend>
     <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="100"></label>
     <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="120"></label>
     <label>Energy points <input name="energy_points" type="number" step="1" value="3"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="fixed_angle parameter_study">
+    <legend>Angle selection</legend>
     <label>Grazing angle, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="monochromator">
+    <legend>Monochromator</legend>
     <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search parameter_study">
+    <legend>Numerics</legend>
     <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
     <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
     <label>X resolution, nm <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
     <label>Z resolution, nm <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
   </fieldset>
-  <button class="button primary" type="submit">Run sweep</button>
+  <div class="actions">
+    <button class="button primary" type="submit">Run sweep</button>
+  </div>
 </form>
 {% endblock %}

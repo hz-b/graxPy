@@ -1,11 +1,42 @@
+function toggleSectionFields(section, enabled) {
+  section.classList.toggle("is-hidden", !enabled);
+  section.querySelectorAll("input, select, textarea").forEach((field) => {
+    field.disabled = !enabled;
+  });
+}
+
 function syncGratingSections(select) {
   const selected = select.value;
   document.querySelectorAll("[data-grating-section]").forEach((section) => {
-    const isActive = section.dataset.gratingSection === selected;
-    section.classList.toggle("is-hidden", !isActive);
-    section.querySelectorAll("input, select, textarea").forEach((field) => {
-      field.disabled = !isActive;
+    toggleSectionFields(section, section.dataset.gratingSection === selected);
+  });
+}
+
+function syncStackSections(select) {
+  const isMultilayer = select.value === "multilayer";
+  document.querySelectorAll("[data-stack-controls]").forEach((section) => {
+    toggleSectionFields(section, isMultilayer);
+  });
+  document.querySelectorAll("[data-single-layer-controls]").forEach((section) => {
+    toggleSectionFields(section, !isMultilayer);
+  });
+}
+
+function syncWorkerFields(select) {
+  const isManual = select.value === "manual";
+  document.querySelectorAll("[data-manual-workers]").forEach((field) => {
+    field.classList.toggle("is-hidden", !isManual);
+    field.querySelectorAll("input").forEach((input) => {
+      input.disabled = !isManual;
     });
+  });
+}
+
+function syncRunWorkflow(select) {
+  const workflow = select.value;
+  document.querySelectorAll("[data-workflow-fields]").forEach((section) => {
+    const allowed = (section.dataset.workflowFields || "").split(/\s+/).filter(Boolean);
+    toggleSectionFields(section, allowed.includes(workflow));
   });
 }
 
@@ -226,10 +257,154 @@ function initPlotWorkspace(form) {
   }
 }
 
+function formatSeconds(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "Estimating";
+  }
+  const total = Math.max(0, Math.round(value));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function formatBytes(bytes) {
+  if (bytes === null || bytes === undefined || Number.isNaN(bytes)) {
+    return "Unavailable";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function initRunMonitor(container) {
+  const statusUrl = container.dataset.runStatusUrl;
+  const memoryUrl = container.dataset.memoryUrl;
+  const plotImage = container.querySelector("[data-run-plot-image]");
+  const stateNode = container.querySelector("[data-run-state]");
+  const summaryNode = container.querySelector("[data-run-progress-summary]");
+  const completedNode = container.querySelector("[data-run-completed]");
+  const remainingNode = container.querySelector("[data-run-remaining]");
+  const elapsedNode = container.querySelector("[data-run-elapsed]");
+  const etaNode = container.querySelector("[data-run-eta]");
+  const workersNode = container.querySelector("[data-run-workers]");
+  const memoryNode = container.querySelector("[data-run-memory]");
+  const webMemoryNode = container.querySelector("[data-run-web-memory]");
+  const simulationMemoryNode = container.querySelector("[data-run-simulation-memory]");
+  const errorNode = container.querySelector("[data-run-error]");
+  const progressBar = container.querySelector("[data-run-progress-bar]");
+  const pauseButton = container.querySelector("[data-run-pause-action]");
+  const resumeButton = container.querySelector("[data-run-resume-action]");
+  let latestPlotToken = "";
+  let latestPlotUrl = plotImage.getAttribute("src") || "";
+  let statusTimerId = null;
+  let memoryTimerId = null;
+
+  function preloadAndSwapPlot(url, token) {
+    const candidate = new window.Image();
+    candidate.addEventListener("load", () => {
+      latestPlotToken = token;
+      latestPlotUrl = url;
+      plotImage.src = url;
+      plotImage.classList.remove("is-hidden");
+    });
+    candidate.addEventListener("error", () => {
+      if (latestPlotUrl) {
+        plotImage.src = latestPlotUrl;
+        plotImage.classList.remove("is-hidden");
+      }
+    });
+    candidate.src = url;
+  }
+
+  function updateFromStatus(payload) {
+    stateNode.textContent = payload.state;
+    summaryNode.textContent = `${payload.completed_points} / ${payload.total_points}`;
+    completedNode.textContent = String(payload.completed_points);
+    remainingNode.textContent = String(payload.remaining_points);
+    elapsedNode.textContent = formatSeconds(payload.elapsed_seconds);
+    etaNode.textContent = formatSeconds(payload.eta_seconds);
+    const requested = payload.worker_mode === "manual" ? String(payload.requested_workers) : "auto";
+    const resolved = payload.resolved_workers ? ` -> ${payload.resolved_workers}` : "";
+    workersNode.textContent = `${requested}${resolved}`;
+    const percent = payload.total_points > 0 ? (payload.completed_points / payload.total_points) * 100 : 0;
+    progressBar.style.width = `${percent}%`;
+    errorNode.textContent = payload.error_text || "";
+    if (pauseButton) {
+      pauseButton.disabled = !payload.can_pause;
+    }
+    if (resumeButton) {
+      resumeButton.disabled = !payload.can_resume;
+    }
+    if (payload.memory) {
+      webMemoryNode.textContent = payload.memory.ok
+        ? formatBytes(payload.memory.web_process_rss_bytes)
+        : "Unavailable";
+      simulationMemoryNode.textContent = payload.memory.ok
+        ? formatBytes(payload.memory.simulation_process_rss_bytes)
+        : "Unavailable";
+    }
+    if (payload.plot_url && payload.plot_token !== latestPlotToken) {
+      preloadAndSwapPlot(payload.plot_url, payload.plot_token);
+    }
+    if (["completed", "failed", "paused", "interrupted"].includes(payload.state)) {
+      if (statusTimerId !== null) {
+        window.clearInterval(statusTimerId);
+      }
+      if (memoryTimerId !== null) {
+        window.clearInterval(memoryTimerId);
+      }
+    }
+  }
+
+  async function pollStatus() {
+    const response = await fetch(statusUrl);
+    const payload = await response.json();
+    updateFromStatus(payload);
+  }
+
+  async function pollMemory() {
+    const response = await fetch(memoryUrl);
+    const payload = await response.json();
+    if (!payload.ok) {
+      memoryNode.textContent = "RAM unavailable";
+      return;
+    }
+    memoryNode.textContent = `${formatBytes(payload.used_bytes)} used / ${formatBytes(payload.available_bytes)} free`;
+  }
+
+  pollStatus();
+  pollMemory();
+  statusTimerId = window.setInterval(pollStatus, 500);
+  memoryTimerId = window.setInterval(pollMemory, 500);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
     select.addEventListener("change", () => syncGratingSections(select));
+  });
+
+  document.querySelectorAll("[data-stack-type]").forEach((select) => {
+    syncStackSections(select);
+    select.addEventListener("change", () => syncStackSections(select));
+  });
+
+  document.querySelectorAll("[data-worker-mode]").forEach((select) => {
+    syncWorkerFields(select);
+    select.addEventListener("change", () => syncWorkerFields(select));
+  });
+
+  document.querySelectorAll("[data-run-workflow]").forEach((select) => {
+    syncRunWorkflow(select);
+    select.addEventListener("change", () => syncRunWorkflow(select));
   });
 
   document.querySelectorAll("[data-confirm]").forEach((button) => {
@@ -249,5 +424,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const plotWorkspace = document.querySelector("[data-plot-workspace]");
   if (plotWorkspace) {
     initPlotWorkspace(plotWorkspace);
+  }
+
+  const runMonitor = document.querySelector("[data-live-run-monitor]");
+  if (runMonitor) {
+    initRunMonitor(runMonitor);
   }
 });

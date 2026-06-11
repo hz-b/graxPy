@@ -6,13 +6,74 @@
     <h1>{{ run.display_name | default(run.workflow, true) }}</h1>
     <p>{{ run.grating_name }} · {{ run.created_at }}</p>
   </div>
-  <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
+    <form method="post" action="{{ url_for('pause_run', run_id=run.id) }}">
+      <button
+        class="button"
+        type="submit"
+        data-run-pause-action
+        {% if not initial_status.can_pause %}disabled{% endif %}
+      >
+        Pause run
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('resume_run', run_id=run.id) }}">
+      <button
+        class="button"
+        type="submit"
+        data-run-resume-action
+        {% if not initial_status.can_resume %}disabled{% endif %}
+      >
+        Resume run
+      </button>
+    </form>
+  </div>
 </section>
 
 <section class="notice">
   <p>
     This run is saved in <code>{{ run.results_dir }}</code>.
   </p>
+</section>
+
+<section
+  class="run-monitor"
+  data-live-run-monitor
+  data-run-status-url="{{ status_url }}"
+  data-memory-url="{{ memory_url }}"
+>
+  <section class="preview-panel run-monitor-plot">
+    <div class="section-head preview-head">
+      <div>
+        <h2>Live progress</h2>
+        <p data-run-state>{{ initial_status.state }}</p>
+      </div>
+      <span class="preview-pill" data-run-progress-summary>
+        {{ initial_status.completed_points }} / {{ initial_status.total_points }}
+      </span>
+    </div>
+    {% if initial_status.plot_url %}
+      <img class="preview" src="{{ initial_status.plot_url }}" alt="Run progress plot" data-run-plot-image>
+    {% else %}
+      <img class="preview is-hidden" src="" alt="Run progress plot" data-run-plot-image>
+    {% endif %}
+  </section>
+
+  <section class="run-monitor-stats">
+    <div class="run-progress-bar"><span data-run-progress-bar style="width: 0%"></span></div>
+    <div class="stats-grid">
+      <div class="stat-card"><strong>Completed</strong><span data-run-completed>{{ initial_status.completed_points }}</span></div>
+      <div class="stat-card"><strong>Remaining</strong><span data-run-remaining>{{ initial_status.remaining_points }}</span></div>
+      <div class="stat-card"><strong>Elapsed</strong><span data-run-elapsed>Estimating</span></div>
+      <div class="stat-card"><strong>ETA</strong><span data-run-eta>Estimating</span></div>
+      <div class="stat-card"><strong>Workers</strong><span data-run-workers>{{ initial_status.worker_mode }}</span></div>
+      <div class="stat-card"><strong>Machine RAM</strong><span data-run-memory>Loading</span></div>
+      <div class="stat-card"><strong>Web RSS</strong><span data-run-web-memory>Loading</span></div>
+      <div class="stat-card"><strong>Simulation RSS</strong><span data-run-simulation-memory>Loading</span></div>
+    </div>
+    <p class="subtle" data-run-error></p>
+  </section>
 </section>
 
 {% if run.artifacts %}

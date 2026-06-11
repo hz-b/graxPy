@@ -45,9 +45,9 @@
     </fieldset>
 
     <fieldset>
-      <legend>Stack</legend>
+      <legend>Coating</legend>
       <label>Stack type
-        <select name="stack_type">
+        <select name="stack_type" data-stack-type>
           <option value="single_layer" {% if defaults.stack_type == "single_layer" %}selected{% endif %}>Single layer</option>
           <option value="multilayer" {% if defaults.stack_type == "multilayer" %}selected{% endif %}>Multilayer</option>
         </select>
@@ -55,10 +55,22 @@
       <label>Substrate
         <select name="substrate_material">{% for material in materials %}<option {% if material == defaults.substrate_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
       </label>
+      <label>Top cap
+        <select name="top_cap_material"><option value="">None</option>{% for material in materials %}<option {% if material == defaults.top_cap_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+      <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
+    </fieldset>
+
+    <fieldset data-single-layer-controls>
+      <legend>Single Layer</legend>
       <label>Layer material
         <select name="layer_material">{% for material in materials %}<option {% if material == defaults.layer_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
       </label>
       <label>Layer thickness, nm <input name="layer_thickness_nm" type="number" step="0.01" value="{{ defaults.layer_thickness_nm }}"></label>
+    </fieldset>
+
+    <fieldset data-stack-controls>
+      <legend>Multilayer stack</legend>
       <label>Material A
         <select name="material_a">{% for material in materials %}<option {% if material == defaults.material_a %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
       </label>
@@ -71,10 +83,6 @@
       <label>Top material
         <select name="top_material">{% for material in materials %}<option {% if material == defaults.top_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
       </label>
-      <label>Top cap
-        <select name="top_cap_material"><option value="">None</option>{% for material in materials %}<option {% if material == defaults.top_cap_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
-      </label>
-      <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
     </fieldset>
     <button class="button primary" type="submit">{{ submit_label }}</button>
   </form>

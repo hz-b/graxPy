@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import shutil
+import threading
+import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +22,57 @@ matplotlib.use("Agg")
 
 from .persistence import GratingStore, build_grating_from_spec, load_material_catalog
 from .runs import RunStore
+
+try:
+    import psutil
+except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime.
+    class _MissingPsutil:
+        """Fallback object that keeps the psutil interface patchable in tests."""
+
+        def virtual_memory(self) -> Any:
+            """Raise a stable error when psutil is unavailable."""
+
+            raise RuntimeError("psutil is not installed.")
+
+    psutil = _MissingPsutil()
+
+
+@dataclass
+class ActiveRunState:
+    """Track one live run while it executes in the background."""
+
+    run_id: str
+    workflow: str
+    total_points: int
+    worker_mode: str
+    requested_workers: int | None
+    resolved_workers: int | None
+    state: str = "queued"
+    created_at_monotonic: float = field(default_factory=time.monotonic)
+    started_at_monotonic: float | None = None
+    finished_at_monotonic: float | None = None
+    completed_points: int = 0
+    plot_relative_path: str | None = None
+    plot_token: str = ""
+    last_plot_publish_monotonic: float | None = None
+    error_text: str = ""
+    completion_timestamps: list[float] = field(default_factory=list)
+    pause_requested: bool = False
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    worker_thread: threading.Thread | None = None
+    simulation_pids: set[int] = field(default_factory=set)
+
+
+def _active_runs(app: Any) -> dict[str, ActiveRunState]:
+    """Return the active in-memory run registry for one Flask app."""
+
+    return app.extensions.setdefault("grax_active_runs", {})
+
+
+def _active_runs_lock(app: Any) -> threading.Lock:
+    """Return the lock guarding active-run state for one Flask app."""
+
+    return app.extensions.setdefault("grax_active_runs_lock", threading.Lock())
 
 
 def create_app(*, data_dir: str | Path | None = None):
@@ -58,15 +113,39 @@ def create_app(*, data_dir: str | Path | None = None):
     def preview_root() -> Path:
         return app.config["GRAx_DATA_DIR"] / "previews" / "live"
 
+    def active_data_dir() -> Path:
+        return Path(app.config["GRAx_DATA_DIR"]).resolve()
+
+    @app.context_processor
+    def inject_site_metadata() -> dict[str, Any]:
+        """Inject shared site attribution metadata into templates."""
+
+        return {"site_metadata": _site_metadata()}
+
     @app.get("/")
     def index():
+        data_dir = active_data_dir()
         return render_template(
             "index.html",
             gratings=store().list(),
-            runs=_list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs"),
-            results_dir=app.config["GRAx_DATA_DIR"] / "runs",
-            plots_dir=app.config["GRAx_DATA_DIR"] / "plots",
+            runs=_list_plot_runs(data_dir / "runs"),
+            results_dir=data_dir / "runs",
+            plots_dir=data_dir / "plots",
+            active_workspace=data_dir,
+            message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
         )
+
+    @app.post("/workspace")
+    def switch_workspace():
+        if _has_active_runs(app):
+            return redirect(url_for("index", message="Cannot switch workspace while active runs exist.", kind="error"))
+        try:
+            target_dir = _validate_workspace_root(request.form.get("workspace_root"))
+        except (OSError, ValueError) as error:
+            return redirect(url_for("index", message=str(error), kind="error"))
+        app.config["GRAx_DATA_DIR"] = target_dir
+        return redirect(url_for("index", message=f"Workspace switched to {target_dir}", kind="success"))
 
     @app.get("/gratings/new")
     def new_grating():
@@ -90,12 +169,46 @@ def create_app(*, data_dir: str | Path | None = None):
         saved = store().save(spec)
         return redirect(url_for("grating_detail", grating_id=saved["id"]))
 
+    @app.get("/gratings/manage")
+    def manage_gratings():
+        return render_template(
+            "grating_manage.html",
+            gratings=store().list(),
+        )
+
+    @app.post("/gratings/manage")
+    def update_gratings():
+        action = str(request.form.get("action", "delete"))
+        if action != "delete":
+            return redirect(url_for("manage_gratings"))
+        delete_mode = str(request.form.get("delete_mode", "grating_only")).strip()
+        selected_ids = [str(grating_id) for grating_id in request.form.getlist("delete_grating_id")]
+        if not selected_ids:
+            return redirect(url_for("manage_gratings"))
+        if delete_mode == "grating_and_runs":
+            active_linked = [
+                run_id
+                for grating_id in selected_ids
+                for run_id in [str(run["id"]) for run in _linked_runs(active_data_dir(), grating_id)]
+                if _is_run_active(app, run_id)
+            ]
+            if active_linked:
+                return redirect(url_for("manage_gratings", message="Cannot delete linked runs while active runs exist."))
+        for grating_id in selected_ids:
+            if delete_mode == "grating_and_runs":
+                run_store().delete_many([str(run["id"]) for run in _linked_runs(active_data_dir(), grating_id)])
+            store().delete(grating_id)
+            preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
+            if preview_path.exists():
+                preview_path.unlink()
+        return redirect(url_for("manage_gratings"))
+
     @app.get("/gratings/<grating_id>")
     def grating_detail(grating_id: str):
         grating_store = store()
         spec = grating_store.load(grating_id)
         grating = build_grating_from_spec(spec, catalog)
-        preview_path = app.config["GRAx_DATA_DIR"] / "previews" / f"{grating_id}.png"
+        preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
         preview_path.parent.mkdir(parents=True, exist_ok=True)
         grating.plot_profile(preview_path)
         return render_template(
@@ -104,6 +217,43 @@ def create_app(*, data_dir: str | Path | None = None):
             preview_url=url_for("data_file", filename=f"previews/{grating_id}.png"),
             materials=sorted(catalog),
         )
+
+    @app.get("/gratings/<grating_id>/delete")
+    def delete_grating_prompt(grating_id: str):
+        spec = store().load(grating_id)
+        linked_runs = _linked_runs(active_data_dir(), grating_id)
+        return render_template(
+            "grating_delete.html",
+            grating=spec,
+            linked_runs=linked_runs,
+        )
+
+    @app.post("/gratings/<grating_id>/delete")
+    def delete_grating(grating_id: str):
+        spec = store().load(grating_id)
+        delete_mode = str(request.form.get("delete_mode", "grating_only")).strip()
+        linked_runs = _linked_runs(active_data_dir(), grating_id)
+        if delete_mode == "grating_and_runs":
+            active_linked = [run_id for run_id in [str(run["id"]) for run in linked_runs] if _is_run_active(app, run_id)]
+            if active_linked:
+                return redirect(
+                    url_for(
+                        "delete_grating_prompt",
+                        grating_id=grating_id,
+                        message="Cannot delete linked runs while active runs exist.",
+                    )
+                )
+            run_store().delete_many([str(run["id"]) for run in linked_runs])
+        store().delete(grating_id)
+        preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
+        if preview_path.exists():
+            preview_path.unlink()
+        message = (
+            f"Deleted grating '{spec['name']}' and {len(linked_runs)} linked runs."
+            if delete_mode == "grating_and_runs"
+            else f"Deleted grating '{spec['name']}'."
+        )
+        return redirect(url_for("index", message=message, kind="success"))
 
     @app.get("/gratings/<grating_id>/edit")
     def edit_grating(grating_id: str):
@@ -137,10 +287,12 @@ def create_app(*, data_dir: str | Path | None = None):
     def create_run(grating_id: str):
         spec = store().load(grating_id)
         grating = build_grating_from_spec(spec, catalog)
-        run = _run_sweep(
+        run = _queue_run(
+            app=app,
             data_dir=app.config["GRAx_DATA_DIR"],
             grating_id=grating_id,
             grating_name=str(spec["name"]),
+            grating_spec=spec,
             grating=grating,
             form=request.form,
         )
@@ -159,7 +311,7 @@ def create_app(*, data_dir: str | Path | None = None):
     def manage_runs():
         return render_template(
             "run_manage.html",
-            runs=_list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs"),
+            runs=_list_plot_runs(active_data_dir() / "runs"),
         )
 
     @app.post("/runs/manage")
@@ -168,6 +320,11 @@ def create_app(*, data_dir: str | Path | None = None):
         store = run_store()
         if action == "delete":
             store.delete_many(request.form.getlist("delete_run_id"))
+            return redirect(url_for("manage_runs"))
+        if action == "resume":
+            run_id = str(request.form.get("run_id", "")).strip()
+            if run_id:
+                _resume_run(app=app, data_dir=active_data_dir(), run_id=run_id, catalog=catalog)
             return redirect(url_for("manage_runs"))
 
         for run in store.list():
@@ -179,24 +336,52 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.get("/runs/<run_id>")
     def run_detail(run_id: str):
-        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
-        manifest_path = run_dir / "manifest.json"
-        if not manifest_path.exists():
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
             abort(404)
-        with manifest_path.open("r", encoding="utf-8") as handle:
-            manifest = json.load(handle)
-        manifest["results_dir"] = run_dir
-        return render_template("run_detail.html", run=manifest)
+        manifest["results_dir"] = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        return render_template(
+            "run_detail.html",
+            run=manifest,
+            initial_status=_run_status_payload(app=app, data_dir=app.config["GRAx_DATA_DIR"], run_id=run_id),
+            status_url=url_for("run_status", run_id=run_id),
+            memory_url=url_for("system_memory"),
+        )
+
+    @app.post("/runs/<run_id>/pause")
+    def pause_run(run_id: str):
+        if not _request_run_pause(app, active_data_dir(), run_id):
+            return redirect(url_for("run_detail", run_id=run_id))
+        return redirect(url_for("run_detail", run_id=run_id))
+
+    @app.post("/runs/<run_id>/resume")
+    def resume_run(run_id: str):
+        _resume_run(app=app, data_dir=active_data_dir(), run_id=run_id, catalog=catalog)
+        next_url = str(request.form.get("next", "")).strip()
+        if next_url == "manage":
+            return redirect(url_for("manage_runs"))
+        return redirect(url_for("run_detail", run_id=run_id))
+
+    @app.get("/runs/<run_id>/status")
+    def run_status(run_id: str):
+        payload = _run_status_payload(app=app, data_dir=app.config["GRAx_DATA_DIR"], run_id=run_id)
+        if payload is None:
+            abort(404)
+        return jsonify(payload)
+
+    @app.get("/system/memory")
+    def system_memory():
+        return jsonify(_memory_status_payload())
 
     @app.get("/plots")
     @app.get("/runs/compare")
     def plot_index():
-        runs = _list_plot_runs(app.config["GRAx_DATA_DIR"] / "runs")
+        runs = _list_plot_runs(active_data_dir() / "runs")
         return render_template(
             "plot_form.html",
             runs=runs,
             run_options=runs,
-            results_dir=app.config["GRAx_DATA_DIR"] / "runs",
+            results_dir=active_data_dir() / "runs",
             preview=None,
         )
 
@@ -420,16 +605,17 @@ def _stack_spec_from_form(form: Any) -> dict[str, Any]:
     }
 
 
-def _run_sweep(
+def _queue_run(
     *,
+    app: Any,
     data_dir: Path,
     grating_id: str,
     grating_name: str,
+    grating_spec: dict[str, Any],
     grating: Any,
     form: Any,
 ) -> dict[str, Any]:
-    """Run one supported sweep and persist artifacts."""
-    from grax import parameter_sweep, simulation
+    """Create a queued run manifest and start background execution."""
 
     workflow = str(form["workflow"])
     run_id = _run_id(workflow, grating_id)
@@ -442,91 +628,921 @@ def _run_sweep(
     )
     diffraction_order = int(float(form.get("diffraction_order", 1)))
     fourier_orders = int(float(form.get("fourier_orders", 5)))
+    worker_mode, max_workers_setting, requested_workers = _worker_settings_from_form(form)
     manifest: dict[str, Any] = {
         "id": run_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "workflow": workflow,
         "grating_id": grating_id,
         "grating_name": grating_name,
+        "grating_spec": dict(grating_spec),
         "display_name": f"{grating_name} · {workflow}",
-        "status": "ok",
+        "status": "queued",
         "artifacts": [],
+        "worker_mode": worker_mode,
+        "requested_workers": requested_workers,
+        "resolved_workers": None,
+        "total_points": int(energies.size),
+        "run_input": _run_input_from_form(form),
+        "resume_count": 0,
     }
+    RunStore(data_dir / "runs").save(manifest)
 
-    if workflow == "parameter_study":
-        run_x_resolution_nm = float(form.get("run_x_resolution_nm") or grating.x_resolution_nm)
-        run_z_resolution_nm = float(form.get("run_z_resolution_nm") or grating.z_resolution_nm)
-        result = parameter_sweep.run_parameter_study(
-            grating=grating,
-            energies_ev=energies,
-            grazing_angle_deg=float(form["grazing_angle_deg"]),
-            diffraction_order=diffraction_order,
-            fourier_orders_values=[fourier_orders],
-            x_resolution_values=[run_x_resolution_nm],
-            z_resolution_values=[run_z_resolution_nm],
-            output_dir=run_dir,
-            save_csv=True,
-            show_progress=False,
-        )
-        plot_path = run_dir / "parameter_study.png"
-        parameter_sweep.plot_parameter_study(result, output_filename=plot_path)
-        manifest["artifacts"].append("parameter_study.png")
-    else:
+    _start_run_worker(
+        app=app,
+        data_dir=data_dir,
+        run_id=run_id,
+        grating_id=grating_id,
+        grating_name=grating_name,
+        grating=grating,
+        workflow=workflow,
+        energies=energies,
+        form_data=dict(form),
+        diffraction_order=diffraction_order,
+        fourier_orders=fourier_orders,
+        max_workers_setting=max_workers_setting,
+        worker_mode=worker_mode,
+        requested_workers=requested_workers,
+        completed_points=0,
+        resume=False,
+    )
+    return manifest
+
+
+def _resume_run(
+    *,
+    app: Any,
+    data_dir: Path,
+    run_id: str,
+    catalog: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resume one paused or interrupted run from its saved manifest."""
+
+    if _is_run_active(app, run_id):
+        return None
+    manifest = _load_run_manifest(data_dir, run_id)
+    if manifest is None:
+        return None
+    run_input = dict(manifest.get("run_input", {}))
+    if not run_input:
+        return None
+    checkpoint_results = _load_checkpoint_results(data_dir / "runs" / run_id)
+    if not checkpoint_results:
+        return None
+    grating_spec = manifest.get("grating_spec")
+    if not isinstance(grating_spec, dict):
+        return None
+    grating = build_grating_from_spec(grating_spec, catalog)
+    workflow = str(manifest.get("workflow", run_input.get("workflow", "")))
+    energies = np.linspace(
+        float(run_input["energy_start_ev"]),
+        float(run_input["energy_stop_ev"]),
+        int(float(run_input["energy_points"])),
+    )
+    diffraction_order = int(float(run_input.get("diffraction_order", 1)))
+    fourier_orders = int(float(run_input.get("fourier_orders", 5)))
+    worker_mode = str(manifest.get("worker_mode", "auto"))
+    requested_workers = manifest.get("requested_workers")
+    max_workers_setting: str | int = "auto" if worker_mode != "manual" else int(requested_workers or 1)
+    _update_manifest_fields(
+        data_dir,
+        run_id,
+        status="queued",
+        resumed_at=datetime.now().isoformat(timespec="seconds"),
+        resume_count=int(manifest.get("resume_count", 0) or 0) + 1,
+        error_text="",
+    )
+    _start_run_worker(
+        app=app,
+        data_dir=data_dir,
+        run_id=run_id,
+        grating_id=str(manifest.get("grating_id", "")),
+        grating_name=str(manifest.get("grating_name", manifest.get("display_name", run_id))),
+        grating=grating,
+        workflow=workflow,
+        energies=energies,
+        form_data=run_input,
+        diffraction_order=diffraction_order,
+        fourier_orders=fourier_orders,
+        max_workers_setting=max_workers_setting,
+        worker_mode=worker_mode,
+        requested_workers=None if requested_workers is None else int(requested_workers),
+        completed_points=len(checkpoint_results),
+        resume=True,
+    )
+    return manifest
+
+
+def _start_run_worker(
+    *,
+    app: Any,
+    data_dir: Path,
+    run_id: str,
+    grating_id: str,
+    grating_name: str,
+    grating: Any,
+    workflow: str,
+    energies: np.ndarray,
+    form_data: dict[str, Any],
+    diffraction_order: int,
+    fourier_orders: int,
+    max_workers_setting: str | int,
+    worker_mode: str,
+    requested_workers: int | None,
+    completed_points: int,
+    resume: bool,
+) -> None:
+    """Register one active run state and start its worker thread."""
+
+    active_state = ActiveRunState(
+        run_id=run_id,
+        workflow=workflow,
+        total_points=int(energies.size),
+        worker_mode=worker_mode,
+        requested_workers=requested_workers,
+        resolved_workers=None,
+        completed_points=completed_points,
+    )
+    with _active_runs_lock(app):
+        _active_runs(app)[run_id] = active_state
+
+    worker = threading.Thread(
+        target=_execute_run_job,
+        kwargs={
+            "app": app,
+            "data_dir": data_dir,
+            "run_id": run_id,
+            "grating_id": grating_id,
+            "grating_name": grating_name,
+            "grating": grating,
+            "workflow": workflow,
+            "energies": energies,
+            "form_data": form_data,
+            "diffraction_order": diffraction_order,
+            "fourier_orders": fourier_orders,
+            "max_workers_setting": max_workers_setting,
+            "resume": resume,
+        },
+        daemon=True,
+        name=f"grax-run-{run_id}",
+    )
+    active_state.worker_thread = worker
+    worker.start()
+
+
+def _execute_run_job(
+    *,
+    app: Any,
+    data_dir: Path,
+    run_id: str,
+    grating_id: str,
+    grating_name: str,
+    grating: Any,
+    workflow: str,
+    energies: np.ndarray,
+    form_data: dict[str, Any],
+    diffraction_order: int,
+    fourier_orders: int,
+    max_workers_setting: str | int,
+    resume: bool = False,
+) -> None:
+    """Execute one queued run in a background thread and persist its outputs."""
+
+    from grax import parameter_sweep, simulation
+
+    run_dir = data_dir / "runs" / run_id
+    _update_active_run(app, run_id, state="running", started=True)
+    _update_manifest_fields(data_dir, run_id, status="running")
+    try:
+        if workflow == "parameter_study":
+            run_x_resolution_nm = float(form_data.get("run_x_resolution_nm") or grating.x_resolution_nm)
+            run_z_resolution_nm = float(form_data.get("run_z_resolution_nm") or grating.z_resolution_nm)
+            result = parameter_sweep.run_parameter_study(
+                grating=grating,
+                energies_ev=energies,
+                grazing_angle_deg=float(form_data["grazing_angle_deg"]),
+                diffraction_order=diffraction_order,
+                fourier_orders_values=[fourier_orders],
+                x_resolution_values=[run_x_resolution_nm],
+                z_resolution_values=[run_z_resolution_nm],
+                output_dir=run_dir,
+                save_csv=True,
+                show_progress=False,
+            )
+            plot_path = run_dir / "parameter_study.png"
+            parameter_sweep.plot_parameter_study(result, output_filename=plot_path)
+            _update_active_run(
+                app,
+                run_id,
+                completed_points=int(energies.size),
+                plot_relative_path="parameter_study.png",
+                bump_plot_token=True,
+            )
+            _update_manifest_fields(
+                data_dir,
+                run_id,
+                status="completed",
+                artifacts=["parameter_study.png"],
+                total_points=int(energies.size),
+            )
+            _finish_active_run(app, run_id, state="completed")
+            return
+
         cases = _cases_for_workflow(
             simulation=simulation,
             workflow=workflow,
             grating=grating,
             energies=energies,
-            form=form,
+            form=form_data,
             diffraction_order=diffraction_order,
             fourier_orders=fourier_orders,
         )
         runner = simulation.BatchSimulationRunner(
             default_diffraction_order=diffraction_order,
             default_fourier_orders=fourier_orders,
-            max_workers=1,
+            max_workers=max_workers_setting,
             show_progress=False,
             on_error="continue",
             checkpoint_dir=run_dir / "checkpoints",
+            resume=resume,
+            stop_event=_active_runs(app)[run_id].stop_event if run_id in _active_runs(app) else None,
+            on_worker_pids_changed=lambda worker_pids: _update_active_run(
+                app,
+                run_id,
+                simulation_pids=worker_pids,
+            ),
         )
-        results = list(
-            runner.run_cases(
-                cases,
-                metadata={
-                    "workflow": workflow,
-                    "grating_id": grating_id,
-                    "grating_name": grating_name,
-                },
+        _update_active_run(
+            app,
+            run_id,
+            resolved_workers=int(runner.resolved_max_workers),
+        )
+        _update_manifest_fields(data_dir, run_id, resolved_workers=int(runner.resolved_max_workers))
+
+        results: list[Any] = _load_checkpoint_results(run_dir) if resume else []
+        live_plot_path = run_dir / "live_progress.png"
+        for result in runner.run_cases(
+            cases,
+            metadata={
+                "workflow": workflow,
+                "grating_id": grating_id,
+                "grating_name": grating_name,
+            },
+        ):
+            results.append(result)
+            _update_active_run(
+                app,
+                run_id,
+                completed_increment=1,
+                resolved_workers=int(runner.resolved_max_workers),
             )
+            _publish_live_progress_if_due(
+                app=app,
+                run_id=run_id,
+                results=results,
+                output_path=live_plot_path,
+                diffraction_order=diffraction_order,
+                title=f"{grating_name} {workflow}",
+            )
+
+        is_paused = _is_pause_requested(app, run_id) or runner.stopped_early
+        _persist_run_outputs(
+            data_dir=data_dir,
+            run_id=run_id,
+            results=results,
+            diffraction_order=diffraction_order,
+            title=f"{grating_name} {workflow}",
+            include_plot=bool(results),
         )
-        summary_path = run_dir / "summary.csv"
-        _write_summary_csv(results, summary_path)
-        all_orders_path = run_dir / "all_orders.csv"
-        simulation.write_all_orders_csv(results, all_orders_path)
-        plot_path = run_dir / "selected_efficiency.png"
+
+        if is_paused:
+            _publish_live_progress_if_due(
+                app=app,
+                run_id=run_id,
+                results=results,
+                output_path=live_plot_path,
+                diffraction_order=diffraction_order,
+                title=f"{grating_name} {workflow}",
+                min_interval_seconds=0.0,
+            )
+            _update_manifest_fields(
+                data_dir,
+                run_id,
+                status="paused",
+                cases=_manifest_cases(results),
+                total_points=len(cases),
+                last_checkpoint_at=datetime.now().isoformat(timespec="seconds"),
+                paused_at=datetime.now().isoformat(timespec="seconds"),
+                artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
+            )
+            _finish_active_run(
+                app,
+                run_id,
+                state="paused",
+                plot_relative_path=_preferred_run_plot_path(data_dir, run_id),
+                completed_points=len(results),
+            )
+            return
+
+        _update_manifest_fields(
+            data_dir,
+            run_id,
+            status="completed",
+            artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
+            cases=_manifest_cases(results),
+            resolved_workers=int(runner.resolved_max_workers),
+            total_points=len(cases),
+        )
+        _finish_active_run(
+            app,
+            run_id,
+            state="completed",
+            plot_relative_path=_preferred_run_plot_path(data_dir, run_id),
+        )
+    except Exception as error:  # pragma: no cover - exercised by integration behavior.
+        results = _load_checkpoint_results(run_dir)
+        _persist_run_outputs(
+            data_dir=data_dir,
+            run_id=run_id,
+            results=results,
+            diffraction_order=diffraction_order,
+            title=f"{grating_name} {workflow}",
+            include_plot=bool(results),
+        )
+        _update_manifest_fields(
+            data_dir,
+            run_id,
+            status="failed",
+            error_text=str(error),
+            cases=_manifest_cases(results),
+            artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
+        )
+        _finish_active_run(app, run_id, state="failed", error_text=str(error))
+
+
+def _worker_settings_from_form(form: Any) -> tuple[str, str | int, int | None]:
+    """Return worker-mode metadata and the runner max_workers setting."""
+
+    worker_mode = str(form.get("max_workers_mode", "auto") or "auto").strip().lower()
+    if worker_mode == "manual":
+        requested_workers = int(float(form.get("max_workers", 1)))
+        if requested_workers < 1:
+            raise ValueError("Manual worker count must be at least 1.")
+        return "manual", requested_workers, requested_workers
+    return "auto", "auto", None
+
+
+def _run_input_from_form(form: Any) -> dict[str, Any]:
+    """Return persisted run-input metadata needed for checkpoint resume."""
+
+    input_data: dict[str, Any] = {}
+    for key in form.keys():
+        values = form.getlist(key)
+        input_data[key] = values if len(values) > 1 else form.get(key)
+    return input_data
+
+
+def _request_run_pause(app: Any, data_dir: Path, run_id: str) -> bool:
+    """Request cooperative pause for one active run."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        if active is None or active.state not in {"queued", "running"}:
+            return False
+        active.pause_requested = True
+        active.stop_event.set()
+        active.state = "pausing"
+    _update_manifest_fields(data_dir, run_id, status="pausing")
+    return True
+
+
+def _is_pause_requested(app: Any, run_id: str) -> bool:
+    """Return whether one active run has a pending pause request."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        return active is not None and active.pause_requested
+
+
+def _load_checkpoint_results(run_dir: Path) -> list[Any]:
+    """Load deduplicated checkpointed case results for one run directory."""
+
+    from grax.simulation.serialization import _load_checkpoint_case_results
+
+    checkpoint_path = run_dir / "checkpoints" / "results.jsonl"
+    if not checkpoint_path.exists():
+        return []
+    results = list(_load_checkpoint_case_results(checkpoint_path).values())
+    return sorted(results, key=lambda result: (float(result.energy_ev), int(result.index)))
+
+
+def _checkpoint_counts(run_dir: Path) -> tuple[int, int]:
+    """Return completed and total point counts for one run directory."""
+
+    manifest = _load_run_manifest(run_dir.parent.parent, run_dir.name)
+    total_points = int((manifest or {}).get("total_points") or 0)
+    completed_points = len(_load_checkpoint_results(run_dir))
+    return completed_points, total_points
+
+
+def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
+    """Return manifest-ready case summaries for persisted run metadata."""
+
+    return [
+        {
+            "case_id": result.case_id,
+            "energy_ev": result.energy_ev,
+            "grazing_angle_deg": result.grazing_angle_deg,
+            "selected_efficiency": result.selected_efficiency,
+            "status": result.status,
+            "error_message": result.error_message,
+        }
+        for result in results
+    ]
+
+
+def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str]:
+    """Return the artifact filenames currently available for one run."""
+
+    artifact_names = ["summary.csv", "all_orders.csv"]
+    if include_plot and (run_dir / "selected_efficiency.png").exists():
+        artifact_names.append("selected_efficiency.png")
+    if (run_dir / "parameter_study.png").exists():
+        artifact_names.append("parameter_study.png")
+    return artifact_names
+
+
+def _persist_run_outputs(
+    *,
+    data_dir: Path,
+    run_id: str,
+    results: list[Any],
+    diffraction_order: int,
+    title: str,
+    include_plot: bool,
+) -> None:
+    """Persist current partial or final run artifacts from collected results."""
+
+    if not results:
+        return
+    from grax import simulation
+
+    run_dir = data_dir / "runs" / run_id
+    _write_summary_csv(results, run_dir / "summary.csv")
+    simulation.write_all_orders_csv(results, run_dir / "all_orders.csv")
+    if include_plot:
         simulation.plot_order_subset(
             results,
-            plot_path,
+            run_dir / "selected_efficiency.png",
             diffraction_orders=[diffraction_order],
-            title=f"{grating_name} {workflow}",
+            title=title,
         )
-        manifest["artifacts"].extend(["summary.csv", "all_orders.csv", "selected_efficiency.png"])
-        manifest["cases"] = [
-            {
-                "case_id": result.case_id,
-                "energy_ev": result.energy_ev,
-                "grazing_angle_deg": result.grazing_angle_deg,
-                "selected_efficiency": result.selected_efficiency,
-                "status": result.status,
-                "error_message": result.error_message,
-            }
-            for result in results
-        ]
 
-    with (run_dir / "manifest.json").open("w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
-        handle.write("\n")
-    return manifest
+
+def _site_metadata() -> dict[str, str]:
+    """Return shared attribution metadata for the web UI."""
+
+    return {
+        "organization": "Helmholtz-Zentrum Berlin",
+        "contact_name": "Simone Vadilonga",
+        "contact_email": "simone.vadilonga@helmholtz-berlin.de",
+        "github_url": "https://github.com/hz-b/graxPy",
+        "docs_url": "https://graxpy.readthedocs.io/en/latest/",
+    }
+
+
+def _results_sorted_for_live_plot(results: list[Any], *, x_key: str = "energy_ev") -> list[Any]:
+    """Return successful case results sorted by the chosen live-plot x axis."""
+
+    def x_value(result: Any) -> float:
+        if x_key == "index":
+            return float(result.index + 1)
+        if x_key in getattr(result, "case_data", {}):
+            return float(result.case_data[x_key])
+        if hasattr(result, x_key):
+            return float(getattr(result, x_key))
+        raise KeyError(f"Unable to sort live plot using x key '{x_key}'.")
+
+    return sorted(
+        [result for result in results if result.status == "ok"],
+        key=x_value,
+    )
+
+
+def _publish_live_progress_snapshot(
+    *,
+    state: ActiveRunState,
+    results: list[Any],
+    output_path: Path,
+    diffraction_order: int,
+    title: str,
+    now: float | None = None,
+    min_interval_seconds: float = 1.5,
+) -> bool:
+    """Render and atomically publish one live progress image when due."""
+
+    from grax import simulation
+
+    publish_time = time.monotonic() if now is None else float(now)
+    if not results:
+        return False
+    if (
+        state.last_plot_publish_monotonic is not None
+        and publish_time - state.last_plot_publish_monotonic < min_interval_seconds
+    ):
+        return False
+
+    ordered_results = _results_sorted_for_live_plot(results, x_key="energy_ev")
+    if not ordered_results:
+        return False
+
+    temp_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
+    simulation.plot_order_subset(
+        ordered_results,
+        temp_path,
+        diffraction_orders=[diffraction_order],
+        title=title,
+    )
+    temp_path.replace(output_path)
+    state.plot_relative_path = output_path.name
+    state.plot_token = uuid4().hex
+    state.last_plot_publish_monotonic = publish_time
+    return True
+
+
+def _publish_live_progress_if_due(
+    *,
+    app: Any,
+    run_id: str,
+    results: list[Any],
+    output_path: Path,
+    diffraction_order: int,
+    title: str,
+    min_interval_seconds: float = 1.5,
+) -> None:
+    """Publish the live progress image on a throttled interval."""
+
+    with _active_runs_lock(app):
+        state = _active_runs(app).get(run_id)
+    if state is None:
+        return
+    published = _publish_live_progress_snapshot(
+        state=state,
+        results=results,
+        output_path=output_path,
+        diffraction_order=diffraction_order,
+        title=title,
+        min_interval_seconds=min_interval_seconds,
+    )
+    if not published:
+        return
+    _update_active_run(
+        app,
+        run_id,
+        plot_relative_path=output_path.name,
+    )
+
+
+def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
+    """Load one run manifest if it exists."""
+
+    manifest_path = data_dir / "runs" / run_id / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    payload.setdefault("id", run_id)
+    payload.setdefault("display_name", f"{payload.get('grating_name', 'Run')} · {payload.get('workflow', 'run')}")
+    return payload
+
+
+def _update_manifest_fields(data_dir: Path, run_id: str, **updates: Any) -> dict[str, Any]:
+    """Update one run manifest in place and return the saved payload."""
+
+    store = RunStore(data_dir / "runs")
+    payload = store.load(run_id)
+    payload.update({key: value for key, value in updates.items() if value is not None})
+    payload["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return store.save(payload)
+
+
+def _update_active_run(
+    app: Any,
+    run_id: str,
+    *,
+    state: str | None = None,
+    started: bool = False,
+    completed_increment: int = 0,
+    completed_points: int | None = None,
+    resolved_workers: int | None = None,
+    plot_relative_path: str | None = None,
+    bump_plot_token: bool = False,
+    error_text: str | None = None,
+    simulation_pids: set[int] | None = None,
+) -> None:
+    """Apply a thread-safe update to one active run state."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        if active is None:
+            return
+        if state is not None:
+            active.state = state
+        if started and active.started_at_monotonic is None:
+            active.started_at_monotonic = time.monotonic()
+        if completed_points is not None:
+            active.completed_points = completed_points
+        if completed_increment:
+            active.completed_points += completed_increment
+            active.completion_timestamps.append(time.monotonic())
+        if resolved_workers is not None:
+            active.resolved_workers = resolved_workers
+        if plot_relative_path is not None:
+            active.plot_relative_path = plot_relative_path
+        if bump_plot_token:
+            active.plot_token = uuid4().hex
+        if error_text is not None:
+            active.error_text = error_text
+        if simulation_pids is not None:
+            active.simulation_pids = set(simulation_pids)
+
+
+def _finish_active_run(
+    app: Any,
+    run_id: str,
+    *,
+    state: str,
+    plot_relative_path: str | None = None,
+    error_text: str | None = None,
+    completed_points: int | None = None,
+) -> None:
+    """Mark one active run as finished."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        if active is None:
+            return
+        active.state = state
+        active.finished_at_monotonic = time.monotonic()
+        active.completed_points = active.total_points if completed_points is None else completed_points
+        if plot_relative_path is not None:
+            active.plot_relative_path = plot_relative_path
+            active.plot_token = uuid4().hex
+        if error_text is not None:
+            active.error_text = error_text
+        active.simulation_pids = set()
+
+
+def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, Any] | None:
+    """Return the current live-status payload for one run."""
+
+    _cleanup_finished_runs(app)
+    manifest = _load_run_manifest(data_dir, run_id)
+    checkpoint_completed_points = 0
+    checkpoint_total_points = 0
+    if manifest is not None:
+        checkpoint_completed_points, checkpoint_total_points = _checkpoint_counts(data_dir / "runs" / run_id)
+    active_payload: dict[str, Any] | None = None
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        if active is not None:
+            elapsed = _elapsed_seconds(active)
+            eta = _eta_seconds(active)
+            active_payload = {
+                "run_id": run_id,
+                "state": active.state,
+                "completed_points": active.completed_points,
+                "total_points": active.total_points,
+                "remaining_points": max(active.total_points - active.completed_points, 0),
+                "checkpoint_completed_points": checkpoint_completed_points,
+                "checkpoint_total_points": checkpoint_total_points or active.total_points,
+                "elapsed_seconds": elapsed,
+                "eta_seconds": eta,
+                "worker_mode": active.worker_mode,
+                "requested_workers": active.requested_workers,
+                "resolved_workers": active.resolved_workers,
+                "plot_url": _run_plot_url(
+                    data_dir=data_dir,
+                    run_id=run_id,
+                    relative_path=active.plot_relative_path,
+                    token=active.plot_token,
+                ),
+                "plot_token": active.plot_token,
+                "error_text": active.error_text,
+                "can_pause": (
+                    active.workflow != "parameter_study"
+                    and active.state in {"queued", "running", "pausing"}
+                    and not active.pause_requested
+                ),
+                "can_resume": active.state in {"paused", "interrupted"},
+                "resumable": active.workflow != "parameter_study",
+                "active_job_missing": False,
+            }
+
+    if active_payload is not None:
+        active_payload["memory"] = _simulation_process_memory_payload(app, run_id)
+        return active_payload
+
+    if manifest is None:
+        return None
+    manifest_state = str(manifest.get("status", "completed"))
+    completed_points = max(
+        checkpoint_completed_points,
+        int(len(manifest.get("cases", [])) or 0),
+    )
+    total_points = int(manifest.get("total_points") or checkpoint_total_points or completed_points)
+    normalized_state = "completed" if manifest_state == "ok" else manifest_state
+    resumable = (
+        str(manifest.get("workflow", "")) != "parameter_study"
+        and bool(manifest.get("run_input"))
+        and checkpoint_completed_points > 0
+    )
+    active_job_missing = normalized_state in {"queued", "running"}
+    if active_job_missing and resumable:
+        normalized_state = "interrupted"
+    return {
+        "run_id": run_id,
+        "state": normalized_state,
+        "completed_points": completed_points,
+        "total_points": total_points,
+        "remaining_points": max(total_points - completed_points, 0),
+        "checkpoint_completed_points": checkpoint_completed_points,
+        "checkpoint_total_points": checkpoint_total_points or total_points,
+        "elapsed_seconds": None,
+        "eta_seconds": None,
+        "worker_mode": manifest.get("worker_mode", "auto"),
+        "requested_workers": manifest.get("requested_workers"),
+        "resolved_workers": manifest.get("resolved_workers"),
+        "plot_url": _run_plot_url(
+            data_dir=data_dir,
+            run_id=run_id,
+            relative_path=_preferred_run_plot_path(data_dir, run_id),
+            token=_file_token(data_dir / "runs" / run_id / _preferred_run_plot_path(data_dir, run_id))
+            if _preferred_run_plot_path(data_dir, run_id)
+            else "",
+        ),
+        "plot_token": "",
+        "error_text": manifest.get("error_text", ""),
+        "can_pause": False,
+        "can_resume": normalized_state in {"paused", "interrupted"} or (normalized_state == "failed" and resumable),
+        "resumable": resumable,
+        "memory": _simulation_process_memory_payload(app, run_id),
+        "active_job_missing": active_job_missing,
+    }
+
+
+def _memory_status_payload() -> dict[str, Any]:
+    """Return live memory metrics for the current machine."""
+
+    try:
+        memory = psutil.virtual_memory()
+        return {
+            "ok": True,
+            "total_bytes": int(memory.total),
+            "used_bytes": int(memory.used),
+            "available_bytes": int(memory.available),
+            "percent_used": float(memory.percent),
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+        }
+    except Exception:
+        fallback_payload = _memory_status_from_proc_meminfo()
+        if fallback_payload is not None:
+            return fallback_payload
+        return {"ok": False, "error": "Memory metrics are unavailable."}
+
+
+def _simulation_process_memory_payload(app: Any, run_id: str) -> dict[str, Any]:
+    """Return current RSS for the web process and one run's worker pool."""
+
+    if not hasattr(psutil, "Process"):
+        return {
+            "ok": False,
+            "web_process_rss_bytes": None,
+            "simulation_process_rss_bytes": None,
+        }
+    try:
+        current_process = psutil.Process(os.getpid())
+        web_process_rss_bytes = int(current_process.memory_info().rss)
+        with _active_runs_lock(app):
+            active = _active_runs(app).get(run_id)
+            worker_pids = set() if active is None else set(active.simulation_pids)
+        simulation_process_rss_bytes = 0
+        for pid in worker_pids:
+            try:
+                simulation_process_rss_bytes += int(psutil.Process(pid).memory_info().rss)
+            except Exception:
+                continue
+        return {
+            "ok": True,
+            "web_process_rss_bytes": web_process_rss_bytes,
+            "simulation_process_rss_bytes": simulation_process_rss_bytes,
+        }
+    except Exception:
+        return {
+            "ok": False,
+            "web_process_rss_bytes": None,
+            "simulation_process_rss_bytes": None,
+        }
+
+
+def _memory_status_from_proc_meminfo() -> dict[str, Any] | None:
+    """Return memory metrics parsed from Linux /proc/meminfo when available."""
+
+    meminfo_path = Path("/proc/meminfo")
+    try:
+        payload = meminfo_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    values_kb: dict[str, int] = {}
+    for line in payload.splitlines():
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        number = raw_value.strip().split(" ", 1)[0]
+        try:
+            values_kb[key] = int(number)
+        except ValueError:
+            continue
+
+    total_kb = values_kb.get("MemTotal")
+    available_kb = values_kb.get("MemAvailable", values_kb.get("MemFree"))
+    if total_kb is None or available_kb is None or total_kb <= 0:
+        return None
+    used_kb = max(total_kb - available_kb, 0)
+    return {
+        "ok": True,
+        "total_bytes": int(total_kb * 1024),
+        "used_bytes": int(used_kb * 1024),
+        "available_bytes": int(available_kb * 1024),
+        "percent_used": float((used_kb / total_kb) * 100.0),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _elapsed_seconds(active: ActiveRunState) -> float | None:
+    """Return elapsed time in seconds for one active run."""
+
+    anchor = active.started_at_monotonic or active.created_at_monotonic
+    finished = active.finished_at_monotonic or time.monotonic()
+    return max(finished - anchor, 0.0)
+
+
+def _eta_seconds(active: ActiveRunState) -> float | None:
+    """Return a simple completion ETA from observed completion rate."""
+
+    if active.completed_points < 1 or active.started_at_monotonic is None:
+        return None
+    elapsed = max(time.monotonic() - active.started_at_monotonic, 1e-6)
+    rate = active.completed_points / elapsed
+    if rate <= 0.0:
+        return None
+    remaining = max(active.total_points - active.completed_points, 0)
+    return remaining / rate
+
+
+def _preferred_run_plot_path(data_dir: Path, run_id: str) -> str | None:
+    """Return the best available plot file for one run."""
+
+    run_dir = data_dir / "runs" / run_id
+    for candidate in ("selected_efficiency.png", "parameter_study.png", "live_progress.png"):
+        if (run_dir / candidate).exists():
+            return candidate
+    return None
+
+
+def _file_token(path: Path) -> str:
+    """Return a cheap cache-busting token for one file path."""
+
+    if not path.exists():
+        return ""
+    return str(path.stat().st_mtime_ns)
+
+
+def _run_plot_url(*, data_dir: Path, run_id: str, relative_path: str | None, token: str) -> str | None:
+    """Return the cache-busted plot URL for one run image."""
+
+    if not relative_path:
+        return None
+    plot_path = data_dir / "runs" / run_id / relative_path
+    if not plot_path.exists():
+        return None
+    suffix = f"?v={token or _file_token(plot_path)}"
+    return f"/_data/runs/{run_id}/{relative_path}{suffix}"
+
+
+def _cleanup_finished_runs(app: Any, *, retention_seconds: float = 300.0) -> None:
+    """Drop finished active runs from memory after a short retention window."""
+
+    cutoff = time.monotonic() - retention_seconds
+    with _active_runs_lock(app):
+        stale_ids = [
+            run_id
+            for run_id, active in _active_runs(app).items()
+            if active.finished_at_monotonic is not None and active.finished_at_monotonic < cutoff
+        ]
+        for run_id in stale_ids:
+            _active_runs(app).pop(run_id, None)
 
 
 def _cases_for_workflow(
@@ -620,17 +1636,51 @@ def _list_runs(run_dir: Path) -> list[dict[str, Any]]:
     return RunStore(run_dir).list()
 
 
+def _run_summary_label(run: dict[str, Any]) -> str:
+    """Return a rich one-line label for one saved run."""
+
+    primary = str(run.get("display_name") or run.get("grating_name") or run.get("id", "Run"))
+    workflow = str(run.get("workflow", "run"))
+    created_at = str(run.get("created_at", ""))
+    run_id = str(run.get("id", ""))
+    state = str(run.get("status", "completed"))
+    return f"{primary} · {workflow} · {created_at} · {run_id} · {state}"
+
+
+def _run_summary_meta(run: dict[str, Any]) -> str:
+    """Return a secondary metadata line for one saved run."""
+
+    return (
+        f"{run.get('grating_name', 'Run')} · {run.get('workflow', 'run')} · "
+        f"{run.get('created_at', '')} · {run.get('id', '')} · {run.get('status', 'completed')}"
+    )
+
+
 def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
     """Return run manifests augmented with available plot orders."""
     runs = []
     for run in _list_runs(run_dir):
         run_id = str(run["id"])
         run_dir_for_id = _run_result_location(run_dir.parent, run_id)
+        checkpoint_completed_points, checkpoint_total_points = _checkpoint_counts(run_dir_for_id)
+        resumable = bool(run.get("run_input")) and checkpoint_completed_points > 0
+        state = str(run.get("status", "completed"))
+        if state in {"queued", "running"} and resumable:
+            state = "interrupted"
+        enriched_run = {
+            **run,
+            "status": state,
+        }
         runs.append(
             {
-                **run,
+                **enriched_run,
                 "results_dir": run_dir_for_id,
                 "available_orders": _available_orders(run_dir_for_id),
+                "summary_label": _run_summary_label(enriched_run),
+                "summary_meta": _run_summary_meta(enriched_run),
+                "resumable": resumable,
+                "checkpoint_completed_points": checkpoint_completed_points,
+                "checkpoint_total_points": checkpoint_total_points or int(run.get("total_points") or 0),
             }
         )
     return runs
@@ -676,7 +1726,7 @@ def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
         selected_runs.append(
             {
                 "id": run_id,
-                "name": str(run_manifest.get("display_name") or run_manifest.get("grating_name", run_id)),
+                "name": _run_summary_label(run_manifest),
                 "orders": orders,
             }
         )
@@ -713,16 +1763,21 @@ def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
 def _available_orders(run_dir: Path) -> list[int]:
     """Return positive diffraction orders available for one run."""
     all_orders_path = run_dir / "all_orders.csv"
-    if not all_orders_path.exists():
-        return []
     orders: set[int] = set()
-    with all_orders_path.open("r", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            try:
-                orders.add(abs(int(float(row["order"]))))
-            except (KeyError, TypeError, ValueError):
+    if all_orders_path.exists():
+        with all_orders_path.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                try:
+                    orders.add(abs(int(float(row["order"]))))
+                except (KeyError, TypeError, ValueError):
+                    continue
+    if not orders:
+        for result in _load_checkpoint_results(run_dir):
+            if getattr(result, "status", "") != "ok":
                 continue
+            for value in np.asarray(getattr(result, "orders", []), dtype=int).tolist():
+                orders.add(abs(int(value)))
     return sorted(orders)
 
 
@@ -816,29 +1871,46 @@ def _render_combined_plot_image(
 def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, Any] | None:
     """Load one order-vs-energy series from a saved run."""
     all_orders_path = run_dir / "all_orders.csv"
-    if not all_orders_path.exists():
-        return None
 
     requested_order = 0 if int(order) == 0 else -abs(int(order))
     rows: list[dict[str, float]] = []
-    with all_orders_path.open("r", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            try:
-                row_order = int(float(row["order"]))
-            except (KeyError, TypeError, ValueError):
+    if all_orders_path.exists():
+        with all_orders_path.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                try:
+                    row_order = int(float(row["order"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if row_order != requested_order:
+                    continue
+                try:
+                    rows.append(
+                        {
+                            "energy_ev": float(row["energy_ev"]),
+                            "efficiency": float(row["efficiency"]),
+                        }
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+    if not rows:
+        for result in _load_checkpoint_results(run_dir):
+            if getattr(result, "status", "") != "ok":
                 continue
-            if row_order != requested_order:
+            orders = np.asarray(getattr(result, "orders", []), dtype=int)
+            efficiencies = np.asarray(getattr(result, "efficiency_all", []), dtype=float)
+            if orders.size == 0 or efficiencies.size != orders.size:
                 continue
-            try:
+            for row_order, efficiency in zip(orders.tolist(), efficiencies.tolist()):
+                if int(row_order) != requested_order:
+                    continue
                 rows.append(
                     {
-                        "energy_ev": float(row["energy_ev"]),
-                        "efficiency": float(row["efficiency"]),
+                        "energy_ev": float(result.energy_ev),
+                        "efficiency": float(efficiency),
                     }
                 )
-            except (KeyError, TypeError, ValueError):
-                continue
 
     if not rows:
         return None
@@ -868,6 +1940,44 @@ def _safe_browse_path(raw_path: Any) -> Path:
     if raw_path in (None, ""):
         return Path.home().resolve()
     return Path(str(raw_path)).expanduser().resolve()
+
+
+def _validate_workspace_root(raw_path: Any) -> Path:
+    """Return a writable workspace root path for the current session."""
+
+    if raw_path in (None, ""):
+        raise ValueError("Choose a workspace folder.")
+    target_dir = Path(str(raw_path)).expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    probe_path = target_dir / ".grax-web-write-test"
+    probe_path.write_text("ok", encoding="utf-8")
+    probe_path.unlink()
+    return target_dir
+
+
+def _has_active_runs(app: Any) -> bool:
+    """Return whether any run is still queued or running."""
+
+    with _active_runs_lock(app):
+        return any(active.state in {"queued", "running", "pausing"} for active in _active_runs(app).values())
+
+
+def _is_run_active(app: Any, run_id: str) -> bool:
+    """Return whether one specific run is still active."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        return active is not None and active.state in {"queued", "running", "pausing"}
+
+
+def _linked_runs(data_dir: Path, grating_id: str) -> list[dict[str, Any]]:
+    """Return saved runs whose manifests reference one grating ID."""
+
+    return [
+        run
+        for run in _list_plot_runs(data_dir / "runs")
+        if str(run.get("grating_id", "")) == grating_id
+    ]
 
 
 def _list_directory_entries(directory: Path) -> list[dict[str, Any]]:

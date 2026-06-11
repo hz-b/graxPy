@@ -26,6 +26,7 @@ dependencies = [
   "pandas>=2.0",
   "scipy>=1.10",
   "matplotlib>=3.7",
+  "psutil>=5.9",
   "tqdm>=4.66",
   "xrt>=1.6",
 ]

@@ -44,6 +44,11 @@ a {
   padding: 28px;
 }
 
+.footer {
+  padding-top: 0;
+  padding-bottom: 24px;
+}
+
 .section-head {
   display: flex;
   align-items: end;
@@ -101,6 +106,10 @@ p {
   align-items: start;
 }
 
+.plot-workspace-layout {
+  gap: 22px;
+}
+
 .list {
   display: grid;
   gap: 10px;
@@ -155,6 +164,11 @@ p {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fbfcfd;
+}
+
+.notice.notice-error {
+  border-color: #f1b5b0;
+  background: #fff5f4;
 }
 
 .form {
@@ -233,6 +247,20 @@ select {
   background: linear-gradient(180deg, #fbfcfd 0%, #f4f7f8 100%);
 }
 
+.plot-stage-panel {
+  position: static;
+}
+
+.plot-stage-panel .preview {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.plot-controls-panel {
+  display: grid;
+  gap: 18px;
+}
+
 .preview-head {
   margin-bottom: 16px;
 }
@@ -293,6 +321,49 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.run-monitor {
+  display: grid;
+  gap: 22px;
+  margin-bottom: 24px;
+}
+
+.run-monitor-plot {
+  position: static;
+}
+
+.run-progress-bar {
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e6ecef;
+}
+
+.run-progress-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent) 0%, #3fb68e 100%);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stat-card strong {
+  font-size: 0.85rem;
 }
 
 .export-dialog {

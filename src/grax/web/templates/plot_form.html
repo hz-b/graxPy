@@ -10,52 +10,22 @@
 
 <section class="notice">
   <p>
-    Saved runs are read from <code>{{ results_dir }}/</code> and plots are written to
-    <code>{{ plots_dir }}/</code>.
+    Saved runs are read from <code>{{ results_dir }}/</code>. Add the runs and orders you want,
+    and the preview updates immediately.
   </p>
 </section>
 
-<div class="grid two">
-  <section>
-    <form
-      class="form"
-      method="post"
-      action="{{ url_for('create_plot') }}"
-      data-plot-workspace
-      data-order-field-prefix="orders_"
-      data-preview-url="{{ url_for('preview_plot') }}"
-      data-export-dialog-url="{{ url_for('plot_export_dialog') }}"
-      data-export-post-url="{{ url_for('export_plot') }}"
-    >
-      <label>
-        Plot title
-        <input name="title" type="text" value="Combined plot">
-      </label>
-
-      {% if run_options %}
-        <label>
-          Add saved run
-          <select data-run-picker>
-            <option value="">Choose a run</option>
-            {% for run in run_options %}
-              <option
-                value="{{ run.id }}"
-                data-run-name="{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}"
-                data-run-orders="{{ run.available_orders | join(',') }}"
-              >
-                {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}
-              </option>
-            {% endfor %}
-          </select>
-        </label>
-        <div class="list" data-plot-run-list></div>
-      {% else %}
-        <p class="empty">No saved runs yet.</p>
-      {% endif %}
-    </form>
-  </section>
-
-  <section class="preview-panel">
+<form
+  class="form plot-workspace-layout"
+  method="post"
+  action="{{ url_for('create_plot') }}"
+  data-plot-workspace
+  data-order-field-prefix="orders_"
+  data-preview-url="{{ url_for('preview_plot') }}"
+  data-export-dialog-url="{{ url_for('plot_export_dialog') }}"
+  data-export-post-url="{{ url_for('export_plot') }}"
+>
+  <section class="preview-panel plot-stage-panel">
     <div class="section-head preview-head">
       <div>
         <h2>Live plot preview</h2>
@@ -70,7 +40,41 @@
     <div class="list compact" data-selected-run-summary></div>
     <dialog class="export-dialog" data-export-dialog></dialog>
   </section>
-</div>
+
+  <section class="plot-controls-panel">
+    <fieldset>
+      <legend>Plot selection</legend>
+      <label>
+        Plot title
+        <input name="title" type="text" value="Combined plot">
+      </label>
+
+      {% if run_options %}
+        <label>
+          Add saved run
+          <select data-run-picker>
+            <option value="">Choose a run</option>
+            {% for run in run_options %}
+              <option
+                value="{{ run.id }}"
+                data-run-name="{{ run.summary_label }}"
+                data-run-orders="{{ run.available_orders | join(',') }}"
+              >
+                {{ run.summary_label }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+      {% else %}
+        <p class="empty">No saved runs yet.</p>
+      {% endif %}
+    </fieldset>
+
+    {% if run_options %}
+      <div class="list" data-plot-run-list></div>
+    {% endif %}
+  </section>
+</form>
 
 <template data-plot-run-template>
   <fieldset class="plot-run" data-plot-run-item>

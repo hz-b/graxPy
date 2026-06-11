@@ -428,7 +428,10 @@ def plot_order_subset(
         title: Plot title.
     """
 
-    collected = [result for result in _iter_case_results(results) if result.status == "ok"]
+    collected = sorted(
+        [result for result in _iter_case_results(results) if result.status == "ok"],
+        key=lambda result: float(result.energy_ev),
+    )
     figure, axis = plt.subplots(figsize=(10, 6))
     markers = ["o", "s", "^", "d", "v", "x"]
     energies = np.asarray([case.energy_ev for case in collected], dtype=float)

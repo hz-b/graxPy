@@ -35,12 +35,16 @@ python -m pip install -e .
 
 ## Local web app
 
-Install the optional web extra and start the local server:
+Install the package and web extra, then start the local server:
 
 ```bash
+python -m pip install -e .
 python -m pip install -e ".[web]"
 grax-web
 ```
+
+The base package now includes `psutil`, so the live run monitor can always show
+web-process and simulation-process RSS.
 
 Then open <http://127.0.0.1:5050>. Use the home page to create and save
 gratings, then open the plot page to combine saved runs and select the
