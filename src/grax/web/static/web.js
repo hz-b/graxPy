@@ -296,8 +296,6 @@ function initRunMonitor(container) {
   const etaNode = container.querySelector("[data-run-eta]");
   const workersNode = container.querySelector("[data-run-workers]");
   const memoryNode = container.querySelector("[data-run-memory]");
-  const webMemoryNode = container.querySelector("[data-run-web-memory]");
-  const simulationMemoryNode = container.querySelector("[data-run-simulation-memory]");
   const errorNode = container.querySelector("[data-run-error]");
   const progressBar = container.querySelector("[data-run-progress-bar]");
   const pauseButton = container.querySelector("[data-run-pause-action]");
@@ -342,14 +340,6 @@ function initRunMonitor(container) {
     }
     if (resumeButton) {
       resumeButton.disabled = !payload.can_resume;
-    }
-    if (payload.memory) {
-      webMemoryNode.textContent = payload.memory.ok
-        ? formatBytes(payload.memory.web_process_rss_bytes)
-        : "Unavailable";
-      simulationMemoryNode.textContent = payload.memory.ok
-        ? formatBytes(payload.memory.simulation_process_rss_bytes)
-        : "Unavailable";
     }
     if (payload.plot_url && payload.plot_token !== latestPlotToken) {
       preloadAndSwapPlot(payload.plot_url, payload.plot_token);

@@ -132,6 +132,13 @@ def _write_checkpoint_fixture(
     (checkpoint_dir / "results.jsonl").write_text("\n".join(checkpoint_lines) + "\n", encoding="utf-8")
 
 
+def _button_fragment(html: bytes, hook: bytes) -> bytes:
+    """Return the short HTML fragment surrounding one button hook."""
+
+    start = html.index(hook)
+    return html[start : start + 160]
+
+
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     catalog = load_material_catalog()
     grating = LaminarGrating(
@@ -771,6 +778,7 @@ def test_workspace_switch_is_rejected_when_active_runs_exist(tmp_path: Path) -> 
             requested_workers=None,
             resolved_workers=1,
             state="running",
+            worker_thread=threading.current_thread(),
         )
     }
     client = app.test_client()
@@ -906,6 +914,7 @@ def test_delete_grating_and_runs_is_blocked_for_active_linked_runs(tmp_path: Pat
             requested_workers=None,
             resolved_workers=1,
             state="running",
+            worker_thread=threading.current_thread(),
         )
     }
 
@@ -1124,47 +1133,74 @@ def test_run_detail_shows_resume_action_for_paused_run(tmp_path: Path) -> None:
     _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
 
     response = create_app(data_dir=tmp_path).test_client().get("/runs/run-checkpoint")
+    resume_fragment = _button_fragment(response.data, b"data-run-resume-action")
 
     assert response.status_code == 200
     assert b"Resume run" in response.data
+    assert b"disabled" not in resume_fragment
+    assert b"Machine RAM" in response.data
+    assert b"Web RSS" not in response.data
+    assert b"Simulation RSS" not in response.data
 
 
-def test_live_status_reports_process_memory_fields(
-    monkeypatch: pytest.MonkeyPatch,
+def test_run_status_prefers_persisted_paused_state_when_active_entry_is_stale(
     tmp_path: Path,
 ) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import ActiveRunState, create_app
 
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
     app = create_app(data_dir=tmp_path)
     app.extensions["grax_active_runs"] = {
-        "run-1": ActiveRunState(
-            run_id="run-1",
+        "run-checkpoint": ActiveRunState(
+            run_id="run-checkpoint",
             workflow="fixed_angle",
-            total_points=3,
+            total_points=4,
             worker_mode="auto",
             requested_workers=None,
             resolved_workers=2,
-            state="running",
+            state="pausing",
+            completed_points=1,
         )
     }
-    monkeypatch.setattr(
-        "grax.web.app._simulation_process_memory_payload",
-        lambda app_arg, run_id: {
-            "ok": True,
-            "web_process_rss_bytes": 123,
-            "simulation_process_rss_bytes": 456,
-        },
-        raising=False,
-    )
-
-    response = app.test_client().get("/runs/run-1/status")
+    response = app.test_client().get("/runs/run-checkpoint/status")
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["memory"]["web_process_rss_bytes"] == 123
-    assert payload["memory"]["simulation_process_rss_bytes"] == 456
+    assert payload["state"] == "paused"
+    assert payload["can_resume"] is True
+    assert payload["checkpoint_completed_points"] == 2
+    assert "memory" not in payload
+
+
+def test_run_detail_enables_resume_for_paused_run_with_stale_active_entry(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import ActiveRunState, create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
+    app = create_app(data_dir=tmp_path)
+    app.extensions["grax_active_runs"] = {
+        "run-checkpoint": ActiveRunState(
+            run_id="run-checkpoint",
+            workflow="fixed_angle",
+            total_points=4,
+            worker_mode="auto",
+            requested_workers=None,
+            resolved_workers=2,
+            state="pausing",
+            completed_points=1,
+        )
+    }
+
+    response = app.test_client().get("/runs/run-checkpoint")
+    resume_fragment = _button_fragment(response.data, b"data-run-resume-action")
+
+    assert response.status_code == 200
+    assert b"Resume run" in response.data
+    assert b"data-run-resume-action" in response.data
+    assert b"disabled" not in resume_fragment
 
 
 def test_live_status_returns_without_active_run_lock_deadlock(
@@ -1193,6 +1229,7 @@ def test_live_status_returns_without_active_run_lock_deadlock(
             requested_workers=None,
             resolved_workers=2,
             state="running",
+            worker_thread=threading.current_thread(),
         )
     }
     result: dict[str, object] = {}
@@ -1211,7 +1248,7 @@ def test_live_status_returns_without_active_run_lock_deadlock(
     payload = result["payload"]
     assert isinstance(payload, dict)
     assert payload["state"] == "running"
-    assert "memory" in payload
+    assert "memory" not in payload
 
 
 def test_pause_route_marks_run_pausing(

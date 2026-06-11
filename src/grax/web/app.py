@@ -1293,6 +1293,15 @@ def _finish_active_run(
         active.simulation_pids = set()
 
 
+def _is_active_run_entry_live(active: ActiveRunState) -> bool:
+    """Return whether one in-memory active-run entry still has a live worker."""
+
+    if active.state not in {"queued", "running", "pausing"}:
+        return False
+    worker = active.worker_thread
+    return worker is not None and worker.is_alive()
+
+
 def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, Any] | None:
     """Return the current live-status payload for one run."""
 
@@ -1305,7 +1314,7 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
     active_payload: dict[str, Any] | None = None
     with _active_runs_lock(app):
         active = _active_runs(app).get(run_id)
-        if active is not None:
+        if active is not None and _is_active_run_entry_live(active):
             elapsed = _elapsed_seconds(active)
             eta = _eta_seconds(active)
             active_payload = {
@@ -1340,7 +1349,6 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
             }
 
     if active_payload is not None:
-        active_payload["memory"] = _simulation_process_memory_payload(app, run_id)
         return active_payload
 
     if manifest is None:
@@ -1386,7 +1394,6 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
         "can_pause": False,
         "can_resume": normalized_state in {"paused", "interrupted"} or (normalized_state == "failed" and resumable),
         "resumable": resumable,
-        "memory": _simulation_process_memory_payload(app, run_id),
         "active_job_missing": active_job_missing,
     }
 
@@ -1959,7 +1966,7 @@ def _has_active_runs(app: Any) -> bool:
     """Return whether any run is still queued or running."""
 
     with _active_runs_lock(app):
-        return any(active.state in {"queued", "running", "pausing"} for active in _active_runs(app).values())
+        return any(_is_active_run_entry_live(active) for active in _active_runs(app).values())
 
 
 def _is_run_active(app: Any, run_id: str) -> bool:
@@ -1967,7 +1974,7 @@ def _is_run_active(app: Any, run_id: str) -> bool:
 
     with _active_runs_lock(app):
         active = _active_runs(app).get(run_id)
-        return active is not None and active.state in {"queued", "running", "pausing"}
+        return active is not None and _is_active_run_entry_live(active)
 
 
 def _linked_runs(data_dir: Path, grating_id: str) -> list[dict[str, Any]]:
