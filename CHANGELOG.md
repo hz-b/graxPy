@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-06-11
+
+- Replaced the Web UI plotting path with interactive Plotly figures for saved comparisons, live previews, and live run monitoring.
+- Kept the existing server-side export workflow while switching plot export generation to Plotly-backed PNG rendering.
+- Saved Web UI plot artifacts now persist as figure JSON specs instead of only static PNG files.
+
 ## 0.3.0 - 2026-06-11
 
 - Introduced the first local web UI for `grax`, including abort-only run control, plot export browsing, and web startup documentation.
