@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 
 ENERGIES_EV = [5000.0, 6000.0]
 
@@ -18,7 +18,7 @@ PARAMETERS = {
     "fourier_orders": np.arange(5, 36, 5, dtype=int),
 }
 
-rp.setup_logging(level="INFO", run_id="blazed_multilayer_parameter_study")
+grax.setup_logging(level="INFO", run_id="blazed_multilayer_parameter_study")
 
 example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants"
@@ -56,7 +56,7 @@ reference_data = reference_data[["Energy", "alpha"]].copy()
 reference_data = reference_data.apply(pd.to_numeric, errors="coerce").dropna()
 reference_data = reference_data.sort_values("Energy").reset_index(drop=True)
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -66,7 +66,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -75,7 +75,7 @@ grating = rp.BlazedGrating(
     z_resolution_nm=0.1,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=2,
     default_fourier_orders=15,
     show_progress=True,

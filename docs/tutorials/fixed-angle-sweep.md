@@ -5,13 +5,13 @@ fixed-angle energy sweep cases, then stream them through {class}`grax.BatchSimul
 
 ```python
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
-grating = rp.LaminarGrating(
+grating = grax.LaminarGrating(
     period_lpermm=400,
     width_to_period_ratio=0.67,
     depth_nm=14.9,
@@ -25,13 +25,13 @@ grating = rp.LaminarGrating(
 )
 
 energies = np.linspace(50.0, 650.0, 60)
-cases = rp.fixed_angle_cases(
+cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
     grazing_angle_deg=4.0,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=25,
     show_progress=True,
@@ -41,8 +41,8 @@ runner = rp.BatchSimulationRunner(
 )
 
 results = list(runner.run_cases(cases))
-rp.write_all_orders_csv(results, "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders.csv")
-rp.plot_order_subset(
+grax.write_all_orders_csv(results, "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders.csv")
+grax.plot_order_subset(
     results,
     "examples/simulation/fixed_angle_sweep/results/fixed_angle_orders_1_3.png",
     diffraction_orders=[1, 2, 3],

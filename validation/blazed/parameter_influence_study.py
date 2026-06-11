@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-import grax as rp
+import grax
 
 # =============================================================================
 # Configuration
@@ -34,7 +34,7 @@ PARAMETERS = {
 }
 
 # Enable logging
-rp.setup_logging(level='INFO', run_id='parameter_study')
+grax.setup_logging(level='INFO', run_id='parameter_study')
 
 # =============================================================================
 # Setup
@@ -70,7 +70,7 @@ base_grating_params = {
     "top_cap_thickness_nm": 0.0,
 }
 
-grating = rp.BlazedGrating(**base_grating_params)
+grating = grax.BlazedGrating(**base_grating_params)
 
 # =============================================================================
 # Run parameter sweeps
@@ -79,7 +79,7 @@ grating = rp.BlazedGrating(**base_grating_params)
 sweeps_dir = results_dir / "sweeps"
 sweeps_dir.mkdir(parents=True, exist_ok=True)
 all_rows = []
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
     show_progress=True,
@@ -90,7 +90,7 @@ runner = rp.BatchSimulationRunner(
 
 for energy_ev in ENERGIES_EEV:
     grazing_angle_deg = float(
-        rp.monochromator_grazing_angles_deg(
+        grax.monochromator_grazing_angles_deg(
             np.asarray([energy_ev], dtype=float),
             period_lpermm=grating.period_lpermm,
             diffraction_order=1,

@@ -14,7 +14,7 @@ os.environ.setdefault("MPLCONFIGDIR", str(Path("/tmp") / "grax-matplotlib"))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-import grax as rp  # noqa: E402
+import grax  # noqa: E402
 
 example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants"
@@ -60,7 +60,7 @@ grating_parameters["top_cap_material"] = carbon
 if quick_mode:
     grating_parameters["z_resolution_nm"] = 2.0
     grating_parameters["x_resolution_nm"] = 10.0
-grating = rp.LaminarGrating(**grating_parameters)
+grating = grax.LaminarGrating(**grating_parameters)
 
 angle_mode = fitted_payload.get("angle_mode", "fixed")
 diffraction_order = int(fitted_payload["diffraction_order"])
@@ -71,14 +71,14 @@ energies = (
     else np.arange(50.0, 650.1, 10.0)
 )
 if angle_mode == "fixed":
-    cases = rp.fixed_angle_cases(
+    cases = grax.fixed_angle_cases(
         grating=grating,
         energies_ev=energies,
         grazing_angle_deg=float(fitted_payload["grazing_angle_deg"]),
     )
     cases = (dict(case, label="fixed-angle") for case in cases)
 else:
-    cases = rp.monochromator_cases(
+    cases = grax.monochromator_cases(
         grating=grating,
         energies_ev=energies,
         diffraction_order=diffraction_order,
@@ -86,7 +86,7 @@ else:
     )
     cases = (dict(case, label="monochromator") for case in cases)
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
     default_fourier_orders=fourier_orders,
     show_progress=True,
@@ -99,8 +99,8 @@ runner = rp.BatchSimulationRunner(
 )
 grating.plot_profile(profile_plot_path)
 batch_result = list(runner.run_cases(cases))
-rp.write_all_orders_csv(batch_result, simulation_csv_path)
-rp.plot_order_subset(
+grax.write_all_orders_csv(batch_result, simulation_csv_path)
+grax.plot_order_subset(
     batch_result,
     simulation_plot_path,
     diffraction_orders=[diffraction_order],

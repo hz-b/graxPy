@@ -5,7 +5,7 @@ Use checkpointing when a batch run is long or may be interrupted.
 ## Basic setup
 
 ```python
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=25,
     checkpoint_dir="results/checkpoints",

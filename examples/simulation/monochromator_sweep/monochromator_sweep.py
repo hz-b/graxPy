@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=600,
     substrate_material=silicon,
     layer_material=gold,
@@ -27,14 +27,14 @@ output_dir.mkdir(parents=True, exist_ok=True)
 
 energies_ev = np.arange(50.0, 2000.1, 10)
 
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=grating,
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_fourier_orders=20,
     show_progress=True,
     live_plot=True,
@@ -46,10 +46,10 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 
 csv_path = output_dir / "monochromator_all_orders.csv"
-rp.write_all_orders_csv(results, csv_path)
+grax.write_all_orders_csv(results, csv_path)
 
 orders_plot_path = output_dir / "monochromator_orders_1_3.png"
-rp.plot_order_subset(
+grax.plot_order_subset(
     results,
     orders_plot_path,
     diffraction_orders=[1, 2, 3],

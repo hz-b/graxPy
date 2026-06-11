@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 
 
 example_root = Path(__file__).resolve().parent
@@ -17,7 +17,7 @@ optical_constants_dir = example_root / "optical_constants"
 log_dir = output_dir / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 
-rp.setup_logging(level="INFO", log_dir=str(log_dir), run_id="multilayer_theta_search")
+grax.setup_logging(level="INFO", log_dir=str(log_dir), run_id="multilayer_theta_search")
 logger = logging.getLogger("grax.examples.multilayer_theta_search")
 
 energies_ev = np.arange(500.0, 6000.1, 10, dtype=float)
@@ -44,7 +44,7 @@ carbon = pd.read_csv(
 )
 carbon.attrs["name"] = "C"
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -54,7 +54,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -63,7 +63,7 @@ grating = rp.BlazedGrating(
     z_resolution_nm=1.0,
 )
 
-sweep = rp.run_multilayer_theta_search_sweep(
+sweep = grax.run_multilayer_theta_search_sweep(
     grating=grating,
     energies_ev=energies_ev,
     output_dir=output_dir,

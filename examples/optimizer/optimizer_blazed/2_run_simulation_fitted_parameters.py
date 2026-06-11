@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 from example_config import (
     anti_blaze_angle_deg as baseline_anti_blaze_angle_deg,
     blaze_angle_deg as baseline_blaze_angle_deg,
@@ -68,9 +68,9 @@ fitted_grating_parameters.update(dict(payload.get("best_grating_parameters", {})
 fitted_grating_parameters["substrate_material"] = silicon
 fitted_grating_parameters["layer_material"] = gold
 fitted_grating_parameters["top_cap_material"] = carbon if use_top_cap else None
-fitted_grating = rp.BlazedGrating(**fitted_grating_parameters)
+fitted_grating = grax.BlazedGrating(**fitted_grating_parameters)
 
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=fitted_grating,
     energies_ev=energies,
     period_lpermm=float(fitted_grating_parameters["period_lpermm"]),
@@ -78,7 +78,7 @@ cases = rp.monochromator_cases(
     cff=float(payload.get("cff", baseline_cff)),
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=int(payload.get("diffraction_order", baseline_diffraction_order)),
     default_fourier_orders=int(payload.get("fourier_orders", baseline_fourier_orders)),
     max_workers="auto",
@@ -90,7 +90,7 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 
 output_csv_path = results_dir / "simulated_curve_fitted.csv"
-rp.write_all_orders_csv(results, output_csv_path)
+grax.write_all_orders_csv(results, output_csv_path)
 print(f"Fitted-parameter simulation CSV: {output_csv_path}")
 print(
     "Fitted simulation settings: "

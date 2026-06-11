@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 from example_config import (
     anti_blaze_angle_deg,
     simulation_backend,
@@ -49,7 +49,7 @@ measurement = pd.read_csv(
 ).apply(pd.to_numeric, errors="coerce").dropna()
 energies = np.asarray(measurement["energy_ev"], dtype=float)
 
-design_grating = rp.BlazedGrating(
+design_grating = grax.BlazedGrating(
     period_lpermm=period_lpermm,
     blaze_angle_deg=blaze_angle_deg,
     anti_blaze_angle_deg=anti_blaze_angle_deg,
@@ -62,7 +62,7 @@ design_grating = rp.BlazedGrating(
     x_resolution_nm=x_resolution_nm,
 )
 
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=design_grating,
     energies_ev=energies,
     period_lpermm=period_lpermm,
@@ -70,7 +70,7 @@ cases = rp.monochromator_cases(
     cff=cff,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
     default_fourier_orders=fourier_orders,
     max_workers="auto",
@@ -82,7 +82,7 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 
 output_csv_path = results_dir / "simulated_curve_initial.csv"
-rp.write_all_orders_csv(results, output_csv_path)
+grax.write_all_orders_csv(results, output_csv_path)
 print(f"Initial-parameter simulation CSV: {output_csv_path}")
 print(
     "Initial simulation settings: "

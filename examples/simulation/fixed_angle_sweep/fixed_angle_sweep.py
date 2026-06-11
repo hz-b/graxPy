@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
-grating = rp.LaminarGrating(
+grating = grax.LaminarGrating(
     period_lpermm=400,
     width_to_period_ratio=0.67,
     depth_nm=14.9,
@@ -30,13 +30,13 @@ output_dir.mkdir(parents=True, exist_ok=True)
 grazing_angle_deg = 4.0
 energies_ev = np.arange(50.0, 650.0, 10)
 
-cases = rp.fixed_angle_cases(
+cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=20,
     show_progress=True,
@@ -49,10 +49,10 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 
 csv_path = output_dir / "fixed_angle_all_orders.csv"
-rp.write_all_orders_csv(results, csv_path)
+grax.write_all_orders_csv(results, csv_path)
 
 orders_plot_path = output_dir / "fixed_angle_orders_1_3.png"
-rp.plot_order_subset(
+grax.plot_order_subset(
     results,
     orders_plot_path,
     diffraction_orders=[1, 2, 3],

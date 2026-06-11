@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 
 
-rp.setup_logging(level="INFO", run_id="laminar_150lmm_monochromator")
+grax.setup_logging(level="INFO", run_id="laminar_150lmm_monochromator")
 
 example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants"
@@ -36,7 +36,7 @@ gold = pd.read_csv(
 gold.attrs["name"] = "Au"
 
 # Requested geometry and coating parameters.
-grating = rp.LaminarGrating(
+grating = grax.LaminarGrating(
     period_lpermm=150,
     width_to_period_ratio=0.65,
     depth_nm=60.0,
@@ -55,14 +55,14 @@ grating = rp.LaminarGrating(
 # 10 eV to 1000 eV in 2 eV steps.
 energies_ev = np.arange(10.0, 1000.1, 2.0)
 
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=grating,
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=1.45,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=10,
     show_progress=True,
@@ -96,8 +96,8 @@ batch_result = list(
     )
 )
 
-rp.write_all_orders_csv(batch_result, csv_path)
-rp.plot_order_subset(
+grax.write_all_orders_csv(batch_result, csv_path)
+grax.plot_order_subset(
     batch_result,
     orders_plot_path,
     diffraction_orders=[1, 2, 3],

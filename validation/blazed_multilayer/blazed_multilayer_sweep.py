@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 
-rp.setup_logging(level="INFO", run_id="blazed_multilayer_sweep")
+grax.setup_logging(level="INFO", run_id="blazed_multilayer_sweep")
 
 parser = argparse.ArgumentParser(description="Blazed multilayer energy-angle sweep")
 parser.add_argument(
@@ -73,7 +73,7 @@ energy_angle_pairs = list(
     )
 )
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -83,7 +83,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -92,12 +92,12 @@ grating = rp.BlazedGrating(
     z_resolution_nm=z_resolution_nm,
 )
 
-cases = rp.energy_angle_cases(
+cases = grax.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=2,
     default_fourier_orders=default_fourier_orders,
     show_progress=True,
@@ -118,7 +118,7 @@ stack_plot_path = output_dir / "multilayer_stack_schematic.png"
 selected_order_plot_path = output_dir / "blazed_multilayer_order_2.png"
 
 results = list(runner.run_cases(cases))
-rp.write_all_orders_csv(results, csv_path)
+grax.write_all_orders_csv(results, csv_path)
 grating.plot_profile(profile_plot_path)
 multilayer_stack.plot_schematic(stack_plot_path)
 

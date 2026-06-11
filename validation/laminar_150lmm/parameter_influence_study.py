@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 
 ENERGIES_EV = [100.0, 500.0, 1000.0]
 CFF = 2.25
@@ -20,7 +20,7 @@ PARAMETERS = {
     "fourier_orders": np.array([3, 5, 7, 9, 11], dtype=int),
 }
 
-rp.setup_logging(level="INFO", run_id="laminar_150lmm_parameter_study")
+grax.setup_logging(level="INFO", run_id="laminar_150lmm_parameter_study")
 
 example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants"
@@ -43,7 +43,7 @@ gold = pd.read_csv(
 )
 gold.attrs["name"] = "Au"
 
-grating = rp.LaminarGrating(
+grating = grax.LaminarGrating(
     period_lpermm=150,
     width_to_period_ratio=0.65,
     depth_nm=60.0,
@@ -58,7 +58,7 @@ grating = rp.LaminarGrating(
     z_resolution_nm=1.0,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=DIFFRACTION_ORDER,
     default_fourier_orders=5,
     show_progress=True,
@@ -71,7 +71,7 @@ all_rows: list[tuple[float, str, float, str, float]] = []
 
 for energy_ev in ENERGIES_EV:
     grazing_angle_deg = float(
-        rp.monochromator_grazing_angles_deg(
+        grax.monochromator_grazing_angles_deg(
             np.asarray([energy_ev], dtype=float),
             period_lpermm=grating.period_lpermm,
             diffraction_order=DIFFRACTION_ORDER,

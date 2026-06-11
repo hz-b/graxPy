@@ -1891,10 +1891,10 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
 
     source = script_path.read_text(encoding="utf-8")
 
-    assert "rp.MultilayerStack(" in source
-    assert "rp.BlazedGrating(" in source
-    assert "rp.monochromator_cases(" in source
-    assert "rp.BatchSimulationRunner(" in source
+    assert "grax.MultilayerStack(" in source
+    assert "grax.BlazedGrating(" in source
+    assert "grax.monochromator_cases(" in source
+    assert "grax.BatchSimulationRunner(" in source
     assert "show_progress=True" in source
     assert 'max_workers="auto"' in source
     assert 'sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))' in source

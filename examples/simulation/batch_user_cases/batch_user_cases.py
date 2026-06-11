@@ -6,7 +6,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
@@ -34,7 +34,7 @@ output_dir.mkdir(parents=True, exist_ok=True)
 checkpoint_dir = output_dir / "checkpoints_depth_sweep"
 
 grazing_angle_deg = float(
-    rp.monochromator_grazing_angles_deg(
+    grax.monochromator_grazing_angles_deg(
         [energy_ev],
         period_lpermm=base_grating_kwargs["period_lpermm"],
         diffraction_order=diffraction_order,
@@ -44,7 +44,7 @@ grazing_angle_deg = float(
 
 user_cases = []
 for depth_nm in depths_nm:
-    grating = rp.LaminarGrating(
+    grating = grax.LaminarGrating(
         depth_nm=float(depth_nm),
         **base_grating_kwargs,
     )
@@ -60,7 +60,7 @@ for depth_nm in depths_nm:
         }
     )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
     default_fourier_orders=25,
     show_progress=True,
@@ -75,7 +75,7 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(user_cases))
 
 csv_path = output_dir / "batch_user_cases_all_orders.csv"
-rp.write_all_orders_csv(results, csv_path)
+grax.write_all_orders_csv(results, csv_path)
 
 orders_plot_path = output_dir / "batch_user_cases_orders_1_3_vs_depth.png"
 depth_values = np.asarray([float(result.case_data["depth_nm"]) for result in results], dtype=float)
@@ -84,7 +84,7 @@ markers = ["o", "s", "^"]
 for index, order in enumerate([1, 2, 3]):
     order_efficiency = np.asarray(
         [
-            rp.efficiency_for_order(
+            grax.efficiency_for_order(
                 result.orders,
                 result.efficiency_all,
                 diffraction_order=order,
@@ -110,7 +110,7 @@ figure.tight_layout()
 figure.savefig(orders_plot_path, dpi=150, bbox_inches="tight")
 plt.close(figure)
 
-profile_grating = rp.LaminarGrating(depth_nm=depths_nm[0], **base_grating_kwargs)
+profile_grating = grax.LaminarGrating(depth_nm=depths_nm[0], **base_grating_kwargs)
 profile_path = output_dir / "batch_user_cases_profile.png"
 profile_grating.plot_profile(profile_path)
 

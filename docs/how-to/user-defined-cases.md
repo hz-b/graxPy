@@ -10,7 +10,7 @@ with **different laminar grating depths**.
 
 ```python
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
@@ -39,7 +39,7 @@ base_grating_kwargs = dict(
 ```python
 cases = []
 for depth_nm in depths_nm:
-    grating = rp.LaminarGrating(depth_nm=float(depth_nm), **base_grating_kwargs)
+    grating = grax.LaminarGrating(depth_nm=float(depth_nm), **base_grating_kwargs)
     cases.append(
         {
             "label": f"Depth {depth_nm:.1f} nm",
@@ -58,7 +58,7 @@ omitted.
 ## 3. Run and export
 
 ```python
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
     default_fourier_orders=25,
     show_progress=True,
@@ -66,7 +66,7 @@ runner = rp.BatchSimulationRunner(
 )
 
 results = list(runner.run_cases(cases))
-rp.write_all_orders_csv(results, "results/user_defined_depth_sweep_all_orders.csv")
+grax.write_all_orders_csv(results, "results/user_defined_depth_sweep_all_orders.csv")
 ```
 
 Because each case stores `depth_nm`, you can directly plot efficiency versus

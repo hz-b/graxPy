@@ -12,7 +12,7 @@ A custom profile must implement:
 
 ```python
 import numpy as np
-import grax as rp
+import grax
 from grax.gratings import BaseGrating
 
 

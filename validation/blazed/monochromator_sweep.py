@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 
 from pathlib import Path
-import grax as rp
+import grax
 
-rp.setup_logging(level='INFO', run_id='blazed_sweep')
+grax.setup_logging(level='INFO', run_id='blazed_sweep')
 
 
 example_root = Path(__file__).resolve().parent
@@ -39,7 +39,7 @@ blaze_angle_deg = 0.729
 anti_blaze_angle_deg = 5.597
 
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=600,
     blaze_angle_deg=0.729,
     anti_blaze_angle_deg=5.597,
@@ -56,7 +56,7 @@ grating = rp.BlazedGrating(
 energies_ev = np.arange(50.0, 2000.0, 10.0)
 
 # Use monochromator_cases helper
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=grating,
     energies_ev=energies_ev,
     period_lpermm=period_lpermm,
@@ -64,7 +64,7 @@ cases = rp.monochromator_cases(
     cff=2.25,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=20,
     show_progress=True,
@@ -92,8 +92,8 @@ batch_result = list(runner.run_cases(
         "description": "Blazed grating monochromator sweep",
     }
 ))
-rp.write_all_orders_csv(batch_result, csv_path)
-rp.plot_order_subset(
+grax.write_all_orders_csv(batch_result, csv_path)
+grax.plot_order_subset(
     batch_result,
     plot_path,
     diffraction_orders=[1, 2, 3],

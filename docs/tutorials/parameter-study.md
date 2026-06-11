@@ -6,13 +6,13 @@ always sweeps `fourier_orders`, `x_resolution_nm`, and `z_resolution_nm`, then
 plots the selected diffraction-order efficiency in a single grid figure.
 
 ```python
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=600,
     substrate_material=silicon,
     layer_material=gold,
@@ -23,18 +23,18 @@ grating = rp.BlazedGrating(
     z_resolution_nm=0.1,
 )
 
-study = rp.run_parameter_study(
+study = grax.run_parameter_study(
     grating=grating,
     energies_ev=[100.0, 600.0, 2000.0],
     grazing_angle_deg=1.5,
     diffraction_order=1,
     fourier_orders_values=range(5, 26, 2),
-    x_resolution_values=rp.get_default_parameter_study_ranges()[1],
-    z_resolution_values=rp.get_default_parameter_study_ranges()[2],
+    x_resolution_values=grax.get_default_parameter_study_ranges()[1],
+    z_resolution_values=grax.get_default_parameter_study_ranges()[2],
     output_dir="examples/simulation/parameter_study/results",
 )
 
-rp.plot_parameter_study(
+grax.plot_parameter_study(
     study,
     output_filename="examples/simulation/parameter_study/results/parameter_study_grid.png",
     title="Blazed Parameter Study: Orders vs Fourier/x/z Resolution",
@@ -57,8 +57,8 @@ The default maintained example runs the full study:
 energies_ev = [100.0, 600.0, 2000.0]
 grazing_angle_deg = 1.5
 fourier_orders_values = range(5, 26, 2)
-x_resolution_values = rp.get_default_parameter_study_ranges()[1]
-z_resolution_values = rp.get_default_parameter_study_ranges()[2]
+x_resolution_values = grax.get_default_parameter_study_ranges()[1]
+z_resolution_values = grax.get_default_parameter_study_ranges()[2]
 ```
 
 The x- and z-resolution values are logarithmically spaced from `10 nm` down to

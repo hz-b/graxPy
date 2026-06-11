@@ -12,7 +12,7 @@ then composes a custom stack around it:
 from pathlib import Path
 import argparse
 
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.329, table="Henke", name="Si")
@@ -33,7 +33,7 @@ d_period_nm = 6.0
 gamma = 0.4
 n_bilayers = 50
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -43,18 +43,18 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-layers_bottom_up: list[rp.LayerSpec] = [rp.LayerSpec(material=platinum, thickness_nm=2.0)]
+layers_bottom_up: list[grax.LayerSpec] = [grax.LayerSpec(material=platinum, thickness_nm=2.0)]
 layers_bottom_up.extend(multilayer_stack.layer_specs_bottom_up())
-layers_bottom_up.append(rp.LayerSpec(material=carbon_oxide, thickness_nm=2.0))
+layers_bottom_up.append(grax.LayerSpec(material=carbon_oxide, thickness_nm=2.0))
 
-custom_stack = rp.assemble_custom_stack(
+custom_stack = grax.assemble_custom_stack(
     substrate_material=silicon,
     layers_bottom_up=layers_bottom_up,
     top_cap_material=oxygen,
     top_cap_thickness_nm=2.0,  # O top layer
 )
 
-blazed_grating = rp.BlazedGrating(
+blazed_grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,

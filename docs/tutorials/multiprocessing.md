@@ -8,7 +8,7 @@
 Serial execution:
 
 ```python
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
     max_workers=1,
@@ -19,7 +19,7 @@ runner = rp.BatchSimulationRunner(
 Automatic worker selection:
 
 ```python
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
     max_workers="auto",
@@ -30,7 +30,7 @@ runner = rp.BatchSimulationRunner(
 Explicit worker count:
 
 ```python
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
     max_workers=8,

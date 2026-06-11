@@ -13,7 +13,7 @@ Typical use cases:
 Minimal pattern:
 
 ```python
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=25,
     show_progress=True,

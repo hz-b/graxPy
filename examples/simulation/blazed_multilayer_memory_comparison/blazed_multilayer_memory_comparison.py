@@ -12,7 +12,7 @@ from xrt.backends.raycing import materials as xrt_materials
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-import grax as rp
+import grax
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 chromium = xrt_materials.Material("Cr", rho=7.19, table="Henke", name="Cr")
@@ -21,7 +21,7 @@ carbon = xrt_materials.Material("C", rho=2.20, table="Henke", name="C")
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -31,7 +31,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -46,7 +46,7 @@ cases = [
         **case,
         "profile_memory": True,
     }
-    for case in rp.monochromator_cases(
+    for case in grax.monochromator_cases(
         grating=grating,
         energies_ev=energies_ev,
         diffraction_order=1,
@@ -54,7 +54,7 @@ cases = [
     )
 ]
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     show_progress=True,
     default_fourier_orders=20,
     max_workers="auto",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 output_dir = Path(__file__).resolve().parent / "results"
@@ -13,7 +13,7 @@ output_dir.mkdir(parents=True, exist_ok=True)
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=600,
     substrate_material=silicon,
     layer_material=gold,
@@ -27,10 +27,10 @@ grating = rp.BlazedGrating(
 energies_ev = [100.0, 600.0, 2000.0]
 grazing_angle_deg = 1.5
 fourier_orders_values = list(range(5, 26, 2))
-x_resolution_values = rp.get_default_parameter_study_ranges()[1]
-z_resolution_values = rp.get_default_parameter_study_ranges()[2]
+x_resolution_values = grax.get_default_parameter_study_ranges()[1]
+z_resolution_values = grax.get_default_parameter_study_ranges()[2]
 
-study = rp.run_parameter_study(
+study = grax.run_parameter_study(
     grating=grating,
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
@@ -44,7 +44,7 @@ study = rp.run_parameter_study(
 )
 
 plot_path = output_dir / "parameter_study_grid.png"
-rp.plot_parameter_study(
+grax.plot_parameter_study(
     study,
     output_filename=plot_path,
     title="Blazed Parameter Study: Orders vs Fourier/x/z Resolution",

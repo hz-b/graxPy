@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import grax as rp
+import grax
 from grax.gratings import BaseGrating, LaminarGrating
 from grax import rcwa_1d
 from grax.rcwa_1d import res0, res1
@@ -133,7 +133,7 @@ def _build_test_blazed_multilayer_grating() -> object:
     chromium.attrs["name"] = "Cr"
     carbon = pd.read_csv(optical_constants_dir / "OC_C_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
     carbon.attrs["name"] = "C"
-    multilayer_stack = rp.MultilayerStack(
+    multilayer_stack = grax.MultilayerStack(
         substrate_material=silicon,
         material_a=chromium,
         material_b=carbon,
@@ -142,7 +142,7 @@ def _build_test_blazed_multilayer_grating() -> object:
         n_bilayers=6,
         top_material=carbon,
     )
-    return rp.BlazedGrating(
+    return grax.BlazedGrating(
         period_lpermm=2400,
         blaze_angle_deg=1.37,
         anti_blaze_angle_deg=3.25,
@@ -167,7 +167,7 @@ def _build_repeating_blazed_multilayer_grating() -> object:
     chromium.attrs["name"] = "Cr"
     carbon = pd.read_csv(optical_constants_dir / "OC_C_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
     carbon.attrs["name"] = "C"
-    multilayer_stack = rp.MultilayerStack(
+    multilayer_stack = grax.MultilayerStack(
         substrate_material=silicon,
         material_a=chromium,
         material_b=carbon,
@@ -176,7 +176,7 @@ def _build_repeating_blazed_multilayer_grating() -> object:
         n_bilayers=20,
         top_material=carbon,
     )
-    return rp.BlazedGrating(
+    return grax.BlazedGrating(
         period_lpermm=2400,
         blaze_angle_deg=1.37,
         anti_blaze_angle_deg=3.25,
