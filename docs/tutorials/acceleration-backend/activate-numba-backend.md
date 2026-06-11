@@ -9,9 +9,9 @@ python -m pip install "graxpy[numba]"
 Enable the optional backend in solver calls:
 
 ```python
-import grax as rp
+import grax
 
-result = rp.run_simulation(
+result = grax.run_simulation(
     grating=grating,
     energy_ev=energy_ev,
     grazing_angle_deg=grazing_angle_deg,

@@ -4,12 +4,12 @@ This example composes a custom stack around an actual `MultilayerStack`
 definition and explicitly includes:
 
 - a `2 nm` Pt layer above the Si substrate,
-- a Cr/C multilayer block from `rp.MultilayerStack`,
+- a Cr/C multilayer block from `grax.MultilayerStack`,
 - a `2 nm` CoO layer above the multilayer,
 - a `2 nm` O top cap.
 
 ```python
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.329, table="Henke", name="Si")
@@ -29,7 +29,7 @@ d_period_nm = 6.0
 gamma = 0.4
 n_bilayers = 50
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -39,18 +39,18 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-layers_bottom_up = [rp.LayerSpec(material=platinum, thickness_nm=2.0)]
+layers_bottom_up = [grax.LayerSpec(material=platinum, thickness_nm=2.0)]
 layers_bottom_up.extend(multilayer_stack.layer_specs_bottom_up())
-layers_bottom_up.append(rp.LayerSpec(material=carbon_oxide, thickness_nm=2.0))
+layers_bottom_up.append(grax.LayerSpec(material=carbon_oxide, thickness_nm=2.0))
 
-custom_stack = rp.assemble_custom_stack(
+custom_stack = grax.assemble_custom_stack(
     substrate_material=silicon,
     layers_bottom_up=layers_bottom_up,
     top_cap_material=oxygen,
     top_cap_thickness_nm=2.0,
 )
 
-blazed_grating = rp.BlazedGrating(
+blazed_grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,

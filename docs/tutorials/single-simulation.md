@@ -8,12 +8,12 @@ The smallest complete workflow is:
 
 ```python
 from xrt.backends.raycing import materials as xrt_materials
-import grax as rp
+import grax
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
-grating = rp.LaminarGrating(
+grating = grax.LaminarGrating(
     period_lpermm=400,
     width_to_period_ratio=0.67,
     depth_nm=14.9,
@@ -26,7 +26,7 @@ grating = rp.LaminarGrating(
     z_resolution_nm=0.1,
 )
 
-result = rp.run_simulation(
+result = grax.run_simulation(
     grating=grating,
     energy_ev=200.0,
     grazing_angle_deg=4.0,
@@ -54,7 +54,7 @@ grating.plot_profile("examples/simulation/single_simulation/results/single_simul
 Export helpers accept the typed single result directly:
 
 ```python
-rp.write_all_orders_csv(result, "examples/simulation/single_simulation/results/single_simulation.csv")
+grax.write_all_orders_csv(result, "examples/simulation/single_simulation/results/single_simulation.csv")
 ```
 
 See `examples/simulation/single_simulation/single_simulation.py` for the complete script.

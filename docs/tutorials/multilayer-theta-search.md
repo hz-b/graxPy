@@ -16,7 +16,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 
 example_root = Path("examples/simulation/multilayer_theta_search")
 output_dir = example_root / "results"
@@ -33,7 +33,7 @@ chromium.attrs["name"] = "Cr"
 carbon = pd.read_csv(optical_constants_dir / "OC_C_SSTR.dat", sep=r"\s*,\s*|\s+", engine="python")
 carbon.attrs["name"] = "C"
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -43,7 +43,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -52,7 +52,7 @@ grating = rp.BlazedGrating(
     z_resolution_nm=1.0,
 )
 
-sweep = rp.run_multilayer_theta_search_sweep(
+sweep = grax.run_multilayer_theta_search_sweep(
     grating=grating,
     energies_ev=energies_ev,
     output_dir=output_dir,

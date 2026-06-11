@@ -6,13 +6,13 @@ from pathlib import Path
 import argparse
 
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
-grating = rp.LaminarGrating(
+grating = grax.LaminarGrating(
     period_lpermm=400,
     width_to_period_ratio=0.67,
     depth_nm=14.9,
@@ -36,7 +36,7 @@ grazing_angle_deg = 4.0
 diffraction_order = 1
 fourier_orders = 5
 
-result = rp.run_simulation(
+result = grax.run_simulation(
     grating=grating,
     energy_ev=energy_ev,
     grazing_angle_deg=grazing_angle_deg,
@@ -46,7 +46,7 @@ result = rp.run_simulation(
 )
 
 csv_path = output_dir / "single_simulation.csv"
-rp.write_all_orders_csv(result, csv_path)
+grax.write_all_orders_csv(result, csv_path)
 
 profile_path = output_dir / "single_simulation_profile.png"
 grating.plot_profile(profile_path)

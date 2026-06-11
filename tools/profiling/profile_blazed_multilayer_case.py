@@ -23,7 +23,7 @@ if str(SRC_ROOT) not in sys.path:
 import grax as rp  # noqa: E402
 from grax.simulation._profiling import SolverProfiler  # noqa: E402
 
-BLAZED_MULTILAYER_DIR = PROJECT_ROOT / "comparison_to_other_codes" / "blazed_multilayer"
+VALIDATION_BLAZED_MULTILAYER_DIR = PROJECT_ROOT / "validation" / "blazed_multilayer"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "results" / "blazed_multilayer_case"
 DEFAULT_FOURIER_ORDERS = [5, 10, 15]
 DEFAULT_RESOLUTIONS_NM = [0.05, 0.1, 1.0]
@@ -134,7 +134,7 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 def _load_materials() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Load optical constants used by the blazed multilayer footprint."""
-    optical_constants_dir = BLAZED_MULTILAYER_DIR / "optical_constants"
+    optical_constants_dir = VALIDATION_BLAZED_MULTILAYER_DIR / "optical_constants"
     silicon = pd.read_csv(
         optical_constants_dir / "OC_Si_SSTR.dat",
         sep=r"\s*,\s*|\s+",
@@ -159,7 +159,7 @@ def _load_materials() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 def load_reference_data() -> pd.DataFrame:
     """Load the DiffraMod energy/angle table for case selection."""
     reference_data = pd.read_csv(
-        BLAZED_MULTILAYER_DIR / "simulation" / "DiffractMod_CrC_d4.8_N60.dat",
+        VALIDATION_BLAZED_MULTILAYER_DIR / "simulation" / "DiffractMod_CrC_d4.8_N60.dat",
         sep=r"\s+",
         engine="python",
     )

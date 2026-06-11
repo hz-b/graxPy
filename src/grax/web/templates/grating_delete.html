@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ grating.name }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Delete {{ grating.name }}</h1>
+    <p>{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm · {{ grating.id }}</p>
+  </div>
+</section>
+
+{% if request.args.get("message") %}
+  <section class="notice notice-error">
+    <p>{{ request.args.get("message") }}</p>
+  </section>
+{% endif %}
+
+<section class="notice">
+  <p>
+    This grating has {{ linked_runs|length }} linked saved run{% if linked_runs|length != 1 %}s{% endif %}.
+  </p>
+</section>
+
+<form class="form" method="post" action="{{ url_for('delete_grating', grating_id=grating.id) }}">
+  <fieldset>
+    <legend>Delete options</legend>
+    <label class="inline-check">
+      <input type="radio" name="delete_mode" value="grating_only" checked>
+      <span>Delete grating only</span>
+    </label>
+    <label class="inline-check">
+      <input type="radio" name="delete_mode" value="grating_and_runs">
+      <span>Delete grating and all linked runs</span>
+    </label>
+  </fieldset>
+
+  {% if linked_runs %}
+    <section>
+      <h2>Linked runs</h2>
+      <div class="list compact">
+        {% for run in linked_runs %}
+          <div class="row">
+            <strong>{{ run.summary_label }}</strong>
+            <span>{{ run.summary_meta }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <div class="actions">
+    <a class="button" href="{{ url_for('grating_detail', grating_id=grating.id) }}">Cancel</a>
+    <button class="button danger" type="submit" data-confirm="Delete this grating? This cannot be undone.">
+      Confirm delete
+    </button>
+  </div>
+</form>
+{% endblock %}

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
@@ -15,7 +15,7 @@ carbon = xrt_materials.Material("C", rho=2.20, table="Henke", name="C")
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -25,7 +25,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -35,14 +35,14 @@ grating = rp.BlazedGrating(
 )
 
 energies_ev = np.arange(500.0, 4000.0, 10.0)
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=grating,
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=20,
     show_progress=True,
@@ -57,8 +57,8 @@ profile_plot_path = output_dir / "blazed_multilayer_profile.png"
 stack_plot_path = output_dir / "multilayer_stack_schematic.png"
 
 results = list(runner.run_cases(cases))
-rp.write_all_orders_csv(results, csv_path)
-rp.plot_order_subset(
+grax.write_all_orders_csv(results, csv_path)
+grax.plot_order_subset(
     results,
     orders_plot_path,
     diffraction_orders=[1, 2, 3],

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graxpy"
-version = "0.2.2"
+version = "0.3.0"
 description = "X-ray grating simulations"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -26,6 +26,7 @@ dependencies = [
   "pandas>=2.0",
   "scipy>=1.10",
   "matplotlib>=3.7",
+  "psutil>=5.9",
   "tqdm>=4.66",
   "xrt>=1.6",
 ]
@@ -47,6 +48,9 @@ docs = [
   "myst-parser>=2.0",
   "furo>=2024.8.6",
   "sphinxcontrib-bibtex>=2.6",
+]
+web = [
+  "flask>=3.0",
 ]
 
 [tool.setuptools]
@@ -73,3 +77,6 @@ convention = "google"
 
 [project.urls]
 "RETICOLO DOI" = "https://doi.org/10.5281/zenodo.14631950"
+
+[project.scripts]
+grax-web = "grax.web.app:main"

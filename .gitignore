@@ -1,6 +1,7 @@
 build
 examples/reference_baselines/**/results/latest.csv
 .venv*
+.grax-web/
 *theta_scans*
 .codex
 uv.lock
@@ -13,6 +14,7 @@ AGENTS.md
 .agents
 context
 superpowers
+.grax_web
 
 # --- Standard Python ignores ---
 # Byte-compiled / optimized / DLL files

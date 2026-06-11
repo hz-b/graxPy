@@ -11,7 +11,7 @@ Run one blazed multilayer energy/angle point across a small Fourier and
 discretization matrix. The tool uses the same optical constants, multilayer
 stack, grating geometry, and DiffraMod energy/angle table used by:
 
-`comparison_to_other_codes/blazed_multilayer/blazed_multilayer_sweep.py`
+`validation/blazed_multilayer/blazed_multilayer_sweep.py`
 
 From the repository root:
 

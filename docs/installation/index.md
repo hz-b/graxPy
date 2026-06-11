@@ -73,13 +73,18 @@ implementation or `backend="numba"` for the JIT-compiled version.
 The main documentation focuses on the `grax` simulation package. The
 optimization package is currently treated as an advanced companion package.
 
+## Web UI
+
+See the clickable [`Web UI`](web-ui.md) subsection for local web app install
+and startup instructions.
+
 ## Verify the install
 
 ```bash
 python - <<'PY'
-import grax as rp
+import grax
 
-grating = rp.LaminarGrating()
+grating = grax.LaminarGrating()
 print(grating.period_nm)
 PY
 ```
@@ -98,7 +103,7 @@ tools/build_docs.sh
 - `--pdf`: build LaTeX and PDF only
 - `--open`: open generated HTML index in your browser after the build
 - `--skip-image-sync` or `--skip-example-sync`: skip copying images from
-  `examples/` and `comparison_to_other_codes/` into `docs/`
+  `examples/` and `validation/` into `docs/`
 
 ### Common usage examples
 
@@ -124,4 +129,11 @@ Fast iteration when images are already up to date:
 
 ```bash
 tools/build_docs.sh --html --skip-image-sync
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Web UI
+
+web-ui
 ```

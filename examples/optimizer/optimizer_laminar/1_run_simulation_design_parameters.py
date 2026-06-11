@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 from example_config import (
     depth_nm,
     diffraction_order,
@@ -62,7 +62,7 @@ measurement = pd.read_csv(
 ).dropna()
 energies = np.asarray(measurement["energy_ev"], dtype=float)
 
-design_grating = rp.LaminarGrating(
+design_grating = grax.LaminarGrating(
     period_lpermm=period_lpermm,
     width_to_period_ratio=width_to_period_ratio,
     depth_nm=depth_nm,
@@ -77,13 +77,13 @@ design_grating = rp.LaminarGrating(
     x_resolution_nm=x_resolution_nm,
 )
 
-cases = rp.fixed_angle_cases(
+cases = grax.fixed_angle_cases(
     grating=design_grating,
     energies_ev=energies,
     grazing_angle_deg=grazing_angle_deg,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=diffraction_order,
     default_fourier_orders=fourier_orders,
     max_workers="auto",
@@ -95,7 +95,7 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 
 output_csv_path = results_dir / "simulated_curve_initial.csv"
-rp.write_all_orders_csv(results, output_csv_path)
+grax.write_all_orders_csv(results, output_csv_path)
 
 print(f"Initial-parameter simulation CSV: {output_csv_path}")
 print(

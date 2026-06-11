@@ -50,7 +50,7 @@ from grax.simulation import batch as simulation_batch_module
 from grax.stacks import MultilayerStack
 from tests.optical_constants import load_optical_constants_table
 
-OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "comparison_to_other_codes" / "optical_constants"
+OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "validation" / "optical_constants"
 SI = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Si_cxro.txt", "Si")
 PT = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Pt_cxro.txt", "Pt")
 C = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_C_cxro.txt", "C")
@@ -1692,7 +1692,7 @@ def test_public_examples_do_not_expose_quick_mode_flags() -> None:
 def test_example_and_comparison_scripts_compile_and_use_current_case_helper_kwargs() -> None:
     script_roots = [
         Path(__file__).resolve().parents[1] / "examples",
-        Path(__file__).resolve().parents[1] / "comparison_to_other_codes",
+        Path(__file__).resolve().parents[1] / "validation",
     ]
     script_paths = sorted({path for root in script_roots for path in root.rglob("*.py")})
 
@@ -1891,10 +1891,10 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
 
     source = script_path.read_text(encoding="utf-8")
 
-    assert "rp.MultilayerStack(" in source
-    assert "rp.BlazedGrating(" in source
-    assert "rp.monochromator_cases(" in source
-    assert "rp.BatchSimulationRunner(" in source
+    assert "grax.MultilayerStack(" in source
+    assert "grax.BlazedGrating(" in source
+    assert "grax.monochromator_cases(" in source
+    assert "grax.BatchSimulationRunner(" in source
     assert "show_progress=True" in source
     assert 'max_workers="auto"' in source
     assert 'sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))' in source

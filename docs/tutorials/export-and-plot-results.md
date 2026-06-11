@@ -12,10 +12,10 @@ standard efficiency plots.
 - an iterable of case results (for example `list(runner.run_cases(...))`)
 
 ```python
-import grax as rp
+import grax
 
 # results can come from run_simulation(), runner.run_cases(), or a single case
-rp.write_all_orders_csv(
+grax.write_all_orders_csv(
     results,
     "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders.csv",
 )
@@ -45,9 +45,9 @@ Use `grax.plot_order_subset(...)` to generate a ready-to-use
 efficiency-vs-energy figure for selected positive diffraction orders:
 
 ```python
-import grax as rp
+import grax
 
-rp.plot_order_subset(
+grax.plot_order_subset(
     results,
     "examples/simulation/fixed_angle_sweep/results/fixed_angle_orders_1_3.png",
     diffraction_orders=[1, 2, 3],

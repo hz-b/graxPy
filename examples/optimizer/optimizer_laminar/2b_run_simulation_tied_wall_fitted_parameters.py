@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pandas as pd
 
-import grax as rp
+import grax
 from example_config import (
     diffraction_order as baseline_diffraction_order,
     fourier_orders as baseline_fourier_orders,
@@ -65,15 +65,15 @@ fitted_grating_parameters = dict(payload["best_grating_parameters"])
 fitted_grating_parameters["substrate_material"] = silicon
 fitted_grating_parameters["layer_material"] = platinum
 fitted_grating_parameters["top_cap_material"] = carbon
-fitted_grating = rp.LaminarGrating(**fitted_grating_parameters)
+fitted_grating = grax.LaminarGrating(**fitted_grating_parameters)
 
-cases = rp.fixed_angle_cases(
+cases = grax.fixed_angle_cases(
     grating=fitted_grating,
     energies_ev=energies,
     grazing_angle_deg=grazing_angle_deg,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=int(payload.get("diffraction_order", baseline_diffraction_order)),
     default_fourier_orders=int(payload.get("fourier_orders", baseline_fourier_orders)),
     max_workers="auto",
@@ -85,7 +85,7 @@ runner = rp.BatchSimulationRunner(
 results = list(runner.run_cases(cases))
 
 output_csv_path = tied_wall_results_dir / "simulated_curve_fitted.csv"
-rp.write_all_orders_csv(results, output_csv_path)
+grax.write_all_orders_csv(results, output_csv_path)
 
 print(f"Tied-wall fitted-parameter simulation CSV: {output_csv_path}")
 print(

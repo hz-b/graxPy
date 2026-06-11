@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-06-11
+
+- Introduced the first local web UI for `grax`, including abort-only run control, plot export browsing, and web startup documentation.
+- Added local web run controls to use a single abort flow with explicit save-or-delete confirmation for partial runs.
+- Added a dedicated web UI installation section for Linux/macOS and Windows, plus startup examples for custom ports.
+- Made the `grax-web` entrypoint accept `--host` and `--port` so the web server can be started on a different port without editing code.
+- Replaced the plot export dialog with a classic in-web folder browser and default-hidden dotfile handling.
+
 ## 0.2.2 - 2026-05-29
 
 - Added per-simulation peak RAM logging and a dedicated blazed-multilayer profiling tool under `tools/profiling/`.

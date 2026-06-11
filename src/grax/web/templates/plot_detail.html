@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Plot {{ plot.id }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ plot.title }}</h1>
+    <p>{{ plot.created_at }}</p>
+  </div>
+  <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
+</section>
+
+<section class="notice">
+  <p>
+    Plot image: <code>{{ plots_dir }}/{{ plot.id }}/{{ plot.plot_path }}</code>
+  </p>
+</section>
+
+<img
+  class="preview plot-preview"
+  src="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}"
+  alt="{{ plot.title }}"
+>
+
+<section>
+  <h2>Selected runs</h2>
+  {% if plot.selected_runs %}
+    <div class="list compact">
+      {% for run in plot.selected_runs %}
+        <div class="row">
+          <strong>{{ run.name }}</strong>
+          <span>Orders: {{ run.orders | join(', ') }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">No runs selected.</p>
+  {% endif %}
+</section>
+{% endblock %}

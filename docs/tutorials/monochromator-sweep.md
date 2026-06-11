@@ -6,13 +6,13 @@ monochromator relation for each energy.
 
 ```python
 import numpy as np
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
 gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=600,
     substrate_material=silicon,
     layer_material=gold,
@@ -24,14 +24,14 @@ grating = rp.BlazedGrating(
 )
 
 energies = np.linspace(50.0, 500.0, 45)
-cases = rp.monochromator_cases(
+cases = grax.monochromator_cases(
     grating=grating,
     energies_ev=energies,
     diffraction_order=1,
     cff=2.25,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_fourier_orders=25,
     show_progress=True,
     live_plot=True,
@@ -40,8 +40,8 @@ runner = rp.BatchSimulationRunner(
 )
 
 results = list(runner.run_cases(cases))
-rp.write_all_orders_csv(results, "examples/simulation/monochromator_sweep/results/monochromator_all_orders.csv")
-rp.plot_order_subset(
+grax.write_all_orders_csv(results, "examples/simulation/monochromator_sweep/results/monochromator_all_orders.csv")
+grax.plot_order_subset(
     results,
     "examples/simulation/monochromator_sweep/results/monochromator_orders_1_3.png",
     diffraction_orders=[1, 2, 3],

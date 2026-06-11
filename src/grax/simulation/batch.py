@@ -551,6 +551,8 @@ class BatchSimulationRunner:
         checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
         checkpoint_interval: Flush checkpoint file every N completed cases.
         resume: Whether to skip case IDs already present in the checkpoint.
+        stop_event: Optional cooperative stop signal checked between case submissions.
+        on_worker_pids_changed: Optional callback receiving current worker PIDs.
         live_plot: Whether to update a live plot during execution.
         live_plot_x_key: Case/result field used for the live-plot x axis.
         live_plot_order_count: Number of positive diffraction orders to plot.
@@ -600,6 +602,8 @@ class BatchSimulationRunner:
         checkpoint_dir: str | Path | None = None,
         checkpoint_interval: int = 1,
         resume: bool = False,
+        stop_event: threading.Event | None = None,
+        on_worker_pids_changed: Callable[[set[int]], None] | None = None,
         validate_physical_results: bool = True,
         max_reflected_efficiency: float = 1.05,
         min_reflected_efficiency: float = -1e-8,
@@ -641,6 +645,10 @@ class BatchSimulationRunner:
             checkpoint_dir: Directory for checkpoint persistence. Enables resume capability.
             checkpoint_interval: Number of cases between checkpoint writes.
             resume: Restore previous results from checkpoint directory.
+            stop_event: Optional cooperative stop signal checked before launching
+                new work. In-flight work is allowed to finish.
+            on_worker_pids_changed: Optional callback receiving the current set of
+                worker subprocess IDs after executor changes.
             validate_physical_results: Enforce physical constraints on reflected efficiencies
                 by checking the minimum reflected efficiency, maximum reflected efficiency,
                 and maximum total propagating reflected efficiency.
@@ -697,6 +705,8 @@ class BatchSimulationRunner:
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
         self.checkpoint_interval = checkpoint_interval
         self.resume = resume
+        self.stop_event = stop_event
+        self.on_worker_pids_changed = on_worker_pids_changed
         self.validate_physical_results = validate_physical_results
         self.max_reflected_efficiency = max_reflected_efficiency
         self.min_reflected_efficiency = min_reflected_efficiency
@@ -710,6 +720,7 @@ class BatchSimulationRunner:
         self._live_y_values: dict[int, list[float]] = {
             order: [] for order in range(1, live_plot_order_count + 1)
         }
+        self.stopped_early = False
 
     @property
     def checkpoint_path(self) -> Path | None:
@@ -879,6 +890,18 @@ class BatchSimulationRunner:
             pending_cases.append((index, case_id, case))
         return pending_cases
 
+    def _stop_requested(self) -> bool:
+        """Return whether cooperative stopping has been requested."""
+
+        return self.stop_event is not None and self.stop_event.is_set()
+
+    def _emit_worker_pids(self, worker_pids: set[int]) -> None:
+        """Notify listeners about the current worker subprocess IDs."""
+
+        if self.on_worker_pids_changed is None:
+            return
+        self.on_worker_pids_changed(set(worker_pids))
+
     def _run_serial_cases(
         self,
         pending_cases: Sequence[tuple[int, str, dict[str, object]]],
@@ -896,6 +919,9 @@ class BatchSimulationRunner:
         """
 
         for index, case_id, case in pending_cases:
+            if self._stop_requested():
+                self.stopped_early = True
+                return
             _log_case_execution_start(case_id=case_id, case=case, index=index, location="serial")
             yield self._execute_case(index, case_id, case)
 
@@ -931,7 +957,18 @@ class BatchSimulationRunner:
             initializer=_worker_initializer,
         ) as executor:
             futures: dict[concurrent.futures.Future[dict[str, object]], tuple[int, str, dict[str, object], dict[str, object]]] = {}
-            for index, case_id, case in pending_cases:
+            pending_iter = iter(pending_cases)
+
+            def submit_next_case() -> bool:
+                """Submit one additional case when available."""
+
+                if self._stop_requested():
+                    self.stopped_early = True
+                    return False
+                try:
+                    index, case_id, case = next(pending_iter)
+                except StopIteration:
+                    return False
                 _log_case_execution_start(case_id=case_id, case=case, index=index, location="parallel-submit")
                 payload = _case_payload(case, settings)
                 futures[executor.submit(_parallel_worker_execute, payload)] = (
@@ -940,67 +977,85 @@ class BatchSimulationRunner:
                     case,
                     {key: value for key, value in case.items() if key != "grating"},
                 )
+                worker_pids = {process.pid for process in executor._processes.values() if process.pid is not None}
+                self._emit_worker_pids(worker_pids)
+                return True
+
+            for _ in range(max_workers):
+                if not submit_next_case():
+                    break
 
             try:
-                for future in concurrent.futures.as_completed(futures):
-                    index, case_id, case, case_data = futures[future]
-                    label = case.get("label")
-                    energy_ev = float(case["energy_ev"])
-                    grazing_angle_deg = self._case_energy_and_angle(case)[1]
-                    message = future.result()
-                    if message["success"]:
-                        single = _single_result_from_record(message["result"])  # type: ignore[arg-type]
-                        peak_memory_bytes = message.get("peak_memory_bytes")
-                        wall_seconds = message.get("wall_seconds")
-                        yield CaseExecutionResult(
-                            case_id=case_id,
-                            index=index,
-                            label=None if label is None else str(label),
-                            energy_ev=single.energy_ev,
-                            grazing_angle_deg=single.grazing_angle_deg,
-                            orders=single.orders,
-                            selected_efficiency=single.selected_efficiency,
-                            selected_diffraction_angle_deg=single.selected_diffraction_angle_deg,
-                            efficiency_all=single.efficiency_all,
-                            diffraction_angle_all=single.diffraction_angle_all,
-                            status="ok",
-                            case_data=case_data,
-                            theta_search_diagnostics=single.theta_search_diagnostics,
-                            retry_triggered=single.retry_triggered,
-                            retry_attempts=single.retry_attempts,
-                            retry_status=single.retry_status,
-                            selected_efficiency_is_exact_zero=single.selected_efficiency_is_exact_zero,
-                            selected_efficiency_below_retry_threshold=single.selected_efficiency_below_retry_threshold,
-                            peak_memory_bytes=(
-                                None if peak_memory_bytes is None else int(peak_memory_bytes)
-                            ),
-                            wall_seconds=None if wall_seconds is None else float(wall_seconds),
-                        )
-                        continue
-                    if self.on_error == "fail_fast":
-                        for pending in futures:
-                            pending.cancel()
-                        raise RuntimeError(str(message["error"]))
-                    yield CaseExecutionResult(
-                        case_id=case_id,
-                        index=index,
-                        label=None if label is None else str(label),
-                        energy_ev=energy_ev,
-                        grazing_angle_deg=grazing_angle_deg,
-                        orders=np.asarray([], dtype=int),
-                        selected_efficiency=float("nan"),
-                        selected_diffraction_angle_deg=float("nan"),
-                        efficiency_all=np.asarray([], dtype=float),
-                        diffraction_angle_all=np.asarray([], dtype=float),
-                        status="error",
-                        error_message=str(message["error"]),
-                        case_data=case_data,
-                        peak_memory_bytes=None,
-                        wall_seconds=None,
+                while futures:
+                    completed, _ = concurrent.futures.wait(
+                        futures,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
                     )
+                    for future in completed:
+                        index, case_id, case, case_data = futures.pop(future)
+                        label = case.get("label")
+                        energy_ev = float(case["energy_ev"])
+                        grazing_angle_deg = self._case_energy_and_angle(case)[1]
+                        message = future.result()
+                        if message["success"]:
+                            single = _single_result_from_record(message["result"])  # type: ignore[arg-type]
+                            peak_memory_bytes = message.get("peak_memory_bytes")
+                            wall_seconds = message.get("wall_seconds")
+                            yield CaseExecutionResult(
+                                case_id=case_id,
+                                index=index,
+                                label=None if label is None else str(label),
+                                energy_ev=single.energy_ev,
+                                grazing_angle_deg=single.grazing_angle_deg,
+                                orders=single.orders,
+                                selected_efficiency=single.selected_efficiency,
+                                selected_diffraction_angle_deg=single.selected_diffraction_angle_deg,
+                                efficiency_all=single.efficiency_all,
+                                diffraction_angle_all=single.diffraction_angle_all,
+                                status="ok",
+                                case_data=case_data,
+                                theta_search_diagnostics=single.theta_search_diagnostics,
+                                retry_triggered=single.retry_triggered,
+                                retry_attempts=single.retry_attempts,
+                                retry_status=single.retry_status,
+                                selected_efficiency_is_exact_zero=single.selected_efficiency_is_exact_zero,
+                                selected_efficiency_below_retry_threshold=single.selected_efficiency_below_retry_threshold,
+                                peak_memory_bytes=(
+                                    None if peak_memory_bytes is None else int(peak_memory_bytes)
+                                ),
+                                wall_seconds=None if wall_seconds is None else float(wall_seconds),
+                            )
+                        else:
+                            if self.on_error == "fail_fast":
+                                for pending in futures:
+                                    pending.cancel()
+                                raise RuntimeError(str(message["error"]))
+                            yield CaseExecutionResult(
+                                case_id=case_id,
+                                index=index,
+                                label=None if label is None else str(label),
+                                energy_ev=energy_ev,
+                                grazing_angle_deg=grazing_angle_deg,
+                                orders=np.asarray([], dtype=int),
+                                selected_efficiency=float("nan"),
+                                selected_diffraction_angle_deg=float("nan"),
+                                efficiency_all=np.asarray([], dtype=float),
+                                diffraction_angle_all=np.asarray([], dtype=float),
+                                status="error",
+                                error_message=str(message["error"]),
+                                case_data=case_data,
+                                peak_memory_bytes=None,
+                                wall_seconds=None,
+                            )
+                        if submit_next_case():
+                            continue
+                    worker_pids = {process.pid for process in executor._processes.values() if process.pid is not None}
+                    self._emit_worker_pids(worker_pids)
             except Exception:
                 executor.shutdown(wait=False, cancel_futures=True)
                 raise
+            finally:
+                self._emit_worker_pids(set())
 
     def _execute_case(
         self,

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Manage runs{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Manage saved runs</h1>
+    <p>Rename runs inline or bulk delete selected runs.</p>
+  </div>
+</section>
+
+{% if runs %}
+  <form class="form" method="post" action="{{ url_for('update_runs') }}">
+    <div class="manage-actions">
+      <button class="button primary" type="submit" name="action" value="save">Save names</button>
+      <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">
+        Delete selected
+      </button>
+    </div>
+
+    <div class="list">
+      {% for run in runs %}
+        <div class="row run-manage-row">
+          <div class="run-manage-main">
+            <label>
+              Run name
+              <input
+                name="display_name_{{ run.id }}"
+                type="text"
+                value="{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}"
+              >
+            </label>
+            <p class="subtle">
+              {{ run.summary_meta }}
+            </p>
+            {% if run.checkpoint_completed_points %}
+              <p class="subtle">Checkpointed {{ run.checkpoint_completed_points }} / {{ run.checkpoint_total_points }} points.</p>
+            {% endif %}
+          </div>
+          <label class="inline-check manage-delete">
+            <input type="checkbox" name="delete_run_id" value="{{ run.id }}">
+            <span>Delete</span>
+          </label>
+        </div>
+      {% endfor %}
+    </div>
+  </form>
+{% else %}
+  <p class="empty">No runs have been saved yet.</p>
+{% endif %}
+{% endblock %}

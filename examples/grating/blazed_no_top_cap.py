@@ -3,13 +3,13 @@
 from pathlib import Path
 import argparse
 
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 silicon = xrt_materials.Material("Si", rho=2.329, table="Henke", name="Si")
 platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
-blazed_grating = rp.BlazedGrating(
+blazed_grating = grax.BlazedGrating(
     period_lpermm=400,
     coating_stack=None,
     substrate_material=silicon,

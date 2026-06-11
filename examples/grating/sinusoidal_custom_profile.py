@@ -6,7 +6,7 @@ from pathlib import Path
 import argparse
 
 import numpy as np
-import grax as rp
+import grax
 from grax.gratings import BaseGrating
 from xrt.backends.raycing import materials as xrt_materials
 

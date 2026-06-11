@@ -8,14 +8,14 @@ workflow.
 
 ```python
 import numpy as np
-import grax as rp
+import grax
 
 period_lpermm = 600
 period_nm = 1e6 / period_lpermm
 afm_file = "examples/grating/data/afm_profile_example.txt"
 afm_data = np.loadtxt(afm_file)
 
-afm = rp.AFMPreprocessing(
+afm = grax.AFMPreprocessing(
     afm_data,
     units="m",
     # save_plots=True by default (writes to ./results/afm_preprocessing)
@@ -27,7 +27,7 @@ afm.extract_period(average=True)
 afm.apply_periodicity_ramp()
 afm.rescale_period(period_nm=period_nm)
 
-grating = rp.AFMGrating.from_preprocessing(
+grating = grax.AFMGrating.from_preprocessing(
     afm,
     # period_lpermm can be inferred from the processed profile span
     # period_lpermm=period_lpermm,

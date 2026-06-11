@@ -1,0 +1,61 @@
+<form class="form export-form" method="post" action="{{ url_for('export_plot') }}" data-export-form>
+  <input type="hidden" name="preview_id" value="{{ preview_id }}">
+  <input type="hidden" name="directory" value="{{ current_path }}">
+
+  <div class="section-head preview-head">
+    <div>
+      <h2>Save plot</h2>
+      <p>Browse folders, choose a destination, and save the preview PNG.</p>
+    </div>
+    <button class="button" type="button" data-close-export>Cancel</button>
+  </div>
+
+  <nav class="export-breadcrumbs" aria-label="Folder path" data-export-breadcrumbs>
+    {% for crumb in breadcrumbs %}
+      {% if not loop.first %}<span>/</span>{% endif %}
+      <a href="{{ url_for('plot_export_dialog', preview_id=preview_id, path=crumb.path) }}" data-browse-link>{{ crumb.name }}</a>
+    {% endfor %}
+  </nav>
+
+  <div class="export-browser-frame">
+    <div class="export-browser-head">
+      <div>
+        <strong>Selected folder</strong>
+        <p class="subtle"><code data-export-current-path>{{ current_path }}</code></p>
+      </div>
+      <div class="actions">
+        {% if parent_path %}
+          <a class="button" href="{{ url_for('plot_export_dialog', preview_id=preview_id, path=parent_path) }}" data-browse-link>Up</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="list compact export-browser" data-export-directory-list>
+      {% for entry in entries %}
+        <div class="row export-entry">
+          <div>
+            <strong>{{ entry.name }}</strong>
+            <p class="subtle">Folder</p>
+          </div>
+          <a class="button" href="{{ url_for('plot_export_dialog', preview_id=preview_id, path=entry.path) }}" data-browse-link>Open</a>
+        </div>
+      {% else %}
+        <p class="empty">No visible subfolders here.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <label>
+    Filename
+    <input name="filename" type="text" value="combined.png">
+  </label>
+  <label class="inline-check">
+    <input name="overwrite" type="checkbox" value="1">
+    <span>Overwrite existing file</span>
+  </label>
+  <p data-export-status></p>
+  <div class="actions">
+    <button class="button primary" type="submit">Save plot</button>
+    <button class="button" type="button" data-close-export>Cancel</button>
+  </div>
+</form>

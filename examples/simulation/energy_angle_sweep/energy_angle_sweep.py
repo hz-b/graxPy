@@ -11,7 +11,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-import grax as rp
+import grax
 from xrt.backends.raycing import materials as xrt_materials
 
 example_root = Path(__file__).resolve().parent
@@ -35,7 +35,7 @@ silicon = xrt_materials.Material("Si", rho=2.329, table="Chantler total", name="
 chromium = xrt_materials.Material("Cr", rho=7.19, table="Chantler total", name="Cr")
 carbon = xrt_materials.Material("C", rho=2.2, table="Chantler total", name="C")
 
-multilayer_stack = rp.MultilayerStack(
+multilayer_stack = grax.MultilayerStack(
     substrate_material=silicon,
     material_a=chromium,
     material_b=carbon,
@@ -45,7 +45,7 @@ multilayer_stack = rp.MultilayerStack(
     top_material=carbon,
 )
 
-grating = rp.BlazedGrating(
+grating = grax.BlazedGrating(
     period_lpermm=2400,
     blaze_angle_deg=1.37,
     anti_blaze_angle_deg=3.25,
@@ -54,12 +54,12 @@ grating = rp.BlazedGrating(
     z_resolution_nm=1.0,
 )
 
-cases = rp.energy_angle_cases(
+cases = grax.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
 )
 
-runner = rp.BatchSimulationRunner(
+runner = grax.BatchSimulationRunner(
     default_diffraction_order=2,
     default_fourier_orders=5,
     show_progress=True,
@@ -74,7 +74,7 @@ csv_path = output_dir / "energy_angle_multilayer_all_orders.csv"
 plot_path = output_dir / "energy_angle_multilayer_fast.png"
 profile_path = output_dir / "energy_angle_multilayer_profile.png"
 
-rp.write_all_orders_csv(results, csv_path)
+grax.write_all_orders_csv(results, csv_path)
 grating.plot_profile(profile_path)
 
 successful_results = [result for result in results if result.status == "ok"]

@@ -15,7 +15,7 @@ RETICOLO license: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 :caption: User guide
 
 installation/index
-comparison-to-other-codes/index
+validation/index
 tutorials/index
 how-to/index
 ```
