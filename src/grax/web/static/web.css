@@ -261,6 +261,11 @@ select {
   margin-bottom: 12px;
 }
 
+.plotly-frame {
+  width: 100%;
+  min-height: 420px;
+}
+
 .plot-controls-panel {
   display: grid;
   gap: 18px;

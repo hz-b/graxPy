@@ -17,6 +17,10 @@ grax-web
 
 Open <http://127.0.0.1:5050>.
 
+The compare page, saved plot pages, and live run monitor use interactive
+Plotly figures in the browser. The `Save plot` action still writes a PNG
+through the built-in server-side folder browser.
+
 To use a different port:
 
 ```bash
@@ -55,6 +59,10 @@ The web UI stores local data in `.grax-web/` by default:
 - `runs/`
 - `plots/`
 - `previews/`
+
+Saved Web UI plots are persisted as JSON figure specs under `.grax-web/plots/`
+and per-run interactive plot specs are stored in the corresponding run
+directories.
 
 When you change the local web UI code, restart `grax-web` so the browser sees
 the updated server behavior.
