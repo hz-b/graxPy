@@ -33,6 +33,51 @@ For local editable installs:
 python -m pip install -e .
 ```
 
+## Local web app
+
+Install the package and web extra, then start the local server:
+
+```bash
+python -m pip install -e ".[web]"
+grax-web
+```
+
+Then open <http://127.0.0.1:5050>. Use the home page to create and save
+gratings, then open the plot page to combine saved runs and select the
+diffraction orders to overlay.
+
+Start on a different port when needed:
+
+```bash
+grax-web --port 8000
+```
+
+You can also override the bind address:
+
+```bash
+grax-web --host 0.0.0.0 --port 8000
+```
+
+When developing the web app locally, restart `grax-web` after changing run-state
+or UI logic so the browser sees the updated server behavior.
+
+Local data is stored in `.grax-web/` by default:
+
+- saved gratings: `.grax-web/saved_gratings/`
+- run results: `.grax-web/runs/`
+- combined plots: `.grax-web/plots/`
+- grating previews: `.grax-web/previews/`
+
+Each saved run lives in `.grax-web/runs/<run_id>/` and includes:
+
+- `manifest.json`
+- `summary.csv`
+- `all_orders.csv`
+- `selected_efficiency.png`
+
+Use `Plots` to combine saved runs and choose which diffraction orders to
+overlay for each run. Use `Manage runs` to rename runs or bulk delete them.
+
 ## Repository at a glance
 
 - `src/grax/`: core package source code

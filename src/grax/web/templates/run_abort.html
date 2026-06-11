@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Abort {{ run.id }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Abort run</h1>
+    <p>{{ run.display_name | default(run.workflow, true) }} · {{ run.id }}</p>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Choose whether to keep the current partial results as an aborted run or stop and delete the run entirely.
+  </p>
+</section>
+
+<form class="form" method="post" action="{{ url_for('abort_run', run_id=run.id) }}">
+  <div class="list">
+    <div class="row">
+      <div>
+        <strong>Save partial run</strong>
+        <p class="subtle">Keep checkpoints and artifacts, mark the run as aborted, and leave it available for plotting.</p>
+      </div>
+      <button class="button primary" type="submit" name="disposition" value="save">Save partial run</button>
+    </div>
+    <div class="row">
+      <div>
+        <strong>Delete run</strong>
+        <p class="subtle">Stop the run and remove its saved files completely.</p>
+      </div>
+      <button class="button danger" type="submit" name="disposition" value="delete">Delete run</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

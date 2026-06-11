@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}New grating{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>New grating</h1>
+    <p>Laminar or blazed profile with an optional multilayer stack</p>
+  </div>
+</section>
+
+<div class="workspace-grid">
+  <form
+    class="form"
+    method="post"
+    action="{{ action_url }}"
+    data-grating-preview-form
+    data-preview-url="{{ url_for('preview_grating') }}"
+  >
+    <fieldset>
+      <legend>Profile</legend>
+      <label>Name <input name="name" required value="{{ defaults.name|default('Untitled grating') }}"></label>
+      <label>Type
+        <select name="grating_type" data-grating-type>
+          <option value="laminar" {% if defaults.grating_type == "laminar" %}selected{% endif %}>Laminar</option>
+          <option value="blazed" {% if defaults.grating_type == "blazed" %}selected{% endif %}>Blazed</option>
+        </select>
+      </label>
+      <label>Period, lines/mm <input name="period_lpermm" type="number" step="1" value="{{ defaults.period_lpermm }}"></label>
+      <label>X resolution, nm <input name="x_resolution_nm" type="number" step="0.01" value="{{ defaults.x_resolution_nm }}"></label>
+      <label>Z resolution, nm <input name="z_resolution_nm" type="number" step="0.01" value="{{ defaults.z_resolution_nm }}"></label>
+    </fieldset>
+
+    <fieldset data-grating-section="laminar">
+      <legend>Laminar fields</legend>
+      <label>Width / period <input name="width_to_period_ratio" type="number" step="0.01" value="{{ defaults.width_to_period_ratio }}"></label>
+      <label>Depth, nm <input name="depth_nm" type="number" step="0.01" value="{{ defaults.depth_nm }}"></label>
+      <label>Left wall angle, deg <input name="left_wall_angle_deg" type="number" step="0.01" value="{{ defaults.left_wall_angle_deg }}"></label>
+      <label>Right wall angle, deg <input name="right_wall_angle_deg" type="number" step="0.01" value="{{ defaults.right_wall_angle_deg }}"></label>
+    </fieldset>
+
+    <fieldset data-grating-section="blazed">
+      <legend>Blazed fields</legend>
+      <label>Blaze angle, deg <input name="blaze_angle_deg" type="number" step="0.001" value="{{ defaults.blaze_angle_deg }}"></label>
+      <label>Anti-blaze angle, deg <input name="anti_blaze_angle_deg" type="number" step="0.001" value="{{ defaults.anti_blaze_angle_deg }}"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Coating</legend>
+      <label>Stack type
+        <select name="stack_type" data-stack-type>
+          <option value="single_layer" {% if defaults.stack_type == "single_layer" %}selected{% endif %}>Single layer</option>
+          <option value="multilayer" {% if defaults.stack_type == "multilayer" %}selected{% endif %}>Multilayer</option>
+        </select>
+      </label>
+      <label>Substrate
+        <select name="substrate_material">{% for material in materials %}<option {% if material == defaults.substrate_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+      <label>Top cap
+        <select name="top_cap_material"><option value="">None</option>{% for material in materials %}<option {% if material == defaults.top_cap_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+      <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
+    </fieldset>
+
+    <fieldset data-single-layer-controls>
+      <legend>Single Layer</legend>
+      <label>Layer material
+        <select name="layer_material">{% for material in materials %}<option {% if material == defaults.layer_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+      <label>Layer thickness, nm <input name="layer_thickness_nm" type="number" step="0.01" value="{{ defaults.layer_thickness_nm }}"></label>
+    </fieldset>
+
+    <fieldset data-stack-controls>
+      <legend>Multilayer stack</legend>
+      <label>Material A
+        <select name="material_a">{% for material in materials %}<option {% if material == defaults.material_a %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+      <label>Material B
+        <select name="material_b">{% for material in materials %}<option {% if material == defaults.material_b %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+      <label>Bilayer period, nm <input name="d_period_nm" type="number" step="0.01" value="{{ defaults.d_period_nm }}"></label>
+      <label>Gamma <input name="gamma" type="number" step="0.01" value="{{ defaults.gamma }}"></label>
+      <label>Bilayers <input name="n_bilayers" type="number" step="1" value="{{ defaults.n_bilayers }}"></label>
+      <label>Top material
+        <select name="top_material">{% for material in materials %}<option {% if material == defaults.top_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+      </label>
+    </fieldset>
+    <button class="button primary" type="submit">{{ submit_label }}</button>
+  </form>
+
+  <section class="preview-panel">
+    <div class="section-head preview-head">
+      <div>
+        <h2>Live preview</h2>
+        <p data-grating-preview-status>{% if preview and preview.ok %}Ready{% else %}Preview unavailable{% endif %}</p>
+      </div>
+      <span class="preview-pill" data-grating-preview-loading>Idle</span>
+    </div>
+    {% if preview and preview.preview_url %}
+      <img class="preview" src="{{ preview.preview_url }}" alt="Live grating preview" data-grating-preview-image>
+    {% else %}
+      <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

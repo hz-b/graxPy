@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Grax Web{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Saved gratings</h1>
+    <p>Local prototype workspace</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
+    <a class="button primary" href="{{ url_for('new_grating') }}">Create grating</a>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Saved runs live in <code>{{ results_dir }}/</code> and combined plots live in
+    <code>{{ plots_dir }}/</code>.
+  </p>
+</section>
+
+{% if message %}
+  <section class="notice{% if message_kind == 'error' %} notice-error{% endif %}">
+    <p>{{ message }}</p>
+  </section>
+{% endif %}
+
+<section class="notice">
+  <form class="form" method="post" action="{{ url_for('switch_workspace') }}">
+    <label>
+      Active workspace root
+      <input name="workspace_root" type="text" value="{{ active_workspace }}">
+    </label>
+    <div class="actions">
+      <button class="button" type="submit">Switch workspace</button>
+    </div>
+  </form>
+</section>
+
+<div class="grid two">
+  <section>
+    {% if gratings %}
+      <div class="list">
+        {% for grating in gratings %}
+          <a class="row" href="{{ url_for('grating_detail', grating_id=grating.id) }}">
+            <strong>{{ grating.name }}</strong>
+            <span>{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm · {{ grating.id }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No saved gratings yet.</p>
+    {% endif %}
+  </section>
+  <section>
+    <h2>Recent runs</h2>
+    {% if runs %}
+      <div class="list compact">
+        {% for run in runs %}
+          <a class="row" href="{{ url_for('run_detail', run_id=run.id) }}">
+            <strong>{{ run.summary_label }}</strong>
+            <span>{{ run.summary_meta }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No runs yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Manage gratings{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Manage saved gratings</h1>
+    <p>Bulk delete saved gratings, with an option to also remove their linked runs.</p>
+  </div>
+</section>
+
+{% if request.args.get("message") %}
+  <section class="notice notice-error">
+    <p>{{ request.args.get("message") }}</p>
+  </section>
+{% endif %}
+
+{% if gratings %}
+  <form class="form" method="post" action="{{ url_for('update_gratings') }}">
+    <fieldset>
+      <legend>Delete options</legend>
+      <label class="inline-check">
+        <input type="radio" name="delete_mode" value="grating_only" checked>
+        <span>Delete selected gratings only</span>
+      </label>
+      <label class="inline-check">
+        <input type="radio" name="delete_mode" value="grating_and_runs">
+        <span>Delete selected gratings and linked runs</span>
+      </label>
+    </fieldset>
+
+    <div class="manage-actions">
+      <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete selected gratings? This cannot be undone.">
+        Delete selected
+      </button>
+    </div>
+
+    <div class="list">
+      {% for grating in gratings %}
+        <div class="row run-manage-row">
+          <div class="run-manage-main">
+            <a href="{{ url_for('grating_detail', grating_id=grating.id) }}"><strong>{{ grating.name }}</strong></a>
+            <p class="subtle">
+              {{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm · {{ grating.id }}
+            </p>
+          </div>
+          <label class="inline-check manage-delete">
+            <input type="checkbox" name="delete_grating_id" value="{{ grating.id }}">
+            <span>Delete</span>
+          </label>
+        </div>
+      {% endfor %}
+    </div>
+  </form>
+{% else %}
+  <p class="empty">No gratings have been saved yet.</p>
+{% endif %}
+{% endblock %}

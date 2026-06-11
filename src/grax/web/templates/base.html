@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Grax Web{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+    <script src="{{ url_for('static', filename='web.js') }}" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('index') }}">Grax Web</a>
+      <nav>
+        <a href="{{ url_for('plot_index') }}">Plots</a>
+        <a href="{{ url_for('manage_runs') }}">Manage runs</a>
+        <a href="{{ url_for('manage_gratings') }}">Manage gratings</a>
+        <a href="{{ url_for('new_grating') }}">New grating</a>
+      </nav>
+    </header>
+    <main class="shell">
+      {% block body %}{% endblock %}
+    </main>
+    <footer class="footer shell">
+      <p>
+        Developed by {{ site_metadata.organization }}.
+        Main developer and contact: {{ site_metadata.contact_name }}
+        (<a href="mailto:{{ site_metadata.contact_email }}">{{ site_metadata.contact_email }}</a>).
+        <a href="{{ site_metadata.github_url }}" target="_blank" rel="noreferrer">GitHub</a>
+        ·
+        <a href="{{ site_metadata.docs_url }}" target="_blank" rel="noreferrer">Read the Docs</a>
+      </p>
+    </footer>
+  </body>
+</html>
