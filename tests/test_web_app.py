@@ -525,8 +525,7 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert b"Alpha run" in response.data
     assert b'data-plot-workspace' in response.data
-    assert b'data-plot-preview-container' in response.data
-    assert b'data-plotly-script-url' in response.data
+    assert b'data-plot-preview-image' in response.data
     assert b'data-run-picker' in response.data
     assert b'plot-workspace-layout' in response.data
     assert b'plot-controls-panel' in response.data
@@ -595,8 +594,7 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert payload["plot_spec"]["data"]
-    assert payload["plot_spec"]["layout"]["title"]["text"] == "Workspace preview"
+    assert payload["preview_url"].startswith("/_data/previews/live/")
     assert payload["selected_runs"][0]["orders"] == [0, 3]
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
@@ -604,7 +602,6 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     invalid_payload = invalid_response.get_json()
     assert invalid_payload["ok"] is False
     assert invalid_payload["error"]
-    assert invalid_payload["plot_spec"] is None
 
 
 def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
@@ -657,63 +654,6 @@ def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
     save_payload = save_response.get_json()
     assert save_payload["ok"] is True
     assert (export_dir / "combined.png").exists()
-
-
-def test_create_plot_persists_plotly_figure_json(tmp_path: Path) -> None:
-    pytest.importorskip("flask")
-
-    from grax.web.app import create_app
-
-    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
-
-    client = create_app(data_dir=tmp_path).test_client()
-    response = client.post(
-        "/plots",
-        data={
-            "title": "Combined Plotly figure",
-            "run_ids": ["run-1"],
-            "orders_run-1": ["0", "1"],
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 302
-    plot_id = response.headers["Location"].rsplit("/", 1)[-1]
-    plot_dir = tmp_path / "plots" / plot_id
-    manifest = json.loads((plot_dir / "manifest.json").read_text(encoding="utf-8"))
-    figure_payload = json.loads((plot_dir / "figure.json").read_text(encoding="utf-8"))
-
-    assert manifest["figure_path"] == "figure.json"
-    assert "plot_path" not in manifest
-    assert figure_payload["data"]
-    assert figure_payload["layout"]["title"]["text"] == "Combined Plotly figure"
-
-
-def test_plot_detail_page_renders_plotly_container(tmp_path: Path) -> None:
-    pytest.importorskip("flask")
-
-    from grax.web.app import create_app
-
-    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
-    client = create_app(data_dir=tmp_path).test_client()
-    create_response = client.post(
-        "/plots",
-        data={
-            "title": "Interactive detail",
-            "run_ids": ["run-1"],
-            "orders_run-1": ["0"],
-        },
-        follow_redirects=False,
-    )
-    plot_id = create_response.headers["Location"].rsplit("/", 1)[-1]
-
-    response = client.get(f"/plots/{plot_id}")
-
-    assert response.status_code == 200
-    assert b'data-plot-detail-container' in response.data
-    assert b'data-plot-spec-url="' in response.data
-    assert b'data-plotly-script-url' in response.data
-    assert b"Plot image:" not in response.data
 
 
 def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> None:
@@ -1092,8 +1032,7 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     assert final_payload["state"] == "completed"
     assert final_payload["completed_points"] == 4
     assert final_payload["remaining_points"] == 0
-    assert final_payload["plot_spec_url"]
-    assert final_payload["plot_revision"]
+    assert final_payload["plot_url"]
 
 
 def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
@@ -1109,8 +1048,6 @@ def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
     assert b'data-live-run-monitor' in response.data
     assert b'data-run-status-url="/runs/run-1/status"' in response.data
     assert b'data-memory-url="/system/memory"' in response.data
-    assert b'data-run-plot-container' in response.data
-    assert b'data-plotly-script-url' in response.data
 
 
 def test_system_memory_endpoint_returns_metrics(
@@ -1175,8 +1112,6 @@ def test_run_status_marks_disk_backed_incomplete_run_as_interrupted(tmp_path: Pa
     assert payload["can_abort"] is True
     assert payload["checkpoint_completed_points"] == 2
     assert payload["total_points"] == 4
-    assert payload["plot_spec_url"]
-    assert "plot_url" not in payload
 
 
 def test_incomplete_run_exposes_available_orders_from_checkpoints(tmp_path: Path) -> None:
@@ -1219,8 +1154,6 @@ def test_run_detail_shows_abort_action_for_paused_run(tmp_path: Path) -> None:
     assert b"Machine RAM" in response.data
     assert b"Web RSS" not in response.data
     assert b"Simulation RSS" not in response.data
-    assert b'data-run-plot-container' in response.data
-    assert b'data-run-plot-image' not in response.data
 
 
 def test_run_status_prefers_persisted_aborted_state_when_active_entry_is_stale(
@@ -1252,8 +1185,6 @@ def test_run_status_prefers_persisted_aborted_state_when_active_entry_is_stale(
     assert payload["can_abort"] is True
     assert payload["checkpoint_completed_points"] == 2
     assert "memory" not in payload
-    assert payload["plot_spec_url"]
-    assert "plot_url" not in payload
 
 
 def test_run_detail_enables_abort_for_paused_run_with_stale_active_entry(tmp_path: Path) -> None:
@@ -1540,7 +1471,10 @@ def test_results_sorted_for_live_plot_orders_by_energy() -> None:
     assert [result.energy_ev for result in ordered] == [100.0, 200.0]
 
 
-def test_publish_live_progress_is_throttled(tmp_path: Path) -> None:
+def test_publish_live_progress_is_throttled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     from grax.simulation.models import CaseExecutionResult
     from grax.web.app import ActiveRunState, _publish_live_progress_snapshot
 
@@ -1568,20 +1502,28 @@ def test_publish_live_progress_is_throttled(tmp_path: Path) -> None:
             case_data={},
         )
     ]
+    published = []
+
+    def fake_plot_order_subset(results_arg, output_filename, *, diffraction_orders, title):  # type: ignore[no-untyped-def]
+        published.append([result.energy_ev for result in results_arg])
+        Path(output_filename).write_bytes(b"png")
+
+    monkeypatch.setattr("grax.simulation.plot_order_subset", fake_plot_order_subset)
+
     first = _publish_live_progress_snapshot(
         state=state,
         results=results,
-        output_path=tmp_path / "live_progress.json",
+        output_path=tmp_path / "live_progress.png",
         diffraction_order=1,
         title="Demo",
         now=10.0,
         min_interval_seconds=1.5,
     )
-    first_token = state.plot_revision
+    first_token = state.plot_token
     second = _publish_live_progress_snapshot(
         state=state,
         results=results,
-        output_path=tmp_path / "live_progress.json",
+        output_path=tmp_path / "live_progress.png",
         diffraction_order=1,
         title="Demo",
         now=10.5,
@@ -1590,9 +1532,8 @@ def test_publish_live_progress_is_throttled(tmp_path: Path) -> None:
 
     assert first is True
     assert second is False
-    assert state.plot_revision == first_token
-    payload = json.loads((tmp_path / "live_progress.json").read_text(encoding="utf-8"))
-    assert payload["data"][0]["x"] == [100.0]
+    assert state.plot_token == first_token
+    assert published == [[100.0]]
 
 
 def test_load_order_series_uses_selected_diffraction_order_convention(tmp_path: Path) -> None:
@@ -1730,4 +1671,4 @@ def test_flask_app_plots_selected_orders_across_runs(
 
     assert plot_response.status_code == 200
     assert b"Combined plot" in plot_response.data
-    assert list((tmp_path / "plots").glob("*/figure.json"))
+    assert list((tmp_path / "plots").glob("*/*.png"))

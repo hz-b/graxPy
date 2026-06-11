@@ -11,17 +11,15 @@
 
 <section class="notice">
   <p>
-    Plot spec: <code>{{ plots_dir }}/{{ plot.id }}/{{ plot.figure_path }}</code>
+    Plot image: <code>{{ plots_dir }}/{{ plot.id }}/{{ plot.plot_path }}</code>
   </p>
 </section>
 
-<div
-  class="preview plot-preview plotly-frame"
-  data-plot-detail-container
-  data-plotly-script-url="{{ plotly_script_url }}"
-  data-plot-spec-url="{{ plot.plot_spec_url }}"
-  aria-label="{{ plot.title }}"
-></div>
+<img
+  class="preview plot-preview"
+  src="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}"
+  alt="{{ plot.title }}"
+>
 
 <section>
   <h2>Selected runs</h2>

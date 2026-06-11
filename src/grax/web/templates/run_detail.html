@@ -28,7 +28,6 @@
 <section
   class="run-monitor"
   data-live-run-monitor
-  data-plotly-script-url="{{ plotly_script_url }}"
   data-run-status-url="{{ status_url }}"
   data-memory-url="{{ memory_url }}"
 >
@@ -42,13 +41,11 @@
         {{ initial_status.completed_points }} / {{ initial_status.total_points }}
       </span>
     </div>
-    <div
-      class="preview plotly-frame{% if not initial_status.plot_spec_url %} is-hidden{% endif %}"
-      data-run-plot-container
-      data-initial-plot-spec-url="{{ initial_status.plot_spec_url or '' }}"
-      data-initial-plot-revision="{{ initial_status.plot_revision or '' }}"
-      aria-label="Run progress plot"
-    ></div>
+    {% if initial_status.plot_url %}
+      <img class="preview" src="{{ initial_status.plot_url }}" alt="Run progress plot" data-run-plot-image>
+    {% else %}
+      <img class="preview is-hidden" src="" alt="Run progress plot" data-run-plot-image>
+    {% endif %}
   </section>
 
   <section class="run-monitor-stats">
