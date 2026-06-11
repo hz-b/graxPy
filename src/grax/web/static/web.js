@@ -228,9 +228,10 @@ function initPlotWorkspace(form) {
   });
 
   function bindExportDialog() {
-    const closeButton = exportDialog.querySelector("[data-close-export]");
     const exportForm = exportDialog.querySelector("[data-export-form]");
-    closeButton?.addEventListener("click", () => exportDialog.close());
+    exportDialog.querySelectorAll("[data-close-export]").forEach((button) => {
+      button.addEventListener("click", () => exportDialog.close());
+    });
     exportDialog.querySelectorAll("[data-browse-link]").forEach((link) => {
       link.addEventListener("click", async (event) => {
         event.preventDefault();
@@ -298,8 +299,7 @@ function initRunMonitor(container) {
   const memoryNode = container.querySelector("[data-run-memory]");
   const errorNode = container.querySelector("[data-run-error]");
   const progressBar = container.querySelector("[data-run-progress-bar]");
-  const pauseButton = container.querySelector("[data-run-pause-action]");
-  const resumeButton = container.querySelector("[data-run-resume-action]");
+  const abortButton = document.querySelector("[data-run-abort-action]");
   let latestPlotToken = "";
   let latestPlotUrl = plotImage.getAttribute("src") || "";
   let statusTimerId = null;
@@ -335,16 +335,17 @@ function initRunMonitor(container) {
     const percent = payload.total_points > 0 ? (payload.completed_points / payload.total_points) * 100 : 0;
     progressBar.style.width = `${percent}%`;
     errorNode.textContent = payload.error_text || "";
-    if (pauseButton) {
-      pauseButton.disabled = !payload.can_pause;
-    }
-    if (resumeButton) {
-      resumeButton.disabled = !payload.can_resume;
+    if (abortButton) {
+      if (payload.can_abort) {
+        abortButton.removeAttribute("aria-disabled");
+      } else {
+        abortButton.setAttribute("aria-disabled", "true");
+      }
     }
     if (payload.plot_url && payload.plot_token !== latestPlotToken) {
       preloadAndSwapPlot(payload.plot_url, payload.plot_token);
     }
-    if (["completed", "failed", "paused", "interrupted"].includes(payload.state)) {
+    if (["completed", "failed", "aborted"].includes(payload.state)) {
       if (statusTimerId !== null) {
         window.clearInterval(statusTimerId);
       }

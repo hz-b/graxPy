@@ -31,14 +31,13 @@
         <h2>Live plot preview</h2>
         <p data-plot-preview-status>Select saved runs and orders to see the combined plot.</p>
       </div>
-      <div class="actions">
+    <div class="actions">
         <span class="preview-pill" data-plot-preview-loading>Idle</span>
         <button class="button" type="button" data-save-plot disabled>Save plot</button>
       </div>
     </div>
     <img class="preview is-hidden" src="" alt="Combined plot preview" data-plot-preview-image>
     <div class="list compact" data-selected-run-summary></div>
-    <dialog class="export-dialog" data-export-dialog></dialog>
   </section>
 
   <section class="plot-controls-panel">
@@ -75,6 +74,8 @@
     {% endif %}
   </section>
 </form>
+
+<dialog class="export-dialog" data-export-dialog></dialog>
 
 <template data-plot-run-template>
   <fieldset class="plot-run" data-plot-run-item>

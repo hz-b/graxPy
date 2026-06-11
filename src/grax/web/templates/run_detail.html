@@ -8,26 +8,14 @@
   </div>
   <div class="actions">
     <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
-    <form method="post" action="{{ url_for('pause_run', run_id=run.id) }}">
-      <button
-        class="button"
-        type="submit"
-        data-run-pause-action
-        {% if not initial_status.can_pause %}disabled{% endif %}
-      >
-        Pause run
-      </button>
-    </form>
-    <form method="post" action="{{ url_for('resume_run', run_id=run.id) }}">
-      <button
-        class="button"
-        type="submit"
-        data-run-resume-action
-        {% if not initial_status.can_resume %}disabled{% endif %}
-      >
-        Resume run
-      </button>
-    </form>
+    <a
+      class="button"
+      href="{{ abort_url }}"
+      data-run-abort-action
+      {% if not initial_status.can_abort %}aria-disabled="true"{% endif %}
+    >
+      Abort run
+    </a>
   </div>
 </section>
 

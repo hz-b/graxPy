@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import os
@@ -57,7 +58,8 @@ class ActiveRunState:
     last_plot_publish_monotonic: float | None = None
     error_text: str = ""
     completion_timestamps: list[float] = field(default_factory=list)
-    pause_requested: bool = False
+    abort_requested: bool = False
+    delete_requested: bool = False
     stop_event: threading.Event = field(default_factory=threading.Event)
     worker_thread: threading.Thread | None = None
     simulation_pids: set[int] = field(default_factory=set)
@@ -321,11 +323,6 @@ def create_app(*, data_dir: str | Path | None = None):
         if action == "delete":
             store.delete_many(request.form.getlist("delete_run_id"))
             return redirect(url_for("manage_runs"))
-        if action == "resume":
-            run_id = str(request.form.get("run_id", "")).strip()
-            if run_id:
-                _resume_run(app=app, data_dir=active_data_dir(), run_id=run_id, catalog=catalog)
-            return redirect(url_for("manage_runs"))
 
         for run in store.list():
             run_id = str(run["id"])
@@ -346,19 +343,34 @@ def create_app(*, data_dir: str | Path | None = None):
             initial_status=_run_status_payload(app=app, data_dir=app.config["GRAx_DATA_DIR"], run_id=run_id),
             status_url=url_for("run_status", run_id=run_id),
             memory_url=url_for("system_memory"),
+            abort_url=url_for("abort_run_dialog", run_id=run_id),
         )
 
-    @app.post("/runs/<run_id>/pause")
-    def pause_run(run_id: str):
-        if not _request_run_pause(app, active_data_dir(), run_id):
-            return redirect(url_for("run_detail", run_id=run_id))
-        return redirect(url_for("run_detail", run_id=run_id))
+    @app.get("/runs/<run_id>/abort")
+    def abort_run_dialog(run_id: str):
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        status = _run_status_payload(app=app, data_dir=app.config["GRAx_DATA_DIR"], run_id=run_id)
+        if status is None:
+            abort(404)
+        return render_template("run_abort.html", run=manifest, status=status)
 
-    @app.post("/runs/<run_id>/resume")
-    def resume_run(run_id: str):
-        _resume_run(app=app, data_dir=active_data_dir(), run_id=run_id, catalog=catalog)
-        next_url = str(request.form.get("next", "")).strip()
-        if next_url == "manage":
+    @app.post("/runs/<run_id>/abort")
+    def abort_run(run_id: str):
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None:
+            abort(404)
+        disposition = str(request.form.get("disposition", "save")).strip().lower()
+        if disposition not in {"save", "delete"}:
+            abort(400)
+        _abort_run(
+            app=app,
+            data_dir=active_data_dir(),
+            run_id=run_id,
+            delete_after_abort=disposition == "delete",
+        )
+        if disposition == "delete" and _load_run_manifest(active_data_dir(), run_id) is None:
             return redirect(url_for("manage_runs"))
         return redirect(url_for("run_detail", run_id=run_id))
 
@@ -402,6 +414,7 @@ def create_app(*, data_dir: str | Path | None = None):
             preview_id=preview_id,
             current_path=str(browse_path),
             parent_path=str(browse_path.parent) if browse_path.parent != browse_path else None,
+            breadcrumbs=_path_breadcrumbs(browse_path),
             entries=_list_directory_entries(browse_path),
         )
 
@@ -466,8 +479,13 @@ def create_app(*, data_dir: str | Path | None = None):
 
 def main() -> None:
     """Run the local development server."""
+
+    parser = argparse.ArgumentParser(prog="grax-web")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=5050)
+    args = parser.parse_args()
     app = create_app()
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    app.run(host=args.host, port=args.port, debug=True)
 
 
 def _default_form_values() -> dict[str, str]:
@@ -669,68 +687,30 @@ def _queue_run(
     return manifest
 
 
-def _resume_run(
+def _abort_run(
     *,
     app: Any,
     data_dir: Path,
     run_id: str,
-    catalog: dict[str, Any],
+    delete_after_abort: bool,
 ) -> dict[str, Any] | None:
-    """Resume one paused or interrupted run from its saved manifest."""
+    """Abort one run, optionally deleting it after the worker stops."""
 
-    if _is_run_active(app, run_id):
-        return None
     manifest = _load_run_manifest(data_dir, run_id)
     if manifest is None:
         return None
-    run_input = dict(manifest.get("run_input", {}))
-    if not run_input:
+    if _is_run_active(app, run_id):
+        _request_run_abort(app, data_dir, run_id, delete_after_abort=delete_after_abort)
+        _wait_for_run_shutdown(app, run_id)
+        if delete_after_abort and _load_run_manifest(data_dir, run_id) is not None:
+            RunStore(data_dir / "runs").delete_many([run_id])
+            return None
+        return _load_run_manifest(data_dir, run_id)
+    if delete_after_abort:
+        RunStore(data_dir / "runs").delete_many([run_id])
         return None
-    checkpoint_results = _load_checkpoint_results(data_dir / "runs" / run_id)
-    if not checkpoint_results:
-        return None
-    grating_spec = manifest.get("grating_spec")
-    if not isinstance(grating_spec, dict):
-        return None
-    grating = build_grating_from_spec(grating_spec, catalog)
-    workflow = str(manifest.get("workflow", run_input.get("workflow", "")))
-    energies = np.linspace(
-        float(run_input["energy_start_ev"]),
-        float(run_input["energy_stop_ev"]),
-        int(float(run_input["energy_points"])),
-    )
-    diffraction_order = int(float(run_input.get("diffraction_order", 1)))
-    fourier_orders = int(float(run_input.get("fourier_orders", 5)))
-    worker_mode = str(manifest.get("worker_mode", "auto"))
-    requested_workers = manifest.get("requested_workers")
-    max_workers_setting: str | int = "auto" if worker_mode != "manual" else int(requested_workers or 1)
-    _update_manifest_fields(
-        data_dir,
-        run_id,
-        status="queued",
-        resumed_at=datetime.now().isoformat(timespec="seconds"),
-        resume_count=int(manifest.get("resume_count", 0) or 0) + 1,
-        error_text="",
-    )
-    _start_run_worker(
-        app=app,
-        data_dir=data_dir,
-        run_id=run_id,
-        grating_id=str(manifest.get("grating_id", "")),
-        grating_name=str(manifest.get("grating_name", manifest.get("display_name", run_id))),
-        grating=grating,
-        workflow=workflow,
-        energies=energies,
-        form_data=run_input,
-        diffraction_order=diffraction_order,
-        fourier_orders=fourier_orders,
-        max_workers_setting=max_workers_setting,
-        worker_mode=worker_mode,
-        requested_workers=None if requested_workers is None else int(requested_workers),
-        completed_points=len(checkpoint_results),
-        resume=True,
-    )
-    return manifest
+    _persist_aborted_run_state(data_dir, run_id)
+    return _load_run_manifest(data_dir, run_id)
 
 
 def _start_run_worker(
@@ -905,7 +885,7 @@ def _execute_run_job(
                 title=f"{grating_name} {workflow}",
             )
 
-        is_paused = _is_pause_requested(app, run_id) or runner.stopped_early
+        is_aborted = _is_abort_requested(app, run_id) or runner.stopped_early
         _persist_run_outputs(
             data_dir=data_dir,
             run_id=run_id,
@@ -915,7 +895,7 @@ def _execute_run_job(
             include_plot=bool(results),
         )
 
-        if is_paused:
+        if is_aborted:
             _publish_live_progress_if_due(
                 app=app,
                 run_id=run_id,
@@ -928,20 +908,22 @@ def _execute_run_job(
             _update_manifest_fields(
                 data_dir,
                 run_id,
-                status="paused",
+                status="aborted",
                 cases=_manifest_cases(results),
                 total_points=len(cases),
                 last_checkpoint_at=datetime.now().isoformat(timespec="seconds"),
-                paused_at=datetime.now().isoformat(timespec="seconds"),
+                aborted_at=datetime.now().isoformat(timespec="seconds"),
                 artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
             )
             _finish_active_run(
                 app,
                 run_id,
-                state="paused",
+                state="aborted",
                 plot_relative_path=_preferred_run_plot_path(data_dir, run_id),
                 completed_points=len(results),
             )
+            if _is_delete_requested(app, run_id):
+                RunStore(data_dir / "runs").delete_many([run_id])
             return
 
         _update_manifest_fields(
@@ -1002,26 +984,35 @@ def _run_input_from_form(form: Any) -> dict[str, Any]:
     return input_data
 
 
-def _request_run_pause(app: Any, data_dir: Path, run_id: str) -> bool:
-    """Request cooperative pause for one active run."""
+def _request_run_abort(app: Any, data_dir: Path, run_id: str, *, delete_after_abort: bool) -> bool:
+    """Request cooperative abort for one active run."""
 
     with _active_runs_lock(app):
         active = _active_runs(app).get(run_id)
         if active is None or active.state not in {"queued", "running"}:
             return False
-        active.pause_requested = True
+        active.abort_requested = True
+        active.delete_requested = delete_after_abort
         active.stop_event.set()
-        active.state = "pausing"
-    _update_manifest_fields(data_dir, run_id, status="pausing")
+        active.state = "aborting"
+    _update_manifest_fields(data_dir, run_id, status="aborting")
     return True
 
 
-def _is_pause_requested(app: Any, run_id: str) -> bool:
-    """Return whether one active run has a pending pause request."""
+def _is_abort_requested(app: Any, run_id: str) -> bool:
+    """Return whether one active run has a pending abort request."""
 
     with _active_runs_lock(app):
         active = _active_runs(app).get(run_id)
-        return active is not None and active.pause_requested
+        return active is not None and active.abort_requested
+
+
+def _is_delete_requested(app: Any, run_id: str) -> bool:
+    """Return whether one active run should be deleted after abort."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        return active is not None and active.delete_requested
 
 
 def _load_checkpoint_results(run_dir: Path) -> list[Any]:
@@ -1043,6 +1034,54 @@ def _checkpoint_counts(run_dir: Path) -> tuple[int, int]:
     total_points = int((manifest or {}).get("total_points") or 0)
     completed_points = len(_load_checkpoint_results(run_dir))
     return completed_points, total_points
+
+
+def _persist_aborted_run_state(data_dir: Path, run_id: str) -> dict[str, Any] | None:
+    """Persist the current checkpoint-backed state for one aborted run."""
+
+    manifest = _load_run_manifest(data_dir, run_id)
+    if manifest is None:
+        return None
+    run_dir = data_dir / "runs" / run_id
+    results = _load_checkpoint_results(run_dir)
+    run_input = dict(manifest.get("run_input", {}))
+    diffraction_order = int(float(run_input.get("diffraction_order", 1)))
+    title = (
+        f"{manifest.get('grating_name', manifest.get('display_name', run_id))} "
+        f"{manifest.get('workflow', 'run')}"
+    )
+    _persist_run_outputs(
+        data_dir=data_dir,
+        run_id=run_id,
+        results=results,
+        diffraction_order=diffraction_order,
+        title=title,
+        include_plot=bool(results),
+    )
+    return _update_manifest_fields(
+        data_dir,
+        run_id,
+        status="aborted",
+        cases=_manifest_cases(results),
+        total_points=int(manifest.get("total_points") or len(results)),
+        aborted_at=datetime.now().isoformat(timespec="seconds"),
+        artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
+        error_text="",
+    )
+
+
+def _wait_for_run_shutdown(app: Any, run_id: str, *, timeout_seconds: float = 10.0) -> bool:
+    """Wait briefly for one active run worker to stop."""
+
+    deadline = time.monotonic() + timeout_seconds
+    worker: threading.Thread | None = None
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        if active is not None:
+            worker = active.worker_thread
+    if worker is not None and worker.is_alive():
+        worker.join(timeout=max(deadline - time.monotonic(), 0.0))
+    return not _is_run_active(app, run_id)
 
 
 def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
@@ -1296,7 +1335,7 @@ def _finish_active_run(
 def _is_active_run_entry_live(active: ActiveRunState) -> bool:
     """Return whether one in-memory active-run entry still has a live worker."""
 
-    if active.state not in {"queued", "running", "pausing"}:
+    if active.state not in {"queued", "running", "aborting"}:
         return False
     worker = active.worker_thread
     return worker is not None and worker.is_alive()
@@ -1338,13 +1377,7 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
                 ),
                 "plot_token": active.plot_token,
                 "error_text": active.error_text,
-                "can_pause": (
-                    active.workflow != "parameter_study"
-                    and active.state in {"queued", "running", "pausing"}
-                    and not active.pause_requested
-                ),
-                "can_resume": active.state in {"paused", "interrupted"},
-                "resumable": active.workflow != "parameter_study",
+                "can_abort": active.state in {"queued", "running"} and not active.abort_requested,
                 "active_job_missing": False,
             }
 
@@ -1360,14 +1393,12 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
     )
     total_points = int(manifest.get("total_points") or checkpoint_total_points or completed_points)
     normalized_state = "completed" if manifest_state == "ok" else manifest_state
-    resumable = (
-        str(manifest.get("workflow", "")) != "parameter_study"
-        and bool(manifest.get("run_input"))
-        and checkpoint_completed_points > 0
-    )
-    active_job_missing = normalized_state in {"queued", "running"}
-    if active_job_missing and resumable:
-        normalized_state = "interrupted"
+    can_abort = manifest_state not in {"ok", "completed", "failed", "aborted"}
+    active_job_missing = normalized_state in {"queued", "running", "aborting"}
+    if active_job_missing and checkpoint_completed_points > 0:
+        normalized_state = "aborted"
+    elif normalized_state in {"paused", "interrupted"}:
+        normalized_state = "aborted"
     return {
         "run_id": run_id,
         "state": normalized_state,
@@ -1391,9 +1422,7 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
         ),
         "plot_token": "",
         "error_text": manifest.get("error_text", ""),
-        "can_pause": False,
-        "can_resume": normalized_state in {"paused", "interrupted"} or (normalized_state == "failed" and resumable),
-        "resumable": resumable,
+        "can_abort": can_abort,
         "active_job_missing": active_job_missing,
     }
 
@@ -1670,10 +1699,11 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
         run_id = str(run["id"])
         run_dir_for_id = _run_result_location(run_dir.parent, run_id)
         checkpoint_completed_points, checkpoint_total_points = _checkpoint_counts(run_dir_for_id)
-        resumable = bool(run.get("run_input")) and checkpoint_completed_points > 0
         state = str(run.get("status", "completed"))
-        if state in {"queued", "running"} and resumable:
-            state = "interrupted"
+        if state in {"queued", "running", "aborting"} and checkpoint_completed_points > 0:
+            state = "aborted"
+        elif state in {"paused", "interrupted"}:
+            state = "aborted"
         enriched_run = {
             **run,
             "status": state,
@@ -1685,7 +1715,6 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
                 "available_orders": _available_orders(run_dir_for_id),
                 "summary_label": _run_summary_label(enriched_run),
                 "summary_meta": _run_summary_meta(enriched_run),
-                "resumable": resumable,
                 "checkpoint_completed_points": checkpoint_completed_points,
                 "checkpoint_total_points": checkpoint_total_points or int(run.get("total_points") or 0),
             }
@@ -1993,14 +2022,28 @@ def _list_directory_entries(directory: Path) -> list[dict[str, Any]]:
         return []
     entries = []
     for path in sorted(directory.iterdir(), key=lambda candidate: (not candidate.is_dir(), candidate.name.lower())):
+        if path.name.startswith(".") or not path.is_dir():
+            continue
         entries.append(
             {
                 "name": path.name,
                 "path": str(path.resolve()),
-                "is_dir": path.is_dir(),
             }
         )
     return entries
+
+
+def _path_breadcrumbs(path: Path) -> list[dict[str, str]]:
+    """Return breadcrumb metadata for one absolute filesystem path."""
+
+    resolved = path.resolve()
+    anchor = Path(resolved.anchor)
+    breadcrumbs = [{"name": str(anchor) if str(anchor) else resolved.parts[0], "path": str(anchor or resolved)}]
+    current = anchor
+    for part in resolved.parts[len(anchor.parts) :]:
+        current = current / part
+        breadcrumbs.append({"name": part, "path": str(current)})
+    return breadcrumbs
 
 
 if __name__ == "__main__":

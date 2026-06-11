@@ -38,17 +38,28 @@ python -m pip install -e .
 Install the package and web extra, then start the local server:
 
 ```bash
-python -m pip install -e .
 python -m pip install -e ".[web]"
 grax-web
 ```
 
-The base package now includes `psutil`, so the live run monitor can always show
-web-process and simulation-process RSS.
-
 Then open <http://127.0.0.1:5050>. Use the home page to create and save
 gratings, then open the plot page to combine saved runs and select the
 diffraction orders to overlay.
+
+Start on a different port when needed:
+
+```bash
+grax-web --port 8000
+```
+
+You can also override the bind address:
+
+```bash
+grax-web --host 0.0.0.0 --port 8000
+```
+
+When developing the web app locally, restart `grax-web` after changing run-state
+or UI logic so the browser sees the updated server behavior.
 
 Local data is stored in `.grax-web/` by default:
 

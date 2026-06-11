@@ -146,6 +146,11 @@ p {
   cursor: pointer;
 }
 
+.button[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
 .button.primary {
   border-color: var(--accent);
   background: var(--accent);
@@ -380,6 +385,41 @@ select {
 .export-browser {
   max-height: 320px;
   overflow: auto;
+}
+
+.export-browser-frame {
+  display: grid;
+  gap: 14px;
+}
+
+.export-browser-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.export-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.export-breadcrumbs span {
+  color: var(--muted);
+}
+
+.export-entry {
+  align-items: center;
+}
+
+.export-entry > div {
+  min-width: 0;
 }
 
 table {

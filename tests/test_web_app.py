@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -531,6 +532,7 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert b"run-1" in response.data
     assert b"2026-06-10T12:00:00" in response.data
     assert b"fixed_angle" in response.data
+    assert response.data.index(b"</form>") < response.data.index(b'<dialog class="export-dialog" data-export-dialog>')
 
 
 def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Path) -> None:
@@ -610,6 +612,10 @@ def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
+    visible_dir = export_dir / "visible-folder"
+    visible_dir.mkdir()
+    hidden_dir = export_dir / ".hidden-folder"
+    hidden_dir.mkdir()
 
     client = create_app(data_dir=tmp_path).test_client()
     preview_response = client.post(
@@ -628,6 +634,12 @@ def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
     assert dialog_response.status_code == 200
     assert b"Save plot" in dialog_response.data
     assert bytes(str(export_dir), "utf-8") in dialog_response.data
+    assert b'data-export-breadcrumbs' in dialog_response.data
+    assert b'data-export-directory-list' in dialog_response.data
+    assert b'Current folder' not in dialog_response.data
+    assert b'name="directory" type="text"' not in dialog_response.data
+    assert b"visible-folder" in dialog_response.data
+    assert b".hidden-folder" not in dialog_response.data
 
     save_response = client.post(
         "/plots/export",
@@ -1096,9 +1108,8 @@ def test_run_status_marks_disk_backed_incomplete_run_as_interrupted(tmp_path: Pa
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["state"] == "interrupted"
-    assert payload["resumable"] is True
-    assert payload["can_resume"] is True
+    assert payload["state"] == "aborted"
+    assert payload["can_abort"] is True
     assert payload["checkpoint_completed_points"] == 2
     assert payload["total_points"] == 4
 
@@ -1125,7 +1136,7 @@ def test_load_order_series_falls_back_to_checkpoint_results(tmp_path: Path) -> N
     assert series["efficiencies"] == [0.11, 0.22]
 
 
-def test_run_detail_shows_resume_action_for_paused_run(tmp_path: Path) -> None:
+def test_run_detail_shows_abort_action_for_paused_run(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import create_app
@@ -1133,17 +1144,19 @@ def test_run_detail_shows_resume_action_for_paused_run(tmp_path: Path) -> None:
     _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
 
     response = create_app(data_dir=tmp_path).test_client().get("/runs/run-checkpoint")
-    resume_fragment = _button_fragment(response.data, b"data-run-resume-action")
+    abort_fragment = _button_fragment(response.data, b"data-run-abort-action")
 
     assert response.status_code == 200
-    assert b"Resume run" in response.data
-    assert b"disabled" not in resume_fragment
+    assert b"Abort run" in response.data
+    assert b"Pause run" not in response.data
+    assert b"Resume run" not in response.data
+    assert b"disabled" not in abort_fragment
     assert b"Machine RAM" in response.data
     assert b"Web RSS" not in response.data
     assert b"Simulation RSS" not in response.data
 
 
-def test_run_status_prefers_persisted_paused_state_when_active_entry_is_stale(
+def test_run_status_prefers_persisted_aborted_state_when_active_entry_is_stale(
     tmp_path: Path,
 ) -> None:
     pytest.importorskip("flask")
@@ -1168,13 +1181,13 @@ def test_run_status_prefers_persisted_paused_state_when_active_entry_is_stale(
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["state"] == "paused"
-    assert payload["can_resume"] is True
+    assert payload["state"] == "aborted"
+    assert payload["can_abort"] is True
     assert payload["checkpoint_completed_points"] == 2
     assert "memory" not in payload
 
 
-def test_run_detail_enables_resume_for_paused_run_with_stale_active_entry(tmp_path: Path) -> None:
+def test_run_detail_enables_abort_for_paused_run_with_stale_active_entry(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import ActiveRunState, create_app
@@ -1195,12 +1208,12 @@ def test_run_detail_enables_resume_for_paused_run_with_stale_active_entry(tmp_pa
     }
 
     response = app.test_client().get("/runs/run-checkpoint")
-    resume_fragment = _button_fragment(response.data, b"data-run-resume-action")
+    abort_fragment = _button_fragment(response.data, b"data-run-abort-action")
 
     assert response.status_code == 200
-    assert b"Resume run" in response.data
-    assert b"data-run-resume-action" in response.data
-    assert b"disabled" not in resume_fragment
+    assert b"Abort run" in response.data
+    assert b"data-run-abort-action" in response.data
+    assert b"disabled" not in abort_fragment
 
 
 def test_live_status_returns_without_active_run_lock_deadlock(
@@ -1251,7 +1264,23 @@ def test_live_status_returns_without_active_run_lock_deadlock(
     assert "memory" not in payload
 
 
-def test_pause_route_marks_run_pausing(
+def test_abort_confirmation_page_renders_choices(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
+
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/run-checkpoint/abort")
+
+    assert response.status_code == 200
+    assert b"Save partial run" in response.data
+    assert b"Delete run" in response.data
+
+
+def test_abort_route_marks_run_aborted(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1276,7 +1305,6 @@ def test_pause_route_marks_run_pausing(
                 status="ok",
                 case_data={key: value for key, value in case.items() if key != "grating"},
             )
-            self.stop_event.set()
             break
 
     monkeypatch.setattr("grax.simulation.BatchSimulationRunner.run_cases", fake_run_cases)
@@ -1314,64 +1342,79 @@ def test_pause_route_marks_run_pausing(
     )
     run_id = response.headers["Location"].rsplit("/", 1)[-1]
 
-    client.post(f"/runs/{run_id}/pause", follow_redirects=False)
-
-    deadline = time.monotonic() + 5.0
-    final_payload = {}
-    while time.monotonic() < deadline:
-        final_payload = client.get(f"/runs/{run_id}/status").get_json()
-        if final_payload["state"] == "paused":
-            break
-        time.sleep(0.05)
-
-    assert final_payload["state"] == "paused"
-    assert final_payload["can_resume"] is True
-
-
-def test_resume_route_restarts_paused_checkpoint_run(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    pytest.importorskip("flask")
-
-    from grax.simulation.models import CaseExecutionResult
-    from grax.web.app import create_app
-
-    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
-
-    def fake_run_cases(self, cases, metadata=None):  # type: ignore[no-untyped-def]
-        yielded_energies = []
-        for index, case in enumerate(cases):
-            yielded_energies.append(float(case["energy_ev"]))
-            yield CaseExecutionResult(
-                case_id=str(case["case_id"]),
-                index=index,
-                label=None,
-                energy_ev=float(case["energy_ev"]),
-                grazing_angle_deg=float(case["grazing_angle_deg"]),
-                orders=__import__("numpy").asarray([-1, 0, 1]),
-                selected_efficiency=0.4,
-                selected_diffraction_angle_deg=1.2,
-                efficiency_all=__import__("numpy").asarray([0.4, 0.1, 0.0]),
-                diffraction_angle_all=__import__("numpy").asarray([1.2, 0.0, -1.2]),
-                status="ok",
-                case_data={key: value for key, value in case.items() if key != "grating"},
-            )
-
-    monkeypatch.setattr("grax.simulation.BatchSimulationRunner.run_cases", fake_run_cases)
-    client = create_app(data_dir=tmp_path).test_client()
-
-    response = client.post("/runs/run-checkpoint/resume", follow_redirects=False)
+    response = client.post(
+        f"/runs/{run_id}/abort",
+        data={"disposition": "save"},
+        follow_redirects=False,
+    )
 
     assert response.status_code == 302
     deadline = time.monotonic() + 5.0
     final_payload = {}
     while time.monotonic() < deadline:
-        final_payload = client.get("/runs/run-checkpoint/status").get_json()
-        if final_payload["state"] == "completed":
+        final_payload = client.get(f"/runs/{run_id}/status").get_json()
+        if final_payload["state"] == "aborted":
             break
         time.sleep(0.05)
-    assert final_payload["state"] == "completed"
+
+    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
+    assert final_payload["state"] == "aborted"
+    assert final_payload["can_abort"] is False
+    assert manifest["status"] == "aborted"
+    assert (tmp_path / "runs" / run_id).exists()
+
+
+def test_abort_route_can_delete_run_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
+    client = create_app(data_dir=tmp_path).test_client()
+
+    response = client.post(
+        "/runs/run-checkpoint/abort",
+        data={"disposition": "delete"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert not (tmp_path / "runs" / "run-checkpoint").exists()
+
+
+def test_manage_runs_page_no_longer_shows_resume_buttons(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="aborted")
+
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/manage")
+
+    assert response.status_code == 200
+    assert b"Resume" not in response.data
+
+
+def test_main_accepts_custom_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    from grax.web import app as web_app
+
+    captured: dict[str, object] = {}
+
+    class DummyApp:
+        def run(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured.update(kwargs)
+
+    monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(sys, "argv", ["grax-web", "--host", "0.0.0.0", "--port", "8000"])
+
+    web_app.main()
+
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 8000
+    assert captured["debug"] is True
 
 
 def test_base_template_renders_global_attribution_links(tmp_path: Path) -> None:
