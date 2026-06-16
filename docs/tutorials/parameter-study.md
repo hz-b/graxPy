@@ -45,6 +45,11 @@ The maintained example uses the same blazed geometry as the monochromator
 tutorial and produces one grid plot with rows for `100`, `600`, and `2000 eV`,
 and columns for the three swept parameters.
 
+The maintained example should complete without failures on current source. When
+failures do happen, the CSV output records them explicitly with
+`efficiency` left empty, `error=True`, and `error_message` containing the final
+exception message after retries. A failed point is not a zero-efficiency point.
+
 ```{image} images/simulation/parameter_study_grid.png
 :alt: Blazed parameter study grid for Fourier orders and x/z discretization
 :align: center
@@ -64,6 +69,18 @@ z_resolution_values = grax.get_default_parameter_study_ranges()[2]
 The x- and z-resolution values are logarithmically spaced from `10 nm` down to
 `0.1 nm`, which keeps the smaller values more closely packed than a linear
 spacing.
+
+The generated CSV files now contain:
+
+- `parameter`: which sweep this file represents
+- `value`: the tested Fourier order or discretization value
+- `efficiency`: selected-order efficiency for successful points
+- `error`: whether the point still failed after retries
+- `error_message`: the failure reason for unsuccessful points
+
+The plot only draws successful points on the efficiency curve. Failed points
+are shown separately with red `x` markers so they cannot be mistaken for
+physical zero efficiency.
 
 See `examples/simulation/parameter_study/parameter_study.py` for the complete
 script.

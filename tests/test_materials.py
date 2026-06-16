@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from grax.gratings import LaminarGrating
-from grax.materials import optical_constants_dataframe, resolve_refractive_index
+from grax.materials import optical_constants_dataframe, resolve_refractive_index, validate_material_input
+from grax.simulation import run_simulation
 from tests.optical_constants import OpticalConstantsTable
 
 
@@ -155,6 +156,11 @@ def test_resolve_refractive_index_rejects_string_material_names() -> None:
         resolve_refractive_index("Pt", 150.0)
 
 
+def test_validate_material_input_rejects_string_material_names_with_field_name() -> None:
+    with pytest.raises(TypeError, match="substrate_material='Pt'.*cannot be simulated directly"):
+        validate_material_input("Pt", field_name="substrate_material")
+
+
 def test_resolve_refractive_index_rejects_numeric_constants() -> None:
     with pytest.raises(TypeError, match="Unsupported material input"):
         resolve_refractive_index(1.0 - 1.5e-4 + 1j * 1.5e-5, 150.0)
@@ -180,6 +186,25 @@ def test_grating_build_textures_accepts_xrt_like_materials() -> None:
 
     assert textures[0] == 1.0 + 0.0j
     assert textures[-1] == pytest.approx(1.0 - 200.0e-6 + 1j * 200.0e-7)
+
+
+def test_run_simulation_rejects_string_material_names_early() -> None:
+    grating = LaminarGrating(
+        substrate_material="Si",
+        layer_material="Au",
+        layer_thickness_nm=2.0,
+        x_resolution_nm=250.0,
+        z_resolution_nm=2.0,
+    )
+
+    with pytest.raises(TypeError, match="substrate_material='Si'.*xrt Material object"):
+        run_simulation(
+            grating=grating,
+            energy_ev=150.0,
+            grazing_angle_deg=4.0,
+            diffraction_order=1,
+            fourier_orders=3,
+        )
 
 
 def test_runnable_examples_use_local_optical_constants_directories() -> None:

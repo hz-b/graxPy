@@ -3,6 +3,21 @@
 The local web UI is installed with the `web` extra and started with the
 `grax-web` command.
 
+If you install from PyPI, use:
+
+```bash
+python -m pip install "graxpy[web]"
+```
+
+If you are working from a local repository checkout, use:
+
+```bash
+python -m pip install -e ".[web]"
+```
+
+The syntax `graxpy.[web]` is invalid. The extra must be attached directly to
+the package name as `graxpy[web]`.
+
 ## Linux and macOS
 
 Create and activate a virtual environment if you do not already have one:
@@ -11,8 +26,14 @@ Create and activate a virtual environment if you do not already have one:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[web]"
+python -m pip install "graxpy[web]"
 grax-web
+```
+
+From a local repository checkout, replace the install command with:
+
+```bash
+python -m pip install -e ".[web]"
 ```
 
 Open <http://127.0.0.1:5050>.
@@ -37,8 +58,14 @@ Create and activate a virtual environment in PowerShell:
 py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e ".[web]"
+python -m pip install "graxpy[web]"
 grax-web
+```
+
+From a local repository checkout, replace the install command with:
+
+```powershell
+python -m pip install -e ".[web]"
 ```
 
 Open <http://127.0.0.1:5050>.
