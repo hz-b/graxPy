@@ -15,17 +15,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
-try:
-    import plotly.graph_objects as go
-    import plotly.io as plotly_io
-    from plotly.offline.offline import get_plotlyjs
-    from plotly.subplots import make_subplots
-except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime.
-    go = None
-    plotly_io = None
-    get_plotlyjs = None
-    make_subplots = None
+
+matplotlib.use("Agg")
 
 from .persistence import GratingStore, build_grating_from_spec, load_material_catalog
 from .runs import RunStore
@@ -79,7 +73,7 @@ class ActiveRunState:
     finished_at_monotonic: float | None = None
     completed_points: int = 0
     plot_relative_path: str | None = None
-    plot_revision: str = ""
+    plot_token: str = ""
     last_plot_publish_monotonic: float | None = None
     error_text: str = ""
     completion_timestamps: list[float] = field(default_factory=list)
@@ -114,7 +108,6 @@ def create_app(*, data_dir: str | Path | None = None):
     try:
         from flask import (
             Flask,
-            Response,
             abort,
             jsonify,
             redirect,
@@ -150,16 +143,7 @@ def create_app(*, data_dir: str | Path | None = None):
     def inject_site_metadata() -> dict[str, Any]:
         """Inject shared site attribution metadata into templates."""
 
-        return {
-            "site_metadata": _site_metadata(),
-            "plotly_script_url": url_for("plotly_bundle"),
-        }
-
-    @app.get("/_plotly/plotly.min.js")
-    def plotly_bundle():
-        """Serve the local Plotly JavaScript bundle for offline Web UI usage."""
-
-        return Response(_plotly_bundle_text(), mimetype="text/javascript")
+        return {"site_metadata": _site_metadata()}
 
     @app.get("/")
     def index():
@@ -465,14 +449,14 @@ def create_app(*, data_dir: str | Path | None = None):
             return jsonify({"ok": False, "error": "Choose a filename."})
         if not filename.lower().endswith(".png"):
             filename = f"{filename}.png"
-        source_path = preview_root() / f"{preview_id}.json"
+        source_path = preview_root() / f"{preview_id}.png"
         if not source_path.exists():
             return jsonify({"ok": False, "error": "Preview image is no longer available."})
         output_path = directory / Path(filename).name
         if output_path.exists() and not overwrite:
             return jsonify({"ok": False, "error": "Target file already exists.", "exists": True})
         directory.mkdir(parents=True, exist_ok=True)
-        _export_plot_spec_to_png(source_path, output_path)
+        shutil.copyfile(source_path, output_path)
         return jsonify({"ok": True, "output_path": str(output_path)})
 
     @app.post("/plots")
@@ -505,10 +489,6 @@ def create_app(*, data_dir: str | Path | None = None):
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
         manifest["plots_dir"] = app.config["GRAx_DATA_DIR"] / "plots"
-        manifest["plot_spec_url"] = url_for(
-            "data_file",
-            filename=f"plots/{plot_id}/{manifest['figure_path']}",
-        )
         return render_template("plot_detail.html", plot=manifest)
 
     @app.get("/_data/<path:filename>")
@@ -850,26 +830,20 @@ def _execute_run_job(
                 save_csv=True,
                 show_progress=False,
             )
-            plot_path = run_dir / "parameter_study.json"
-            _write_plot_spec(
-                plot_path,
-                _parameter_study_figure_payload(
-                    result,
-                    title=f"{grating_name} {workflow}",
-                ),
-            )
+            plot_path = run_dir / "parameter_study.png"
+            parameter_sweep.plot_parameter_study(result, output_filename=plot_path)
             _update_active_run(
                 app,
                 run_id,
                 completed_points=int(energies.size),
-                plot_relative_path="parameter_study.json",
-                bump_plot_revision=True,
+                plot_relative_path="parameter_study.png",
+                bump_plot_token=True,
             )
             _update_manifest_fields(
                 data_dir,
                 run_id,
                 status="completed",
-                artifacts=[],
+                artifacts=["parameter_study.png"],
                 total_points=int(energies.size),
             )
             _finish_active_run(app, run_id, state="completed")
@@ -907,7 +881,7 @@ def _execute_run_job(
         _update_manifest_fields(data_dir, run_id, resolved_workers=int(runner.resolved_max_workers))
 
         results: list[Any] = _load_checkpoint_results(run_dir) if resume else []
-        live_plot_path = run_dir / "live_progress.json"
+        live_plot_path = run_dir / "live_progress.png"
         for result in runner.run_cases(
             cases,
             metadata={
@@ -966,7 +940,7 @@ def _execute_run_job(
                 app,
                 run_id,
                 state="aborted",
-                plot_relative_path=_preferred_run_plot_spec_path(data_dir, run_id),
+                plot_relative_path=_preferred_run_plot_path(data_dir, run_id),
                 completed_points=len(results),
             )
             if _is_delete_requested(app, run_id):
@@ -986,7 +960,7 @@ def _execute_run_job(
             app,
             run_id,
             state="completed",
-            plot_relative_path=_preferred_run_plot_spec_path(data_dir, run_id),
+            plot_relative_path=_preferred_run_plot_path(data_dir, run_id),
         )
     except Exception as error:  # pragma: no cover - exercised by integration behavior.
         results = _load_checkpoint_results(run_dir)
@@ -1151,6 +1125,10 @@ def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str
     """Return the artifact filenames currently available for one run."""
 
     artifact_names = ["summary.csv", "all_orders.csv"]
+    if include_plot and (run_dir / "selected_efficiency.png").exists():
+        artifact_names.append("selected_efficiency.png")
+    if (run_dir / "parameter_study.png").exists():
+        artifact_names.append("parameter_study.png")
     return artifact_names
 
 
@@ -1173,13 +1151,11 @@ def _persist_run_outputs(
     _write_summary_csv(results, run_dir / "summary.csv")
     simulation.write_all_orders_csv(results, run_dir / "all_orders.csv")
     if include_plot:
-        _write_plot_spec(
-            run_dir / "selected_efficiency.json",
-            _selected_efficiency_figure_payload(
-                results=results,
-                diffraction_order=diffraction_order,
-                title=title,
-            ),
+        simulation.plot_order_subset(
+            results,
+            run_dir / "selected_efficiency.png",
+            diffraction_orders=[diffraction_order],
+            title=title,
         )
 
 
@@ -1223,7 +1199,9 @@ def _publish_live_progress_snapshot(
     now: float | None = None,
     min_interval_seconds: float = 1.5,
 ) -> bool:
-    """Render and atomically publish one live progress Plotly spec when due."""
+    """Render and atomically publish one live progress image when due."""
+
+    from grax import simulation
 
     publish_time = time.monotonic() if now is None else float(now)
     if not results:
@@ -1239,17 +1217,15 @@ def _publish_live_progress_snapshot(
         return False
 
     temp_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
-    _write_plot_spec(
+    simulation.plot_order_subset(
+        ordered_results,
         temp_path,
-        _selected_efficiency_figure_payload(
-            results=ordered_results,
-            diffraction_order=diffraction_order,
-            title=title,
-        ),
+        diffraction_orders=[diffraction_order],
+        title=title,
     )
     temp_path.replace(output_path)
     state.plot_relative_path = output_path.name
-    state.plot_revision = uuid4().hex
+    state.plot_token = uuid4().hex
     state.last_plot_publish_monotonic = publish_time
     return True
 
@@ -1320,7 +1296,7 @@ def _update_active_run(
     completed_points: int | None = None,
     resolved_workers: int | None = None,
     plot_relative_path: str | None = None,
-    bump_plot_revision: bool = False,
+    bump_plot_token: bool = False,
     error_text: str | None = None,
     simulation_pids: set[int] | None = None,
 ) -> None:
@@ -1343,8 +1319,8 @@ def _update_active_run(
             active.resolved_workers = resolved_workers
         if plot_relative_path is not None:
             active.plot_relative_path = plot_relative_path
-        if bump_plot_revision:
-            active.plot_revision = uuid4().hex
+        if bump_plot_token:
+            active.plot_token = uuid4().hex
         if error_text is not None:
             active.error_text = error_text
         if simulation_pids is not None:
@@ -1371,7 +1347,7 @@ def _finish_active_run(
         active.completed_points = active.total_points if completed_points is None else completed_points
         if plot_relative_path is not None:
             active.plot_relative_path = plot_relative_path
-            active.plot_revision = uuid4().hex
+            active.plot_token = uuid4().hex
         if error_text is not None:
             active.error_text = error_text
         active.simulation_pids = set()
@@ -1396,7 +1372,6 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
     if manifest is not None:
         checkpoint_completed_points, checkpoint_total_points = _checkpoint_counts(data_dir / "runs" / run_id)
     active_payload: dict[str, Any] | None = None
-    persisted_plot_relative_path = _ensure_run_plot_spec(data_dir, run_id, manifest=manifest) if manifest is not None else None
     with _active_runs_lock(app):
         active = _active_runs(app).get(run_id)
         if active is not None and _is_active_run_entry_live(active):
@@ -1415,13 +1390,13 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
                 "worker_mode": active.worker_mode,
                 "requested_workers": active.requested_workers,
                 "resolved_workers": active.resolved_workers,
-                "plot_spec_url": _run_plot_spec_url(
+                "plot_url": _run_plot_url(
                     data_dir=data_dir,
                     run_id=run_id,
-                    relative_path=active.plot_relative_path or persisted_plot_relative_path,
-                    revision=active.plot_revision,
+                    relative_path=active.plot_relative_path,
+                    token=active.plot_token,
                 ),
-                "plot_revision": active.plot_revision,
+                "plot_token": active.plot_token,
                 "error_text": active.error_text,
                 "can_abort": active.state in {"queued", "running"} and not active.abort_requested,
                 "active_job_missing": False,
@@ -1445,7 +1420,6 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
         normalized_state = "aborted"
     elif normalized_state in {"paused", "interrupted"}:
         normalized_state = "aborted"
-    persisted_plot_revision = _file_token(data_dir / "runs" / run_id / persisted_plot_relative_path) if persisted_plot_relative_path else ""
     return {
         "run_id": run_id,
         "state": normalized_state,
@@ -1459,13 +1433,15 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
         "worker_mode": manifest.get("worker_mode", "auto"),
         "requested_workers": manifest.get("requested_workers"),
         "resolved_workers": manifest.get("resolved_workers"),
-        "plot_spec_url": _run_plot_spec_url(
+        "plot_url": _run_plot_url(
             data_dir=data_dir,
             run_id=run_id,
-            relative_path=persisted_plot_relative_path,
-            revision=persisted_plot_revision,
+            relative_path=_preferred_run_plot_path(data_dir, run_id),
+            token=_file_token(data_dir / "runs" / run_id / _preferred_run_plot_path(data_dir, run_id))
+            if _preferred_run_plot_path(data_dir, run_id)
+            else "",
         ),
-        "plot_revision": persisted_plot_revision,
+        "plot_token": "",
         "error_text": manifest.get("error_text", ""),
         "can_abort": can_abort,
         "active_job_missing": active_job_missing,
@@ -1582,11 +1558,11 @@ def _eta_seconds(active: ActiveRunState) -> float | None:
     return remaining / rate
 
 
-def _preferred_run_plot_spec_path(data_dir: Path, run_id: str) -> str | None:
-    """Return the best available Plotly figure spec for one run."""
+def _preferred_run_plot_path(data_dir: Path, run_id: str) -> str | None:
+    """Return the best available plot file for one run."""
 
     run_dir = data_dir / "runs" / run_id
-    for candidate in ("selected_efficiency.json", "parameter_study.json", "live_progress.json"):
+    for candidate in ("selected_efficiency.png", "parameter_study.png", "live_progress.png"):
         if (run_dir / candidate).exists():
             return candidate
     return None
@@ -1600,66 +1576,16 @@ def _file_token(path: Path) -> str:
     return str(path.stat().st_mtime_ns)
 
 
-def _run_plot_spec_url(*, data_dir: Path, run_id: str, relative_path: str | None, revision: str) -> str | None:
-    """Return the cache-busted Plotly spec URL for one run."""
+def _run_plot_url(*, data_dir: Path, run_id: str, relative_path: str | None, token: str) -> str | None:
+    """Return the cache-busted plot URL for one run image."""
 
     if not relative_path:
         return None
     plot_path = data_dir / "runs" / run_id / relative_path
     if not plot_path.exists():
         return None
-    suffix = f"?v={revision or _file_token(plot_path)}"
+    suffix = f"?v={token or _file_token(plot_path)}"
     return f"/_data/runs/{run_id}/{relative_path}{suffix}"
-
-
-def _ensure_run_plot_spec(
-    data_dir: Path,
-    run_id: str,
-    *,
-    manifest: dict[str, Any] | None = None,
-) -> str | None:
-    """Ensure one persisted run has a Plotly spec artifact and return its relative path."""
-
-    relative_path = _preferred_run_plot_spec_path(data_dir, run_id)
-    if relative_path:
-        return relative_path
-
-    run_dir = data_dir / "runs" / run_id
-    manifest_payload = manifest or _load_run_manifest(data_dir, run_id) or {"id": run_id}
-    available_orders = _available_orders(run_dir)
-    if available_orders:
-        preferred_order = 1 if 1 in available_orders else available_orders[0]
-        series = _load_order_series(
-            run_dir,
-            order=preferred_order,
-            label=_run_summary_label(manifest_payload),
-        )
-        if series is not None:
-            relative_path = "selected_efficiency.json"
-            _write_plot_spec(
-                run_dir / relative_path,
-                _combined_plot_figure_payload(
-                    [series],
-                    title=_run_summary_label(manifest_payload),
-                ),
-            )
-            return relative_path
-
-    results = _load_checkpoint_results(run_dir)
-    if not results:
-        return None
-    relative_path = "selected_efficiency.json"
-    run_input = manifest_payload.get("run_input", {})
-    diffraction_order = int(run_input.get("diffraction_order", 1) or 1)
-    _write_plot_spec(
-        run_dir / relative_path,
-        _selected_efficiency_figure_payload(
-            results=results,
-            diffraction_order=diffraction_order,
-            title=_run_summary_label(manifest_payload),
-        ),
-    )
-    return relative_path
 
 
 def _cleanup_finished_runs(app: Any, *, retention_seconds: float = 300.0) -> None:
@@ -1829,18 +1755,19 @@ def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
 
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
-    """Build a live combined Plotly preview from saved runs and selected orders."""
+    """Build a live combined-plot preview from saved runs and selected orders."""
     run_ids = [str(run_id) for run_id in form_data.getlist("run_ids")]
     if not run_ids:
         return {
             "ok": False,
             "error": "Select at least one saved run.",
             "preview_id": None,
-            "plot_spec": None,
+            "preview_url": None,
             "selected_runs": [],
         }
 
     order_selection: dict[str, list[int]] = {}
+    selected_runs: list[dict[str, Any]] = []
     for run_id in run_ids:
         orders = [int(value) for value in form_data.getlist(f"orders_{run_id}") if str(value).strip() != ""]
         if not orders:
@@ -1848,37 +1775,45 @@ def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
                 "ok": False,
                 "error": f"Select at least one diffraction order for run {run_id}.",
                 "preview_id": None,
-                "plot_spec": None,
+                "preview_url": None,
                 "selected_runs": [],
             }
         order_selection[run_id] = orders
-        RunStore(data_dir / "runs").load(run_id)
+        run_manifest = RunStore(data_dir / "runs").load(run_id)
+        selected_runs.append(
+            {
+                "id": run_id,
+                "name": _run_summary_label(run_manifest),
+                "orders": orders,
+            }
+        )
 
     preview_id = uuid4().hex
+    preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        run_summaries, figure_payload = _combined_plot_payload(
+        _render_combined_plot_image(
             data_dir=data_dir,
             run_ids=run_ids,
             order_selection=order_selection,
             title=str(form_data.get("title", "")).strip() or "Combined plot",
+            output_path=preview_path,
         )
     except ValueError as error:
         return {
             "ok": False,
             "error": str(error),
             "preview_id": None,
-            "plot_spec": None,
+            "preview_url": None,
             "selected_runs": [],
         }
-    preview_path = data_dir / "previews" / "live" / f"{preview_id}.json"
-    _write_plot_spec(preview_path, figure_payload)
 
     return {
         "ok": True,
         "error": "",
         "preview_id": preview_id,
-        "plot_spec": figure_payload,
-        "selected_runs": run_summaries,
+        "preview_url": f"/_data/previews/live/{preview_id}.png",
+        "selected_runs": selected_runs,
     }
 
 
@@ -1910,27 +1845,28 @@ def _build_combined_plot(
     order_selection: dict[str, list[int]],
     title: str,
 ) -> dict[str, Any]:
-    """Build and save a combined Plotly plot for several runs and selected orders."""
+    """Build and save a combined plot for several runs and selected orders."""
     plot_root = data_dir / "plots"
     plot_root.mkdir(parents=True, exist_ok=True)
     plot_id = _plot_id()
     plot_dir = plot_root / plot_id
     plot_dir.mkdir(parents=True, exist_ok=True)
 
-    run_summaries, figure_payload = _combined_plot_payload(
+    plot_path = plot_dir / "combined.png"
+    run_summaries = _render_combined_plot_image(
         data_dir=data_dir,
         run_ids=run_ids,
         order_selection=order_selection,
         title=title,
+        output_path=plot_path,
     )
-    _write_plot_spec(plot_dir / "figure.json", figure_payload)
 
     manifest = {
         "id": plot_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "title": title,
         "selected_runs": run_summaries,
-        "figure_path": "figure.json",
+        "plot_path": "combined.png",
     }
     with (plot_dir / "manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
@@ -1938,14 +1874,15 @@ def _build_combined_plot(
     return manifest
 
 
-def _combined_plot_payload(
+def _render_combined_plot_image(
     *,
     data_dir: Path,
     run_ids: list[str],
     order_selection: dict[str, list[int]],
     title: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Return run summaries and one combined Plotly figure payload."""
+    output_path: Path,
+) -> list[dict[str, Any]]:
+    """Render a combined plot image and return the selected run summary."""
     run_summaries: list[dict[str, Any]] = []
     selected_series: list[dict[str, Any]] = []
     for run_id in run_ids:
@@ -1965,7 +1902,27 @@ def _combined_plot_payload(
 
     if not selected_series:
         raise ValueError("Select at least one run and one diffraction order.")
-    return run_summaries, _combined_plot_figure_payload(selected_series, title=title)
+
+    figure, axis = plt.subplots(figsize=(10, 6))
+    markers = ["o", "s", "^", "d", "v", "x", "*"]
+    for index, series in enumerate(selected_series):
+        axis.plot(
+            np.asarray(series["energies"], dtype=float),
+            np.asarray(series["efficiencies"], dtype=float),
+            marker=markers[index % len(markers)],
+            linewidth=1.2,
+            label=f"{series['label']} · Order {series['order']}",
+        )
+    axis.set_xlabel("Photon Energy (eV)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title(title)
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+    return run_summaries
 
 
 def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, Any] | None:
@@ -2022,165 +1979,6 @@ def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, An
         "energies": [row["energy_ev"] for row in rows],
         "efficiencies": [row["efficiency"] for row in rows],
     }
-
-
-def _combined_plot_figure_payload(selected_series: list[dict[str, Any]], *, title: str) -> dict[str, Any]:
-    """Return one Plotly figure payload for combined saved-run comparison."""
-
-    _require_plotly()
-    assert go is not None
-    marker_symbols = ["circle", "square", "triangle-up", "diamond", "triangle-down", "x", "star"]
-    figure = go.Figure()
-    for index, series in enumerate(selected_series):
-        figure.add_trace(
-            go.Scatter(
-                x=np.asarray(series["energies"], dtype=float).tolist(),
-                y=np.asarray(series["efficiencies"], dtype=float).tolist(),
-                mode="lines+markers",
-                marker={"symbol": marker_symbols[index % len(marker_symbols)]},
-                line={"width": 2},
-                name=f"{series['label']} · Order {series['order']}",
-            )
-        )
-    figure.update_layout(
-        title=title,
-        xaxis_title="Photon Energy (eV)",
-        yaxis_title="Diffraction Efficiency",
-        hovermode="x unified",
-        template="plotly_white",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
-        margin={"l": 60, "r": 20, "t": 70, "b": 60},
-    )
-    figure.update_xaxes(showgrid=True, gridcolor="rgba(15, 23, 42, 0.08)")
-    figure.update_yaxes(showgrid=True, gridcolor="rgba(15, 23, 42, 0.08)")
-    return _figure_payload(figure)
-
-
-def _selected_efficiency_figure_payload(
-    *,
-    results: list[Any],
-    diffraction_order: int,
-    title: str,
-) -> dict[str, Any]:
-    """Return one Plotly figure payload for one run's selected-order progress."""
-
-    _require_plotly()
-    assert go is not None
-    ordered_results = _results_sorted_for_live_plot(results, x_key="energy_ev")
-    x_values = [float(result.energy_ev) for result in ordered_results]
-    y_values = [float(result.selected_efficiency) for result in ordered_results]
-    figure = go.Figure(
-        data=[
-            go.Scatter(
-                x=x_values,
-                y=y_values,
-                mode="lines+markers",
-                name=f"Order {diffraction_order}",
-                marker={"symbol": "circle"},
-                line={"width": 2},
-            )
-        ]
-    )
-    figure.update_layout(
-        title=title,
-        xaxis_title="Photon Energy (eV)",
-        yaxis_title="Diffraction Efficiency",
-        hovermode="x unified",
-        template="plotly_white",
-        margin={"l": 60, "r": 20, "t": 70, "b": 60},
-    )
-    figure.update_xaxes(showgrid=True, gridcolor="rgba(15, 23, 42, 0.08)")
-    figure.update_yaxes(showgrid=True, gridcolor="rgba(15, 23, 42, 0.08)")
-    return _figure_payload(figure)
-
-
-def _parameter_study_figure_payload(result: Any, *, title: str) -> dict[str, Any]:
-    """Return one Plotly figure payload for a parameter-study result."""
-
-    _require_plotly()
-    assert go is not None
-    assert make_subplots is not None
-    parameter_order = ["fourier_orders", "x_resolution_nm", "z_resolution_nm"]
-    column_titles = {
-        "fourier_orders": "Fourier Orders",
-        "x_resolution_nm": "x Resolution (nm)",
-        "z_resolution_nm": "z Resolution (nm)",
-    }
-    figure = make_subplots(
-        rows=1,
-        cols=len(parameter_order),
-        subplot_titles=[column_titles[key] for key in parameter_order],
-    )
-    for col_index, parameter in enumerate(parameter_order, start=1):
-        for energy_result in result.results:
-            sweep = energy_result.sweeps[parameter]
-            successful_mask = ~sweep.errors
-            x_values = np.asarray(sweep.values[successful_mask], dtype=float)
-            y_values = np.asarray(sweep.efficiencies[successful_mask], dtype=float)
-            figure.add_trace(
-                go.Scatter(
-                    x=x_values.tolist(),
-                    y=y_values.tolist(),
-                    mode="lines+markers",
-                    name=f"{energy_result.energy_ev:.1f} eV",
-                    legendgroup=f"{energy_result.energy_ev:.1f} eV",
-                    showlegend=(col_index == 1),
-                ),
-                row=1,
-                col=col_index,
-            )
-            if np.any(sweep.errors):
-                figure.add_trace(
-                    go.Scatter(
-                        x=np.asarray(sweep.values[sweep.errors], dtype=float).tolist(),
-                        y=np.zeros(np.count_nonzero(sweep.errors), dtype=float).tolist(),
-                        mode="markers",
-                        marker={"symbol": "x", "color": "red", "size": 10},
-                        name=f"{energy_result.energy_ev:.1f} eV failed",
-                        legendgroup=f"{energy_result.energy_ev:.1f} eV failed",
-                        showlegend=False,
-                    ),
-                    row=1,
-                    col=col_index,
-                )
-        if parameter != "fourier_orders":
-            figure.update_xaxes(type="log", autorange="reversed", row=1, col=col_index)
-        figure.update_xaxes(title_text=column_titles[parameter], row=1, col=col_index)
-        figure.update_yaxes(title_text="Efficiency", row=1, col=col_index)
-    figure.update_layout(
-        title=title,
-        hovermode="closest",
-        template="plotly_white",
-        margin={"l": 60, "r": 20, "t": 80, "b": 60},
-    )
-    return _figure_payload(figure)
-
-
-def _figure_payload(figure: Any) -> dict[str, Any]:
-    """Return a JSON-serializable Plotly figure payload."""
-
-    _require_plotly()
-    assert plotly_io is not None
-    return json.loads(plotly_io.to_json(figure, pretty=False))
-
-
-def _write_plot_spec(path: Path, payload: dict[str, Any]) -> None:
-    """Persist one Plotly figure payload as JSON."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-        handle.write("\n")
-
-
-def _export_plot_spec_to_png(source_path: Path, output_path: Path) -> None:
-    """Render one persisted Plotly figure spec to PNG."""
-
-    _require_plotly()
-    assert plotly_io is not None
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure = plotly_io.from_json(source_path.read_text(encoding="utf-8"))
-    plotly_io.write_image(figure, output_path)
 
 
 def _plot_id() -> str:

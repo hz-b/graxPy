@@ -20,7 +20,6 @@
   method="post"
   action="{{ url_for('create_plot') }}"
   data-plot-workspace
-  data-plotly-script-url="{{ plotly_script_url }}"
   data-order-field-prefix="orders_"
   data-preview-url="{{ url_for('preview_plot') }}"
   data-export-dialog-url="{{ url_for('plot_export_dialog') }}"
@@ -37,7 +36,7 @@
         <button class="button" type="button" data-save-plot disabled>Save plot</button>
       </div>
     </div>
-    <div class="preview plotly-frame is-hidden" data-plot-preview-container aria-label="Combined plot preview"></div>
+    <img class="preview is-hidden" src="" alt="Combined plot preview" data-plot-preview-image>
     <div class="list compact" data-selected-run-summary></div>
   </section>
 

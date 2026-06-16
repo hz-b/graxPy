@@ -50,46 +50,6 @@ function debounce(fn, delayMs) {
   };
 }
 
-let plotlyLoadPromise = null;
-
-function ensurePlotlyLoaded(scriptUrl) {
-  if (window.Plotly) {
-    return Promise.resolve(window.Plotly);
-  }
-  if (plotlyLoadPromise) {
-    return plotlyLoadPromise;
-  }
-  plotlyLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = scriptUrl;
-    script.async = true;
-    script.addEventListener("load", () => resolve(window.Plotly));
-    script.addEventListener("error", () => reject(new Error("Plotly failed to load.")));
-    document.head.append(script);
-  });
-  return plotlyLoadPromise;
-}
-
-async function renderPlotlyFigure(container, figureSpec, scriptUrl) {
-  if (!container || !figureSpec) {
-    return;
-  }
-  await ensurePlotlyLoaded(scriptUrl);
-  await window.Plotly.react(container, figureSpec.data || [], figureSpec.layout || {}, {
-    responsive: true,
-    displaylogo: false,
-  });
-  container.classList.remove("is-hidden");
-}
-
-async function fetchPlotSpec(specUrl) {
-  const response = await fetch(specUrl);
-  if (!response.ok) {
-    throw new Error("Plot spec request failed.");
-  }
-  return response.json();
-}
-
 function initGratingPreview(form) {
   const previewUrl = form.dataset.previewUrl;
   const image = document.querySelector("[data-grating-preview-image]");
@@ -150,11 +110,10 @@ function initPlotWorkspace(form) {
   const previewUrl = form.dataset.previewUrl;
   const exportDialogUrl = form.dataset.exportDialogUrl;
   const exportPostUrl = form.dataset.exportPostUrl;
-  const plotlyScriptUrl = form.dataset.plotlyScriptUrl;
   const picker = form.querySelector("[data-run-picker]");
   const runList = form.querySelector("[data-plot-run-list]");
   const template = document.querySelector("[data-plot-run-template]");
-  const previewContainer = document.querySelector("[data-plot-preview-container]");
+  const previewImage = document.querySelector("[data-plot-preview-image]");
   const previewStatus = document.querySelector("[data-plot-preview-status]");
   const loading = document.querySelector("[data-plot-preview-loading]");
   const saveButton = document.querySelector("[data-save-plot]");
@@ -198,14 +157,14 @@ function initPlotWorkspace(form) {
       loading.textContent = payload.ok ? "Ready" : "Idle";
       if (payload.ok) {
         latestPreviewId = payload.preview_id;
-        await renderPlotlyFigure(previewContainer, payload.plot_spec, plotlyScriptUrl);
+        previewImage.src = payload.preview_url;
+        previewImage.classList.remove("is-hidden");
         previewStatus.textContent = "Ready";
         saveButton.disabled = false;
         summarizeRuns(payload.selected_runs || []);
       } else {
         previewStatus.textContent = payload.error || "Select runs and orders.";
         saveButton.disabled = true;
-        previewContainer.classList.add("is-hidden");
       }
     } catch (error) {
       if (currentRequest !== requestId) {
@@ -214,7 +173,6 @@ function initPlotWorkspace(form) {
       loading.textContent = "Error";
       previewStatus.textContent = "Preview request failed.";
       saveButton.disabled = true;
-      previewContainer.classList.add("is-hidden");
     }
   }, 250);
 
@@ -330,8 +288,7 @@ function formatBytes(bytes) {
 function initRunMonitor(container) {
   const statusUrl = container.dataset.runStatusUrl;
   const memoryUrl = container.dataset.memoryUrl;
-  const plotlyScriptUrl = container.dataset.plotlyScriptUrl;
-  const plotContainer = container.querySelector("[data-run-plot-container]");
+  const plotImage = container.querySelector("[data-run-plot-image]");
   const stateNode = container.querySelector("[data-run-state]");
   const summaryNode = container.querySelector("[data-run-progress-summary]");
   const completedNode = container.querySelector("[data-run-completed]");
@@ -343,23 +300,29 @@ function initRunMonitor(container) {
   const errorNode = container.querySelector("[data-run-error]");
   const progressBar = container.querySelector("[data-run-progress-bar]");
   const abortButton = document.querySelector("[data-run-abort-action]");
-  let latestPlotRevision = plotContainer?.dataset.initialPlotRevision || "";
+  let latestPlotToken = "";
+  let latestPlotUrl = plotImage.getAttribute("src") || "";
   let statusTimerId = null;
   let memoryTimerId = null;
 
-  async function refreshRunPlot(specUrl, revision) {
-    if (!plotContainer || !specUrl) {
-      return;
-    }
-    if (revision && revision === latestPlotRevision) {
-      return;
-    }
-    const figureSpec = await fetchPlotSpec(specUrl);
-    await renderPlotlyFigure(plotContainer, figureSpec, plotlyScriptUrl);
-    latestPlotRevision = revision;
+  function preloadAndSwapPlot(url, token) {
+    const candidate = new window.Image();
+    candidate.addEventListener("load", () => {
+      latestPlotToken = token;
+      latestPlotUrl = url;
+      plotImage.src = url;
+      plotImage.classList.remove("is-hidden");
+    });
+    candidate.addEventListener("error", () => {
+      if (latestPlotUrl) {
+        plotImage.src = latestPlotUrl;
+        plotImage.classList.remove("is-hidden");
+      }
+    });
+    candidate.src = url;
   }
 
-  async function updateFromStatus(payload) {
+  function updateFromStatus(payload) {
     stateNode.textContent = payload.state;
     summaryNode.textContent = `${payload.completed_points} / ${payload.total_points}`;
     completedNode.textContent = String(payload.completed_points);
@@ -379,10 +342,8 @@ function initRunMonitor(container) {
         abortButton.setAttribute("aria-disabled", "true");
       }
     }
-    if (payload.plot_spec_url) {
-      await refreshRunPlot(payload.plot_spec_url, payload.plot_revision || "");
-    } else if (plotContainer) {
-      plotContainer.classList.add("is-hidden");
+    if (payload.plot_url && payload.plot_token !== latestPlotToken) {
+      preloadAndSwapPlot(payload.plot_url, payload.plot_token);
     }
     if (["completed", "failed", "aborted"].includes(payload.state)) {
       if (statusTimerId !== null) {
@@ -397,7 +358,7 @@ function initRunMonitor(container) {
   async function pollStatus() {
     const response = await fetch(statusUrl);
     const payload = await response.json();
-    await updateFromStatus(payload);
+    updateFromStatus(payload);
   }
 
   async function pollMemory() {
@@ -410,27 +371,10 @@ function initRunMonitor(container) {
     memoryNode.textContent = `${formatBytes(payload.used_bytes)} used / ${formatBytes(payload.available_bytes)} free`;
   }
 
-  const initialPlotSpecUrl = plotContainer?.dataset.initialPlotSpecUrl || "";
-  if (initialPlotSpecUrl) {
-    refreshRunPlot(initialPlotSpecUrl, latestPlotRevision).catch(() => {});
-  }
   pollStatus();
   pollMemory();
   statusTimerId = window.setInterval(pollStatus, 500);
   memoryTimerId = window.setInterval(pollMemory, 500);
-}
-
-function initStaticPlot(container) {
-  const specUrl = container.dataset.plotSpecUrl;
-  const plotlyScriptUrl = container.dataset.plotlyScriptUrl;
-  if (!specUrl || !plotlyScriptUrl) {
-    return;
-  }
-  fetchPlotSpec(specUrl)
-    .then((figureSpec) => renderPlotlyFigure(container, figureSpec, plotlyScriptUrl))
-    .catch(() => {
-      container.textContent = "Plot unavailable.";
-    });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -477,8 +421,4 @@ document.addEventListener("DOMContentLoaded", () => {
   if (runMonitor) {
     initRunMonitor(runMonitor);
   }
-
-  document.querySelectorAll("[data-plot-detail-container]").forEach((container) => {
-    initStaticPlot(container);
-  });
 });
