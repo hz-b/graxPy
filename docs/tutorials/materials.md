@@ -6,6 +6,10 @@ material. The material resolver supports two concrete patterns:
 - A pandas DataFrame-like object with columns `Energy(eV)`, `Delta`, and `Beta`.
 - An xrt Material object.
 
+Bare strings such as `"Si"` or `"Au"` are not accepted as simulation material
+inputs. They are treated only as labels in plots or metadata. For simulations,
+pass an xrt `Material` object or a DataFrame-like optical-constants table.
+
 ## Optical constants from files
 
 Most examples load CXRO-style optical constants into pandas DataFrames:

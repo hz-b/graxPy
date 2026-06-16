@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 - 2026-06-16
+
+- Clarified the batch-simulations tutorial and runner docs with an explicit `cases` dictionary example and guidance on preserved per-case metadata.
+- Improved parameter-study failure reporting so failed sweep points keep `NaN` efficiency, record `error_message` in CSV output, and are plotted separately from valid efficiency curves.
+- Updated Web UI installation guidance and runtime dependency messages to distinguish PyPI installs (`graxpy[web]`) from editable local installs (`-e ".[web]"`).
+- Made AFM trough detection more robust for laminar-like scans by adding prominence-based filtering and documenting how to tune it for shallow secondary minima.
+- Added earlier, explicit simulation-time material validation for bare string material names and aligned AFM tutorials/examples with real optical-constants objects.
+
 ## 0.4.0 - 2026-06-11
 
 - Replaced the Web UI plotting path with interactive Plotly figures for saved comparisons, live previews, and live run monitoring.

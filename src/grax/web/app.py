@@ -49,8 +49,9 @@ def _require_plotly() -> None:
 
     if go is None or plotly_io is None or get_plotlyjs is None or make_subplots is None:
         raise RuntimeError(
-            "Interactive Web UI plots require Plotly. Install them with: "
-            "python -m pip install -e '.[web]'"
+            "Interactive Web UI plots require Plotly. Install them with either "
+            "python -m pip install \"graxpy[web]\" or, from a local checkout, "
+            "python -m pip install -e \".[web]\""
         )
 
 
@@ -124,7 +125,9 @@ def create_app(*, data_dir: str | Path | None = None):
         )
     except ModuleNotFoundError as error:  # pragma: no cover - exercised by user startup.
         raise RuntimeError(
-            "The web app requires Flask. Install it with: python -m pip install -e '.[web]'"
+            "The web app requires Flask. Install it with either "
+            "python -m pip install \"graxpy[web]\" or, from a local checkout, "
+            "python -m pip install -e \".[web]\""
         ) from error
 
     app = Flask(__name__)

@@ -760,6 +760,8 @@ class BatchSimulationRunner:
                 omitted, a deterministic ID is generated from workflow/index.
                 Fixed-angle cases also provide ``grazing_angle_deg``;
                 workflow-tagged cases may resolve the angle internally.
+                Extra serializable metadata such as ``label`` or ``depth_nm``
+                is preserved in ``case_data`` on the yielded results.
             metadata: Optional run metadata saved next to checkpoints.
                 Saved to metadata.json in checkpoint directory.
 

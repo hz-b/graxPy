@@ -35,12 +35,24 @@ python -m pip install -e .
 
 ## Local web app
 
-Install the package and web extra, then start the local server:
+Install the package and web extra, then start the local server.
+
+From PyPI:
+
+```bash
+python -m pip install "graxpy[web]"
+grax-web
+```
+
+From a local repository checkout:
 
 ```bash
 python -m pip install -e ".[web]"
 grax-web
 ```
+
+The syntax `graxpy.[web]` is invalid. The extra must be attached directly to
+the package name: `graxpy[web]`.
 
 Then open <http://127.0.0.1:5050>. Use the home page to create and save
 gratings, then open the plot page to combine saved runs and select the
