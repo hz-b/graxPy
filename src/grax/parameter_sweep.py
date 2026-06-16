@@ -38,12 +38,15 @@ class ParameterSweepSeries:
         values: Tested parameter values.
         efficiencies: Selected-order efficiencies aligned with ``values``.
         errors: Boolean failure mask aligned with ``values``.
+        error_messages: Final failure message for each value. Successful points
+            contain empty strings.
     """
 
     parameter: str
     values: np.ndarray
     efficiencies: np.ndarray
     errors: np.ndarray
+    error_messages: np.ndarray
 
 
 @dataclass
@@ -327,15 +330,25 @@ def plot_parameter_study(
                 axis.invert_xaxis()
 
             if np.any(sweep.errors):
+                failed_y = np.full(np.count_nonzero(sweep.errors), np.nan, dtype=float)
+                if y_values.size > 0:
+                    y_min = float(np.nanmin(y_values))
+                    y_max = float(np.nanmax(y_values))
+                    offset = max((y_max - y_min) * 0.08, max(abs(y_max), 1.0) * 0.02, 1e-6)
+                    failed_y.fill(y_min - offset)
+                else:
+                    failed_y.fill(-0.02)
                 axis.scatter(
                     sweep.values[sweep.errors],
-                    np.zeros(np.count_nonzero(sweep.errors), dtype=float),
+                    failed_y,
                     color="red",
                     marker="x",
                     s=40,
                     linewidths=1.5,
-                    label="Failed" if row_index == 0 and col_index == 0 else None,
+                    label="Simulation failed" if row_index == 0 and col_index == 0 else None,
                 )
+                if y_values.size > 0:
+                    axis.set_ylim(bottom=min(float(np.nanmin(failed_y)) * 1.05, float(np.nanmin(y_values))))
 
             if row_index == 0:
                 axis.set_title(column_titles[parameter])
@@ -405,6 +418,7 @@ def _run_single_parameter_sweep(
 
     efficiencies = np.full(values.shape, np.nan, dtype=float)
     errors = np.zeros(values.shape, dtype=bool)
+    error_messages = np.full(values.shape, "", dtype=object)
 
     for index, value in enumerate(values):
         success = False
@@ -427,16 +441,18 @@ def _run_single_parameter_sweep(
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True
-            except Exception:
+            except Exception as error:
                 retries += 1
                 if retries > max_retries:
                     errors[index] = True
+                    error_messages[index] = str(error)
 
     return ParameterSweepSeries(
         parameter=parameter,
         values=np.asarray(values),
         efficiencies=efficiencies,
         errors=errors,
+        error_messages=error_messages,
     )
 
 
@@ -474,8 +490,8 @@ def _write_parameter_study_csv(
     """Write one sweep CSV for one energy.
 
     Exports sweep results to a CSV file with columns: parameter, value,
-    efficiency, error, energy_ev, grazing_angle_deg. Failed points (errors=True)
-    have empty efficiency fields.
+        efficiency, error, error_message, energy_ev, grazing_angle_deg.
+        Failed points (errors=True) have empty efficiency fields.
 
     Args:
         output_dir: Directory to write the CSV file.
@@ -484,10 +500,10 @@ def _write_parameter_study_csv(
         sweep: ParameterSweepSeries with values, efficiencies, and error flags.
 
     File format:
-        parameter,value,efficiency,error,energy_ev,grazing_angle_deg
-        fourier_orders,5,0.823,False,500.0,5.0
-        fourier_orders,7,0.845,False,500.0,5.0
-        fourier_orders,9,,True,500.0,5.0
+        parameter,value,efficiency,error,error_message,energy_ev,grazing_angle_deg
+        fourier_orders,5,0.823,False,,500.0,5.0
+        fourier_orders,7,0.845,False,,500.0,5.0
+        fourier_orders,9,,True,synthetic failure,500.0,5.0
 
     Note:
         Filename format: ``parameter_study_{parameter}_E{energy_ev:.1f}eV.csv``
@@ -497,15 +513,29 @@ def _write_parameter_study_csv(
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(
-            ["parameter", "value", "efficiency", "error", "energy_ev", "grazing_angle_deg"]
+            [
+                "parameter",
+                "value",
+                "efficiency",
+                "error",
+                "error_message",
+                "energy_ev",
+                "grazing_angle_deg",
+            ]
         )
-        for value, efficiency, error in zip(sweep.values, sweep.efficiencies, sweep.errors):
+        for value, efficiency, error, error_message in zip(
+            sweep.values,
+            sweep.efficiencies,
+            sweep.errors,
+            sweep.error_messages,
+        ):
             writer.writerow(
                 [
                     sweep.parameter,
                     value,
                     "" if error else efficiency,
                     bool(error),
+                    "" if not error else str(error_message),
                     energy_ev,
                     grazing_angle_deg,
                 ]

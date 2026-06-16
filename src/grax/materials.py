@@ -71,6 +71,44 @@ def resolve_refractive_index(
     )
 
 
+def validate_material_input(
+    material: Any,
+    *,
+    field_name: str | None = None,
+) -> None:
+    """Validate one material input before simulation-time resolution.
+
+    Args:
+        material: Material input to validate.
+        field_name: Optional grating or stack field name used in error messages.
+
+    Raises:
+        TypeError: If the material input is unsupported.
+    """
+
+    if isinstance(material, str):
+        field_prefix = f"{field_name}=" if field_name else "material="
+        raise TypeError(
+            f"Unsupported {field_prefix}{material!r}. Bare string material names are labels only "
+            "and cannot be simulated directly. Pass an xrt Material object or a "
+            "DataFrame-like optical-constants table with Energy(eV), Delta, and Beta columns."
+        )
+
+    if _is_dataframe_like(material):
+        _validate_dataframe_columns(material)
+        return
+
+    get_refractive_index = getattr(material, "get_refractive_index", None)
+    if callable(get_refractive_index):
+        return
+
+    field_prefix = f"{field_name} " if field_name else ""
+    raise TypeError(
+        f"Unsupported {field_prefix}material input. Expected a pandas DataFrame-like object "
+        "with Energy(eV), Delta, and Beta columns or an object with get_refractive_index()."
+    )
+
+
 def optical_constants_dataframe(material: Any, energies_ev: Any) -> Any:
     """Export a material to a DataFrame with grax optical constants.
 
@@ -108,8 +146,8 @@ def _is_dataframe_like(material: Any) -> bool:
     return hasattr(material, "columns") and hasattr(material, "__getitem__")
 
 
-def _interpolate_dataframe_index(material: Any, photon_energy_ev: float) -> complex:
-    """Interpolate delta and beta from a DataFrame-like object."""
+def _validate_dataframe_columns(material: Any) -> None:
+    """Validate that a DataFrame-like material provides required columns."""
 
     provided_columns = [str(column) for column in material.columns]
     missing_columns = [column for column in DATAFRAME_COLUMNS if column not in material.columns]
@@ -120,6 +158,12 @@ def _interpolate_dataframe_index(material: Any, photon_energy_ev: float) -> comp
             f"Missing: {', '.join(missing_columns)}. "
             f"Provided: {', '.join(provided_columns)}."
         )
+
+
+def _interpolate_dataframe_index(material: Any, photon_energy_ev: float) -> complex:
+    """Interpolate delta and beta from a DataFrame-like object."""
+
+    _validate_dataframe_columns(material)
 
     energy = np.asarray(material["Energy(eV)"], dtype=float)
     delta = np.asarray(material["Delta"], dtype=float)

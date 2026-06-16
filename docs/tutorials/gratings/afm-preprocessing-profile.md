@@ -9,6 +9,7 @@ workflow.
 ```python
 import numpy as np
 import grax
+from xrt.backends.raycing import materials as xrt_materials
 
 period_lpermm = 600
 period_nm = 1e6 / period_lpermm
@@ -27,12 +28,15 @@ afm.extract_period(average=True)
 afm.apply_periodicity_ramp()
 afm.rescale_period(period_nm=period_nm)
 
+silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
+gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
+
 grating = grax.AFMGrating.from_preprocessing(
     afm,
     # period_lpermm can be inferred from the processed profile span
     # period_lpermm=period_lpermm,
-    substrate_material="Si",
-    layer_material="Au",
+    substrate_material=silicon,
+    layer_material=gold,
     layer_thickness_nm=30.0,
 )
 ```
@@ -80,6 +84,8 @@ consistency is needed for RCWA.
 
 - Use `average=True` in `extract_period()` when scan noise creates visible
   period-to-period variation.
+- Increase `min_prominence_fraction` in `find_troughs()` when laminar or noisy
+  scans contain shallow secondary minima that should not count as full periods.
 - Use `apply_periodicity_ramp()` when the extracted period endpoints differ and
   you need strict periodic continuity for RCWA.
 - By default, preprocessing plots are saved to
@@ -87,6 +93,10 @@ consistency is needed for RCWA.
 - `AFMGrating.from_preprocessing(...)` accepts the full preprocessing object so
   the exact validated profile state is used directly. `period_lpermm` may be
   passed explicitly or inferred from the extracted profile span.
+- Simulation material inputs must be real optical-constants objects such as xrt
+  `Material` instances or DataFrame-like optical-constants tables. Bare strings
+  such as `"Si"` and `"Au"` are labels only and are not accepted for
+  simulation.
 - The `03_extract_period_averaged` plot shows all individual normalized periods
   as dashed colored traces plus the solid averaged period profile.
 - The full runnable script lives at

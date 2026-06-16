@@ -14,6 +14,7 @@ from werkzeug.datastructures import MultiDict
 
 from grax.gratings import BlazedGrating, LaminarGrating
 from grax.stacks import MultilayerStack
+from grax.web import app as web_app_module
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
@@ -138,6 +139,35 @@ def _button_fragment(html: bytes, hook: bytes) -> bytes:
 
     start = html.index(hook)
     return html[start : start + 160]
+
+
+def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    readme_text = (repo_root / "README.md").read_text(encoding="utf-8")
+    web_ui_text = (repo_root / "docs" / "installation" / "web-ui.md").read_text(encoding="utf-8")
+
+    for text in (readme_text, web_ui_text):
+        assert 'python -m pip install "graxpy[web]"' in text
+        assert 'python -m pip install -e ".[web]"' in text
+    assert "graxpy.[web]" in web_ui_text
+
+
+def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(web_app_module, "go", None)
+    monkeypatch.setattr(web_app_module, "plotly_io", None)
+    monkeypatch.setattr(web_app_module, "get_plotlyjs", None)
+    monkeypatch.setattr(web_app_module, "make_subplots", None)
+
+    with pytest.raises(RuntimeError) as error_info:
+        web_app_module._require_plotly()
+
+    message = str(error_info.value)
+    assert 'python -m pip install "graxpy[web]"' in message
+    assert 'python -m pip install -e ".[web]"' in message
+
+    app_source = (Path(__file__).resolve().parents[1] / "src" / "grax" / "web" / "app.py").read_text(encoding="utf-8")
+    assert 'graxpy[web]' in app_source
+    assert '.[web]' in app_source
 
 
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:

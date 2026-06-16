@@ -26,6 +26,24 @@ def _synthetic_afm_data(
     return np.column_stack((x_nm, z_nm))
 
 
+def _synthetic_laminar_afm_with_secondary_minima(
+    *,
+    n_periods: int = 6,
+    period_nm: float = 1600.0,
+    samples_per_period: int = 800,
+) -> np.ndarray:
+    """Return a laminar-like scan with shallow secondary minima."""
+
+    x_nm = np.linspace(0.0, n_periods * period_nm, n_periods * samples_per_period + 1)
+    z_nm = (
+        5.0
+        - 2.0 * np.cos(2.0 * np.pi * x_nm / period_nm)
+        + 0.8 * np.cos(4.0 * np.pi * x_nm / period_nm + 0.1)
+        + 0.1 * np.cos(6.0 * np.pi * x_nm / period_nm)
+    )
+    return np.column_stack((x_nm, z_nm))
+
+
 def _build_processed_afm(period_nm: float = 1600.0) -> AFMPreprocessing:
     afm = AFMPreprocessing(
         _synthetic_afm_data(period_nm=period_nm),
@@ -90,6 +108,59 @@ def test_afm_preprocessing_periodicity_ramp_matches_endpoints() -> None:
     assert afm.period_z[0] == pytest.approx(afm.period_z[-1], abs=1e-12)
 
 
+def test_afm_find_troughs_filters_shallow_secondary_laminar_minima() -> None:
+    period_nm = 1600.0
+    afm = AFMPreprocessing(
+        _synthetic_laminar_afm_with_secondary_minima(period_nm=period_nm),
+        units="nm",
+        save_plots=False,
+        show_plots=False,
+    )
+    afm.normalize_scan(zero_baseline=True)
+
+    afm.find_troughs(
+        period_nm=period_nm,
+        min_separation_fraction=0.4,
+        min_prominence_fraction=0.0,
+    )
+    assert afm.trough_indices is not None
+    unfiltered_count = len(afm.trough_indices)
+
+    afm.find_troughs(
+        period_nm=period_nm,
+        min_separation_fraction=0.4,
+        min_prominence_fraction=0.1,
+    )
+    assert afm.trough_indices is not None
+    filtered_count = len(afm.trough_indices)
+
+    assert unfiltered_count > filtered_count
+    assert filtered_count == 6
+
+    afm.extract_period(average=True)
+    afm.rescale_period(period_nm=period_nm)
+    x_nm, z_nm = afm.get_profile()
+    assert x_nm[0] == pytest.approx(0.0)
+    assert x_nm[-1] == pytest.approx(period_nm)
+    assert np.all(np.isfinite(z_nm))
+
+
+def test_afm_find_troughs_keeps_blaze_like_scan_count_with_default_prominence() -> None:
+    afm = AFMPreprocessing(_synthetic_afm_data(), units="nm", save_plots=False, show_plots=False)
+    afm.normalize_scan(zero_baseline=True)
+
+    afm.find_troughs(period_nm=1600.0, min_separation_fraction=0.4, min_prominence_fraction=0.0)
+    assert afm.trough_indices is not None
+    unfiltered_count = len(afm.trough_indices)
+
+    afm.find_troughs(period_nm=1600.0, min_separation_fraction=0.4)
+    assert afm.trough_indices is not None
+    filtered_count = len(afm.trough_indices)
+
+    assert unfiltered_count == filtered_count
+    assert filtered_count >= 2
+
+
 def test_profile_grating_depth_uses_explicit_points() -> None:
     grating = ProfileGrating(
         period_lpermm=625,
@@ -128,6 +199,33 @@ def test_afm_grating_from_preprocessing_runs_single_simulation() -> None:
         fourier_orders=3,
     )
     assert result.selected_efficiency >= 0.0
+
+
+def test_afm_preprocessing_accepts_numpy_array_input() -> None:
+    afm = AFMPreprocessing(np.asarray(_synthetic_afm_data(), dtype=float), units="nm", save_plots=False, show_plots=False)
+    assert afm.x_nm.ndim == 1
+    assert afm.z_nm.ndim == 1
+
+
+def test_afm_grating_with_string_materials_raises_explicit_error() -> None:
+    afm = _build_processed_afm(period_nm=1600.0)
+    grating = AFMGrating.from_preprocessing(
+        afm,
+        substrate_material="Si",
+        layer_material="Au",
+        layer_thickness_nm=25.0,
+        x_resolution_nm=4.0,
+        z_resolution_nm=2.0,
+    )
+
+    with pytest.raises(TypeError, match="substrate_material='Si'.*cannot be simulated directly"):
+        run_simulation(
+            grating=grating,
+            energy_ev=500.0,
+            grazing_angle_deg=4.0,
+            diffraction_order=1,
+            fourier_orders=3,
+        )
 
 
 def test_afm_grating_runs_in_batch_case_path() -> None:

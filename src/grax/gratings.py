@@ -11,7 +11,7 @@ import hashlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .materials import material_label, resolve_refractive_index
+from .materials import material_label, resolve_refractive_index, validate_material_input
 from .stacks import BaseStack, MultilayerStack, SingleLayerStack
 
 
@@ -257,6 +257,7 @@ class BaseGrating(ABC):
 
         if _memory_mode not in {"legacy_dense", "low_memory"}:
             raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
+        self._validate_simulation_materials()
 
         if _memory_mode == "low_memory":
             return self._build_textures_low_memory(
@@ -267,6 +268,21 @@ class BaseGrating(ABC):
             photon_energy_ev,
             n_inc=n_inc,
         )
+
+    def _validate_simulation_materials(self) -> None:
+        """Validate stack materials before resolving optical constants."""
+
+        coating_stack = self.resolved_stack()
+        validate_material_input(coating_stack.substrate_material, field_name="substrate_material")
+        if isinstance(coating_stack, MultilayerStack):
+            validate_material_input(coating_stack.material_a, field_name="material_a")
+            validate_material_input(coating_stack.material_b, field_name="material_b")
+        else:
+            for layer_index, (material_name, _) in enumerate(coating_stack.layer_sequence_bottom_up()):
+                field_name = "layer_material" if layer_index == 0 else f"layer_sequence[{layer_index}]"
+                validate_material_input(material_name, field_name=field_name)
+        if coating_stack.top_cap_material is not None and coating_stack.top_cap_thickness_nm > 0.0:
+            validate_material_input(coating_stack.top_cap_material, field_name="top_cap_material")
 
     def _build_textures_legacy_dense(
         self,

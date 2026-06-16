@@ -133,12 +133,21 @@ class AFMPreprocessing:
         fig.tight_layout()
         self._save_or_show(fig, "01_normalize_scan")
 
-    def find_troughs(self, *, period_nm: float, min_separation_fraction: float = 0.4) -> None:
+    def find_troughs(
+        self,
+        *,
+        period_nm: float,
+        min_separation_fraction: float = 0.4,
+        min_prominence_fraction: float = 0.1,
+    ) -> None:
         """Detect trough locations in the full scan.
 
         Args:
             period_nm: Expected physical grating period in nanometers.
             min_separation_fraction: Minimum trough spacing as a period fraction.
+            min_prominence_fraction: Minimum trough prominence as a fraction of
+                the full scan ``z`` range. Increase this for laminar or noisy
+                scans when shallow substructure creates spurious extra troughs.
         """
 
         from scipy.signal import find_peaks
@@ -148,12 +157,19 @@ class AFMPreprocessing:
             raise ValueError("period_nm must be > 0.")
         if min_separation_fraction <= 0.0:
             raise ValueError("min_separation_fraction must be > 0.")
+        if min_prominence_fraction < 0.0:
+            raise ValueError("min_prominence_fraction must be >= 0.")
 
         dx_nm = float(np.mean(np.abs(np.diff(self.x_nm))))
         if dx_nm <= 0.0:
             raise ValueError("x coordinates must span non-zero distance.")
         min_distance_samples = max(1, int((period_nm * min_separation_fraction) / dx_nm))
-        trough_indices, _ = find_peaks(-self.z_nm, distance=min_distance_samples)
+        prominence_nm = float(np.ptp(self.z_nm)) * float(min_prominence_fraction)
+        trough_indices, _ = find_peaks(
+            -self.z_nm,
+            distance=min_distance_samples,
+            prominence=prominence_nm,
+        )
         self.trough_indices = trough_indices
 
         fig, ax = plt.subplots(figsize=(12, 4))
@@ -161,7 +177,10 @@ class AFMPreprocessing:
         for index, trough_idx in enumerate(trough_indices):
             x_pos_um = self.x_nm[trough_idx] * 1e-3
             ax.axvline(x_pos_um, color="tab:red", lw=0.9, ls="--", label="troughs" if index == 0 else None)
-        ax.set_title(f"find_troughs: {len(trough_indices)} trough(s)")
+        ax.set_title(
+            f"find_troughs: {len(trough_indices)} trough(s), "
+            f"prominence >= {prominence_nm:.3f} nm"
+        )
         ax.set_xlabel("x (um)")
         ax.set_ylabel("z (nm)")
         ax.legend()
@@ -242,9 +261,7 @@ class AFMPreprocessing:
 
         common_points = max(128, max(segment.size for segment in x_norm_segments))
         common_x = np.linspace(0.0, 1.0, common_points)
-        stacked = np.vstack(
-            [np.interp(common_x, x_norm, z) for x_norm, z in zip(x_norm_segments, z_segments, strict=True)]
-        )
+        stacked = np.vstack([np.interp(common_x, x_norm, z) for x_norm, z in zip(x_norm_segments, z_segments)])
         self.period_x = common_x
         self.period_z = np.mean(stacked, axis=0)
 
