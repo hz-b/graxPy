@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -139,6 +139,7 @@ class AFMPreprocessing:
         period_nm: float,
         min_separation_fraction: float = 0.4,
         min_prominence_fraction: float = 0.1,
+        profile_type: Literal["blazed", "laminar"] = "blazed",
     ) -> None:
         """Detect trough locations in the full scan.
 
@@ -148,6 +149,10 @@ class AFMPreprocessing:
             min_prominence_fraction: Minimum trough prominence as a fraction of
                 the full scan ``z`` range. Increase this for laminar or noisy
                 scans when shallow substructure creates spurious extra troughs.
+            profile_type: Trough-detection mode. ``"blazed"`` keeps the
+                existing local-minimum workflow. ``"laminar"`` detects steep
+                vertical walls and places each trough at the midpoint between a
+                descending wall and the next ascending wall.
         """
 
         from scipy.signal import find_peaks
@@ -159,17 +164,27 @@ class AFMPreprocessing:
             raise ValueError("min_separation_fraction must be > 0.")
         if min_prominence_fraction < 0.0:
             raise ValueError("min_prominence_fraction must be >= 0.")
+        if profile_type not in {"blazed", "laminar"}:
+            raise ValueError("profile_type must be 'blazed' or 'laminar'.")
 
         dx_nm = float(np.mean(np.abs(np.diff(self.x_nm))))
         if dx_nm <= 0.0:
             raise ValueError("x coordinates must span non-zero distance.")
         min_distance_samples = max(1, int((period_nm * min_separation_fraction) / dx_nm))
         prominence_nm = float(np.ptp(self.z_nm)) * float(min_prominence_fraction)
-        trough_indices, _ = find_peaks(
-            -self.z_nm,
-            distance=min_distance_samples,
-            prominence=prominence_nm,
-        )
+
+        if profile_type == "laminar":
+            trough_indices = self._find_laminar_trough_indices(
+                period_nm=period_nm,
+                min_distance_samples=min_distance_samples,
+                prominence_nm=prominence_nm,
+            )
+        else:
+            trough_indices, _ = find_peaks(
+                -self.z_nm,
+                distance=min_distance_samples,
+                prominence=prominence_nm,
+            )
         self.trough_indices = trough_indices
 
         fig, ax = plt.subplots(figsize=(12, 4))
@@ -186,6 +201,125 @@ class AFMPreprocessing:
         ax.legend()
         fig.tight_layout()
         self._save_or_show(fig, "02_find_troughs")
+
+    def _find_laminar_trough_indices(
+        self,
+        *,
+        period_nm: float,
+        min_distance_samples: int,
+        prominence_nm: float,
+    ) -> np.ndarray:
+        """Detect troughs for laminar scans using consecutive wall centers."""
+
+        slopes = np.gradient(self.z_nm, self.x_nm)
+        abs_slopes = np.abs(slopes)
+        if not np.any(abs_slopes > 0.0):
+            return np.array([], dtype=int)
+
+        slope_threshold = float(np.quantile(abs_slopes, 0.9))
+        if slope_threshold <= 0.0:
+            return np.array([], dtype=int)
+
+        steep_indices = np.flatnonzero(abs_slopes >= slope_threshold)
+        if steep_indices.size == 0:
+            return np.array([], dtype=int)
+
+        raw_walls: list[tuple[int, int]] = []
+        region_start = int(steep_indices[0])
+        region_end = int(steep_indices[0])
+        for idx in steep_indices[1:]:
+            idx = int(idx)
+            if idx == region_end + 1:
+                region_end = idx
+                continue
+            wall = self._build_laminar_wall_candidate(
+                slopes=slopes,
+                abs_slopes=abs_slopes,
+                start=region_start,
+                stop=region_end,
+            )
+            if wall is not None:
+                raw_walls.append(wall)
+            region_start = idx
+            region_end = idx
+        wall = self._build_laminar_wall_candidate(
+            slopes=slopes,
+            abs_slopes=abs_slopes,
+            start=region_start,
+            stop=region_end,
+        )
+        if wall is not None:
+            raw_walls.append(wall)
+
+        if not raw_walls:
+            return np.array([], dtype=int)
+
+        merged_walls = self._merge_laminar_walls(raw_walls=raw_walls, merge_distance_nm=0.2 * period_nm)
+        if len(merged_walls) < 2:
+            return np.array([], dtype=int)
+
+        candidate_indices: list[int] = []
+        for (left_index, left_sign), (right_index, right_sign) in zip(merged_walls, merged_walls[1:]):
+            if left_sign >= 0 or right_sign <= 0:
+                continue
+            if right_index <= left_index + 1:
+                continue
+
+            midpoint_index = int(round(0.5 * (left_index + right_index)))
+            valley_segment = self.z_nm[left_index : right_index + 1]
+            if valley_segment.size < 2:
+                continue
+            if float(np.max(valley_segment) - np.min(valley_segment)) < prominence_nm:
+                continue
+            if candidate_indices and midpoint_index - candidate_indices[-1] < min_distance_samples:
+                continue
+            candidate_indices.append(midpoint_index)
+
+        return np.asarray(candidate_indices, dtype=int)
+
+    def _build_laminar_wall_candidate(
+        self,
+        *,
+        slopes: np.ndarray,
+        abs_slopes: np.ndarray,
+        start: int,
+        stop: int,
+    ) -> tuple[int, int] | None:
+        """Collapse one steep-slope region to a signed wall-center candidate."""
+
+        region = slice(start, stop + 1)
+        region_slopes = slopes[region]
+        mean_slope = float(np.mean(region_slopes))
+        if mean_slope == 0.0:
+            return None
+
+        region_abs_slopes = abs_slopes[region]
+        peak_offset = int(np.argmax(region_abs_slopes))
+        center_index = start + peak_offset
+        sign = 1 if mean_slope > 0.0 else -1
+        return center_index, sign
+
+    def _merge_laminar_walls(
+        self,
+        *,
+        raw_walls: list[tuple[int, int]],
+        merge_distance_nm: float,
+    ) -> list[tuple[int, int]]:
+        """Merge same-sign wall candidates that belong to one physical wall."""
+
+        if not raw_walls:
+            return []
+
+        merged: list[tuple[int, int]] = [raw_walls[0]]
+        for center_index, sign in raw_walls[1:]:
+            last_index, last_sign = merged[-1]
+            same_sign = sign == last_sign
+            close_in_x = abs(float(self.x_nm[center_index] - self.x_nm[last_index])) <= merge_distance_nm
+            if same_sign and close_in_x:
+                merged[-1] = (int(round(0.5 * (last_index + center_index))), sign)
+                continue
+            merged.append((center_index, sign))
+        return merged
 
     def extract_period(self, *, period_index: int = 0, average: bool = False) -> None:
         """Extract one normalized period from trough-to-trough segments.

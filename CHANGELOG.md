@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3 - 2026-06-17
+- Split the AFM preprocessing examples into explicit blazed and laminar workflows, each with its own saved diagnostics folder and sample data file.
+- Added a laminar AFM trough-detection mode that places troughs at the midpoint between consecutive vertical walls while keeping the existing blazed detection path unchanged.
+- Updated the AFM tutorial, example scripts, and docs image sync to match the new profile-type switch and example output locations.
+
 ## 0.4.2 - 2026-06-17
 - Package the Web UI templates and static assets so `grax-web` works from an installed wheel as well as from editable source checkouts.
   
