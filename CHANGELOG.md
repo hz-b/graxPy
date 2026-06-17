@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.1 - 2026-06-11
+- Add web-UI documentation.
+
 ## 0.4.0 - 2026-06-11
 
 - Replaced the Web UI plotting path with interactive Plotly figures for saved comparisons, live previews, and live run monitoring.
