@@ -4,9 +4,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from xrt.backends.raycing import materials as xrt_materials
 
 from grax.gratings import LaminarGrating
-from grax.materials import optical_constants_dataframe, resolve_refractive_index, validate_material_input
+from grax.materials import MaterialSpec, optical_constants_dataframe, resolve_refractive_index, validate_material_input
 from grax.simulation import run_simulation
 from tests.optical_constants import OpticalConstantsTable
 
@@ -40,7 +41,8 @@ class NegativeImaginaryFakeXrtMaterial:
 def test_resolve_refractive_index_accepts_xrt_like_material() -> None:
     material = FakeXrtMaterial()
 
-    index = resolve_refractive_index(material, 200.0)
+    with pytest.warns(FutureWarning, match="deprecated"):
+        index = resolve_refractive_index(material, 200.0)
 
     assert index == pytest.approx(1.0 - 200.0e-6 + 1j * 200.0e-7)
 
@@ -48,7 +50,8 @@ def test_resolve_refractive_index_accepts_xrt_like_material() -> None:
 def test_resolve_refractive_index_normalizes_xrt_absorption_sign() -> None:
     material = NegativeImaginaryFakeXrtMaterial()
 
-    index = resolve_refractive_index(material, 200.0)
+    with pytest.warns(FutureWarning, match="deprecated"):
+        index = resolve_refractive_index(material, 200.0)
 
     assert index == pytest.approx(1.0 - 200.0e-6 + 1j * 200.0e-7)
 
@@ -143,7 +146,8 @@ def test_optical_constants_dataframe_exports_delta_beta_columns() -> None:
     pytest.importorskip("pandas")
     material = FakeXrtMaterial()
 
-    constants = optical_constants_dataframe(material, [100.0, 200.0])
+    with pytest.warns(FutureWarning, match="deprecated"):
+        constants = optical_constants_dataframe(material, [100.0, 200.0])
 
     assert list(constants.columns) == ["Energy(eV)", "Delta", "Beta"]
     assert np.allclose(constants["Energy(eV)"], [100.0, 200.0])
@@ -151,14 +155,50 @@ def test_optical_constants_dataframe_exports_delta_beta_columns() -> None:
     assert np.allclose(constants["Beta"], [100.0e-7, 200.0e-7])
 
 
-def test_resolve_refractive_index_rejects_string_material_names() -> None:
-    with pytest.raises(TypeError, match="Unsupported material input"):
-        resolve_refractive_index("Pt", 150.0)
+def test_resolve_refractive_index_accepts_henke_string_material_names() -> None:
+    index = resolve_refractive_index("Pt", 150.0)
+
+    assert np.isfinite(index.real)
+    assert np.isfinite(index.imag)
+    assert index.imag >= 0.0
 
 
-def test_validate_material_input_rejects_string_material_names_with_field_name() -> None:
-    with pytest.raises(TypeError, match="substrate_material='Pt'.*cannot be simulated directly"):
-        validate_material_input("Pt", field_name="substrate_material")
+def test_validate_material_input_accepts_henke_string_material_names() -> None:
+    validate_material_input("Pt", field_name="substrate_material")
+
+
+def test_material_spec_density_override_resolves_and_matches_xrt() -> None:
+    material = MaterialSpec("Ag", density_g_cm3=10.49)
+    xrt_material = xrt_materials.Material("Ag", rho=10.49, table="Henke", name="Ag-xrt")
+
+    index = resolve_refractive_index(material, 150.0)
+    with pytest.warns(FutureWarning, match="deprecated"):
+        xrt_index = resolve_refractive_index(xrt_material, 150.0)
+
+    assert index == pytest.approx(xrt_index, rel=2e-2, abs=2e-6)
+
+
+def test_resolve_refractive_index_accepts_case_insensitive_henke_string_material_names() -> None:
+    upper = resolve_refractive_index("Pt", 150.0)
+    lower = resolve_refractive_index("pt", 150.0)
+
+    assert lower == pytest.approx(upper)
+
+
+def test_resolve_refractive_index_rejects_unknown_string_material_names() -> None:
+    with pytest.raises(ValueError) as error_info:
+        resolve_refractive_index("Xx", 150.0)
+
+    message = str(error_info.value)
+    assert "not available" in message
+    assert "Available materials:" in message
+    assert "Si" in message
+    assert "Pt" in message
+
+
+def test_validate_material_input_rejects_henke_materials_without_density_metadata() -> None:
+    with pytest.raises(ValueError, match="no density metadata is configured"):
+        validate_material_input("Ag", field_name="substrate_material")
 
 
 def test_resolve_refractive_index_rejects_numeric_constants() -> None:
@@ -182,22 +222,43 @@ def test_grating_build_textures_accepts_xrt_like_materials() -> None:
         z_resolution_nm=2.0,
     )
 
-    textures, _ = grating.build_textures(200.0)
+    with pytest.warns(FutureWarning, match="deprecated"):
+        textures, _ = grating.build_textures(200.0)
 
     assert textures[0] == 1.0 + 0.0j
     assert textures[-1] == pytest.approx(1.0 - 200.0e-6 + 1j * 200.0e-7)
 
 
-def test_run_simulation_rejects_string_material_names_early() -> None:
+def test_run_simulation_accepts_henke_string_material_names() -> None:
     grating = LaminarGrating(
         substrate_material="Si",
-        layer_material="Au",
+        layer_material="Pt",
         layer_thickness_nm=2.0,
         x_resolution_nm=250.0,
         z_resolution_nm=2.0,
     )
 
-    with pytest.raises(TypeError, match="substrate_material='Si'.*xrt Material object"):
+    result = run_simulation(
+        grating=grating,
+        energy_ev=150.0,
+        grazing_angle_deg=4.0,
+        diffraction_order=1,
+        fourier_orders=3,
+    )
+
+    assert result.selected_efficiency >= 0.0
+
+
+def test_run_simulation_rejects_unknown_string_material_names_early() -> None:
+    grating = LaminarGrating(
+        substrate_material="Si",
+        layer_material="Xx",
+        layer_thickness_nm=2.0,
+        x_resolution_nm=250.0,
+        z_resolution_nm=2.0,
+    )
+
+    with pytest.raises(ValueError, match="not available"):
         run_simulation(
             grating=grating,
             energy_ev=150.0,
@@ -207,32 +268,71 @@ def test_run_simulation_rejects_string_material_names_early() -> None:
         )
 
 
+def test_optical_constants_dataframe_exports_henke_string_material() -> None:
+    pytest.importorskip("pandas")
+
+    constants = optical_constants_dataframe("Pt", [100.0, 200.0])
+
+    assert list(constants.columns) == ["Energy(eV)", "Delta", "Beta"]
+    assert list(constants["Energy(eV)"]) == [100.0, 200.0]
+    assert np.all(constants["Delta"] >= 0.0)
+    assert np.all(constants["Beta"] >= 0.0)
+    assert constants.attrs["name"] == "Pt"
+
+
+@pytest.mark.parametrize(
+    ("symbol", "density_g_cm3"),
+    [
+        ("Si", 2.329),
+        ("Pt", 21.45),
+        ("Au", 19.3),
+        ("C", 2.2),
+        ("Cr", 7.19),
+    ],
+)
+def test_henke_string_resolution_matches_xrt_henke_close_enough(
+    symbol: str,
+    density_g_cm3: float,
+) -> None:
+    xrt_material = xrt_materials.Material(symbol, rho=density_g_cm3, table="Henke", name=f"{symbol}-xrt")
+
+    for energy_ev in [100.0, 200.0, 1000.0]:
+        henke_index = resolve_refractive_index(symbol, energy_ev)
+        xrt_index = resolve_refractive_index(xrt_material, energy_ev)
+        assert henke_index == pytest.approx(xrt_index, rel=2e-2, abs=2e-6)
+
+
+def test_packaged_henke_tables_are_discoverable() -> None:
+    import grax.materials as materials_module
+
+    table_path = Path(materials_module.__file__).resolve().parent / "henke_tables" / "si.nff"
+
+    assert table_path.is_file()
+
+
 def test_runnable_examples_use_local_optical_constants_directories() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     example_scripts = [
-        repo_root / "examples" / "laminar_batch_example" / "fixed_angle_sweep.py",
-        repo_root / "examples" / "blazed_batch_example" / "fixed_angle_sweep.py",
-        repo_root / "examples" / "multilayer_batch_example" / "laminar_multilayer_fixed_angle_sweep.py",
-        repo_root / "examples" / "manual_single_simulation_example" / "manual_single_simulation.py",
-        repo_root / "elisa_400" / "elisa_400lmm_top_C.py",
+        repo_root / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",
+        repo_root / "examples" / "optimizer" / "optimizer_laminar" / "0_fit_laminar_grating.py",
+        repo_root / "examples" / "optimizer" / "optimizer_blazed" / "1_run_simulation_design_parameters.py",
     ]
 
     for script_path in example_scripts:
         script = script_path.read_text(encoding="utf-8")
         assert "pd.read_csv(" in script
         assert (script_path.parent / "optical_constants").is_dir()
-        assert "base_dir=" not in script
+        assert "optical_constants_dir" in script
 
 
-def test_laminar_xrt_comparison_example_documents_henke_table() -> None:
+def test_materials_tutorial_documents_string_and_xrt_material_paths() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    script_path = repo_root / "examples" / "laminar_xrt_comparison" / "fixed_angle_sweep.py"
+    script_path = repo_root / "docs" / "tutorials" / "materials.md"
 
     script = script_path.read_text(encoding="utf-8")
 
+    assert 'substrate_material="Si"' in script
+    assert 'layer_material="Pt"' in script
     assert 'table="Henke"' in script
-    assert "Chantler" in script
-    assert "BrCo" in script
-    assert "pd.read_csv(" in script
-    assert "file-backed" in script
-    assert "xrt-Henke" in script
+    assert "get_refractive_index()" in script
+    assert "DataFrame-like object" in script

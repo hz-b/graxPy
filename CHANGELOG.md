@@ -4,6 +4,8 @@
 - Split the AFM preprocessing examples into explicit blazed and laminar workflows, each with its own saved diagnostics folder and sample data file.
 - Added a laminar AFM trough-detection mode that places troughs at the midpoint between consecutive vertical walls while keeping the existing blazed detection path unchanged.
 - Updated the AFM tutorial, example scripts, and docs image sync to match the new profile-type switch and example output locations.
+- Added density-aware material resolution with an explicit `MaterialSpec` density override, shared Henke-backed material selection in the Web UI, and deprecation warnings for xrt-backed material inputs.
+- Reorganized the Web UI grating form into separate substrate, layer-stack, and top-cap sections so the material workflow matches the physical stack layout more clearly.
 
 ## 0.4.2 - 2026-06-17
 - Package the Web UI templates and static assets so `grax-web` works from an installed wheel as well as from editable source checkouts.

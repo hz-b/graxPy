@@ -1031,7 +1031,7 @@ def test_batch_runner_rejects_unsupported_material_input_in_fail_fast_mode() -> 
         substrate_material=SI,
         layer_material=PT,
         layer_thickness_nm=28.77,
-        top_cap_material="DefinitelyMissingMaterial",
+        top_cap_material="Xx",
         top_cap_thickness_nm=0.7,
     )
     runner = BatchSimulationRunner(
@@ -1039,7 +1039,7 @@ def test_batch_runner_rejects_unsupported_material_input_in_fail_fast_mode() -> 
         on_error="fail_fast",
     )
 
-    with pytest.raises(TypeError, match="Unsupported material input"):
+    with pytest.raises(ValueError, match="not available"):
         list(
             runner.run_cases(
                 [{"case_id": "case-1", "grating": grating, "energy_ev": 100.0, "grazing_angle_deg": 4.0}]
