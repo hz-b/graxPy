@@ -39,8 +39,9 @@ Interpretation:
 - `speedup_baseline_over_numba > 1` means the Numba backend is faster.
 - `eff_delta_order_m1` should remain near zero, indicating backend-consistent
   `-1` order efficiency.
-- If Numba is unavailable, `numba-optional` falls back to baseline and this is
-  noted in the report.
+- The benchmark exists to compare the deprecated NumPy path against the default
+  numba backend; both should remain numerically aligned while NumPy is still
+  supported.
 
 ```{image} ../images/numba_speed/multi_energy_multilayer_numba_vs_legacy_plots.png
 :alt: Baseline vs Numba multilayer multi-energy runtime, speedup, memory, and -1 order efficiency comparison

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Mapping, Optional
+import warnings
 
 import numpy as np
 
@@ -14,7 +14,20 @@ from .evaluation import build_evaluation_cases
 
 LossFunction = Callable[[np.ndarray, np.ndarray], float]
 BuildGratingFunction = Callable[[Mapping[str, float]], object]
-ResolveSolverParametersFunction = Callable[[Mapping[str, float]], dict[str, float | None]]
+ResolveSolverParametersFunction = Callable[[Mapping[str, float]], Dict[str, Optional[float]]]
+
+
+def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
+    """Warn when callers explicitly request the deprecated NumPy backend."""
+
+    if str(backend).lower() != "numpy":
+        return
+    warnings.warn(
+        "backend='numpy' is deprecated and will be removed in a future version. "
+        "Use backend='numba' or rely on the default numba backend instead.",
+        FutureWarning,
+        stacklevel=stacklevel,
+    )
 
 
 def mean_squared_error(
@@ -144,6 +157,7 @@ def evaluate_trial(
         Scalar loss value for the candidate.
     """
 
+    _warn_if_numpy_backend_requested(backend, stacklevel=2)
     selected_loss_function = loss_function or mean_squared_error
     evaluation_measurement = build_evaluation_measurement(config, measurement)
     try:

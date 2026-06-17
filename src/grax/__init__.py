@@ -6,7 +6,12 @@ import logging
 
 from .afm_grating import AFMGrating
 from .afm_preprocessing import AFMPreprocessing
-from .materials import MaterialSpec, available_material_symbols, material_density_g_cm3
+from .materials import (
+    MaterialSpec,
+    available_material_symbols,
+    material_density_catalog,
+    material_density_g_cm3,
+)
 from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
@@ -60,6 +65,7 @@ __all__ = [
     "CustomStack",
     "MaterialSpec",
     "available_material_symbols",
+    "material_density_catalog",
     "material_density_g_cm3",
     "LaminarGrating",
     "ProfileGrating",

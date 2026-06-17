@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from xrt.backends.raycing import materials as xrt_materials
 
 import grax
 
@@ -29,15 +28,12 @@ afm.extract_period(average=True)
 afm.apply_periodicity_ramp()
 afm.rescale_period(period_nm=period_nm)
 
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
-
 grating = grax.AFMGrating.from_preprocessing(
     afm,
     # period_lpermm is inferred from the processed AFM profile span if omitted.
     # period_lpermm=period_lpermm,
-    substrate_material=silicon,
-    layer_material=gold,
+    substrate_material="Si",
+    layer_material="Au",
     layer_thickness_nm=30.0,
     x_resolution_nm=2.0,
     z_resolution_nm=1.0,

@@ -4,19 +4,14 @@ from pathlib import Path
 import argparse
 
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.329, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
-carbon = xrt_materials.Material("C", rho=2.2, table="Henke", name="C")
 
 blazed_grating = grax.BlazedGrating(
     period_lpermm=400,
     coating_stack=None,
-    substrate_material=silicon,
-    layer_material=platinum,
+    substrate_material="Si",
+    layer_material="Pt",
     layer_thickness_nm=28.77,
-    top_cap_material=carbon,
+    top_cap_material="C",
     top_cap_thickness_nm=2.0,
     z_resolution_nm=0.1,
     x_resolution_nm=1.0,

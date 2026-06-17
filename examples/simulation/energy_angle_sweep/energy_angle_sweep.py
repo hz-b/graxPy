@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import grax
-from xrt.backends.raycing import materials as xrt_materials
 
 example_root = Path(__file__).resolve().parent
 input_path = example_root / "energy_angle_pairs.dat"
@@ -31,18 +30,14 @@ energy_angle_pairs = list(
     )
 )
 
-silicon = xrt_materials.Material("Si", rho=2.329, table="Chantler total", name="Si")
-chromium = xrt_materials.Material("Cr", rho=7.19, table="Chantler total", name="Cr")
-carbon = xrt_materials.Material("C", rho=2.2, table="Chantler total", name="C")
-
 multilayer_stack = grax.MultilayerStack(
-    substrate_material=silicon,
-    material_a=chromium,
-    material_b=carbon,
+    substrate_material="Si",
+    material_a="Cr",
+    material_b="C",
     d_period_nm=4.8,
     gamma=0.4,
     n_bilayers=60,
-    top_material=carbon,
+    top_material="C",
 )
 
 grating = grax.BlazedGrating(

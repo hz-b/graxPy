@@ -16,7 +16,7 @@ from ..gratings import BaseGrating
 from ..materials import resolve_refractive_index
 from ..peak_fitting import PeakSelectionMode, select_peak_theta_from_scan
 from ..stacks import MultilayerStack
-from .core import _clone_grating_with_overrides, run_simulation
+from .core import _clone_grating_with_overrides, _warn_if_numpy_backend_requested, run_simulation
 from .models import SingleSimulationResult, ThetaSearchDiagnostics
 
 logger = logging.getLogger(__name__)
@@ -382,8 +382,10 @@ def run_multilayer_theta_search(
         precise_peak_selection_mode: Mode used to select the final theta from the
             precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
             local Gaussian neighborhood, and ``"voigt"`` fits a local Voigt profile.
-        backend: Fourier coefficient backend selector. Options: ``"numpy"`` (pure Python,
-            default), ``"numba"`` (JIT-compiled, requires numba package).
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default backend. ``"numpy"`` remains available temporarily for
+            compatibility but is deprecated and will be removed in a future
+            version.
         diagnostic_callback: Optional callback invoked with scan diagnostics after
             the peak search. Receives ThetaSearchDiagnostics and energy_ev.
 
@@ -404,6 +406,7 @@ def run_multilayer_theta_search(
     """
     if precise_peak_selection_mode not in {"max", "gauss", "voigt"}:
         raise ValueError("precise_peak_selection_mode must be 'max', 'gauss', or 'voigt'.")
+    _warn_if_numpy_backend_requested(backend, stacklevel=2)
 
     estimated_grazing_angle_deg = (
         float(initial_grazing_angle_deg)

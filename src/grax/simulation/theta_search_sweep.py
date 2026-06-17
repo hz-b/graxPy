@@ -31,7 +31,7 @@ from .batch import (
     _worker_initializer,
 )
 from .cases import multilayer_theta_search_cases
-from .core import _refresh_interactive_figure, plot_order_subset, write_all_orders_csv
+from .core import _refresh_interactive_figure, _warn_if_numpy_backend_requested, plot_order_subset, write_all_orders_csv
 from .models import (
     BatchSimulationResult,
     CaseExecutionResult,
@@ -275,8 +275,10 @@ def run_multilayer_theta_search_sweep(
             positive energy step in the requested sweep.
         save_profile_plot: Whether to save the grating profile plot.
         save_stack_plot: Whether to save the resolved stack schematic when available.
-        backend: Fourier coefficient backend selector. Options: ``numpy`` (pure Python,
-            default), ``numba`` (JIT-compiled, requires numba package).
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default backend. ``"numpy"`` remains available temporarily for
+            compatibility but is deprecated and will be removed in a future
+            version.
 
     Returns:
         Typed result object containing collected results and the created output paths.
@@ -287,6 +289,7 @@ def run_multilayer_theta_search_sweep(
         raise ValueError("theta_tracking_mode must be 'auto', 'previous', or 'bragg'.")
     if precise_peak_selection_mode not in {"max", "gauss", "voigt"}:
         raise ValueError("precise_peak_selection_mode must be 'max', 'gauss', or 'voigt'.")
+    _warn_if_numpy_backend_requested(backend, stacklevel=2)
     if max_tracking_energy_step_ev is not None and (
         not np.isfinite(max_tracking_energy_step_ev) or max_tracking_energy_step_ev < 0.0
     ):

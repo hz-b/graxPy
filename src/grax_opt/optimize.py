@@ -7,6 +7,7 @@ import csv
 import inspect
 import os
 import platform
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -140,11 +141,26 @@ def _resolve_optimizer_backend(requested_backend: str) -> str:
     normalized_backend = str(requested_backend).lower()
     numba_available = _is_numba_available()
     if normalized_backend == "auto":
-        return "numba" if numba_available else "numpy"
+        if numba_available:
+            return "numba"
+        raise RuntimeError(
+            "Optimizer backend 'auto' resolved to numba, but numba is not installed. "
+            "Reinstall the standard graxpy package so the required numba dependency is available."
+        )
     if normalized_backend == "numba":
         if numba_available:
             return "numba"
-        print("Requested optimizer backend 'numba' not available; falling back to 'numpy'.")
+        raise RuntimeError(
+            "Requested optimizer backend 'numba' but numba is not installed. "
+            "Reinstall the standard graxpy package so the required numba dependency is available."
+        )
+    if normalized_backend == "numpy":
+        warnings.warn(
+            "backend='numpy' is deprecated and will be removed in a future version. "
+            "Use backend='numba' or rely on the default numba backend instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
         return "numpy"
     return "numpy"
 

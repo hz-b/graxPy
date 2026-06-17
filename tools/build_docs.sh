@@ -73,6 +73,28 @@ PYTHON_BIN="${DOCS_VENV_DIR}/bin/python"
 HTML_BUILD_DIR="${DOCS_DIR}/_build/html"
 LATEX_BUILD_DIR="${DOCS_DIR}/_build/latex"
 
+echo "============================================================"
+echo "Generating docs data from source"
+echo "============================================================"
+"${PYTHON_BIN}" - <<'PY'
+from pathlib import Path
+
+from grax.materials import material_density_catalog
+
+project_root = Path.cwd()
+output_path = project_root / "docs" / "tutorials" / "generated" / "material_density_table.md"
+output_path.parent.mkdir(parents=True, exist_ok=True)
+
+lines = [
+    "| Formula | Density_g_cm3 |",
+    "| --- | ---: |",
+]
+for symbol, density_g_cm3 in material_density_catalog():
+    lines.append(f"| {symbol} | {density_g_cm3} |")
+
+output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+
 if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
     echo "============================================================"
     echo "Syncing tutorial images from examples/"
@@ -100,15 +122,23 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${GRATING_IMAGE_DIR}/blazed_multilayer_custom_stack_schematic.png"
     cp "${PROJECT_ROOT}/examples/grating/results/sinusoidal_custom_profile.png" \
       "${HOWTO_IMAGE_DIR}/sinusoidal_custom_profile.png"
-    mkdir -p "${GRATING_IMAGE_DIR}/afm_preprocessing"
+    mkdir -p "${GRATING_IMAGE_DIR}/afm_preprocessing_blazed" "${GRATING_IMAGE_DIR}/afm_preprocessing_laminar"
     cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/01_normalize_scan.png" \
-      "${GRATING_IMAGE_DIR}/afm_preprocessing/01_normalize_scan.png"
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_blazed/01_normalize_scan.png"
     cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/02_find_troughs.png" \
-      "${GRATING_IMAGE_DIR}/afm_preprocessing/02_find_troughs.png"
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_blazed/02_find_troughs.png"
     cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/03_extract_period_averaged.png" \
-      "${GRATING_IMAGE_DIR}/afm_preprocessing/03_extract_period_averaged.png"
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_blazed/03_extract_period_averaged.png"
     cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/04_periodicity_ramp.png" \
-      "${GRATING_IMAGE_DIR}/afm_preprocessing/04_periodicity_ramp.png"
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_blazed/04_periodicity_ramp.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_laminar/01_normalize_scan.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_laminar/01_normalize_scan.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_laminar/02_find_troughs.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_laminar/02_find_troughs.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_laminar/03_extract_period_averaged.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_laminar/03_extract_period_averaged.png"
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_laminar/04_periodicity_ramp.png" \
+      "${GRATING_IMAGE_DIR}/afm_preprocessing_laminar/04_periodicity_ramp.png"
 
     cp "${PROJECT_ROOT}/examples/simulation/batch_user_cases/results/batch_user_cases_orders_1_3_vs_depth.png" \
       "${SIM_IMAGE_DIR}/batch_user_cases_orders_1_3_vs_depth.png"

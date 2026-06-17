@@ -9,6 +9,7 @@ import os
 import shutil
 import threading
 import time
+import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ import numpy as np
 
 matplotlib.use("Agg")
 
-from grax.materials import available_material_symbols, material_density_g_cm3
+from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
 
 from .persistence import GratingStore, build_grating_from_spec
 from .runs import RunStore
@@ -187,6 +188,7 @@ def create_app(*, data_dir: str | Path | None = None):
         return render_template(
             "grating_form.html",
             materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
             defaults=defaults,
             density_placeholders=_material_density_placeholders(defaults),
             action_url=url_for("create_grating"),
@@ -303,6 +305,7 @@ def create_app(*, data_dir: str | Path | None = None):
         return render_template(
             "grating_form.html",
             materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
             defaults=defaults,
             density_placeholders=_material_density_placeholders(defaults),
             action_url=url_for("update_grating", grating_id=grating_id),
@@ -526,7 +529,29 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=5050)
     args = parser.parse_args()
     app = create_app()
+    _maybe_open_browser(args.host, args.port)
     app.run(host=args.host, port=args.port, debug=True)
+
+
+def _maybe_open_browser(host: str, port: int) -> None:
+    """Open the local web UI in the default browser when appropriate.
+
+    Args:
+        host: Flask bind host.
+        port: Flask bind port.
+    """
+
+    reloader_state = os.environ.get("WERKZEUG_RUN_MAIN")
+    if reloader_state not in (None, "true"):
+        return
+    if reloader_state is None and os.environ.get("FLASK_RUN_FROM_CLI") is None:
+        return
+
+    browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    url = f"http://{browser_host}:{int(port)}"
+    timer = threading.Timer(1.0, lambda: webbrowser.open(url))
+    timer.daemon = True
+    timer.start()
 
 
 def _default_form_values() -> dict[str, str]:
@@ -543,24 +568,31 @@ def _default_form_values() -> dict[str, str]:
         "blaze_angle_deg": "0.75",
         "anti_blaze_angle_deg": "",
         "substrate_material": "Si",
-        "substrate_material_density_g_cm3": "",
+        "substrate_material_density_g_cm3": _default_density_text("Si"),
         "stack_type": "single_layer",
         "layer_material": "Pt",
-        "layer_material_density_g_cm3": "",
+        "layer_material_density_g_cm3": _default_density_text("Pt"),
         "layer_thickness_nm": "28.77",
         "material_a": "Cr",
-        "material_a_density_g_cm3": "",
+        "material_a_density_g_cm3": _default_density_text("Cr"),
         "material_b": "C",
-        "material_b_density_g_cm3": "",
+        "material_b_density_g_cm3": _default_density_text("C"),
         "d_period_nm": "6.5",
         "gamma": "0.45",
         "n_bilayers": "40",
         "top_material": "C",
-        "top_material_density_g_cm3": "",
+        "top_material_density_g_cm3": _default_density_text("C"),
         "top_cap_material": "",
         "top_cap_material_density_g_cm3": "",
         "top_cap_thickness_nm": "0.0",
     }
+
+
+def _default_density_text(material_name: str) -> str:
+    """Return the default density string for one built-in material."""
+
+    density = material_density_g_cm3(material_name)
+    return "" if density is None else str(density)
 
 
 def _material_density_placeholders(defaults: dict[str, str]) -> dict[str, str]:
@@ -596,9 +628,22 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
             values[key] = "" if value.get("name") is None else str(value.get("name"))
             density_key = f"{key}_density_g_cm3"
             density_value = value.get("density_g_cm3")
-            values[density_key] = "" if density_value in (None, "") else str(density_value)
+            if density_value in (None, ""):
+                values[density_key] = _default_density_text(str(value.get("name", "")))
+            else:
+                values[density_key] = str(density_value)
             continue
         values[key] = "" if value is None else str(value)
+        if key in {
+            "substrate_material",
+            "layer_material",
+            "material_a",
+            "material_b",
+            "top_material",
+            "top_cap_material",
+        }:
+            density_key = f"{key}_density_g_cm3"
+            values[density_key] = _default_density_text(values[key])
     return values
 
 

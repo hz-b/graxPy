@@ -380,7 +380,18 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
     assert b'name="top_material_density_g_cm3"' in response.data
+    assert b'name="substrate_material_density_g_cm3" type="number" step="any" value="2.3296"' in response.data
+    assert b'name="layer_material_density_g_cm3" type="number" step="any" value="21.46"' in response.data
+    assert b'data-material-select="substrate_material"' in response.data
+    assert b'data-material-density="substrate_material"' in response.data
+    assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
+
+    web_js = (Path(__file__).resolve().parents[1] / "src" / "grax" / "web" / "static" / "web.js").read_text(
+        encoding="utf-8"
+    )
+    assert "syncMaterialDensity" in web_js
+    assert "[data-material-select]" in web_js
 
 
 def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
@@ -1538,6 +1549,62 @@ def test_main_accepts_custom_host_and_port(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["host"] == "0.0.0.0"
     assert captured["port"] == 8000
     assert captured["debug"] is True
+
+
+def test_main_opens_default_browser_for_local_web_ui(monkeypatch: pytest.MonkeyPatch) -> None:
+    from grax.web import app as web_app
+
+    opened: list[str] = []
+
+    class DummyApp:
+        def run(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+
+    class ImmediateTimer:
+        def __init__(self, _delay, callback):  # type: ignore[no-untyped-def]
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):  # type: ignore[no-untyped-def]
+            self.callback()
+
+    monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(web_app.threading, "Timer", ImmediateTimer)
+    monkeypatch.setattr(sys, "argv", ["grax-web"])
+    monkeypatch.setenv("WERKZEUG_RUN_MAIN", "true")
+
+    web_app.main()
+
+    assert opened == ["http://127.0.0.1:5050"]
+
+
+def test_main_opens_localhost_when_bound_to_all_interfaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    from grax.web import app as web_app
+
+    opened: list[str] = []
+
+    class DummyApp:
+        def run(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+
+    class ImmediateTimer:
+        def __init__(self, _delay, callback):  # type: ignore[no-untyped-def]
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):  # type: ignore[no-untyped-def]
+            self.callback()
+
+    monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(web_app.threading, "Timer", ImmediateTimer)
+    monkeypatch.setattr(sys, "argv", ["grax-web", "--host", "0.0.0.0", "--port", "8000"])
+    monkeypatch.setenv("WERKZEUG_RUN_MAIN", "true")
+
+    web_app.main()
+
+    assert opened == ["http://127.0.0.1:8000"]
 
 
 def test_base_template_renders_global_attribution_links(tmp_path: Path) -> None:

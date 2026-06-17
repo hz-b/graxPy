@@ -1,12 +1,13 @@
-# Activate Numba Backend In Scripts
+# Backend Selection And NumPy Deprecation
 
-Install the optional dependency first:
+Install `graxpy` normally. The numba backend is part of the standard package:
 
 ```bash
-python -m pip install "graxpy[numba]"
+python -m pip install graxpy
 ```
 
-Enable the optional backend in solver calls:
+Most user-facing solver calls already default to `backend="numba"`. You can
+still pass it explicitly when you want the choice to be visible in a script:
 
 ```python
 import grax
@@ -22,11 +23,12 @@ result = grax.run_simulation(
 ```
 
 ```{note}
-The numpy backend is now the default for `run_simulation`, providing reliable
-performance without dependencies. For maximum speed, use `backend="numba"`
-which provides 3.7x speedup with identical numerical results.
+The numba backend is now the default for `run_simulation`, batch workflows,
+and the multilayer theta-search helpers.
 ```
 
 ```{important}
-If Numba is unavailable, requesting `backend="numba"` raises a clear error.
+The legacy `backend="numpy"` path still exists for parity checks and
+transition-time comparisons, but it is deprecated and emits a warning when
+requested explicitly.
 ```
