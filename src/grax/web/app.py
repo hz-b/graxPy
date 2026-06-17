@@ -159,6 +159,13 @@ def create_app(*, data_dir: str | Path | None = None):
             message_kind=str(request.args.get("kind", "info")).strip() or "info",
         )
 
+    @app.get("/docs")
+    def web_docs():
+        return render_template(
+            "web_docs.html",
+            workspace_root=active_data_dir(),
+        )
+
     @app.post("/workspace")
     def switch_workspace():
         if _has_active_runs(app):
