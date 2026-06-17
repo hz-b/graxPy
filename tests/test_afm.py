@@ -268,25 +268,26 @@ def test_afm_preprocessing_accepts_numpy_array_input() -> None:
     assert afm.z_nm.ndim == 1
 
 
-def test_afm_grating_with_string_materials_raises_explicit_error() -> None:
+def test_afm_grating_with_string_materials_runs_simulation() -> None:
     afm = _build_processed_afm(period_nm=1600.0)
     grating = AFMGrating.from_preprocessing(
         afm,
         substrate_material="Si",
-        layer_material="Au",
+        layer_material="Pt",
         layer_thickness_nm=25.0,
         x_resolution_nm=4.0,
         z_resolution_nm=2.0,
     )
 
-    with pytest.raises(TypeError, match="substrate_material='Si'.*cannot be simulated directly"):
-        run_simulation(
-            grating=grating,
-            energy_ev=500.0,
-            grazing_angle_deg=4.0,
-            diffraction_order=1,
-            fourier_orders=3,
-        )
+    result = run_simulation(
+        grating=grating,
+        energy_ev=500.0,
+        grazing_angle_deg=4.0,
+        diffraction_order=1,
+        fourier_orders=3,
+    )
+
+    assert result.selected_efficiency >= 0.0
 
 
 def test_afm_grating_runs_in_batch_case_path() -> None:

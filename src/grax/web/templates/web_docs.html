@@ -19,6 +19,7 @@
   </p>
   <div class="docs-toc">
     <a class="button" href="#storage">Storage</a>
+    <a class="button" href="#materials">Materials</a>
     <a class="button" href="#gratings">Gratings</a>
     <a class="button" href="#simulations">Simulations</a>
     <a class="button" href="#plots">Plots</a>
@@ -45,6 +46,20 @@
   </p>
 </section>
 
+<section class="docs-section" id="materials">
+  <h2>Materials</h2>
+  <p>
+    The grating form uses the same packaged Henke material list that the Python API uses. Pick a material from the
+    dropdown, then leave the density field blank to use the tabulated default or type a measured density when your
+    sample is a film, porous layer, or otherwise not bulk-like.
+  </p>
+  <p>
+    xrt-style material objects still work for compatibility during the transition, but Grax will warn that this path is
+    deprecated and will be removed in a future release. For new work, prefer the string material name plus an optional
+    density override.
+  </p>
+</section>
+
 <section class="docs-section" id="gratings">
   <h2>Create and save gratings</h2>
   <ol>
@@ -56,7 +71,8 @@
   </ol>
   <p>
     After saving, the grating detail page lets you edit the profile, review the preview image, or delete the grating.
-    Saved gratings are the starting point for simulations.
+    Saved gratings are the starting point for simulations. The saved JSON now stores each material as a name plus
+    density pair so the same sample can be reconstructed later.
   </p>
 </section>
 

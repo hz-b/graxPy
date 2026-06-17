@@ -60,6 +60,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "grax.web" = ["templates/*.html", "static/*"]
+"grax" = ["henke_tables/*.nff", "henke_tables/read.me"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -21,7 +21,9 @@ import numpy as np
 
 matplotlib.use("Agg")
 
-from .persistence import GratingStore, build_grating_from_spec, load_material_catalog
+from grax.materials import available_material_symbols, material_density_g_cm3
+
+from .persistence import GratingStore, build_grating_from_spec
 from .runs import RunStore
 
 try:
@@ -125,8 +127,6 @@ def create_app(*, data_dir: str | Path | None = None):
 
     app = Flask(__name__)
     app.config["GRAx_DATA_DIR"] = Path(data_dir or Path.cwd() / ".grax-web").resolve()
-    catalog = load_material_catalog()
-
     def store() -> GratingStore:
         return GratingStore(app.config["GRAx_DATA_DIR"] / "saved_gratings")
 
@@ -181,13 +181,14 @@ def create_app(*, data_dir: str | Path | None = None):
     def new_grating():
         preview = _build_grating_preview(
             data_dir=app.config["GRAx_DATA_DIR"],
-            catalog=catalog,
             form_data=_default_form_values(),
         )
+        defaults = _default_form_values()
         return render_template(
             "grating_form.html",
-            materials=sorted(catalog),
-            defaults=_default_form_values(),
+            materials=available_material_symbols(),
+            defaults=defaults,
+            density_placeholders=_material_density_placeholders(defaults),
             action_url=url_for("create_grating"),
             submit_label="Save grating",
             preview=preview,
@@ -196,6 +197,10 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.post("/gratings")
     def create_grating():
         spec = _spec_from_form(request.form)
+        try:
+            build_grating_from_spec(spec)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
         saved = store().save(spec)
         return redirect(url_for("grating_detail", grating_id=saved["id"]))
 
@@ -237,7 +242,10 @@ def create_app(*, data_dir: str | Path | None = None):
     def grating_detail(grating_id: str):
         grating_store = store()
         spec = grating_store.load(grating_id)
-        grating = build_grating_from_spec(spec, catalog)
+        try:
+            grating = build_grating_from_spec(spec)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
         preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
         preview_path.parent.mkdir(parents=True, exist_ok=True)
         grating.plot_profile(preview_path)
@@ -245,7 +253,6 @@ def create_app(*, data_dir: str | Path | None = None):
             "grating_detail.html",
             grating=spec,
             preview_url=url_for("data_file", filename=f"previews/{grating_id}.png"),
-            materials=sorted(catalog),
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -291,13 +298,13 @@ def create_app(*, data_dir: str | Path | None = None):
         defaults = _form_values_from_spec(spec)
         preview = _build_grating_preview(
             data_dir=app.config["GRAx_DATA_DIR"],
-            catalog=catalog,
             form_data=defaults,
         )
         return render_template(
             "grating_form.html",
-            materials=sorted(catalog),
+            materials=available_material_symbols(),
             defaults=defaults,
+            density_placeholders=_material_density_placeholders(defaults),
             action_url=url_for("update_grating", grating_id=grating_id),
             submit_label="Update grating",
             preview=preview,
@@ -310,13 +317,20 @@ def create_app(*, data_dir: str | Path | None = None):
         spec = _spec_from_form(request.form)
         spec["id"] = grating_id
         spec["created_at"] = previous.get("created_at")
+        try:
+            build_grating_from_spec(spec)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
         grating_store.save(spec)
         return redirect(url_for("grating_detail", grating_id=grating_id))
 
     @app.post("/gratings/<grating_id>/runs")
     def create_run(grating_id: str):
         spec = store().load(grating_id)
-        grating = build_grating_from_spec(spec, catalog)
+        try:
+            grating = build_grating_from_spec(spec)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
         run = _queue_run(
             app=app,
             data_dir=app.config["GRAx_DATA_DIR"],
@@ -332,7 +346,6 @@ def create_app(*, data_dir: str | Path | None = None):
     def preview_grating():
         preview = _build_grating_preview(
             data_dir=app.config["GRAx_DATA_DIR"],
-            catalog=catalog,
             form_data=request.form,
         )
         return jsonify(preview)
@@ -530,18 +543,41 @@ def _default_form_values() -> dict[str, str]:
         "blaze_angle_deg": "0.75",
         "anti_blaze_angle_deg": "",
         "substrate_material": "Si",
+        "substrate_material_density_g_cm3": "",
         "stack_type": "single_layer",
         "layer_material": "Pt",
+        "layer_material_density_g_cm3": "",
         "layer_thickness_nm": "28.77",
         "material_a": "Cr",
+        "material_a_density_g_cm3": "",
         "material_b": "C",
+        "material_b_density_g_cm3": "",
         "d_period_nm": "6.5",
         "gamma": "0.45",
         "n_bilayers": "40",
         "top_material": "C",
+        "top_material_density_g_cm3": "",
         "top_cap_material": "",
+        "top_cap_material_density_g_cm3": "",
         "top_cap_thickness_nm": "0.0",
     }
+
+
+def _material_density_placeholders(defaults: dict[str, str]) -> dict[str, str]:
+    """Return density placeholders for the currently selected materials."""
+    placeholders = {}
+    for field_name in (
+        "substrate_material",
+        "layer_material",
+        "material_a",
+        "material_b",
+        "top_material",
+        "top_cap_material",
+    ):
+        material_name = defaults.get(field_name, "")
+        density = material_density_g_cm3(material_name)
+        placeholders[field_name] = "" if density is None else str(density)
+    return placeholders
 
 
 def _run_result_location(data_dir: Path, run_id: str) -> Path:
@@ -556,6 +592,12 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
     stack = dict(spec.get("stack", {}))
     values["stack_type"] = str(stack.get("type", "single_layer"))
     for key, value in stack.items():
+        if isinstance(value, dict):
+            values[key] = "" if value.get("name") is None else str(value.get("name"))
+            density_key = f"{key}_density_g_cm3"
+            density_value = value.get("density_g_cm3")
+            values[density_key] = "" if density_value in (None, "") else str(density_value)
+            continue
         values[key] = "" if value is None else str(value)
     return values
 
@@ -596,13 +638,12 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
 def _build_grating_preview(
     *,
     data_dir: Path,
-    catalog: dict[str, Any],
     form_data: Any,
 ) -> dict[str, Any]:
     """Build a live grating preview payload from form data."""
     try:
         spec = _spec_from_form(form_data)
-        grating = build_grating_from_spec(spec, catalog)
+        grating = build_grating_from_spec(spec)
     except (KeyError, TypeError, ValueError) as error:
         return {
             "ok": False,
@@ -626,29 +667,44 @@ def _build_grating_preview(
 def _stack_spec_from_form(form: Any) -> dict[str, Any]:
     """Build a stack spec from submitted form data."""
     stack_type = str(form["stack_type"])
-    top_cap = str(form.get("top_cap_material", "")).strip() or None
     top_cap_thickness = float(form.get("top_cap_thickness_nm", 0.0) or 0.0)
     if stack_type == "multilayer":
         return {
             "type": "multilayer",
-            "substrate_material": str(form["substrate_material"]),
-            "material_a": str(form["material_a"]),
-            "material_b": str(form["material_b"]),
+            "substrate_material": _material_spec_from_form(form, "substrate_material"),
+            "material_a": _material_spec_from_form(form, "material_a"),
+            "material_b": _material_spec_from_form(form, "material_b"),
             "d_period_nm": float(form["d_period_nm"]),
             "gamma": float(form["gamma"]),
             "n_bilayers": int(float(form["n_bilayers"])),
-            "top_material": str(form["top_material"]),
-            "top_cap_material": top_cap,
+            "top_material": _material_spec_from_form(form, "top_material"),
+            "top_cap_material": _optional_material_spec_from_form(form, "top_cap_material"),
             "top_cap_thickness_nm": top_cap_thickness,
         }
     return {
         "type": "single_layer",
-        "substrate_material": str(form["substrate_material"]),
-        "layer_material": str(form["layer_material"]),
+        "substrate_material": _material_spec_from_form(form, "substrate_material"),
+        "layer_material": _material_spec_from_form(form, "layer_material"),
         "layer_thickness_nm": float(form["layer_thickness_nm"]),
-        "top_cap_material": top_cap,
+        "top_cap_material": _optional_material_spec_from_form(form, "top_cap_material"),
         "top_cap_thickness_nm": top_cap_thickness,
     }
+
+
+def _material_spec_from_form(form: Any, field_name: str) -> dict[str, Any]:
+    """Return one serialized material spec from form fields."""
+    name = str(form[field_name]).strip()
+    density_text = str(form.get(f"{field_name}_density_g_cm3", "")).strip()
+    density = None if density_text == "" else float(density_text)
+    return {"name": name, "density_g_cm3": density}
+
+
+def _optional_material_spec_from_form(form: Any, field_name: str) -> dict[str, Any] | None:
+    """Return one optional serialized material spec from form fields."""
+    name = str(form.get(field_name, "")).strip()
+    if name == "":
+        return None
+    return _material_spec_from_form(form, field_name)
 
 
 def _queue_run(

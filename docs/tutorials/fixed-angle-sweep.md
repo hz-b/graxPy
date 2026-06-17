@@ -6,10 +6,6 @@ fixed-angle energy sweep cases, then stream them through {class}`grax.BatchSimul
 ```python
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
 grating = grax.LaminarGrating(
     period_lpermm=400,
@@ -17,8 +13,8 @@ grating = grax.LaminarGrating(
     depth_nm=14.9,
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
-    substrate_material=silicon,
-    layer_material=platinum,
+    substrate_material="Si",
+    layer_material="Pt",
     layer_thickness_nm=28.77,
     x_resolution_nm=0.5,
     z_resolution_nm=0.1,
@@ -33,11 +29,12 @@ cases = grax.fixed_angle_cases(
 
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
-    default_fourier_orders=25,
+    default_fourier_orders=20,
     show_progress=True,
     live_plot=True,
     live_plot_x_key="energy_ev",
     on_error="continue",
+    backend="numba",
 )
 
 results = list(runner.run_cases(cases))
@@ -49,6 +46,10 @@ grax.plot_order_subset(
     title="Fixed-Angle Sweep: Orders 1-3 Efficiency vs Energy",
 )
 ```
+
+This example uses the new local Henke-backed string material path. If you
+already have xrt material objects or a DataFrame with ``Energy(eV)``,
+``Delta``, and ``Beta``, those inputs remain supported as well.
 
 The example also produces an energy-vs-efficiency plot for diffraction
 orders 1, 2, and 3:
