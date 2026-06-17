@@ -101,13 +101,13 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
     cp "${PROJECT_ROOT}/examples/grating/results/sinusoidal_custom_profile.png" \
       "${HOWTO_IMAGE_DIR}/sinusoidal_custom_profile.png"
     mkdir -p "${GRATING_IMAGE_DIR}/afm_preprocessing"
-    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/01_normalize_scan.png" \
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/01_normalize_scan.png" \
       "${GRATING_IMAGE_DIR}/afm_preprocessing/01_normalize_scan.png"
-    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/02_find_troughs.png" \
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/02_find_troughs.png" \
       "${GRATING_IMAGE_DIR}/afm_preprocessing/02_find_troughs.png"
-    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/03_extract_period_averaged.png" \
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/03_extract_period_averaged.png" \
       "${GRATING_IMAGE_DIR}/afm_preprocessing/03_extract_period_averaged.png"
-    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing/04_periodicity_ramp.png" \
+    cp "${PROJECT_ROOT}/examples/grating/results/afm_preprocessing_blazed/04_periodicity_ramp.png" \
       "${GRATING_IMAGE_DIR}/afm_preprocessing/04_periodicity_ramp.png"
 
     cp "${PROJECT_ROOT}/examples/simulation/batch_user_cases/results/batch_user_cases_orders_1_3_vs_depth.png" \
