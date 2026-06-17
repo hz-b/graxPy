@@ -3,6 +3,10 @@
 The local web UI is installed with the `web` extra and started with the
 `grax-web` command.
 
+The full Web UI guide is also available inside the app itself. Open the GUI and
+click `Web docs` from the landing page or header navigation to read it in the
+browser.
+
 If you install from PyPI, use:
 
 ```bash

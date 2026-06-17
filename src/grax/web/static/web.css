@@ -28,6 +28,18 @@ body {
   padding: 14px 28px;
 }
 
+.topbar nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.topbar nav a {
+  text-decoration: none;
+  font-weight: 600;
+}
+
 .brand {
   color: var(--ink);
   font-weight: 700;
@@ -91,6 +103,32 @@ p {
   padding: 14px 16px;
   margin-bottom: 24px;
   background: #fcfcfc;
+}
+
+.docs-section {
+  margin-bottom: 24px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fcfcfc;
+}
+
+.docs-section h2 {
+  margin-bottom: 12px;
+}
+
+.docs-section ol,
+.docs-section ul {
+  margin: 0 0 12px 20px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.docs-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .grid.two {

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Web UI Documentation{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Web UI Documentation</h1>
+    <p>Everything you need to create gratings, run simulations, and plot results inside Grax Web.</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('index') }}">Back to home</a>
+    <a class="button primary" href="{{ url_for('new_grating') }}">Create grating</a>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    The active workspace root is <code>{{ workspace_root }}</code>. By default, Grax Web stores data in
+    <code>.grax-web/</code> in the current working directory unless you switch the workspace from the home page.
+  </p>
+  <div class="docs-toc">
+    <a class="button" href="#storage">Storage</a>
+    <a class="button" href="#gratings">Gratings</a>
+    <a class="button" href="#simulations">Simulations</a>
+    <a class="button" href="#plots">Plots</a>
+    <a class="button" href="#export">Export</a>
+    <a class="button" href="#modify">Modify later</a>
+  </div>
+</section>
+
+<section class="docs-section" id="storage">
+  <h2>Where data is saved</h2>
+  <p>
+    Grax Web keeps all local state under the active workspace directory. The default workspace is
+    <code>.grax-web/</code> next to where you launch <code>grax-web</code>.
+  </p>
+  <div class="list compact">
+    <div class="row"><strong><code>saved_gratings/</code></strong><span>One JSON file per saved grating spec.</span></div>
+    <div class="row"><strong><code>runs/</code></strong><span>One run directory per simulation, with manifests and CSV outputs.</span></div>
+    <div class="row"><strong><code>plots/</code></strong><span>Saved comparison plots and their manifests.</span></div>
+    <div class="row"><strong><code>previews/</code></strong><span>Temporary and live preview images shown in the browser.</span></div>
+  </div>
+  <p>
+    The workspace can be changed from the home page. When you switch workspaces, the app reads and writes future
+    gratings, runs, and plots in the new location.
+  </p>
+</section>
+
+<section class="docs-section" id="gratings">
+  <h2>Create and save gratings</h2>
+  <ol>
+    <li>Open <strong>New grating</strong> from the top bar or the home page.</li>
+    <li>Choose the grating type, period, numerical resolutions, and profile-specific parameters.</li>
+    <li>Select the coating stack type and pick materials from the built-in material catalog.</li>
+    <li>Use the live preview panel to confirm the shape before saving.</li>
+    <li>Save the grating to store it in <code>saved_gratings/&lt;grating-id&gt;.json</code>.</li>
+  </ol>
+  <p>
+    After saving, the grating detail page lets you edit the profile, review the preview image, or delete the grating.
+    Saved gratings are the starting point for simulations.
+  </p>
+</section>
+
+<section class="docs-section" id="simulations">
+  <h2>Run simulations</h2>
+  <ol>
+    <li>Open a saved grating from the home page.</li>
+    <li>Pick a workflow: fixed angle, monochromator, multilayer theta search, or parameter study.</li>
+    <li>Enter the energy range, diffraction order, Fourier orders, and any workflow-specific values.</li>
+    <li>Choose the worker mode if you want auto or manual multiprocessing.</li>
+    <li>Run the sweep and follow the progress page while the simulation writes results.</li>
+  </ol>
+  <p>
+    Each run gets its own directory under <code>runs/&lt;run-id&gt;/</code>. The manifest records the workflow, grating
+    metadata, selected orders, and progress state. The run directory also stores the result CSV files and generated
+    preview images for that run.
+  </p>
+</section>
+
+<section class="docs-section" id="plots">
+  <h2>Compare and plot runs</h2>
+  <ol>
+    <li>Open <strong>Plots</strong> from the top bar.</li>
+    <li>Select one or more saved runs.</li>
+    <li>Choose the diffraction orders you want to compare.</li>
+    <li>Use the live preview to inspect the combined plot before saving it.</li>
+    <li>Save the plot to create a dedicated entry under <code>plots/&lt;plot-id&gt;/</code>.</li>
+  </ol>
+  <p>
+    The saved plot page shows the rendered image together with the selected runs and orders so you can trace exactly
+    how the comparison was assembled.
+  </p>
+</section>
+
+<section class="docs-section" id="export">
+  <h2>Export plots and manage saved data</h2>
+  <ul>
+    <li>Use <strong>Save plot</strong> in the plot builder to copy the live preview into a chosen directory.</li>
+    <li>Use <strong>Manage runs</strong> to rename or delete saved runs.</li>
+    <li>Use <strong>Manage gratings</strong> to inspect, edit, or delete saved grating definitions.</li>
+    <li>Use the workspace switcher on the home page if you want the app to read and write a different local folder.</li>
+  </ul>
+  <p>
+    Exported plot images are copied from the live preview so the saved file matches what you saw in the browser.
+  </p>
+</section>
+{% endblock %}

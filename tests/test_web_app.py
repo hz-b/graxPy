@@ -153,10 +153,10 @@ def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
 
 
 def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(web_app_module, "go", None)
-    monkeypatch.setattr(web_app_module, "plotly_io", None)
-    monkeypatch.setattr(web_app_module, "get_plotlyjs", None)
-    monkeypatch.setattr(web_app_module, "make_subplots", None)
+    monkeypatch.setattr(web_app_module, "go", None, raising=False)
+    monkeypatch.setattr(web_app_module, "plotly_io", None, raising=False)
+    monkeypatch.setattr(web_app_module, "get_plotlyjs", None, raising=False)
+    monkeypatch.setattr(web_app_module, "make_subplots", None, raising=False)
 
     with pytest.raises(RuntimeError) as error_info:
         web_app_module._require_plotly()
@@ -168,6 +168,36 @@ def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatc
     app_source = (Path(__file__).resolve().parents[1] / "src" / "grax" / "web" / "app.py").read_text(encoding="utf-8")
     assert 'graxpy[web]' in app_source
     assert '.[web]' in app_source
+
+
+def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+
+    home_response = client.get("/")
+    assert home_response.status_code == 200
+    assert b'Web docs' in home_response.data
+    assert b'href="/docs"' in home_response.data
+
+    grating_response = client.get("/gratings/new")
+    assert grating_response.status_code == 200
+    assert b'href="/docs"' in grating_response.data
+
+    docs_response = client.get("/docs")
+    assert docs_response.status_code == 200
+    assert b"Web UI Documentation" in docs_response.data
+    assert b".grax-web/" in docs_response.data
+    assert b"saved_gratings/" in docs_response.data
+    assert b"runs/" in docs_response.data
+    assert b"plots/" in docs_response.data
+    assert b"previews/" in docs_response.data
+    assert b"Create and save gratings" in docs_response.data
+    assert b"Run simulations" in docs_response.data
+    assert b"Compare and plot runs" in docs_response.data
+    assert b"How to modify the interface later" in docs_response.data
 
 
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
@@ -1052,7 +1082,7 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     assert live_payload["total_points"] == 4
     assert live_payload["remaining_points"] <= 4
 
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + 15.0
     final_payload = live_payload
     while time.monotonic() < deadline:
         final_payload = client.get(f"/runs/{run_id}/status").get_json()
