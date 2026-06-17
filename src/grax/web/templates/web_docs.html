@@ -103,4 +103,22 @@
     Exported plot images are copied from the live preview so the saved file matches what you saw in the browser.
   </p>
 </section>
+
+<section class="docs-section" id="modify">
+  <h2>How to modify the interface later</h2>
+  <p>If you want to change the Web UI, these files control the main moving parts:</p>
+  <ul>
+    <li><code>src/grax/web/app.py</code>: routes, workspace behavior, simulation wiring, and runtime page data.</li>
+    <li><code>src/grax/web/templates/*.html</code>: page text, layout, and button placement.</li>
+    <li><code>src/grax/web/static/web.css</code>: styling and responsive layout.</li>
+    <li><code>src/grax/web/static/web.js</code>: client-side preview and form interactions.</li>
+    <li><code>src/grax/web/persistence.py</code>: how gratings are stored and reconstructed from JSON.</li>
+    <li><code>src/grax/web/runs.py</code>: run manifests, result loading, and comparison plot saving.</li>
+  </ul>
+  <p>
+    To change the default workspace folder, edit the <code>create_app()</code> setup in
+    <code>src/grax/web/app.py</code>. To change the docs itself, edit this template and the matching external docs
+    notes in <code>docs/index.md</code> and <code>docs/installation/web-ui.md</code>.
+  </p>
+</section>
 {% endblock %}

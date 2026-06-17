@@ -200,6 +200,19 @@ def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
     assert b"How to modify the interface later" in docs_response.data
 
 
+def test_installed_web_package_includes_templates_and_static_assets() -> None:
+    from grax import web as grax_web
+
+    package_root = Path(grax_web.__file__).resolve().parent
+    template_root = package_root / "templates"
+    static_root = package_root / "static"
+
+    assert (template_root / "index.html").is_file()
+    assert (template_root / "web_docs.html").is_file()
+    assert (static_root / "web.css").is_file()
+    assert (static_root / "web.js").is_file()
+
+
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     catalog = load_material_catalog()
     grating = LaminarGrating(
