@@ -1,7 +1,10 @@
 # Installation
 
 `grax` requires Python 3.12 or 3.13. The core package dependencies are
-NumPy, pandas, SciPy, Matplotlib, tqdm, and xrt.
+NumPy, pandas, SciPy, Matplotlib, tqdm, and `xrt` for backward compatibility
+during the current material-lookup transition. Local Henke-table string
+material lookup is built into `grax`, and xrt-backed material objects now emit
+a deprecation warning when they are used.
 
 ## Install the package
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from grax.gratings import BaseGrating, BlazedGrating, LaminarGrating
-from grax.materials import material_label
+from grax.materials import MaterialSpec, material_density_g_cm3, material_label, validate_material_input
 from grax.stacks import MultilayerStack, SingleLayerStack
 
 from .materials import OpticalConstantsTable, load_material_catalog
@@ -115,7 +115,6 @@ def build_grating_from_spec(
     catalog: dict[str, OpticalConstantsTable] | None = None,
 ) -> BaseGrating:
     """Build a supported grating from a saved JSON-compatible spec."""
-    materials = load_material_catalog() if catalog is None else catalog
     stack_spec = dict(spec["stack"])
     stack_type = str(stack_spec.get("type", "single_layer"))
     common = {
@@ -125,26 +124,23 @@ def build_grating_from_spec(
     }
     if stack_type == "multilayer":
         common["coating_stack"] = MultilayerStack(
-            substrate_material=_material(materials, stack_spec["substrate_material"]),
-            material_a=_material(materials, stack_spec["material_a"]),
-            material_b=_material(materials, stack_spec["material_b"]),
+            substrate_material=_material(stack_spec["substrate_material"], field_name="substrate_material"),
+            material_a=_material(stack_spec["material_a"], field_name="material_a"),
+            material_b=_material(stack_spec["material_b"], field_name="material_b"),
             d_period_nm=float(stack_spec["d_period_nm"]),
             gamma=float(stack_spec["gamma"]),
             n_bilayers=int(stack_spec["n_bilayers"]),
-            top_material=_material(materials, stack_spec["top_material"]),
-            top_cap_material=_optional_material(materials, stack_spec.get("top_cap_material")),
+            top_material=_material(stack_spec["top_material"], field_name="top_material"),
+            top_cap_material=_optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material"),
             top_cap_thickness_nm=float(stack_spec.get("top_cap_thickness_nm", 0.0)),
         )
     else:
         common.update(
             {
-                "substrate_material": _material(materials, stack_spec["substrate_material"]),
-                "layer_material": _material(materials, stack_spec["layer_material"]),
+                "substrate_material": _material(stack_spec["substrate_material"], field_name="substrate_material"),
+                "layer_material": _material(stack_spec["layer_material"], field_name="layer_material"),
                 "layer_thickness_nm": float(stack_spec["layer_thickness_nm"]),
-                "top_cap_material": _optional_material(
-                    materials,
-                    stack_spec.get("top_cap_material"),
-                ),
+                "top_cap_material": _optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material"),
                 "top_cap_thickness_nm": float(stack_spec.get("top_cap_thickness_nm", 0.0)),
             }
         )
@@ -173,14 +169,14 @@ def _stack_to_spec(grating: BaseGrating) -> dict[str, Any]:
         stack = grating.coating_stack
         return {
             "type": "multilayer",
-            "substrate_material": material_label(stack.substrate_material),
-            "material_a": material_label(stack.material_a),
-            "material_b": material_label(stack.material_b),
+            "substrate_material": _material_to_spec(stack.substrate_material),
+            "material_a": _material_to_spec(stack.material_a),
+            "material_b": _material_to_spec(stack.material_b),
             "d_period_nm": stack.d_period_nm,
             "gamma": stack.gamma,
             "n_bilayers": stack.n_bilayers,
-            "top_material": material_label(stack.top_material),
-            "top_cap_material": _optional_material_label(stack.top_cap_material),
+            "top_material": _material_to_spec(stack.top_material),
+            "top_cap_material": _optional_material_to_spec(stack.top_cap_material),
             "top_cap_thickness_nm": stack.top_cap_thickness_nm,
         }
     stack = grating.resolved_stack()
@@ -188,38 +184,61 @@ def _stack_to_spec(grating: BaseGrating) -> dict[str, Any]:
         raise TypeError("Only single-layer and multilayer stacks are supported by the web MVP.")
     return {
         "type": "single_layer",
-        "substrate_material": material_label(stack.substrate_material),
-        "layer_material": material_label(stack.layer_material),
+        "substrate_material": _material_to_spec(stack.substrate_material),
+        "layer_material": _material_to_spec(stack.layer_material),
         "layer_thickness_nm": stack.layer_thickness_nm,
-        "top_cap_material": _optional_material_label(stack.top_cap_material),
+        "top_cap_material": _optional_material_to_spec(stack.top_cap_material),
         "top_cap_thickness_nm": stack.top_cap_thickness_nm,
     }
 
 
-def _material(catalog: dict[str, OpticalConstantsTable], key: Any) -> OpticalConstantsTable:
-    """Return one material from the catalog."""
-    material_key = str(key)
-    try:
-        return catalog[material_key]
-    except KeyError as error:
-        raise ValueError(f"Unknown material key: {material_key}") from error
+def _material(key: Any, *, field_name: str) -> Any:
+    """Return one validated material from a serialized spec value."""
+    material = _material_from_spec_value(key)
+    validate_material_input(material, field_name=field_name)
+    return material
 
 
 def _optional_material(
-    catalog: dict[str, OpticalConstantsTable],
     key: Any,
-) -> OpticalConstantsTable | None:
-    """Return an optional material from the catalog."""
+    *,
+    field_name: str,
+) -> Any | None:
+    """Return an optional validated material from a serialized spec value."""
     if key in (None, ""):
         return None
-    return _material(catalog, key)
+    return _material(key, field_name=field_name)
 
 
-def _optional_material_label(material: Any) -> str | None:
-    """Return an optional material label."""
+def _material_from_spec_value(value: Any) -> Any:
+    """Convert one serialized material spec to a runtime material object."""
+    if isinstance(value, MaterialSpec):
+        return value
+    if isinstance(value, dict):
+        name = value.get("name")
+        if name in (None, ""):
+            raise ValueError("Material specs must include a name.")
+        density_value = value.get("density_g_cm3")
+        density = None if density_value in (None, "") else float(density_value)
+        return MaterialSpec(str(name), density)
+    if isinstance(value, str):
+        return MaterialSpec(value, None)
+    return value
+
+
+def _material_to_spec(material: Any) -> dict[str, Any]:
+    """Return a JSON-compatible material spec."""
+    return {
+        "name": material_label(material),
+        "density_g_cm3": material_density_g_cm3(material),
+    }
+
+
+def _optional_material_to_spec(material: Any) -> dict[str, Any] | None:
+    """Return an optional JSON-compatible material spec."""
     if material is None:
         return None
-    return material_label(material)
+    return _material_to_spec(material)
 
 
 def _slugify(value: str) -> str:

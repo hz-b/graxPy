@@ -19,6 +19,7 @@
   </p>
   <div class="docs-toc">
     <a class="button" href="#storage">Storage</a>
+    <a class="button" href="#materials">Materials</a>
     <a class="button" href="#gratings">Gratings</a>
     <a class="button" href="#simulations">Simulations</a>
     <a class="button" href="#plots">Plots</a>
@@ -45,6 +46,20 @@
   </p>
 </section>
 
+<section class="docs-section" id="materials">
+  <h2>Materials</h2>
+  <p>
+    The grating form uses the same packaged Henke material list that the Python API uses. Pick a material from the
+    dropdown, then leave the density field blank to use the tabulated default or type a measured density when your
+    sample is a film, porous layer, or otherwise not bulk-like.
+  </p>
+  <p>
+    xrt-style material objects still work for compatibility during the transition, but Grax will warn that this path is
+    deprecated and will be removed in a future release. For new work, prefer the string material name plus an optional
+    density override.
+  </p>
+</section>
+
 <section class="docs-section" id="gratings">
   <h2>Create and save gratings</h2>
   <ol>
@@ -56,7 +71,8 @@
   </ol>
   <p>
     After saving, the grating detail page lets you edit the profile, review the preview image, or delete the grating.
-    Saved gratings are the starting point for simulations.
+    Saved gratings are the starting point for simulations. The saved JSON now stores each material as a name plus
+    density pair so the same sample can be reconstructed later.
   </p>
 </section>
 
@@ -101,6 +117,24 @@
   </ul>
   <p>
     Exported plot images are copied from the live preview so the saved file matches what you saw in the browser.
+  </p>
+</section>
+
+<section class="docs-section" id="modify">
+  <h2>How to modify the interface later</h2>
+  <p>If you want to change the Web UI, these files control the main moving parts:</p>
+  <ul>
+    <li><code>src/grax/web/app.py</code>: routes, workspace behavior, simulation wiring, and runtime page data.</li>
+    <li><code>src/grax/web/templates/*.html</code>: page text, layout, and button placement.</li>
+    <li><code>src/grax/web/static/web.css</code>: styling and responsive layout.</li>
+    <li><code>src/grax/web/static/web.js</code>: client-side preview and form interactions.</li>
+    <li><code>src/grax/web/persistence.py</code>: how gratings are stored and reconstructed from JSON.</li>
+    <li><code>src/grax/web/runs.py</code>: run manifests, result loading, and comparison plot saving.</li>
+  </ul>
+  <p>
+    To change the default workspace folder, edit the <code>create_app()</code> setup in
+    <code>src/grax/web/app.py</code>. To change the docs itself, edit this template and the matching external docs
+    notes in <code>docs/index.md</code> and <code>docs/installation/web-ui.md</code>.
   </p>
 </section>
 {% endblock %}

@@ -25,6 +25,12 @@ tools/build_docs.sh --html
 python -m pip install graxpy
 ```
 
+`graxpy` now supports local Henke-table material lookup for elemental string
+names such as `"Si"` and `"Pt"`, with optional density overrides through
+`grax.MaterialSpec`. Existing DataFrame optical-constants inputs still work,
+and xrt-compatible material objects remain supported for now but emit a
+deprecation warning.
+
 PyPI project page: <https://pypi.org/project/graxpy/0.1.0/>
 
 For local editable installs:

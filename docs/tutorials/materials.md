@@ -1,14 +1,55 @@
 # Materials
 
-`grax` accepts material inputs anywhere a grating or multilayer asks for a
-material. The material resolver supports two concrete patterns:
+`grax` accepts material inputs anywhere a grating or multilayer asks for a material. The resolver now supports four
+patterns, in this order:
 
+- A string elemental material name such as `"Si"`, `"Pt"`, or `"Au"` when a packaged Henke table exists for that
+  symbol.
+- A `grax.MaterialSpec` with `name` and optional `density_g_cm3` when you want to override the default density.
 - A pandas DataFrame-like object with columns `Energy(eV)`, `Delta`, and `Beta`.
-- An xrt Material object.
+- An xrt-compatible object with `get_refractive_index()`.
 
-Bare strings such as `"Si"` or `"Au"` are not accepted as simulation material
-inputs. They are treated only as labels in plots or metadata. For simulations,
-pass an xrt `Material` object or a DataFrame-like optical-constants table.
+String material names are the simplest path for elemental Henke lookups. DataFrame-like optical-constants tables remain
+supported for custom workflows, and xrt material objects still work for backward compatibility during the transition.
+When xrt objects are used, `grax` emits a `FutureWarning` so the deprecation is visible at runtime.
+
+## String material names
+
+For common elemental materials, you can pass the material symbol directly:
+
+```python
+import grax
+
+grating = grax.LaminarGrating(
+    substrate_material="Si",
+    layer_material="Pt",
+    top_cap_material="C",
+)
+```
+
+At solve time, `grax` loads the packaged Henke table for the symbol, converts it to `Delta` and `Beta` using the built-
+in density metadata for that element, and interpolates `n = 1 - delta + i beta` at the requested photon energy.
+
+If a material symbol is known but its density is not tabulated yet, `grax` asks you to supply `density_g_cm3` explicitly.
+If a material name is not available at all, the error includes the full supported-material list.
+
+## Density overrides
+
+When you know the actual sample density, use `grax.MaterialSpec` so the override travels with the material input:
+
+```python
+import grax
+
+gold_film = grax.MaterialSpec("Au", density_g_cm3=19.0)
+
+grating = grax.BlazedGrating(
+    substrate_material="Si",
+    layer_material=gold_film,
+)
+```
+
+This is useful for thin films, porous coatings, and other samples that do not behave like bulk material. Leave the
+density blank in the Web UI if you want the tabulated default.
 
 ## Optical constants from files
 
@@ -28,16 +69,23 @@ platinum.attrs["name"] = "Pt-cxro"
 
 The name stored in `attrs["name"]` is used for plot labels and debug output.
 
+## xrt compatibility
+
 ```python
 from xrt.backends.raycing import materials as xrt_materials
 
-platinum = xrt_materials.Material("Pt",
-                                rho=20.13,
-                                table="Henke", 
-                                name="Pt-xrt")
+platinum = xrt_materials.Material(
+    "Pt",
+    rho=21.45,
+    table="Henke",
+    name="Pt-xrt",
+)
 ```
 
+This path still works for compatibility, but `grax` warns that xrt material support is deprecated and will be removed
+in a future version. For new code, prefer string material names or `grax.MaterialSpec`.
 
+## Shared material list
 
-At solve time, grax internally interpolates `Delta` and `Beta` at the
-requested photon energy and uses `n = 1 - delta + i beta`.
+The Web UI and the Python API use the same packaged Henke material list. If you need the available elemental symbols
+programmatically, use `grax.available_material_symbols()`.

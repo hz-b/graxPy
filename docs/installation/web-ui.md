@@ -7,6 +7,11 @@ The full Web UI guide is also available inside the app itself. Open the GUI and
 click `Web docs` from the landing page or header navigation to read it in the
 browser.
 
+The Web UI material chooser uses the same packaged Henke element list as the
+Python API, and each material field has an optional density override. Leave the
+density blank to use the tabulated default or enter the actual sample density
+when your coating is not bulk-like.
+
 If you install from PyPI, use:
 
 ```bash

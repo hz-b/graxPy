@@ -6,10 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
 grating = grax.LaminarGrating(
     period_lpermm=400,
@@ -17,8 +13,8 @@ grating = grax.LaminarGrating(
     depth_nm=14.9,
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
-    substrate_material=silicon,
-    layer_material=platinum,
+    substrate_material="Si",
+    layer_material="Pt",
     layer_thickness_nm=28.77,
     x_resolution_nm=0.5,
     z_resolution_nm=0.1,

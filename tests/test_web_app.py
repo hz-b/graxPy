@@ -13,13 +13,13 @@ import pytest
 from werkzeug.datastructures import MultiDict
 
 from grax.gratings import BlazedGrating, LaminarGrating
+from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack
 from grax.web import app as web_app_module
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
     grating_to_spec,
-    load_material_catalog,
 )
 
 
@@ -191,6 +191,9 @@ def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
     assert b"Web UI Documentation" in docs_response.data
     assert b".grax-web/" in docs_response.data
     assert b"saved_gratings/" in docs_response.data
+    assert b"Materials" in docs_response.data
+    assert b"density" in docs_response.data
+    assert b"deprecated" in docs_response.data
     assert b"runs/" in docs_response.data
     assert b"plots/" in docs_response.data
     assert b"previews/" in docs_response.data
@@ -200,8 +203,20 @@ def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
     assert b"How to modify the interface later" in docs_response.data
 
 
+def test_installed_web_package_includes_templates_and_static_assets() -> None:
+    from grax import web as grax_web
+
+    package_root = Path(grax_web.__file__).resolve().parent
+    template_root = package_root / "templates"
+    static_root = package_root / "static"
+
+    assert (template_root / "index.html").is_file()
+    assert (template_root / "web_docs.html").is_file()
+    assert (static_root / "web.css").is_file()
+    assert (static_root / "web.js").is_file()
+
+
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
-    catalog = load_material_catalog()
     grating = LaminarGrating(
         period_lpermm=400,
         width_to_period_ratio=0.67,
@@ -209,13 +224,13 @@ def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
         left_wall_angle_deg=15.0,
         right_wall_angle_deg=15.0,
         coating_stack=MultilayerStack(
-            substrate_material=catalog["Si"],
-            material_a=catalog["Cr"],
-            material_b=catalog["C"],
+            substrate_material=MaterialSpec("Si", density_g_cm3=2.329),
+            material_a=MaterialSpec("Cr", density_g_cm3=7.19),
+            material_b=MaterialSpec("C", density_g_cm3=2.2),
             d_period_nm=6.5,
             gamma=0.45,
             n_bilayers=4,
-            top_material=catalog["C"],
+            top_material=MaterialSpec("C", density_g_cm3=2.2),
         ),
         x_resolution_nm=2.0,
         z_resolution_nm=0.5,
@@ -223,7 +238,8 @@ def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     store = GratingStore(tmp_path / "gratings")
 
     saved = store.save(grating_to_spec(grating, name="Laminar ML"))
-    loaded = build_grating_from_spec(store.load(saved["id"]), catalog)
+    payload = store.load(saved["id"])
+    loaded = build_grating_from_spec(payload)
 
     assert isinstance(loaded, LaminarGrating)
     assert loaded.period_lpermm == 400
@@ -231,16 +247,19 @@ def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     assert isinstance(loaded.coating_stack, MultilayerStack)
     assert loaded.coating_stack.n_bilayers == 4
     assert loaded.coating_stack.d_period_nm == pytest.approx(6.5)
+    assert payload["stack"]["substrate_material"]["name"] == "Si"
+    assert payload["stack"]["substrate_material"]["density_g_cm3"] == pytest.approx(2.329)
+    assert loaded.coating_stack.substrate_material.name == "Si"
+    assert loaded.coating_stack.substrate_material.density_g_cm3 == pytest.approx(2.329)
 
 
 def test_saved_grating_round_trips_blazed_single_layer(tmp_path: Path) -> None:
-    catalog = load_material_catalog()
     grating = BlazedGrating(
         period_lpermm=600,
         blaze_angle_deg=0.75,
         anti_blaze_angle_deg=5.597,
-        substrate_material=catalog["Si"],
-        layer_material=catalog["Au"],
+        substrate_material=MaterialSpec("Si", density_g_cm3=2.329),
+        layer_material=MaterialSpec("Au", density_g_cm3=19.3),
         layer_thickness_nm=30.0,
         x_resolution_nm=1.5,
         z_resolution_nm=0.25,
@@ -248,13 +267,18 @@ def test_saved_grating_round_trips_blazed_single_layer(tmp_path: Path) -> None:
     store = GratingStore(tmp_path / "gratings")
 
     saved = store.save(grating_to_spec(grating, name="Blazed Au"))
-    loaded = build_grating_from_spec(store.load(saved["id"]), catalog)
+    payload = store.load(saved["id"])
+    loaded = build_grating_from_spec(payload)
 
     assert isinstance(loaded, BlazedGrating)
     assert loaded.period_lpermm == 600
     assert loaded.blaze_angle_deg == pytest.approx(0.75)
     assert loaded.anti_blaze_angle_deg == pytest.approx(5.597)
     assert loaded.layer_thickness_nm == pytest.approx(30.0)
+    assert payload["stack"]["layer_material"]["name"] == "Au"
+    assert payload["stack"]["layer_material"]["density_g_cm3"] == pytest.approx(19.3)
+    assert loaded.layer_material.name == "Au"
+    assert loaded.layer_material.density_g_cm3 == pytest.approx(19.3)
 
 
 def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
@@ -342,11 +366,21 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     response = app.test_client().get("/gratings/new")
 
     assert response.status_code == 200
+    assert b"<legend>Substrate</legend>" in response.data
+    assert b"<legend>Layer stack</legend>" in response.data
+    assert b"<legend>Top cap</legend>" in response.data
+    assert b"<legend>Coating</legend>" not in response.data
     assert b'data-grating-section="laminar"' in response.data
     assert b'data-grating-section="blazed"' in response.data
     assert b'data-stack-controls' in response.data
+    assert b'data-single-layer-controls' in response.data
     assert b'data-stack-type' in response.data
     assert b"web.js" in response.data
+    assert b'name="substrate_material_density_g_cm3"' in response.data
+    assert b'name="layer_material_density_g_cm3"' in response.data
+    assert b'name="material_a_density_g_cm3"' in response.data
+    assert b'name="top_material_density_g_cm3"' in response.data
+    assert b"Ag" in response.data
 
 
 def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
@@ -401,6 +435,35 @@ def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
     assert saved["name"] == "After"
     assert saved["period_lpermm"] == 450
     assert saved["depth_nm"] == pytest.approx(12.0)
+
+
+def test_flask_app_rejects_unknown_material_names_before_save(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    response = client.post(
+        "/gratings",
+        data={
+            "name": "Broken",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "",
+            "stack_type": "single_layer",
+            "substrate_material": "Xx",
+            "layer_material": "Pt",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+
+    assert response.status_code == 400
+    assert b"not available" in response.data
+    assert b"Available materials:" in response.data
 
 
 def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(

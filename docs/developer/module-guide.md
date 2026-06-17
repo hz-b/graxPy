@@ -8,8 +8,9 @@ This guide summarizes the source layout for contributors.
 
 - `gratings.py`: grating profiles, grid construction, texture/profile building,
   profile plotting, and structure debug exports
-- `materials.py`: material labels, DataFrame optical constants, xrt-like
-  material support, and refractive-index resolution
+- `materials.py`: material labels, `MaterialSpec`, packaged Henke-table string
+  lookup, DataFrame optical constants, xrt-like compatibility support, and
+  refractive-index resolution
 - `stacks.py`: coating stack models above the substrate surface
 - `simulation/`: simulation workflows and orchestration (see package organization)
   - `models.py`: typed result dataclasses and small compatibility containers
@@ -54,7 +55,7 @@ roughness model math or diagnostics change.
 ## Reading order for new maintainers
 
 1. `examples/manual_single_simulation_example/manual_single_simulation.py`
-2. `examples/laminar_batch_example/fixed_angle_sweep.py`
+2. `examples/simulation/fixed_angle_sweep/fixed_angle_sweep.py`
 3. `src/grax/simulation/` (package overview in docs/api/simulation/package-organization.md)
 4. `src/grax/gratings.py`
 5. `src/grax/materials.py` and `src/grax/stacks.py`
