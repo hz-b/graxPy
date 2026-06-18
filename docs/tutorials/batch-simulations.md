@@ -16,6 +16,7 @@ Minimal pattern:
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=25,
+    default_polarization="p",
     show_progress=True,
     on_error="continue",
 )
@@ -30,9 +31,12 @@ least:
 - `energy_ev`: the photon energy for that case
 
 Common optional keys are `case_id`, `grazing_angle_deg`, `diffraction_order`,
-and `fourier_orders`. Any extra serializable metadata such as `label` or
-`depth_nm` is preserved in each result's `case_data`, which makes downstream
-plotting and CSV export easier.
+`fourier_orders`, and `polarization`. Any extra serializable metadata such as
+`label` or `depth_nm` is preserved in each result's `case_data`, which makes
+downstream plotting and CSV export easier.
+
+When you set `polarization`, the accepted values are `s` and `p`. The examples
+here use explicit `p` polarization so batch runs do not depend on defaults.
 
 Example shape:
 
@@ -46,6 +50,7 @@ cases = [
         "grazing_angle_deg": grazing_angle_deg,
         "diffraction_order": 1,
         "fourier_orders": 25,
+        "polarization": "p",
         "depth_nm": 10.0,
     },
     {
@@ -56,6 +61,7 @@ cases = [
         "grazing_angle_deg": grazing_angle_deg,
         "diffraction_order": 1,
         "fourier_orders": 25,
+        "polarization": "p",
         "depth_nm": 11.0,
     },
 ]

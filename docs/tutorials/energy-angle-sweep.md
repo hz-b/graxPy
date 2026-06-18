@@ -57,6 +57,7 @@ grating = grax.BlazedGrating(
 cases = grax.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
@@ -95,3 +96,6 @@ plt.close(figure)
 ```
 
 See `examples/simulation/energy_angle_sweep/energy_angle_sweep.py` for the full runnable script.
+
+Like the maintained runnable script, this tutorial sets `polarization="p"`
+explicitly for the sampled multilayer cases. Accepted values are `s` and `p`.

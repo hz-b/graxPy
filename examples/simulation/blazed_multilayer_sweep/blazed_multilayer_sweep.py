@@ -1,4 +1,4 @@
-"""Blazed monochromator sweep with a Cr/C multilayer coating stack."""
+"""Blazed monochromator sweep with a Cr/C multilayer stack and explicit p polarization."""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

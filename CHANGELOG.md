@@ -3,6 +3,7 @@
 ## 0.4.4 - 2026-06-18
 - Numba is now the dafault solver backend. Numpy will be deprecated in a future release, but is still available as an explicit `solver_backend` option for now.
 - use Plotly for the web-ui plotting. minor improvements to the web-ui.
+- implement s and p polarization cases
 
 ## 0.4.3 - 2026-06-17
 - Split the AFM preprocessing examples into explicit blazed and laminar workflows, each with its own saved diagnostics folder and sample data file.

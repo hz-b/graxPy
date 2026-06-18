@@ -1,4 +1,4 @@
-"""Run a low-memory blazed multilayer sweep and save profile artifacts."""
+"""Run a low-memory blazed multilayer sweep with explicit p polarization."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ cases = [
         energies_ev=energies_ev,
         diffraction_order=1,
         cff=2.25,
+        polarization="p",
     )
 ]
 

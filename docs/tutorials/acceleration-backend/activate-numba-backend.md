@@ -18,6 +18,7 @@ result = grax.run_simulation(
     grazing_angle_deg=grazing_angle_deg,
     diffraction_order=diffraction_order,
     fourier_orders=fourier_orders,
+    polarization="p",
     backend="numba",
 )
 ```

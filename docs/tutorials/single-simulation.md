@@ -28,6 +28,7 @@ result = grax.run_simulation(
     grazing_angle_deg=4.0,
     diffraction_order=1,
     fourier_orders=5,
+    polarization="p",
 )
 
 print(result.selected_efficiency)
@@ -40,6 +41,9 @@ orders = result.orders
 selected_efficiency = result.selected_efficiency
 all_efficiencies = result.efficiency_all
 ```
+
+This maintained example sets `polarization="p"` explicitly so the script does
+not rely on the library default. Accepted values are `s` and `p`.
 
 To save a profile plot before or after running the simulation:
 

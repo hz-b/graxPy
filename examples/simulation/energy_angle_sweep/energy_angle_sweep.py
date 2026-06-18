@@ -1,4 +1,4 @@
-"""Fast multilayer energy-angle sweep tutorial example.
+"""Fast multilayer energy-angle sweep tutorial example with explicit p polarization.
 
 This tutorial samples predefined energy-angle pairs every 50 rows and uses
 coarse RCWA settings for short runtime.
@@ -52,6 +52,7 @@ grating = grax.BlazedGrating(
 cases = grax.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

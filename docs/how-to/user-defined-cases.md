@@ -42,14 +42,16 @@ for depth_nm in depths_nm:
             "grating": grating,
             "energy_ev": energy_ev,
             "grazing_angle_deg": grazing_angle_deg,
+            "polarization": "p",
             "depth_nm": float(depth_nm),
         }
     )
 ```
 
-All cases share the same `energy_ev` and `grazing_angle_deg`; only `depth_nm`
-changes. `case_id` is optional; the runner will generate deterministic IDs when
-omitted.
+All cases share the same `energy_ev`, `grazing_angle_deg`, and explicit
+`polarization="p"`; only `depth_nm` changes. Accepted polarization values are
+`s` and `p`. `case_id` is optional; the runner will generate deterministic IDs
+when omitted.
 
 ## 3. Run and export
 

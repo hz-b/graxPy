@@ -25,6 +25,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
@@ -46,6 +47,9 @@ grax.plot_order_subset(
 ```
 
 The `cff` (constant-focus factor) parameter controls the geometry:
+
+This maintained example sets `polarization="p"` explicitly rather than relying
+on the default simulation polarization. Accepted values are `s` and `p`.
 
 - `cff = 2.25` is the standard value for many synchrotron beamlines
 - The grazing angle is computed from the monochromator equation:

@@ -60,6 +60,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=1.45,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
