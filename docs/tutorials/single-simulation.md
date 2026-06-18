@@ -2,16 +2,12 @@
 
 The smallest complete workflow is:
 
-1. Build a grating using xrt materials.
+1. Build a grating using built-in Henke material symbols.
 2. Call {func}`grax.run_simulation` for one energy and grazing angle.
 3. Read the typed {class}`grax.SingleSimulationResult`.
 
 ```python
-from xrt.backends.raycing import materials as xrt_materials
 import grax
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
 grating = grax.LaminarGrating(
     period_lpermm=400,
@@ -19,8 +15,8 @@ grating = grax.LaminarGrating(
     depth_nm=14.9,
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
-    substrate_material=silicon,
-    layer_material=platinum,
+    substrate_material="Si",
+    layer_material="Pt",
     layer_thickness_nm=28.77,
     x_resolution_nm=1.0,
     z_resolution_nm=0.1,
@@ -32,6 +28,7 @@ result = grax.run_simulation(
     grazing_angle_deg=4.0,
     diffraction_order=1,
     fourier_orders=5,
+    polarization="p",
 )
 
 print(result.selected_efficiency)
@@ -44,6 +41,9 @@ orders = result.orders
 selected_efficiency = result.selected_efficiency
 all_efficiencies = result.efficiency_all
 ```
+
+This maintained example sets `polarization="p"` explicitly so the script does
+not rely on the library default. Accepted values are `s` and `p`.
 
 To save a profile plot before or after running the simulation:
 

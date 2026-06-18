@@ -1,4 +1,4 @@
-"""Blazed monochromator sweep with a Cr/C multilayer coating stack."""
+"""Blazed monochromator sweep with a Cr/C multilayer stack and explicit p polarization."""
 
 from __future__ import annotations
 
@@ -6,23 +6,18 @@ from pathlib import Path
 
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-chromium = xrt_materials.Material("Cr", rho=7.19, table="Henke", name="Cr")
-carbon = xrt_materials.Material("C", rho=2.20, table="Henke", name="C")
 
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 multilayer_stack = grax.MultilayerStack(
-    substrate_material=silicon,
-    material_a=chromium,
-    material_b=carbon,
+    substrate_material="Si",
+    material_a="Cr",
+    material_b="C",
     d_period_nm=6,
     gamma=0.4,
     n_bilayers=50,
-    top_material=carbon,
+    top_material="C",
 )
 
 grating = grax.BlazedGrating(
@@ -40,6 +35,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

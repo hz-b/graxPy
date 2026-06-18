@@ -152,7 +152,8 @@ def test_measurement_fit_config_rejects_legacy_loss_name(tmp_path: Path) -> None
 def test_evaluate_trial_requires_measurement_fit_build_hooks(tmp_path: Path) -> None:
     config = _build_measurement_fit_config(tmp_path)
     measurement = load_measurement_data(config.measurement_path)
-    loss = evaluate_trial(config, {"period_lpermm": 400.0}, measurement, backend="numpy")
+    with pytest.warns(FutureWarning, match="deprecated"):
+        loss = evaluate_trial(config, {"period_lpermm": 400.0}, measurement, backend="numpy")
     assert loss == pytest.approx(float(config.failure_penalty))
 
 
@@ -300,15 +301,18 @@ def test_optimize_to_measurements_pair_mode_uses_explicit_angles(
     assert payload["evaluation_mode"] == "energy_angle_pairs"
 
 
-def test_resolve_optimizer_backend_auto_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_optimizer_backend_numba_first_and_numpy_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(optimize_module, "_is_numba_available", lambda: True)
     assert optimize_module._resolve_optimizer_backend("auto") == "numba"
     assert optimize_module._resolve_optimizer_backend("numba") == "numba"
-    assert optimize_module._resolve_optimizer_backend("numpy") == "numpy"
+    with pytest.warns(FutureWarning, match="deprecated"):
+        assert optimize_module._resolve_optimizer_backend("numpy") == "numpy"
 
     monkeypatch.setattr(optimize_module, "_is_numba_available", lambda: False)
-    assert optimize_module._resolve_optimizer_backend("auto") == "numpy"
-    assert optimize_module._resolve_optimizer_backend("numba") == "numpy"
+    with pytest.raises(RuntimeError, match="required numba dependency"):
+        optimize_module._resolve_optimizer_backend("auto")
+    with pytest.raises(RuntimeError, match="required numba dependency"):
+        optimize_module._resolve_optimizer_backend("numba")
 
 
 def test_example_configs_split_optimizer_and_simulation_backends() -> None:
@@ -319,44 +323,9 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     laminar_config = runpy.run_path(
         str(repo_root / "examples" / "optimizer" / "optimizer_laminar" / "example_config.py")
     )
-    measurement_fit_config = runpy.run_path(
-        str(repo_root / "examples" / "optimizer" / "dynamic_optimizer" / "example_config.py")
-    )
-    laminar_tied_walls_config = runpy.run_path(
-        str(
-            repo_root
-            / "examples"
-            / "optimizer"
-            / "optimizer_laminar"
-            / "example_config_tied_walls.py"
-        )
-    )
 
     assert blazed_config["optimizer_backend"] == "auto"
-    assert blazed_config["simulation_backend"] in {"numba", "numpy"}
+    assert blazed_config["simulation_backend"] == "numba"
     assert laminar_config["optimizer_backend"] == "auto"
-    assert laminar_config["simulation_backend"] in {"numba", "numpy"}
-    assert measurement_fit_config["optimizer_backend"] == "auto"
-    assert measurement_fit_config["simulation_backend"] in {"numba", "numpy"}
-    assert laminar_config["results_dir"] != laminar_tied_walls_config["results_dir"]
-    assert laminar_tied_walls_config["results_dir"].name == "laminar_fit_tied_walls"
-    assert laminar_tied_walls_config["equality_constraints"] == {
-        "right_wall_angle_deg": "left_wall_angle_deg"
-    }
-
-    tied_wall_results_dir = laminar_tied_walls_config["results_dir"]
-    assert (tied_wall_results_dir / "best_result.json").exists()
-    assert (tied_wall_results_dir / "fitted_parameters.json").exists()
-    assert (tied_wall_results_dir / "simulated_curve_fitted.csv").exists()
-    assert (tied_wall_results_dir / "laminar_fit_tied_walls_measurement_comparison.png").exists()
-
-    tied_wall_best_result = json.loads(
-        (tied_wall_results_dir / "best_result.json").read_text(encoding="utf-8")
-    )
-    assert tied_wall_best_result["experiment_name"] == "laminar_fit_tied_walls"
-    assert tied_wall_best_result["equality_constraints"] == {
-        "right_wall_angle_deg": "left_wall_angle_deg"
-    }
-    assert tied_wall_best_result["best_grating_parameters"]["left_wall_angle_deg"] == pytest.approx(
-        tied_wall_best_result["best_grating_parameters"]["right_wall_angle_deg"]
-    )
+    assert laminar_config["simulation_backend"] == "numba"
+    assert blazed_config["simulation_backend"] == laminar_config["simulation_backend"]

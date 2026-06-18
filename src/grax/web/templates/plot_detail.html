@@ -10,16 +10,28 @@
 </section>
 
 <section class="notice">
-  <p>
-    Plot image: <code>{{ plots_dir }}/{{ plot.id }}/{{ plot.plot_path }}</code>
-  </p>
+  {% if plot.figure_json %}
+    <p>This saved comparison is stored as an interactive Plotly figure with persistent style and axis settings.</p>
+  {% else %}
+    <p>
+      Plot image: <code>{{ plots_dir }}/{{ plot.id }}/{{ plot.plot_path }}</code>
+    </p>
+  {% endif %}
 </section>
 
-<img
-  class="preview plot-preview"
-  src="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}"
-  alt="{{ plot.title }}"
->
+{% if plot.figure_json %}
+  <div
+    class="plotly-stage plot-preview"
+    data-saved-plot-figure
+    data-figure-json="{{ plot.figure_json | e }}"
+  ></div>
+{% else %}
+  <img
+    class="preview plot-preview"
+    src="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}"
+    alt="{{ plot.title }}"
+  >
+{% endif %}
 
 <section>
   <h2>Selected runs</h2>

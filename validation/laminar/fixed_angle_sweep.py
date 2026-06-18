@@ -70,6 +70,7 @@ cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
     grazing_angle_deg=4.0,
+    polarization="p",
 )
 cases = (
     dict(case, label="fixed-angle", roughness_sigma_nm=roughness_sigma_nm)

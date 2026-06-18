@@ -103,6 +103,7 @@ for energy_ev in ENERGIES_EV:
                 "grating": grating,
                 "energy_ev": float(energy_ev),
                 "grazing_angle_deg": grazing_angle_deg,
+                "polarization": "p",
                 "backend": "numba",
             }
             if parameter == "fourier_orders":

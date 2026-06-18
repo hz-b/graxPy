@@ -29,5 +29,4 @@ how-to/index
 :caption: Reference
 
 api/index
-<!-- developer/index -->
 ```

@@ -8,7 +8,6 @@ import argparse
 import numpy as np
 import grax
 from grax.gratings import BaseGrating
-from xrt.backends.raycing import materials as xrt_materials
 
 
 class SinusoidalGrating(BaseGrating):
@@ -34,15 +33,12 @@ class SinusoidalGrating(BaseGrating):
         return self.depth_nm
 
 
-silicon = xrt_materials.Material("Si", rho=2.329, table="Henke", name="Si")
-gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
-
 grating = SinusoidalGrating(
     period_lpermm=600,
     depth_nm=30.0,
     samples_per_period=1024,
-    substrate_material=silicon,
-    layer_material=gold,
+    substrate_material="Si",
+    layer_material="Au",
     layer_thickness_nm=30.0,
     top_cap_material=None,
     top_cap_thickness_nm=0.0,

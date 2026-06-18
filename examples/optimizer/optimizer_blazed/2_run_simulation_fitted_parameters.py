@@ -76,6 +76,7 @@ cases = grax.monochromator_cases(
     period_lpermm=float(fitted_grating_parameters["period_lpermm"]),
     diffraction_order=int(payload.get("diffraction_order", baseline_diffraction_order)),
     cff=float(payload.get("cff", baseline_cff)),
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

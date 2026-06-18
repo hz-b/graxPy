@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, Dict, Mapping, Optional
 
 import numpy as np
 
@@ -33,7 +34,7 @@ from .optimize import (
 )
 
 BuildGratingFunction = Callable[[Mapping[str, float]], object]
-ResolveSolverParametersFunction = Callable[[Mapping[str, float]], dict[str, float | None]]
+ResolveSolverParametersFunction = Callable[[Mapping[str, float]], Dict[str, Optional[float]]]
 
 
 def _coerce_parameter_bounds(

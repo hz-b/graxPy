@@ -7,15 +7,11 @@ monochromator relation for each energy.
 ```python
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
 
 grating = grax.BlazedGrating(
     period_lpermm=600,
-    substrate_material=silicon,
-    layer_material=gold,
+    substrate_material="Si",
+    layer_material="Au",
     layer_thickness_nm=30.0,
     blaze_angle_deg=0.75,
     anti_blaze_angle_deg=None,
@@ -29,6 +25,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
@@ -50,6 +47,9 @@ grax.plot_order_subset(
 ```
 
 The `cff` (constant-focus factor) parameter controls the geometry:
+
+This maintained example sets `polarization="p"` explicitly rather than relying
+on the default simulation polarization. Accepted values are `s` and `p`.
 
 - `cff = 2.25` is the standard value for many synchrotron beamlines
 - The grazing angle is computed from the monochromator equation:

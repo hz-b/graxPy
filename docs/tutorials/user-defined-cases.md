@@ -8,16 +8,12 @@ A practical example is a depth sweep for one laminar grating design.
 ```python
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
 base_grating_kwargs = dict(
     period_lpermm=400,
     width_to_period_ratio=0.67,
-    substrate_material=silicon,
-    layer_material=platinum,
+    substrate_material="Si",
+    layer_material="Pt",
     layer_thickness_nm=28.77,
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
@@ -49,6 +45,7 @@ for depth_nm in depths_nm:
             "grating": grating,
             "energy_ev": energy_ev,
             "grazing_angle_deg": grazing_angle_deg,
+            "polarization": "p",
             "depth_nm": float(depth_nm),
         }
     )
@@ -66,6 +63,10 @@ grax.write_all_orders_csv(results, "results/batch_user_cases_all_orders.csv")
 
 Plotting efficiency versus depth is then straightforward because each case keeps
 its own `depth_nm` in `case_data`.
+
+The maintained example also sets `polarization="p"` explicitly on each case so
+the depth sweep does not depend on the default polarization. Accepted values
+are `s` and `p`.
 
 ```{image} images/simulation/batch_user_cases_orders_1_3_vs_depth.png
 :alt: User-defined laminar depth sweep, orders 1 to 3 versus depth

@@ -16,6 +16,7 @@ from grax.gratings import BaseGrating, LaminarGrating
 from grax import rcwa_1d
 from grax.rcwa_1d import res0, res1
 from grax.simulation import core as simulation_core_module
+from grax.simulation.batch import BatchSimulationRunner
 from grax.simulation import run_simulation
 from grax.simulation._profiling import SolverProfiler
 from tests.optical_constants import load_optical_constants_table
@@ -896,13 +897,14 @@ def test_incremental_cascade_matches_legacy_dense_result_for_many_layers() -> No
 
 @pytest.mark.parametrize("backend_name", ["numba"])
 def test_fourier_backend_matches_baseline(backend_name: str) -> None:
-    baseline = run_simulation(
-        grating=_grating(),
-        energy_ev=200.0,
-        grazing_angle_deg=4.0,
-        fourier_orders=5,
-        backend="numpy",
-    )
+    with pytest.warns(FutureWarning, match="deprecated"):
+        baseline = run_simulation(
+            grating=_grating(),
+            energy_ev=200.0,
+            grazing_angle_deg=4.0,
+            fourier_orders=5,
+            backend="numpy",
+        )
     candidate = run_simulation(
         grating=_grating(),
         energy_ev=200.0,
@@ -918,14 +920,40 @@ def test_fourier_backend_matches_baseline(backend_name: str) -> None:
         fourier_orders=5,
         backend=backend_name,
     )
-    baseline = run_simulation(
-        grating=_grating(),
-        energy_ev=200.0,
-        grazing_angle_deg=4.0,
-        fourier_orders=5,
-        backend="numpy",
-    )
+    with pytest.warns(FutureWarning, match="deprecated"):
+        baseline = run_simulation(
+            grating=_grating(),
+            energy_ev=200.0,
+            grazing_angle_deg=4.0,
+            fourier_orders=5,
+            backend="numpy",
+        )
 
     assert result.selected_efficiency == pytest.approx(baseline.selected_efficiency, rel=1e-10, abs=1e-12)
     assert np.allclose(result.efficiency_all, baseline.efficiency_all, rtol=1e-10, atol=1e-12)
     assert np.allclose(result.diffraction_angle_all, baseline.diffraction_angle_all, rtol=1e-10, atol=1e-12)
+
+
+def test_public_simulation_default_matches_explicit_numba() -> None:
+    default_result = run_simulation(
+        grating=_grating(),
+        energy_ev=200.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+    )
+    explicit_numba = run_simulation(
+        grating=_grating(),
+        energy_ev=200.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+        backend="numba",
+    )
+
+    assert default_result.selected_efficiency == pytest.approx(explicit_numba.selected_efficiency)
+    assert np.allclose(default_result.efficiency_all, explicit_numba.efficiency_all)
+
+
+def test_batch_runner_defaults_to_numba_backend() -> None:
+    runner = BatchSimulationRunner()
+
+    assert runner.backend == "numba"

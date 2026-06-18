@@ -47,10 +47,10 @@
     <fieldset>
       <legend>Substrate</legend>
       <label>Substrate
-        <select name="substrate_material">{% for material in materials %}<option {% if material == defaults.substrate_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+        <select name="substrate_material" data-material-select="substrate_material">{% for material in materials %}<option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}"{% if material == defaults.substrate_material %} selected{% endif %}>{{ material }}</option>{% endfor %}</select>
       </label>
       <label>Substrate density, g/cm^3
-        <input name="substrate_material_density_g_cm3" type="number" step="any" placeholder="{{ density_placeholders['substrate_material'] }}">
+        <input name="substrate_material_density_g_cm3" type="number" step="any" value="{{ defaults.substrate_material_density_g_cm3 }}" placeholder="{{ density_placeholders['substrate_material'] }}" data-material-density="substrate_material">
       </label>
     </fieldset>
 
@@ -65,10 +65,10 @@
       <fieldset data-single-layer-controls>
         <legend>Single layer</legend>
         <label>Layer material
-          <select name="layer_material">{% for material in materials %}<option {% if material == defaults.layer_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+          <select name="layer_material" data-material-select="layer_material">{% for material in materials %}<option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}"{% if material == defaults.layer_material %} selected{% endif %}>{{ material }}</option>{% endfor %}</select>
         </label>
         <label>Layer density, g/cm^3
-          <input name="layer_material_density_g_cm3" type="number" step="any" placeholder="{{ density_placeholders['layer_material'] }}">
+          <input name="layer_material_density_g_cm3" type="number" step="any" value="{{ defaults.layer_material_density_g_cm3 }}" placeholder="{{ density_placeholders['layer_material'] }}" data-material-density="layer_material">
         </label>
         <label>Layer thickness, nm <input name="layer_thickness_nm" type="number" step="0.01" value="{{ defaults.layer_thickness_nm }}"></label>
       </fieldset>
@@ -76,25 +76,25 @@
       <fieldset data-stack-controls>
         <legend>Multilayer stack</legend>
         <label>Material A
-          <select name="material_a">{% for material in materials %}<option {% if material == defaults.material_a %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+          <select name="material_a" data-material-select="material_a">{% for material in materials %}<option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}"{% if material == defaults.material_a %} selected{% endif %}>{{ material }}</option>{% endfor %}</select>
         </label>
         <label>Material A density, g/cm^3
-          <input name="material_a_density_g_cm3" type="number" step="any" placeholder="{{ density_placeholders['material_a'] }}">
+          <input name="material_a_density_g_cm3" type="number" step="any" value="{{ defaults.material_a_density_g_cm3 }}" placeholder="{{ density_placeholders['material_a'] }}" data-material-density="material_a">
         </label>
         <label>Material B
-          <select name="material_b">{% for material in materials %}<option {% if material == defaults.material_b %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+          <select name="material_b" data-material-select="material_b">{% for material in materials %}<option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}"{% if material == defaults.material_b %} selected{% endif %}>{{ material }}</option>{% endfor %}</select>
         </label>
         <label>Material B density, g/cm^3
-          <input name="material_b_density_g_cm3" type="number" step="any" placeholder="{{ density_placeholders['material_b'] }}">
+          <input name="material_b_density_g_cm3" type="number" step="any" value="{{ defaults.material_b_density_g_cm3 }}" placeholder="{{ density_placeholders['material_b'] }}" data-material-density="material_b">
         </label>
         <label>Bilayer period, nm <input name="d_period_nm" type="number" step="0.01" value="{{ defaults.d_period_nm }}"></label>
         <label>Gamma <input name="gamma" type="number" step="0.01" value="{{ defaults.gamma }}"></label>
         <label>Bilayers <input name="n_bilayers" type="number" step="1" value="{{ defaults.n_bilayers }}"></label>
         <label>Top material
-          <select name="top_material">{% for material in materials %}<option {% if material == defaults.top_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+          <select name="top_material" data-material-select="top_material">{% for material in materials %}<option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}"{% if material == defaults.top_material %} selected{% endif %}>{{ material }}</option>{% endfor %}</select>
         </label>
         <label>Top material density, g/cm^3
-          <input name="top_material_density_g_cm3" type="number" step="any" placeholder="{{ density_placeholders['top_material'] }}">
+          <input name="top_material_density_g_cm3" type="number" step="any" value="{{ defaults.top_material_density_g_cm3 }}" placeholder="{{ density_placeholders['top_material'] }}" data-material-density="top_material">
         </label>
       </fieldset>
     </fieldset>
@@ -102,10 +102,10 @@
     <fieldset>
       <legend>Top cap</legend>
       <label>Top cap material
-        <select name="top_cap_material"><option value="">None</option>{% for material in materials %}<option {% if material == defaults.top_cap_material %}selected{% endif %}>{{ material }}</option>{% endfor %}</select>
+        <select name="top_cap_material" data-material-select="top_cap_material"><option value="" data-density="">None</option>{% for material in materials %}<option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}"{% if material == defaults.top_cap_material %} selected{% endif %}>{{ material }}</option>{% endfor %}</select>
       </label>
       <label>Top cap density, g/cm^3
-        <input name="top_cap_material_density_g_cm3" type="number" step="any" placeholder="{{ density_placeholders['top_cap_material'] }}">
+        <input name="top_cap_material_density_g_cm3" type="number" step="any" value="{{ defaults.top_cap_material_density_g_cm3 }}" placeholder="{{ density_placeholders['top_cap_material'] }}" data-material-density="top_cap_material">
       </label>
       <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
     </fieldset>

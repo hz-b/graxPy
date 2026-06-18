@@ -21,7 +21,13 @@ import numpy as np
 from tqdm import tqdm
 
 from ..gratings import BaseGrating
-from .core import _clone_grating_with_overrides, _refresh_interactive_figure, efficiency_for_order, run_simulation
+from .core import (
+    _clone_grating_with_overrides,
+    _refresh_interactive_figure,
+    _warn_if_numpy_backend_requested,
+    efficiency_for_order,
+    run_simulation,
+)
 from ._profiling import SolverProfiler
 from .models import (
     AUTO_WORKER_MEMORY_RESERVE_BYTES,
@@ -154,6 +160,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "_memory_mode": _case_memory_mode(case),
         "profile_memory": bool(case.get("profile_memory", False)),
         "roughness_sigma_nm": case.get("roughness_sigma_nm"),
+        "polarization": str(case.get("polarization", runner_settings["default_polarization"])),
         "validate_physical_results": bool(runner_settings["validate_physical_results"]),
         "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
         "min_efficiency": float(runner_settings["min_reflected_efficiency"]),
@@ -546,8 +553,10 @@ class BatchSimulationRunner:
         default_diffraction_order: Default selected diffraction order.
         default_fourier_orders: Default Fourier truncation order.
         max_fourier_orders: Maximum allowed Fourier orders.
-        backend: Fourier coefficient backend selector. Options: "numpy"
-            (default, pure Python), "numba" (JIT-compiled, requires numba package).
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default backend. ``"numpy"`` remains available temporarily for
+            compatibility but is deprecated and will be removed in a future
+            version.
         checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
         checkpoint_interval: Flush checkpoint file every N completed cases.
         resume: Whether to skip case IDs already present in the checkpoint.
@@ -610,7 +619,8 @@ class BatchSimulationRunner:
         retry_on_selected_efficiency_zero: bool = True,
         retry_selected_efficiency_threshold: float = 1e-4,
         max_zero_efficiency_retries: int = 3,
-        backend: str = "numpy",
+        backend: str = "numba",
+        default_polarization: str = "s",
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
@@ -661,7 +671,12 @@ class BatchSimulationRunner:
             retry_selected_efficiency_threshold: Threshold that triggers retry when
                 ``selected_efficiency <= retry_selected_efficiency_threshold``.
             max_zero_efficiency_retries: Maximum retry attempts for threshold-triggered cases.
-            backend: RCWA backend implementation. ``"numpy"`` or ``"jax"``.
+            backend: Fourier coefficient backend selector. ``"numba"`` is the
+                default backend. ``"numpy"`` remains available temporarily for
+                compatibility but is deprecated and will be removed in a future
+                version.
+            default_polarization: Default polarization used when a case omits the
+                value. Must be ``"s"`` or ``"p"``.
 
         Example:
             >>> runner = BatchSimulationRunner(
@@ -679,6 +694,7 @@ class BatchSimulationRunner:
             raise ValueError("execution_mode must be 'inline' or 'subprocess'.")
         if on_error not in {"continue", "fail_fast"}:
             raise ValueError("on_error must be 'continue' or 'fail_fast'.")
+        _warn_if_numpy_backend_requested(backend, stacklevel=2)
         if not np.isfinite(retry_selected_efficiency_threshold) or retry_selected_efficiency_threshold < 0.0:
             raise ValueError("retry_selected_efficiency_threshold must be finite and >= 0.0.")
         resolved_max_workers = _resolve_max_workers(max_workers)
@@ -714,6 +730,9 @@ class BatchSimulationRunner:
         self.retry_selected_efficiency_threshold = float(retry_selected_efficiency_threshold)
         self.max_zero_efficiency_retries = max(0, int(max_zero_efficiency_retries))
         self.backend = backend
+        self.default_polarization = default_polarization
+        if self.default_polarization not in {"s", "p"}:
+            raise ValueError("default_polarization must be 's' or 'p'.")
         self._live_figure: plt.Figure | None = None
         self._live_axis: plt.Axes | None = None
         self._live_x_values: list[float] = []
@@ -750,7 +769,8 @@ class BatchSimulationRunner:
 
         Each case must provide ``grating`` and ``energy_ev``. Optional fields
         include ``case_id``, ``diffraction_order``, ``fourier_orders``,
-        ``x_resolution_nm``, ``z_resolution_nm``, and ``grazing_angle_deg``.
+        ``x_resolution_nm``, ``z_resolution_nm``, ``grazing_angle_deg``,
+        and ``polarization``.
         Workflow-specific cases such as multilayer theta search include
         additional fields that trigger adaptive three-stage scanning internally.
 
@@ -864,6 +884,7 @@ class BatchSimulationRunner:
             "max_reflected_efficiency": self.max_reflected_efficiency,
             "min_reflected_efficiency": self.min_reflected_efficiency,
             "backend": self.backend,
+            "default_polarization": self.default_polarization,
         }
 
     def _prepare_pending_cases(
@@ -1016,6 +1037,7 @@ class BatchSimulationRunner:
                                 diffraction_angle_all=single.diffraction_angle_all,
                                 status="ok",
                                 case_data=case_data,
+                                polarization=single.polarization,
                                 theta_search_diagnostics=single.theta_search_diagnostics,
                                 retry_triggered=single.retry_triggered,
                                 retry_attempts=single.retry_attempts,
@@ -1046,6 +1068,7 @@ class BatchSimulationRunner:
                                 status="error",
                                 error_message=str(message["error"]),
                                 case_data=case_data,
+                                polarization=str(case.get("polarization", self.default_polarization)),
                                 peak_memory_bytes=None,
                                 wall_seconds=None,
                             )
@@ -1171,6 +1194,7 @@ class BatchSimulationRunner:
                 diffraction_angle_all=single.diffraction_angle_all,
                 status="ok",
                 case_data=case_data,
+                polarization=single.polarization,
                 theta_search_diagnostics=single.theta_search_diagnostics,
                 retry_triggered=single.retry_triggered,
                 retry_attempts=single.retry_attempts,
@@ -1197,6 +1221,7 @@ class BatchSimulationRunner:
                 status="error",
                 error_message=str(error),
                 case_data=case_data,
+                polarization=str(case.get("polarization", self.default_polarization)),
                 peak_memory_bytes=None,
                 wall_seconds=None,
             )

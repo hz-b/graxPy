@@ -29,8 +29,10 @@ def _write_run_fixture(
     run_id: str,
     display_name: str,
     grating_name: str = "Demo grating",
+    grating_type: str = "laminar",
     workflow: str = "fixed_angle",
     orders: tuple[int, ...] = (1, 2),
+    comment: str = "",
 ) -> None:
     run_dir = base_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -40,7 +42,9 @@ def _write_run_fixture(
         "workflow": workflow,
         "grating_id": "grating-1",
         "grating_name": grating_name,
+        "grating_spec": {"grating_type": grating_type},
         "display_name": display_name,
+        "comment": comment,
         "status": "ok",
         "artifacts": ["all_orders.csv"],
     }
@@ -49,8 +53,9 @@ def _write_run_fixture(
         handle.write("case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg\n")
         for energy in (100.0, 110.0):
             for order in orders:
+                stored_order = 0 if int(order) == 0 else -abs(int(order))
                 handle.write(
-                    f"case-{energy:.1f},{energy:.1f},1.5,{order},"
+                    f"case-{energy:.1f},{energy:.1f},1.5,{stored_order},"
                     f"{0.05 * order + energy / 1000:.6f},{order * 1.2:.6f}\n"
                 )
 
@@ -139,6 +144,22 @@ def _button_fragment(html: bytes, hook: bytes) -> bytes:
 
     start = html.index(hook)
     return html[start : start + 160]
+
+
+def _write_saved_png_plot_fixture(base_dir: Path, *, plot_id: str = "plot-legacy") -> None:
+    """Write one legacy PNG-backed saved plot manifest."""
+
+    plot_dir = base_dir / "plots" / plot_id
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "id": plot_id,
+        "created_at": "2026-06-18T11:00:00",
+        "title": "Legacy combined plot",
+        "selected_runs": [{"id": "run-1", "name": "Alpha run", "orders": [1]}],
+        "plot_path": "combined.png",
+    }
+    (plot_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (plot_dir / "combined.png").write_bytes(b"png")
 
 
 def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
@@ -380,7 +401,18 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
     assert b'name="top_material_density_g_cm3"' in response.data
+    assert b'name="substrate_material_density_g_cm3" type="number" step="any" value="2.3296"' in response.data
+    assert b'name="layer_material_density_g_cm3" type="number" step="any" value="21.46"' in response.data
+    assert b'data-material-select="substrate_material"' in response.data
+    assert b'data-material-density="substrate_material"' in response.data
+    assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
+
+    web_js = (Path(__file__).resolve().parents[1] / "src" / "grax" / "web" / "static" / "web.js").read_text(
+        encoding="utf-8"
+    )
+    assert "syncMaterialDensity" in web_js
+    assert "[data-material-select]" in web_js
 
 
 def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
@@ -527,8 +559,10 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
             "grazing_angle_deg": "1.5",
             "diffraction_order": "1",
             "fourier_orders": "5",
+            "polarization": "p",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
+            "comment": "Commissioning sample",
         },
         follow_redirects=True,
     )
@@ -541,6 +575,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
         time.sleep(0.02)
     assert captured_cases
     assert captured_cases[0]["x_resolution_nm"] == pytest.approx(0.75)
+    assert captured_cases[0]["polarization"] == "p"
     run_id = next((path.parent.name for path in (tmp_path / "runs").glob("*/manifest.json")), None)
     assert run_id is not None
     deadline = time.monotonic() + 2.0
@@ -553,6 +588,9 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
         time.sleep(0.02)
     assert manifest["status"] == "completed"
     assert manifest["display_name"] == "Run grating · fixed_angle"
+    assert manifest["comment"] == "Commissioning sample"
+    assert manifest["polarization"] == "p"
+    assert manifest["run_input"]["polarization"] == "p"
     assert manifest["worker_mode"] == "auto"
 
 
@@ -639,23 +677,44 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
 
     from grax.web.app import create_app
 
-    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(1, 3))
-    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", orders=(2,))
+    _write_run_fixture(
+        tmp_path,
+        run_id="run-1",
+        display_name="Alpha run",
+        grating_name="Alpha grating",
+        grating_type="laminar",
+        orders=(1, 3),
+        comment="Mirror alignment",
+    )
+    _write_run_fixture(
+        tmp_path,
+        run_id="run-2",
+        display_name="Beta run",
+        grating_name="Beta grating",
+        grating_type="blazed",
+        orders=(2,),
+    )
 
     app = create_app(data_dir=tmp_path)
     response = app.test_client().get("/plots")
 
     assert response.status_code == 200
-    assert b"Alpha run" in response.data
+    assert b"name: Alpha grating" in response.data
     assert b'data-plot-workspace' in response.data
-    assert b'data-plot-preview-image' in response.data
+    assert b'data-plot-preview' in response.data
     assert b'data-run-picker' in response.data
     assert b'plot-workspace-layout' in response.data
     assert b'plot-controls-panel' in response.data
-    assert b"run-1" in response.data
+    assert b'name="x_axis_type"' in response.data
+    assert b'name="y_axis_type"' in response.data
+    assert b'data-series-style-list' in response.data
+    assert b"name: Alpha grating" in response.data
+    assert b"grating type: laminar" in response.data
+    assert b"sweep type: fixed_angle" in response.data
+    assert b"Mirror alignment" in response.data
+    assert b"grating: Alpha grating" not in response.data
+    assert b"comment: \xe2\x80\x94" in response.data
     assert b"2026-06-10T12:00:00" in response.data
-    assert b"fixed_angle" in response.data
-    assert response.data.index(b"</form>") < response.data.index(b'<dialog class="export-dialog" data-export-dialog>')
 
 
 def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Path) -> None:
@@ -692,6 +751,157 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'monochromator' in response.data
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
+    assert b'name="comment"' in response.data
+    assert b'name="polarization"' in response.data
+
+
+def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
+    grating = SimpleNamespace(x_resolution_nm=2.0, z_resolution_nm=0.5)
+    energies = web_app_module.np.asarray([100.0, 110.0], dtype=float)
+    captured: dict[str, dict[str, object]] = {}
+
+    class FakeSimulation:
+        def fixed_angle_cases(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["fixed_angle"] = dict(kwargs)
+            return [{"energy_ev": 100.0, "grazing_angle_deg": 1.5}]
+
+        def monochromator_cases(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["monochromator"] = dict(kwargs)
+            return [{"energy_ev": 100.0, "grazing_angle_deg": 1.6}]
+
+        def multilayer_theta_search_cases(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["multilayer_theta_search"] = dict(kwargs)
+            return [{"energy_ev": 100.0}]
+
+    form = MultiDict(
+        {
+            "grazing_angle_deg": "1.5",
+            "cff": "2.25",
+            "polarization": "p",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
+        }
+    )
+
+    fixed_cases = web_app_module._cases_for_workflow(
+        simulation=FakeSimulation(),
+        workflow="fixed_angle",
+        grating=grating,
+        energies=energies,
+        form=form,
+        diffraction_order=1,
+        fourier_orders=5,
+    )
+    mono_cases = web_app_module._cases_for_workflow(
+        simulation=FakeSimulation(),
+        workflow="monochromator",
+        grating=grating,
+        energies=energies,
+        form=form,
+        diffraction_order=1,
+        fourier_orders=5,
+    )
+    theta_cases = web_app_module._cases_for_workflow(
+        simulation=FakeSimulation(),
+        workflow="multilayer_theta_search",
+        grating=grating,
+        energies=energies,
+        form=form,
+        diffraction_order=1,
+        fourier_orders=5,
+    )
+
+    assert captured["fixed_angle"]["polarization"] == "p"
+    assert captured["monochromator"]["polarization"] == "p"
+    assert "polarization" not in captured["multilayer_theta_search"]
+    assert fixed_cases[0]["polarization"] == "p"
+    assert mono_cases[0]["polarization"] == "p"
+    assert theta_cases[0]["polarization"] == "p"
+
+
+def test_parameter_study_run_uses_selected_polarization(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    captured: dict[str, object] = {}
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_text("plot", encoding="utf-8")
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Parameter grating",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+            "polarization": "p",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+
+    deadline = time.monotonic() + 2.0
+    manifest = {}
+    while time.monotonic() < deadline:
+        if captured:
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("status") == "completed":
+                break
+        time.sleep(0.02)
+
+    assert captured["polarization"] == "p"
+    assert manifest["polarization"] == "p"
+    assert manifest["run_input"]["polarization"] == "p"
+
+
+def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
+
+    manifest = web_app_module._load_run_manifest(tmp_path, "run-checkpoint")
+
+    assert manifest is not None
+    assert manifest["polarization"] == "s"
+    assert manifest["run_input"]["polarization"] == "s"
 
 
 def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
@@ -717,8 +927,20 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert payload["preview_url"].startswith("/_data/previews/live/")
+    assert payload["figure_json"]
     assert payload["selected_runs"][0]["orders"] == [0, 3]
+    assert len(payload["series_controls"]) == 3
+    assert payload["series_controls"][0]["marker_size"] == 3
+    assert payload["series_controls"][0]["label"].endswith("· order: 0")
+    assert "name: Demo grating" in payload["series_controls"][0]["label"]
+    assert "grating type: laminar" in payload["series_controls"][0]["label"]
+    assert "sweep type: fixed_angle" in payload["series_controls"][0]["label"]
+    assert "grating: Demo grating" not in payload["series_controls"][0]["label"]
+    figure = json.loads(payload["figure_json"])
+    assert len(figure["data"]) == 3
+    assert figure["layout"]["xaxis"]["type"] == "linear"
+    assert figure["layout"]["yaxis"]["type"] == "linear"
+    assert figure["data"][0]["marker"]["size"] == 3
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
     assert invalid_response.status_code == 200
@@ -727,56 +949,125 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert invalid_payload["error"]
 
 
-def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
+def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import create_app
 
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
-    export_dir = tmp_path / "exports"
-    export_dir.mkdir()
-    visible_dir = export_dir / "visible-folder"
-    visible_dir.mkdir()
-    hidden_dir = export_dir / ".hidden-folder"
-    hidden_dir.mkdir()
-
     client = create_app(data_dir=tmp_path).test_client()
     preview_response = client.post(
         "/_preview/plot",
         data={
-            "title": "Export me",
+            "title": "Styled preview",
             "run_ids": ["run-1"],
             "orders_run-1": ["0"],
+            "x_axis_type": "log",
+            "y_axis_type": "log",
+            "color_run_1__order_0": "#123abc",
+            "marker_symbol_run_1__order_0": "diamond",
+            "marker_size_run_1__order_0": "13",
         },
     )
     preview_payload = preview_response.get_json()
     assert preview_payload["ok"] is True
-    preview_id = preview_payload["preview_id"]
+    figure = json.loads(preview_payload["figure_json"])
+    assert figure["layout"]["xaxis"]["type"] == "log"
+    assert figure["layout"]["yaxis"]["type"] == "log"
+    assert figure["data"][0]["line"]["color"] == "#123abc"
+    assert figure["data"][0]["marker"]["symbol"] == "diamond"
+    assert figure["data"][0]["marker"]["size"] == 13
 
-    dialog_response = client.get(f"/plots/export?preview_id={preview_id}&path={export_dir}")
-    assert dialog_response.status_code == 200
-    assert b"Save plot" in dialog_response.data
-    assert bytes(str(export_dir), "utf-8") in dialog_response.data
-    assert b'data-export-breadcrumbs' in dialog_response.data
-    assert b'data-export-directory-list' in dialog_response.data
-    assert b'Current folder' not in dialog_response.data
-    assert b'name="directory" type="text"' not in dialog_response.data
-    assert b"visible-folder" in dialog_response.data
-    assert b".hidden-folder" not in dialog_response.data
 
-    save_response = client.post(
-        "/plots/export",
+def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", orders=(2,))
+    client = create_app(data_dir=tmp_path).test_client()
+
+    response = client.post(
+        "/plots",
         data={
-            "preview_id": preview_id,
-            "directory": str(export_dir),
-            "filename": "combined.png",
-            "overwrite": "1",
+            "title": "Saved interactive plot",
+            "run_ids": ["run-1", "run-2"],
+            "orders_run-1": ["0", "1"],
+            "orders_run-2": ["2"],
+            "x_axis_type": "linear",
+            "y_axis_type": "log",
+            "color_run_1__order_0": "#ff0000",
+            "marker_symbol_run_1__order_0": "square",
+            "marker_size_run_1__order_0": "11",
         },
+        follow_redirects=False,
     )
-    assert save_response.status_code == 200
-    save_payload = save_response.get_json()
-    assert save_payload["ok"] is True
-    assert (export_dir / "combined.png").exists()
+
+    assert response.status_code == 302
+    location = response.headers["Location"]
+    plot_id = location.rsplit("/", 1)[-1]
+    manifest = json.loads((tmp_path / "plots" / plot_id / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["plot_config"]["y_axis_type"] == "log"
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["color"] == "#ff0000"
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_symbol"] == "square"
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_size"] == 11
+    assert manifest["figure_json"]
+
+    detail_response = client.get(location)
+    assert detail_response.status_code == 200
+    assert b"interactive Plotly figure" in detail_response.data
+    assert b'data-saved-plot-figure' in detail_response.data
+    assert b"square" in detail_response.data
+    assert b"#ff0000" in detail_response.data
+
+
+def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_saved_png_plot_fixture(tmp_path)
+
+    response = create_app(data_dir=tmp_path).test_client().get("/plots/plot-legacy")
+
+    assert response.status_code == 200
+    assert b"Plot image:" in response.data
+    assert b"combined.png" in response.data
+    assert b'data-saved-plot-figure' not in response.data
+
+
+def test_saved_run_pages_render_placeholder_for_missing_comment(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    run_dir = tmp_path / "runs" / "run-legacy"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "id": "run-legacy",
+        "created_at": "2026-06-10T12:00:00",
+        "workflow": "fixed_angle",
+        "grating_id": "grating-1",
+        "grating_name": "Legacy grating",
+        "grating_spec": {"grating_type": "laminar"},
+        "display_name": "Legacy run",
+        "status": "ok",
+        "artifacts": ["all_orders.csv"],
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "all_orders.csv").write_text(
+        "case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg\n"
+        "case-100.0,100.0,1.5,-1,0.150000,1.200000\n",
+        encoding="utf-8",
+    )
+
+    response = create_app(data_dir=tmp_path).test_client().get("/plots")
+
+    assert response.status_code == 200
+    assert b"name: Legacy grating" in response.data
+    assert b"grating type: laminar" in response.data
+    assert b"comment: \xe2\x80\x94" in response.data
 
 
 def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> None:
@@ -784,7 +1075,7 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
 
     from grax.web.app import create_app
 
-    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run")
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", comment="Initial note")
     _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run")
 
     app = create_app(data_dir=tmp_path)
@@ -793,18 +1084,25 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     page = client.get("/runs/manage")
     assert page.status_code == 200
     assert b"data-confirm=\"Delete the selected runs?" in page.data
+    assert b'name="comment_run-1"' in page.data
+    assert b"Initial note" in page.data
 
     rename_response = client.post(
         "/runs/manage",
         data={
             "action": "save",
             "display_name_run-1": "Renamed run",
+            "comment_run-1": "Updated note",
             "display_name_run-2": "Beta run",
+            "comment_run-2": "",
         },
         follow_redirects=True,
     )
     assert rename_response.status_code == 200
     assert b"Renamed run" in rename_response.data
+    assert b"Updated note" in rename_response.data
+    manifest = json.loads((tmp_path / "runs" / "run-1" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["comment"] == "Updated note"
 
     delete_response = client.post(
         "/runs/manage",
@@ -881,7 +1179,7 @@ def test_index_can_switch_active_workspace_root(tmp_path: Path) -> None:
     client = app.test_client()
 
     initial = client.get("/")
-    assert b"Primary run" in initial.data
+    assert b"name: Demo grating" in initial.data
     assert b"Secondary run" not in initial.data
 
     switched = client.post(
@@ -891,7 +1189,7 @@ def test_index_can_switch_active_workspace_root(tmp_path: Path) -> None:
     )
 
     assert switched.status_code == 200
-    assert b"Secondary run" in switched.data
+    assert b"name: Demo grating" in switched.data
     assert b"Primary run" not in switched.data
     assert bytes(str(secondary), "utf-8") in switched.data
 
@@ -1540,6 +1838,62 @@ def test_main_accepts_custom_host_and_port(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["debug"] is True
 
 
+def test_main_opens_default_browser_for_local_web_ui(monkeypatch: pytest.MonkeyPatch) -> None:
+    from grax.web import app as web_app
+
+    opened: list[str] = []
+
+    class DummyApp:
+        def run(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+
+    class ImmediateTimer:
+        def __init__(self, _delay, callback):  # type: ignore[no-untyped-def]
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):  # type: ignore[no-untyped-def]
+            self.callback()
+
+    monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(web_app.threading, "Timer", ImmediateTimer)
+    monkeypatch.setattr(sys, "argv", ["grax-web"])
+    monkeypatch.setenv("WERKZEUG_RUN_MAIN", "true")
+
+    web_app.main()
+
+    assert opened == ["http://127.0.0.1:5050"]
+
+
+def test_main_opens_localhost_when_bound_to_all_interfaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    from grax.web import app as web_app
+
+    opened: list[str] = []
+
+    class DummyApp:
+        def run(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+
+    class ImmediateTimer:
+        def __init__(self, _delay, callback):  # type: ignore[no-untyped-def]
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):  # type: ignore[no-untyped-def]
+            self.callback()
+
+    monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(web_app.threading, "Timer", ImmediateTimer)
+    monkeypatch.setattr(sys, "argv", ["grax-web", "--host", "0.0.0.0", "--port", "8000"])
+    monkeypatch.setenv("WERKZEUG_RUN_MAIN", "true")
+
+    web_app.main()
+
+    assert opened == ["http://127.0.0.1:8000"]
+
+
 def test_base_template_renders_global_attribution_links(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -1794,4 +2148,8 @@ def test_flask_app_plots_selected_orders_across_runs(
 
     assert plot_response.status_code == 200
     assert b"Combined plot" in plot_response.data
-    assert list((tmp_path / "plots").glob("*/*.png"))
+    manifests = list((tmp_path / "plots").glob("*/manifest.json"))
+    assert manifests
+    saved_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    assert saved_manifest["figure_json"]
+    assert saved_manifest["plot_config"]["series_styles"]

@@ -11,6 +11,7 @@ Serial execution:
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
+    default_polarization="p",
     max_workers=1,
     show_progress=True,
 )
@@ -22,6 +23,7 @@ Automatic worker selection:
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
+    default_polarization="p",
     max_workers="auto",
     show_progress=True,
 )
@@ -33,6 +35,7 @@ Explicit worker count:
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=15,
+    default_polarization="p",
     max_workers=8,
     show_progress=True,
 )

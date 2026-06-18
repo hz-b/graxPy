@@ -299,6 +299,15 @@ select {
   margin-bottom: 12px;
 }
 
+.plotly-stage {
+  min-height: 420px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  margin-bottom: 12px;
+}
+
 .plot-controls-panel {
   display: grid;
   gap: 18px;
@@ -335,6 +344,10 @@ select {
 }
 
 .plot-run {
+  gap: 12px;
+}
+
+.plot-series-style {
   gap: 12px;
 }
 

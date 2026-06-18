@@ -5,7 +5,7 @@ then composes a custom stack around it:
 - Si substrate
 - Pt 2 nm layer
 - Cr/C multilayer block
-- CoO 2 nm layer
+- Te 2 nm layer
 - O 2 nm top cap
 """
 
@@ -13,20 +13,6 @@ from pathlib import Path
 import argparse
 
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.329, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
-chromium = xrt_materials.Material("Cr", rho=7.19, table="Henke", name="Cr")
-carbon = xrt_materials.Material("C", rho=2.2, table="Henke", name="C")
-carbon_oxide = xrt_materials.Material(
-    elements=("Co", "O"),
-    quantities=(1, 1),
-    rho=6.44,
-    table="Henke",
-    name="CoO",
-)
-oxygen = xrt_materials.Material("O", rho=1.14, table="Henke", name="O")
 
 # Periodic multilayer definition (Cr/C) from the built-in multilayer stack API.
 d_period_nm = 6.0
@@ -34,23 +20,23 @@ gamma = 0.4
 n_bilayers = 50
 
 multilayer_stack = grax.MultilayerStack(
-    substrate_material=silicon,
-    material_a=chromium,
-    material_b=carbon,
+    substrate_material="Si",
+    material_a="Cr",
+    material_b="C",
     d_period_nm=d_period_nm,
     gamma=gamma,
     n_bilayers=n_bilayers,
-    top_material=carbon,
+    top_material="C",
 )
 
-layers_bottom_up: list[grax.LayerSpec] = [grax.LayerSpec(material=platinum, thickness_nm=2.0)]
+layers_bottom_up: list[grax.LayerSpec] = [grax.LayerSpec(material="Pt", thickness_nm=2.0)]
 layers_bottom_up.extend(multilayer_stack.layer_specs_bottom_up())
-layers_bottom_up.append(grax.LayerSpec(material=carbon_oxide, thickness_nm=2.0))
+layers_bottom_up.append(grax.LayerSpec(material="Te", thickness_nm=2.0))
 
 custom_stack = grax.assemble_custom_stack(
-    substrate_material=silicon,
+    substrate_material="Si",
     layers_bottom_up=layers_bottom_up,
-    top_cap_material=oxygen,
+    top_cap_material="O",
     top_cap_thickness_nm=2.0,  # O top layer
 )
 

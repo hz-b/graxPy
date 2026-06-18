@@ -64,6 +64,9 @@ Then open <http://127.0.0.1:5050>. Use the home page to create and save
 gratings, then open the plot page to combine saved runs and select the
 diffraction orders to overlay.
 
+`grax-web` now opens that local URL in your default browser automatically on
+startup.
+
 Start on a different port when needed:
 
 ```bash

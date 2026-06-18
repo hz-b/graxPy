@@ -1,4 +1,4 @@
-"""Monochromator sweep using monochromator_cases helper."""
+"""Monochromator sweep using explicit p polarization."""
 
 from __future__ import annotations
 
@@ -6,15 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
 
 grating = grax.BlazedGrating(
     period_lpermm=600,
-    substrate_material=silicon,
-    layer_material=gold,
+    substrate_material="Si",
+    layer_material="Au",
     layer_thickness_nm=30.0,
     blaze_angle_deg=0.75,
     anti_blaze_angle_deg=5.597,
@@ -32,6 +28,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

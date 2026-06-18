@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import grax
-from xrt.backends.raycing import materials as xrt_materials
 
 example_root = Path("examples/simulation/energy_angle_sweep")
 input_path = example_root / "energy_angle_pairs.dat"
@@ -36,18 +35,14 @@ energy_angle_pairs = list(
     )
 )
 
-silicon = xrt_materials.Material("Si", rho=2.329, table="Chantler total", name="Si")
-chromium = xrt_materials.Material("Cr", rho=7.19, table="Chantler total", name="Cr")
-carbon = xrt_materials.Material("C", rho=2.2, table="Chantler total", name="C")
-
 multilayer_stack = grax.MultilayerStack(
-    substrate_material=silicon,
-    material_a=chromium,
-    material_b=carbon,
+    substrate_material="Si",
+    material_a="Cr",
+    material_b="C",
     d_period_nm=4.8,
     gamma=0.4,
     n_bilayers=60,
-    top_material=carbon,
+    top_material="C",
 )
 
 grating = grax.BlazedGrating(
@@ -62,6 +57,7 @@ grating = grax.BlazedGrating(
 cases = grax.energy_angle_cases(
     grating=grating,
     energy_angle_pairs=energy_angle_pairs,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
@@ -100,3 +96,6 @@ plt.close(figure)
 ```
 
 See `examples/simulation/energy_angle_sweep/energy_angle_sweep.py` for the full runnable script.
+
+Like the maintained runnable script, this tutorial sets `polarization="p"`
+explicitly for the sampled multilayer cases. Accepted values are `s` and `p`.

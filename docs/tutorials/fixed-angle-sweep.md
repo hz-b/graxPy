@@ -25,6 +25,7 @@ cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
     grazing_angle_deg=4.0,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
@@ -53,6 +54,9 @@ already have xrt material objects or a DataFrame with ``Energy(eV)``,
 
 The example also produces an energy-vs-efficiency plot for diffraction
 orders 1, 2, and 3:
+
+This maintained example also sets `polarization="p"` explicitly for every
+generated case. Accepted polarization values are `s` and `p`.
 
 ```{image} images/simulation/fixed_angle_orders_1_3.png
 :alt: Fixed-angle sweep efficiencies for diffraction orders 1 to 3

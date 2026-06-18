@@ -1,22 +1,18 @@
-"""Blazed-grating parameter study across energies."""
+"""Blazed-grating parameter study across energies with explicit p polarization."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import grax
-from xrt.backends.raycing import materials as xrt_materials
 
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
 
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-gold = xrt_materials.Material("Au", rho=19.3, table="Henke", name="Au")
-
 grating = grax.BlazedGrating(
     period_lpermm=600,
-    substrate_material=silicon,
-    layer_material=gold,
+    substrate_material="Si",
+    layer_material="Au",
     layer_thickness_nm=30.0,
     blaze_angle_deg=0.75,
     anti_blaze_angle_deg=None,
@@ -35,6 +31,7 @@ study = grax.run_parameter_study(
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
     diffraction_order=1,
+    polarization="p",
     fourier_orders_values=fourier_orders_values,
     x_resolution_values=x_resolution_values,
     z_resolution_values=z_resolution_values,

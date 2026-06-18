@@ -1,4 +1,4 @@
-"""Run a low-memory blazed multilayer sweep and save profile artifacts."""
+"""Run a low-memory blazed multilayer sweep with explicit p polarization."""
 
 from __future__ import annotations
 
@@ -8,27 +8,22 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from xrt.backends.raycing import materials as xrt_materials
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 import grax
 
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-chromium = xrt_materials.Material("Cr", rho=7.19, table="Henke", name="Cr")
-carbon = xrt_materials.Material("C", rho=2.20, table="Henke", name="C")
-
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 multilayer_stack = grax.MultilayerStack(
-    substrate_material=silicon,
-    material_a=chromium,
-    material_b=carbon,
+    substrate_material="Si",
+    material_a="Cr",
+    material_b="C",
     d_period_nm=6,
     gamma=0.4,
     n_bilayers=10,
-    top_material=carbon,
+    top_material="C",
 )
 
 grating = grax.BlazedGrating(
@@ -51,6 +46,7 @@ cases = [
         energies_ev=energies_ev,
         diffraction_order=1,
         cff=2.25,
+        polarization="p",
     )
 ]
 

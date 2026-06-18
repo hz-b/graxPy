@@ -8,9 +8,22 @@ click `Web docs` from the landing page or header navigation to read it in the
 browser.
 
 The Web UI material chooser uses the same packaged Henke element list as the
-Python API, and each material field has an optional density override. Leave the
-density blank to use the tabulated default or enter the actual sample density
-when your coating is not bulk-like.
+Python API, and each material field is prefilled with the built-in default
+density for the selected element. Edit the value only when your coating or film
+uses a different measured density.
+
+Saved run comparison plots now render as interactive Plotly views inside the
+browser. From the `Plots` page you can change each series color, marker type,
+marker size, and the x/y axis scale before saving the comparison.
+
+When you launch a run from a saved grating, you can add an optional comment.
+That comment is saved with the run, shown in the saved-run selector together
+with the date/time, grating name, and sweep type, and can be edited later from
+`Manage runs`.
+
+The run form keeps polarization together with the other numerics controls, so
+you choose the diffraction order, Fourier orders, polarization, and x/z
+resolution in one place before launching the simulation.
 
 If you install from PyPI, use:
 
@@ -47,6 +60,9 @@ python -m pip install -e ".[web]"
 
 Open <http://127.0.0.1:5050>.
 
+When you start `grax-web`, it now opens that local URL in your default browser
+automatically.
+
 To use a different port:
 
 ```bash
@@ -78,6 +94,9 @@ python -m pip install -e ".[web]"
 ```
 
 Open <http://127.0.0.1:5050>.
+
+When you start `grax-web`, it now opens that local URL in your default browser
+automatically.
 
 To use a different port:
 

@@ -8,6 +8,7 @@ Use checkpointing when a batch run is long or may be interrupted.
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
     default_fourier_orders=25,
+    default_polarization="p",
     checkpoint_dir="results/checkpoints",
     checkpoint_interval=1,
     resume=True,

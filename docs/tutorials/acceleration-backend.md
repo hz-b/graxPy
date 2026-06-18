@@ -1,6 +1,7 @@
 # Acceleration Backend
 
-This section explains the optional Numba backend in two parts.
+This section explains the standard numba backend workflow and the temporary
+deprecated NumPy compatibility path in two parts.
 
 ```{toctree}
 :maxdepth: 1

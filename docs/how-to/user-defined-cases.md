@@ -11,10 +11,6 @@ with **different laminar grating depths**.
 ```python
 import numpy as np
 import grax
-from xrt.backends.raycing import materials as xrt_materials
-
-silicon = xrt_materials.Material("Si", rho=2.33, table="Henke", name="Si")
-platinum = xrt_materials.Material("Pt", rho=21.45, table="Henke", name="Pt")
 
 energy_ev = 1000.0
 grazing_angle_deg = 3.5
@@ -24,8 +20,8 @@ depths_nm = np.arange(10.0, 31.0, 1.0)
 base_grating_kwargs = dict(
     period_lpermm=400,
     width_to_period_ratio=0.67,
-    substrate_material=silicon,
-    layer_material=platinum,
+    substrate_material="Si",
+    layer_material="Pt",
     layer_thickness_nm=28.77,
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
@@ -46,14 +42,16 @@ for depth_nm in depths_nm:
             "grating": grating,
             "energy_ev": energy_ev,
             "grazing_angle_deg": grazing_angle_deg,
+            "polarization": "p",
             "depth_nm": float(depth_nm),
         }
     )
 ```
 
-All cases share the same `energy_ev` and `grazing_angle_deg`; only `depth_nm`
-changes. `case_id` is optional; the runner will generate deterministic IDs when
-omitted.
+All cases share the same `energy_ev`, `grazing_angle_deg`, and explicit
+`polarization="p"`; only `depth_nm` changes. Accepted polarization values are
+`s` and `p`. `case_id` is optional; the runner will generate deterministic IDs
+when omitted.
 
 ## 3. Run and export
 

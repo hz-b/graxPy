@@ -71,6 +71,7 @@ cases = grax.fixed_angle_cases(
     grating=fitted_grating,
     energies_ev=energies,
     grazing_angle_deg=grazing_angle_deg,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(
