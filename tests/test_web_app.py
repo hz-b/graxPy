@@ -49,8 +49,9 @@ def _write_run_fixture(
         handle.write("case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg\n")
         for energy in (100.0, 110.0):
             for order in orders:
+                stored_order = 0 if int(order) == 0 else -abs(int(order))
                 handle.write(
-                    f"case-{energy:.1f},{energy:.1f},1.5,{order},"
+                    f"case-{energy:.1f},{energy:.1f},1.5,{stored_order},"
                     f"{0.05 * order + energy / 1000:.6f},{order * 1.2:.6f}\n"
                 )
 
@@ -139,6 +140,22 @@ def _button_fragment(html: bytes, hook: bytes) -> bytes:
 
     start = html.index(hook)
     return html[start : start + 160]
+
+
+def _write_saved_png_plot_fixture(base_dir: Path, *, plot_id: str = "plot-legacy") -> None:
+    """Write one legacy PNG-backed saved plot manifest."""
+
+    plot_dir = base_dir / "plots" / plot_id
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "id": plot_id,
+        "created_at": "2026-06-18T11:00:00",
+        "title": "Legacy combined plot",
+        "selected_runs": [{"id": "run-1", "name": "Alpha run", "orders": [1]}],
+        "plot_path": "combined.png",
+    }
+    (plot_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (plot_dir / "combined.png").write_bytes(b"png")
 
 
 def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
@@ -659,14 +676,16 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert b"Alpha run" in response.data
     assert b'data-plot-workspace' in response.data
-    assert b'data-plot-preview-image' in response.data
+    assert b'data-plot-preview' in response.data
     assert b'data-run-picker' in response.data
     assert b'plot-workspace-layout' in response.data
     assert b'plot-controls-panel' in response.data
+    assert b'name="x_axis_type"' in response.data
+    assert b'name="y_axis_type"' in response.data
+    assert b'data-series-style-list' in response.data
     assert b"run-1" in response.data
     assert b"2026-06-10T12:00:00" in response.data
     assert b"fixed_angle" in response.data
-    assert response.data.index(b"</form>") < response.data.index(b'<dialog class="export-dialog" data-export-dialog>')
 
 
 def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Path) -> None:
@@ -728,8 +747,13 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert payload["preview_url"].startswith("/_data/previews/live/")
+    assert payload["figure_json"]
     assert payload["selected_runs"][0]["orders"] == [0, 3]
+    assert len(payload["series_controls"]) == 3
+    figure = json.loads(payload["figure_json"])
+    assert len(figure["data"]) == 3
+    assert figure["layout"]["xaxis"]["type"] == "linear"
+    assert figure["layout"]["yaxis"]["type"] == "linear"
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
     assert invalid_response.status_code == 200
@@ -738,56 +762,92 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert invalid_payload["error"]
 
 
-def test_plot_export_dialog_browses_and_saves_preview(tmp_path: Path) -> None:
+def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import create_app
 
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
-    export_dir = tmp_path / "exports"
-    export_dir.mkdir()
-    visible_dir = export_dir / "visible-folder"
-    visible_dir.mkdir()
-    hidden_dir = export_dir / ".hidden-folder"
-    hidden_dir.mkdir()
-
     client = create_app(data_dir=tmp_path).test_client()
     preview_response = client.post(
         "/_preview/plot",
         data={
-            "title": "Export me",
+            "title": "Styled preview",
             "run_ids": ["run-1"],
             "orders_run-1": ["0"],
+            "x_axis_type": "log",
+            "y_axis_type": "log",
+            "color_run_1__order_0": "#123abc",
+            "marker_symbol_run_1__order_0": "diamond",
+            "marker_size_run_1__order_0": "13",
         },
     )
     preview_payload = preview_response.get_json()
     assert preview_payload["ok"] is True
-    preview_id = preview_payload["preview_id"]
+    figure = json.loads(preview_payload["figure_json"])
+    assert figure["layout"]["xaxis"]["type"] == "log"
+    assert figure["layout"]["yaxis"]["type"] == "log"
+    assert figure["data"][0]["line"]["color"] == "#123abc"
+    assert figure["data"][0]["marker"]["symbol"] == "diamond"
+    assert figure["data"][0]["marker"]["size"] == 13
 
-    dialog_response = client.get(f"/plots/export?preview_id={preview_id}&path={export_dir}")
-    assert dialog_response.status_code == 200
-    assert b"Save plot" in dialog_response.data
-    assert bytes(str(export_dir), "utf-8") in dialog_response.data
-    assert b'data-export-breadcrumbs' in dialog_response.data
-    assert b'data-export-directory-list' in dialog_response.data
-    assert b'Current folder' not in dialog_response.data
-    assert b'name="directory" type="text"' not in dialog_response.data
-    assert b"visible-folder" in dialog_response.data
-    assert b".hidden-folder" not in dialog_response.data
 
-    save_response = client.post(
-        "/plots/export",
+def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0, 1))
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", orders=(2,))
+    client = create_app(data_dir=tmp_path).test_client()
+
+    response = client.post(
+        "/plots",
         data={
-            "preview_id": preview_id,
-            "directory": str(export_dir),
-            "filename": "combined.png",
-            "overwrite": "1",
+            "title": "Saved interactive plot",
+            "run_ids": ["run-1", "run-2"],
+            "orders_run-1": ["0", "1"],
+            "orders_run-2": ["2"],
+            "x_axis_type": "linear",
+            "y_axis_type": "log",
+            "color_run_1__order_0": "#ff0000",
+            "marker_symbol_run_1__order_0": "square",
+            "marker_size_run_1__order_0": "11",
         },
+        follow_redirects=False,
     )
-    assert save_response.status_code == 200
-    save_payload = save_response.get_json()
-    assert save_payload["ok"] is True
-    assert (export_dir / "combined.png").exists()
+
+    assert response.status_code == 302
+    location = response.headers["Location"]
+    plot_id = location.rsplit("/", 1)[-1]
+    manifest = json.loads((tmp_path / "plots" / plot_id / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["plot_config"]["y_axis_type"] == "log"
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["color"] == "#ff0000"
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_symbol"] == "square"
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_size"] == 11
+    assert manifest["figure_json"]
+
+    detail_response = client.get(location)
+    assert detail_response.status_code == 200
+    assert b"interactive Plotly figure" in detail_response.data
+    assert b'data-saved-plot-figure' in detail_response.data
+    assert b"square" in detail_response.data
+    assert b"#ff0000" in detail_response.data
+
+
+def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_saved_png_plot_fixture(tmp_path)
+
+    response = create_app(data_dir=tmp_path).test_client().get("/plots/plot-legacy")
+
+    assert response.status_code == 200
+    assert b"Plot image:" in response.data
+    assert b"combined.png" in response.data
+    assert b'data-saved-plot-figure' not in response.data
 
 
 def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> None:
@@ -1861,4 +1921,8 @@ def test_flask_app_plots_selected_orders_across_runs(
 
     assert plot_response.status_code == 200
     assert b"Combined plot" in plot_response.data
-    assert list((tmp_path / "plots").glob("*/*.png"))
+    manifests = list((tmp_path / "plots").glob("*/manifest.json"))
+    assert manifests
+    saved_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    assert saved_manifest["figure_json"]
+    assert saved_manifest["plot_config"]["series_styles"]

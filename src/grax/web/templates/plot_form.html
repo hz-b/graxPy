@@ -22,21 +22,19 @@
   data-plot-workspace
   data-order-field-prefix="orders_"
   data-preview-url="{{ url_for('preview_plot') }}"
-  data-export-dialog-url="{{ url_for('plot_export_dialog') }}"
-  data-export-post-url="{{ url_for('export_plot') }}"
 >
   <section class="preview-panel plot-stage-panel">
     <div class="section-head preview-head">
       <div>
         <h2>Live plot preview</h2>
-        <p data-plot-preview-status>Select saved runs and orders to see the combined plot.</p>
+        <p data-plot-preview-status>Select saved runs and orders to see the interactive combined plot.</p>
       </div>
-    <div class="actions">
+      <div class="actions">
         <span class="preview-pill" data-plot-preview-loading>Idle</span>
-        <button class="button" type="button" data-save-plot disabled>Save plot</button>
+        <button class="button primary" type="submit" data-save-plot disabled>Save plot</button>
       </div>
     </div>
-    <img class="preview is-hidden" src="" alt="Combined plot preview" data-plot-preview-image>
+    <div class="plotly-stage" data-plot-preview></div>
     <div class="list compact" data-selected-run-summary></div>
   </section>
 
@@ -47,6 +45,22 @@
         Plot title
         <input name="title" type="text" value="Combined plot">
       </label>
+      <div class="form-grid two-column">
+        <label>
+          X axis
+          <select name="x_axis_type">
+            <option value="linear" selected>Linear</option>
+            <option value="log">Logarithmic</option>
+          </select>
+        </label>
+        <label>
+          Y axis
+          <select name="y_axis_type">
+            <option value="linear" selected>Linear</option>
+            <option value="log">Logarithmic</option>
+          </select>
+        </label>
+      </div>
 
       {% if run_options %}
         <label>
@@ -72,10 +86,14 @@
     {% if run_options %}
       <div class="list" data-plot-run-list></div>
     {% endif %}
+
+    <fieldset>
+      <legend>Series styling</legend>
+      <p class="hint">Each selected run and diffraction order gets its own line and marker controls.</p>
+      <div class="list compact" data-series-style-list></div>
+    </fieldset>
   </section>
 </form>
-
-<dialog class="export-dialog" data-export-dialog></dialog>
 
 <template data-plot-run-template>
   <fieldset class="plot-run" data-plot-run-item>
@@ -87,6 +105,30 @@
     </legend>
     <input type="hidden" name="run_ids" value="" data-run-id-field>
     <div class="order-grid" data-order-grid></div>
+  </fieldset>
+</template>
+
+<template data-plot-series-style-template>
+  <fieldset class="plot-series-style" data-series-style-item>
+    <legend data-series-style-title></legend>
+    <div class="form-grid three-column">
+      <label>
+        Line and marker color
+        <input type="color" value="#1f77b4" data-series-color>
+      </label>
+      <label>
+        Marker type
+        <select data-series-marker-symbol>
+          {% for value, label in marker_symbols %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Marker size
+        <input type="number" min="1" max="24" step="1" value="8" data-series-marker-size>
+      </label>
+    </div>
   </fieldset>
 </template>
 {% endblock %}

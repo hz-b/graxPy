@@ -12,6 +12,10 @@ Python API, and each material field is prefilled with the built-in default
 density for the selected element. Edit the value only when your coating or film
 uses a different measured density.
 
+Saved run comparison plots now render as interactive Plotly views inside the
+browser. From the `Plots` page you can change each series color, marker type,
+marker size, and the x/y axis scale before saving the comparison.
+
 If you install from PyPI, use:
 
 ```bash

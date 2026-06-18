@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Grax Web{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+    {% if plotly_bundle %}
+      <script>{{ plotly_bundle | safe }}</script>
+    {% endif %}
     <script src="{{ url_for('static', filename='web.js') }}" defer></script>
   </head>
   <body>

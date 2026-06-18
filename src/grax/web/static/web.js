@@ -130,26 +130,30 @@ function createOrderCheckbox(runId, order) {
   return label;
 }
 
+function renderPlotlyFigure(container, figureJson) {
+  if (!container || !window.Plotly || !figureJson) {
+    return;
+  }
+  const parsed = typeof figureJson === "string" ? JSON.parse(figureJson) : figureJson;
+  window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
+    responsive: true,
+    displaylogo: false,
+  });
+}
+
 function initPlotWorkspace(form) {
   const previewUrl = form.dataset.previewUrl;
-  const exportDialogUrl = form.dataset.exportDialogUrl;
-  const exportPostUrl = form.dataset.exportPostUrl;
   const picker = form.querySelector("[data-run-picker]");
   const runList = form.querySelector("[data-plot-run-list]");
   const template = document.querySelector("[data-plot-run-template]");
-  const previewImage = document.querySelector("[data-plot-preview-image]");
+  const seriesTemplate = document.querySelector("[data-plot-series-style-template]");
+  const previewContainer = document.querySelector("[data-plot-preview]");
   const previewStatus = document.querySelector("[data-plot-preview-status]");
   const loading = document.querySelector("[data-plot-preview-loading]");
   const saveButton = document.querySelector("[data-save-plot]");
   const selectedRunSummary = document.querySelector("[data-selected-run-summary]");
-  const exportDialog = document.querySelector("[data-export-dialog]");
+  const seriesStyleList = document.querySelector("[data-series-style-list]");
   let requestId = 0;
-  let latestPreviewId = "";
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    refreshPreview();
-  });
 
   function summarizeRuns(selectedRuns) {
     selectedRunSummary.replaceChildren();
@@ -162,6 +166,36 @@ function initPlotWorkspace(form) {
       orders.textContent = `Orders: ${run.orders.join(", ")}`;
       row.append(title, orders);
       selectedRunSummary.append(row);
+    });
+  }
+
+  function attachStyleInputHandlers(item) {
+    item.querySelectorAll("input, select").forEach((field) => {
+      field.addEventListener("input", refreshPreview);
+      field.addEventListener("change", refreshPreview);
+    });
+  }
+
+  function syncSeriesControls(seriesControls) {
+    seriesStyleList.replaceChildren();
+    seriesControls.forEach((series) => {
+      const item = seriesTemplate.content.firstElementChild.cloneNode(true);
+      item.querySelector("[data-series-style-title]").textContent = series.label;
+
+      const colorInput = item.querySelector("[data-series-color]");
+      colorInput.name = `color_${series.series_token}`;
+      colorInput.value = series.color;
+
+      const markerSelect = item.querySelector("[data-series-marker-symbol]");
+      markerSelect.name = `marker_symbol_${series.series_token}`;
+      markerSelect.value = series.marker_symbol;
+
+      const markerSizeInput = item.querySelector("[data-series-marker-size]");
+      markerSizeInput.name = `marker_size_${series.series_token}`;
+      markerSizeInput.value = String(series.marker_size);
+
+      attachStyleInputHandlers(item);
+      seriesStyleList.append(item);
     });
   }
 
@@ -180,15 +214,15 @@ function initPlotWorkspace(form) {
       }
       loading.textContent = payload.ok ? "Ready" : "Idle";
       if (payload.ok) {
-        latestPreviewId = payload.preview_id;
-        previewImage.src = payload.preview_url;
-        previewImage.classList.remove("is-hidden");
+        renderPlotlyFigure(previewContainer, payload.figure_json);
         previewStatus.textContent = "Ready";
         saveButton.disabled = false;
         summarizeRuns(payload.selected_runs || []);
+        syncSeriesControls(payload.series_controls || []);
       } else {
         previewStatus.textContent = payload.error || "Select runs and orders.";
         saveButton.disabled = true;
+        seriesStyleList.replaceChildren();
       }
     } catch (error) {
       if (currentRequest !== requestId) {
@@ -197,6 +231,7 @@ function initPlotWorkspace(form) {
       loading.textContent = "Error";
       previewStatus.textContent = "Preview request failed.";
       saveButton.disabled = true;
+      seriesStyleList.replaceChildren();
     }
   }, 250);
 
@@ -239,47 +274,18 @@ function initPlotWorkspace(form) {
     refreshPreview();
   });
 
-  form.querySelector('input[name="title"]')?.addEventListener("input", refreshPreview);
-
-  saveButton?.addEventListener("click", async () => {
-    if (!latestPreviewId) {
-      return;
-    }
-    const response = await fetch(`${exportDialogUrl}?preview_id=${encodeURIComponent(latestPreviewId)}`);
-    exportDialog.innerHTML = await response.text();
-    bindExportDialog();
-    exportDialog.showModal();
+  form.querySelectorAll('input[name="title"], select[name="x_axis_type"], select[name="y_axis_type"]').forEach((field) => {
+    field.addEventListener("input", refreshPreview);
+    field.addEventListener("change", refreshPreview);
   });
+}
 
-  function bindExportDialog() {
-    const exportForm = exportDialog.querySelector("[data-export-form]");
-    exportDialog.querySelectorAll("[data-close-export]").forEach((button) => {
-      button.addEventListener("click", () => exportDialog.close());
-    });
-    exportDialog.querySelectorAll("[data-browse-link]").forEach((link) => {
-      link.addEventListener("click", async (event) => {
-        event.preventDefault();
-        const response = await fetch(link.href);
-        exportDialog.innerHTML = await response.text();
-        bindExportDialog();
-      });
-    });
-    exportForm?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const status = exportDialog.querySelector("[data-export-status]");
-      const response = await fetch(exportPostUrl, {
-        method: "POST",
-        body: new FormData(exportForm),
-      });
-      const payload = await response.json();
-      if (payload.ok) {
-        status.textContent = `Saved to ${payload.output_path}`;
-        window.setTimeout(() => exportDialog.close(), 250);
-      } else {
-        status.textContent = payload.error || "Could not save plot.";
-      }
-    });
+function initSavedPlotFigure(container) {
+  const figureJson = container.dataset.figureJson;
+  if (!figureJson) {
+    return;
   }
+  renderPlotlyFigure(container, JSON.parse(figureJson));
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -444,6 +450,10 @@ document.addEventListener("DOMContentLoaded", () => {
   if (plotWorkspace) {
     initPlotWorkspace(plotWorkspace);
   }
+
+  document.querySelectorAll("[data-saved-plot-figure]").forEach((container) => {
+    initSavedPlotFigure(container);
+  });
 
   const runMonitor = document.querySelector("[data-live-run-monitor]");
   if (runMonitor) {
