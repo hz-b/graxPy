@@ -70,10 +70,10 @@
             {% for run in run_options %}
               <option
                 value="{{ run.id }}"
-                data-run-name="{{ run.summary_label }}"
+                data-run-name="{{ run.selector_text }}"
                 data-run-orders="{{ run.available_orders | join(',') }}"
               >
-                {{ run.summary_label }}
+                {{ run.selector_text }}
               </option>
             {% endfor %}
           </select>
@@ -126,7 +126,7 @@
       </label>
       <label>
         Marker size
-        <input type="number" min="1" max="24" step="1" value="8" data-series-marker-size>
+        <input type="number" min="1" max="24" step="1" value="3" data-series-marker-size>
       </label>
     </div>
   </fieldset>

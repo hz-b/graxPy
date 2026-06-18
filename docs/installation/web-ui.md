@@ -16,6 +16,11 @@ Saved run comparison plots now render as interactive Plotly views inside the
 browser. From the `Plots` page you can change each series color, marker type,
 marker size, and the x/y axis scale before saving the comparison.
 
+When you launch a run from a saved grating, you can add an optional comment.
+That comment is saved with the run, shown in the saved-run selector together
+with the date/time, grating name, and sweep type, and can be edited later from
+`Manage runs`.
+
 If you install from PyPI, use:
 
 ```bash

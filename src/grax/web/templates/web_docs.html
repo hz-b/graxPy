@@ -82,13 +82,14 @@
     <li>Open a saved grating from the home page.</li>
     <li>Pick a workflow: fixed angle, monochromator, multilayer theta search, or parameter study.</li>
     <li>Enter the energy range, diffraction order, Fourier orders, and any workflow-specific values.</li>
+    <li>Add an optional run comment if you want the saved run to carry a note or experiment tag.</li>
     <li>Choose the worker mode if you want auto or manual multiprocessing.</li>
     <li>Run the sweep and follow the progress page while the simulation writes results.</li>
   </ol>
   <p>
     Each run gets its own directory under <code>runs/&lt;run-id&gt;/</code>. The manifest records the workflow, grating
-    metadata, selected orders, and progress state. The run directory also stores the result CSV files and generated
-    preview images for that run.
+    metadata, selected orders, comment, and progress state. The run directory also stores the result CSV files and
+    generated preview images for that run.
   </p>
 </section>
 
@@ -112,7 +113,7 @@
   <h2>Export plots and manage saved data</h2>
   <ul>
     <li>Use <strong>Save plot</strong> in the plot builder to store the interactive compare view in <code>plots/</code>.</li>
-    <li>Use <strong>Manage runs</strong> to rename or delete saved runs.</li>
+    <li>Use <strong>Manage runs</strong> to rename saved runs, edit their comments, or delete them.</li>
     <li>Use <strong>Manage gratings</strong> to inspect, edit, or delete saved grating definitions.</li>
     <li>Use the workspace switcher on the home page if you want the app to read and write a different local folder.</li>
   </ul>

@@ -29,8 +29,10 @@ def _write_run_fixture(
     run_id: str,
     display_name: str,
     grating_name: str = "Demo grating",
+    grating_type: str = "laminar",
     workflow: str = "fixed_angle",
     orders: tuple[int, ...] = (1, 2),
+    comment: str = "",
 ) -> None:
     run_dir = base_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -40,7 +42,9 @@ def _write_run_fixture(
         "workflow": workflow,
         "grating_id": "grating-1",
         "grating_name": grating_name,
+        "grating_spec": {"grating_type": grating_type},
         "display_name": display_name,
+        "comment": comment,
         "status": "ok",
         "artifacts": ["all_orders.csv"],
     }
@@ -557,6 +561,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
             "fourier_orders": "5",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
+            "comment": "Commissioning sample",
         },
         follow_redirects=True,
     )
@@ -581,6 +586,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
         time.sleep(0.02)
     assert manifest["status"] == "completed"
     assert manifest["display_name"] == "Run grating · fixed_angle"
+    assert manifest["comment"] == "Commissioning sample"
     assert manifest["worker_mode"] == "auto"
 
 
@@ -667,14 +673,29 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
 
     from grax.web.app import create_app
 
-    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(1, 3))
-    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", orders=(2,))
+    _write_run_fixture(
+        tmp_path,
+        run_id="run-1",
+        display_name="Alpha run",
+        grating_name="Alpha grating",
+        grating_type="laminar",
+        orders=(1, 3),
+        comment="Mirror alignment",
+    )
+    _write_run_fixture(
+        tmp_path,
+        run_id="run-2",
+        display_name="Beta run",
+        grating_name="Beta grating",
+        grating_type="blazed",
+        orders=(2,),
+    )
 
     app = create_app(data_dir=tmp_path)
     response = app.test_client().get("/plots")
 
     assert response.status_code == 200
-    assert b"Alpha run" in response.data
+    assert b"name: Alpha grating" in response.data
     assert b'data-plot-workspace' in response.data
     assert b'data-plot-preview' in response.data
     assert b'data-run-picker' in response.data
@@ -683,9 +704,13 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert b'name="x_axis_type"' in response.data
     assert b'name="y_axis_type"' in response.data
     assert b'data-series-style-list' in response.data
-    assert b"run-1" in response.data
+    assert b"name: Alpha grating" in response.data
+    assert b"grating type: laminar" in response.data
+    assert b"sweep type: fixed_angle" in response.data
+    assert b"Mirror alignment" in response.data
+    assert b"grating: Alpha grating" not in response.data
+    assert b"comment: \xe2\x80\x94" in response.data
     assert b"2026-06-10T12:00:00" in response.data
-    assert b"fixed_angle" in response.data
 
 
 def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Path) -> None:
@@ -722,6 +747,7 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'monochromator' in response.data
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
+    assert b'name="comment"' in response.data
 
 
 def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
@@ -750,10 +776,17 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert payload["figure_json"]
     assert payload["selected_runs"][0]["orders"] == [0, 3]
     assert len(payload["series_controls"]) == 3
+    assert payload["series_controls"][0]["marker_size"] == 3
+    assert payload["series_controls"][0]["label"].endswith("· order: 0")
+    assert "name: Demo grating" in payload["series_controls"][0]["label"]
+    assert "grating type: laminar" in payload["series_controls"][0]["label"]
+    assert "sweep type: fixed_angle" in payload["series_controls"][0]["label"]
+    assert "grating: Demo grating" not in payload["series_controls"][0]["label"]
     figure = json.loads(payload["figure_json"])
     assert len(figure["data"]) == 3
     assert figure["layout"]["xaxis"]["type"] == "linear"
     assert figure["layout"]["yaxis"]["type"] == "linear"
+    assert figure["data"][0]["marker"]["size"] == 3
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
     assert invalid_response.status_code == 200
@@ -850,12 +883,45 @@ def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:
     assert b'data-saved-plot-figure' not in response.data
 
 
+def test_saved_run_pages_render_placeholder_for_missing_comment(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    run_dir = tmp_path / "runs" / "run-legacy"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "id": "run-legacy",
+        "created_at": "2026-06-10T12:00:00",
+        "workflow": "fixed_angle",
+        "grating_id": "grating-1",
+        "grating_name": "Legacy grating",
+        "grating_spec": {"grating_type": "laminar"},
+        "display_name": "Legacy run",
+        "status": "ok",
+        "artifacts": ["all_orders.csv"],
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "all_orders.csv").write_text(
+        "case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg\n"
+        "case-100.0,100.0,1.5,-1,0.150000,1.200000\n",
+        encoding="utf-8",
+    )
+
+    response = create_app(data_dir=tmp_path).test_client().get("/plots")
+
+    assert response.status_code == 200
+    assert b"name: Legacy grating" in response.data
+    assert b"grating type: laminar" in response.data
+    assert b"comment: \xe2\x80\x94" in response.data
+
+
 def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import create_app
 
-    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run")
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", comment="Initial note")
     _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run")
 
     app = create_app(data_dir=tmp_path)
@@ -864,18 +930,25 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     page = client.get("/runs/manage")
     assert page.status_code == 200
     assert b"data-confirm=\"Delete the selected runs?" in page.data
+    assert b'name="comment_run-1"' in page.data
+    assert b"Initial note" in page.data
 
     rename_response = client.post(
         "/runs/manage",
         data={
             "action": "save",
             "display_name_run-1": "Renamed run",
+            "comment_run-1": "Updated note",
             "display_name_run-2": "Beta run",
+            "comment_run-2": "",
         },
         follow_redirects=True,
     )
     assert rename_response.status_code == 200
     assert b"Renamed run" in rename_response.data
+    assert b"Updated note" in rename_response.data
+    manifest = json.loads((tmp_path / "runs" / "run-1" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["comment"] == "Updated note"
 
     delete_response = client.post(
         "/runs/manage",
@@ -952,7 +1025,7 @@ def test_index_can_switch_active_workspace_root(tmp_path: Path) -> None:
     client = app.test_client()
 
     initial = client.get("/")
-    assert b"Primary run" in initial.data
+    assert b"name: Demo grating" in initial.data
     assert b"Secondary run" not in initial.data
 
     switched = client.post(
@@ -962,7 +1035,7 @@ def test_index_can_switch_active_workspace_root(tmp_path: Path) -> None:
     )
 
     assert switched.status_code == 200
-    assert b"Secondary run" in switched.data
+    assert b"name: Demo grating" in switched.data
     assert b"Primary run" not in switched.data
     assert bytes(str(secondary), "utf-8") in switched.data
 

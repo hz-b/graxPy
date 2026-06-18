@@ -406,8 +406,11 @@ def create_app(*, data_dir: str | Path | None = None):
         for run in store.list():
             run_id = str(run["id"])
             field_name = f"display_name_{run_id}"
+            comment_field_name = f"comment_{run_id}"
             if field_name in request.form:
                 store.rename(run_id, str(request.form.get(field_name, "")))
+            if comment_field_name in request.form:
+                store.update_comment(run_id, str(request.form.get(comment_field_name, "")))
         return redirect(url_for("manage_runs"))
 
     @app.get("/runs/<run_id>")
@@ -847,6 +850,7 @@ def _queue_run(
         "grating_name": grating_name,
         "grating_spec": dict(grating_spec),
         "display_name": f"{grating_name} · {workflow}",
+        "comment": str(form.get("comment", "")).strip(),
         "status": "queued",
         "artifacts": [],
         "worker_mode": worker_mode,
@@ -1865,23 +1869,41 @@ def _list_runs(run_dir: Path) -> list[dict[str, Any]]:
 
 
 def _run_summary_label(run: dict[str, Any]) -> str:
-    """Return a rich one-line label for one saved run."""
+    """Return the primary saved-run descriptor used in plot selection."""
 
-    primary = str(run.get("display_name") or run.get("grating_name") or run.get("id", "Run"))
-    workflow = str(run.get("workflow", "run"))
-    created_at = str(run.get("created_at", ""))
-    run_id = str(run.get("id", ""))
-    state = str(run.get("status", "completed"))
-    return f"{primary} · {workflow} · {created_at} · {run_id} · {state}"
+    return (
+        f"name: {run.get('grating_name', 'Run')} · "
+        f"date/time: {run.get('created_at', '')} · "
+        f"grating type: {_run_grating_type(run)}"
+    )
 
 
 def _run_summary_meta(run: dict[str, Any]) -> str:
     """Return a secondary metadata line for one saved run."""
 
+    comment = str(run.get("comment", "")).strip() or "—"
     return (
-        f"{run.get('grating_name', 'Run')} · {run.get('workflow', 'run')} · "
-        f"{run.get('created_at', '')} · {run.get('id', '')} · {run.get('status', 'completed')}"
+        f"sweep type: {run.get('workflow', 'run')} · "
+        f"comment: {comment}"
     )
+
+
+def _run_grating_type(run: dict[str, Any]) -> str:
+    """Return the grating type recorded for one run."""
+
+    grating_spec = run.get("grating_spec")
+    if isinstance(grating_spec, dict):
+        value = str(grating_spec.get("grating_type", "")).strip()
+        if value:
+            return value
+    value = str(run.get("grating_type", "")).strip()
+    return value or "unknown"
+
+
+def _run_selector_text(run: dict[str, Any]) -> str:
+    """Return the full run text shown in plot-selection UIs."""
+
+    return f"{_run_summary_label(run)} · {_run_summary_meta(run)}"
 
 
 def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
@@ -1907,6 +1929,7 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
                 "available_orders": _available_orders(run_dir_for_id),
                 "summary_label": _run_summary_label(enriched_run),
                 "summary_meta": _run_summary_meta(enriched_run),
+                "selector_text": _run_selector_text(enriched_run),
                 "checkpoint_completed_points": checkpoint_completed_points,
                 "checkpoint_total_points": checkpoint_total_points or int(run.get("total_points") or 0),
             }
@@ -2073,9 +2096,9 @@ def _plot_options_from_form(
             if marker_symbol not in valid_marker_symbols:
                 marker_symbol = "circle"
             try:
-                marker_size = int(float(form_data.get(f"marker_size_{token}", 8) or 8))
+                marker_size = int(float(form_data.get(f"marker_size_{token}", 3) or 3))
             except (TypeError, ValueError):
-                marker_size = 8
+                marker_size = 3
             marker_size = max(1, min(marker_size, 24))
             plot_options["series_styles"][series_key] = {
                 "color": _normalize_hex_color(form_data.get(f"color_{token}")),
@@ -2125,7 +2148,7 @@ def _default_series_style(index: int) -> dict[str, Any]:
     return {
         "color": PLOTLY_DEFAULT_COLORS[index % len(PLOTLY_DEFAULT_COLORS)],
         "marker_symbol": marker_cycle[index % len(marker_cycle)],
-        "marker_size": 8,
+        "marker_size": 3,
     }
 
 
@@ -2178,7 +2201,7 @@ def _load_selected_plot_series(
             continue
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
-        run_label = str(manifest.get("display_name") or manifest.get("grating_name", run_id))
+        run_label = _run_selector_text(manifest)
         orders = order_selection.get(run_id) or _available_orders(run_dir)
         run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
         for order in orders:
@@ -2216,7 +2239,7 @@ def _series_controls_for_selected_series(
                 "series_token": str(series["series_token"]),
                 "run_id": str(series["run_id"]),
                 "order": int(series["order"]),
-                "label": f"{series['label']} · Order {series['order']}",
+                "label": f"{series['label']} · order: {series['order']}",
                 "color": _normalize_hex_color(saved_style.get("color")) or str(default_style["color"]),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,

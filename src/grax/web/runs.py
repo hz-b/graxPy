@@ -86,6 +86,14 @@ class RunStore:
         payload["updated_at"] = _timestamp()
         return self.save(payload)
 
+    def update_comment(self, run_id: str, comment: str) -> dict[str, Any]:
+        """Update the saved user comment for one run."""
+
+        payload = self.load(run_id)
+        payload["comment"] = comment.strip()
+        payload["updated_at"] = _timestamp()
+        return self.save(payload)
+
     def delete_many(self, run_ids: Sequence[str]) -> None:
         """Delete several run directories."""
         for run_id in run_ids:
