@@ -151,6 +151,7 @@ def run_simulation(
     diffraction_order: int = 1,
     fourier_orders: int = 25,
     roughness_sigma_nm: float | None = None,
+    polarization: Literal["s", "p"] = "s",
     validate_physical_results: bool = True,
     max_reflected_efficiency: float = 1.05,
     min_efficiency: float = -1e-8,
@@ -168,6 +169,8 @@ def run_simulation(
         diffraction_order: Positive diffraction order to select.
         fourier_orders: Number of Fourier orders on one side of zero.
         roughness_sigma_nm: Optional rms roughness in nanometers.
+        polarization: Incident polarization. ``"s"`` selects TE (default);
+            ``"p"`` selects TM.
         validate_physical_results: Whether to validate reflected efficiencies.
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
         min_efficiency: Minimum allowed efficiency.
@@ -188,6 +191,8 @@ def run_simulation(
         raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
     if not isinstance(grating, BaseGrating):
         raise TypeError("grating must derive from BaseGrating.")
+    if polarization not in {"s", "p"}:
+        raise ValueError("polarization must be 's' or 'p'.")
     if _memory_mode not in {"legacy_dense", "low_memory"}:
         raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
     _warn_if_numpy_backend_requested(backend, stacklevel=2)
@@ -209,7 +214,7 @@ def run_simulation(
                 _memory_mode=_memory_mode,
             )
 
-        parm = res0(1)
+        parm = res0(1 if polarization == "s" else -1)
         aa = res1(
             wavelength_nm,
             grating.period_nm,
@@ -266,6 +271,7 @@ def run_simulation(
             diffraction_order=int(diffraction_order),
             fourier_orders=int(fourier_orders),
             roughness_sigma_nm=roughness_sigma_nm,
+            polarization=polarization,
         )
 
     _log_simulation_memory_usage(
@@ -493,6 +499,7 @@ class RCWASimulation:
         diffraction_order: int = 1,
         fourier_orders: int = 25,
         grazing_angle_deg: float = 4.0,
+        polarization: Literal["s", "p"] = "s",
         live_plot: bool = False,
         validate_physical_results: bool = True,
         max_reflected_efficiency: float = 1.05,
@@ -508,6 +515,7 @@ class RCWASimulation:
         self.diffraction_order = diffraction_order
         self.fourier_orders = fourier_orders
         self.grazing_angle_deg = grazing_angle_deg
+        self.polarization = polarization
         self.live_plot = live_plot
         self.validate_physical_results = validate_physical_results
         self.max_reflected_efficiency = max_reflected_efficiency
@@ -527,6 +535,7 @@ class RCWASimulation:
             grazing_angle_deg=self.grazing_angle_deg,
             diffraction_order=self.diffraction_order,
             fourier_orders=self.fourier_orders,
+            polarization=self.polarization,
             roughness_sigma_nm=self.roughness_sigma_nm,
             validate_physical_results=self.validate_physical_results,
             max_reflected_efficiency=self.max_reflected_efficiency,
@@ -554,6 +563,7 @@ class RCWASimulation:
                 grazing_angle_deg=self.grazing_angle_deg,
                 diffraction_order=self.diffraction_order,
                 fourier_orders=self.fourier_orders,
+                polarization=self.polarization,
                 roughness_sigma_nm=self.roughness_sigma_nm,
                 validate_physical_results=self.validate_physical_results,
                 max_reflected_efficiency=self.max_reflected_efficiency,

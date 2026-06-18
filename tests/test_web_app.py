@@ -559,6 +559,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
             "grazing_angle_deg": "1.5",
             "diffraction_order": "1",
             "fourier_orders": "5",
+            "polarization": "p",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
             "comment": "Commissioning sample",
@@ -574,6 +575,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
         time.sleep(0.02)
     assert captured_cases
     assert captured_cases[0]["x_resolution_nm"] == pytest.approx(0.75)
+    assert captured_cases[0]["polarization"] == "p"
     run_id = next((path.parent.name for path in (tmp_path / "runs").glob("*/manifest.json")), None)
     assert run_id is not None
     deadline = time.monotonic() + 2.0
@@ -587,6 +589,8 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert manifest["status"] == "completed"
     assert manifest["display_name"] == "Run grating · fixed_angle"
     assert manifest["comment"] == "Commissioning sample"
+    assert manifest["polarization"] == "p"
+    assert manifest["run_input"]["polarization"] == "p"
     assert manifest["worker_mode"] == "auto"
 
 
@@ -748,6 +752,156 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
+    assert b'name="polarization"' in response.data
+
+
+def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
+    grating = SimpleNamespace(x_resolution_nm=2.0, z_resolution_nm=0.5)
+    energies = web_app_module.np.asarray([100.0, 110.0], dtype=float)
+    captured: dict[str, dict[str, object]] = {}
+
+    class FakeSimulation:
+        def fixed_angle_cases(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["fixed_angle"] = dict(kwargs)
+            return [{"energy_ev": 100.0, "grazing_angle_deg": 1.5}]
+
+        def monochromator_cases(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["monochromator"] = dict(kwargs)
+            return [{"energy_ev": 100.0, "grazing_angle_deg": 1.6}]
+
+        def multilayer_theta_search_cases(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured["multilayer_theta_search"] = dict(kwargs)
+            return [{"energy_ev": 100.0}]
+
+    form = MultiDict(
+        {
+            "grazing_angle_deg": "1.5",
+            "cff": "2.25",
+            "polarization": "p",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
+        }
+    )
+
+    fixed_cases = web_app_module._cases_for_workflow(
+        simulation=FakeSimulation(),
+        workflow="fixed_angle",
+        grating=grating,
+        energies=energies,
+        form=form,
+        diffraction_order=1,
+        fourier_orders=5,
+    )
+    mono_cases = web_app_module._cases_for_workflow(
+        simulation=FakeSimulation(),
+        workflow="monochromator",
+        grating=grating,
+        energies=energies,
+        form=form,
+        diffraction_order=1,
+        fourier_orders=5,
+    )
+    theta_cases = web_app_module._cases_for_workflow(
+        simulation=FakeSimulation(),
+        workflow="multilayer_theta_search",
+        grating=grating,
+        energies=energies,
+        form=form,
+        diffraction_order=1,
+        fourier_orders=5,
+    )
+
+    assert captured["fixed_angle"]["polarization"] == "p"
+    assert captured["monochromator"]["polarization"] == "p"
+    assert "polarization" not in captured["multilayer_theta_search"]
+    assert fixed_cases[0]["polarization"] == "p"
+    assert mono_cases[0]["polarization"] == "p"
+    assert theta_cases[0]["polarization"] == "p"
+
+
+def test_parameter_study_run_uses_selected_polarization(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    captured: dict[str, object] = {}
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_text("plot", encoding="utf-8")
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Parameter grating",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+            "polarization": "p",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+
+    deadline = time.monotonic() + 2.0
+    manifest = {}
+    while time.monotonic() < deadline:
+        if captured:
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("status") == "completed":
+                break
+        time.sleep(0.02)
+
+    assert captured["polarization"] == "p"
+    assert manifest["polarization"] == "p"
+    assert manifest["run_input"]["polarization"] == "p"
+
+
+def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
+    _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
+
+    manifest = web_app_module._load_run_manifest(tmp_path, "run-checkpoint")
+
+    assert manifest is not None
+    assert manifest["polarization"] == "s"
+    assert manifest["run_input"]["polarization"] == "s"
 
 
 def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:

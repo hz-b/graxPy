@@ -110,6 +110,7 @@ class SingleSimulationResult:
     diffraction_order: int
     fourier_orders: int
     roughness_sigma_nm: float | None = None
+    polarization: str = "s"
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
     retry_attempts: int = 0
@@ -189,6 +190,7 @@ class CaseExecutionResult:
     peak_memory_bytes: int | None = None
     wall_seconds: float | None = None
     case_data: dict[str, object] = field(default_factory=dict)
+    polarization: str = "s"
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
     retry_attempts: int = 0

@@ -119,6 +119,7 @@ def run_parameter_study(
     grazing_angle_deg: float,
     *,
     diffraction_order: int = 1,
+    polarization: str = "s",
     fourier_orders_values: Sequence[int] | None = None,
     x_resolution_values: Sequence[float] | None = None,
     z_resolution_values: Sequence[float] | None = None,
@@ -144,6 +145,8 @@ def run_parameter_study(
         energies_ev: Photon energies to study.
         grazing_angle_deg: Fixed grazing angle in degrees.
         diffraction_order: Positive diffraction order used for the metric.
+        polarization: Incident polarization. ``"s"`` selects TE (default);
+            ``"p"`` selects TM.
         fourier_orders_values: Optional Fourier sweep values. Uses defaults if None.
         x_resolution_values: Optional x-resolution sweep values in nanometers.
             Uses defaults if None.
@@ -206,6 +209,7 @@ def run_parameter_study(
                 energy_ev=float(energy_ev),
                 grazing_angle_deg=grazing_angle_deg,
                 diffraction_order=diffraction_order,
+                polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
             ),
@@ -216,6 +220,7 @@ def run_parameter_study(
                 energy_ev=float(energy_ev),
                 grazing_angle_deg=grazing_angle_deg,
                 diffraction_order=diffraction_order,
+                polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
             ),
@@ -226,6 +231,7 @@ def run_parameter_study(
                 energy_ev=float(energy_ev),
                 grazing_angle_deg=grazing_angle_deg,
                 diffraction_order=diffraction_order,
+                polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
             ),
@@ -385,6 +391,7 @@ def _run_single_parameter_sweep(
     energy_ev: float,
     grazing_angle_deg: float,
     diffraction_order: int,
+    polarization: str,
     max_retries: int,
     fixed_fourier_orders: int,
 ) -> ParameterSweepSeries:
@@ -437,6 +444,7 @@ def _run_single_parameter_sweep(
                     diffraction_order=diffraction_order,
                     fourier_orders=fourier_orders,
                     grazing_angle_deg=grazing_angle_deg,
+                    polarization=polarization,
                     backend="numba",
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])

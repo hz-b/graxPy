@@ -77,6 +77,7 @@ class Texture1D:
     refractive_index: np.ndarray
     epsilon_fourier: np.ndarray
     homogeneous_index: complex | None = None
+    inv_epsilon_fourier: np.ndarray | None = None
 
     @property
     def signature(self) -> tuple[Any, ...]:
@@ -181,8 +182,6 @@ def res1(
     _fourier_backend: FourierBackendName | str = "numpy",
 ) -> Res1Result:
     parm = parm or res0(1)
-    if parm.polarization != 1:
-        raise NotImplementedError("The native Python port currently implements the 1D TE path only.")
 
     with _profiler.record("res1_total") if _profiler is not None else _nullcontext():
         orders = _normalize_orders(nn)
@@ -268,11 +267,11 @@ def res2(
         Reflected and transmitted diffraction results for incidence from top.
     """
 
-    parm = parm or res0(1)
-    if parm.polarization != 1:
-        raise NotImplementedError("The native Python port currently implements the 1D TE path only.")
     if roughness_sigma_nm is not None and roughness_sigma_nm < 0.0:
         raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
+
+    # Polarization comes from aa (set by res1); parm is ignored for polarization selection.
+    polarization = aa.polarization
 
     thicknesses = np.asarray(profile[0], dtype=float)
     texture_indices = np.asarray(profile[1], dtype=int)
@@ -297,7 +296,8 @@ def res2(
             compressed.append((float(thickness), texture))
 
     with _profiler.record("res2_total") if _profiler is not None else _nullcontext():
-        reflected, transmitted = _solve_te_stack(
+        stack_solver = _solve_te_stack if polarization == 1 else _solve_tm_stack
+        reflected, transmitted = stack_solver(
             wavelength=aa.wavelength,
             period=aa.period,
             orders=aa.orders,
@@ -395,19 +395,22 @@ def _convert_texture(
 ) -> Texture1D:
     if not isinstance(texture, (list, tuple)):
         refractive_index = complex(texture)
+        _breaks = np.array([0.0, period], dtype=float)
+        _n = np.array([refractive_index], dtype=complex)
+        _max_order = 2 * int(np.max(np.abs(orders)))
         return Texture1D(
             period=period,
-            breaks=np.array([0.0, period], dtype=float),
-            refractive_index=np.array([refractive_index], dtype=complex),
+            breaks=_breaks,
+            refractive_index=_n,
             epsilon_fourier=_piecewise_fourier_coefficients(
-                np.array([0.0, period], dtype=float),
-                np.array([refractive_index], dtype=complex),
-                period=period,
-                max_order=2 * int(np.max(np.abs(orders))),
-                _profiler=_profiler,
-                _fourier_backend=_fourier_backend,
+                _breaks, _n, period=period, max_order=_max_order,
+                _profiler=_profiler, _fourier_backend=_fourier_backend,
             ),
             homogeneous_index=refractive_index,
+            inv_epsilon_fourier=_piecewise_fourier_coefficients(
+                _breaks, 1.0 / _n, period=period, max_order=_max_order,
+                _profiler=None, _fourier_backend=_fourier_backend,
+            ),
         )
 
     if len(texture) == 1:
@@ -432,17 +435,18 @@ def _convert_texture(
 
     breaks = np.concatenate(([0.0], x_positions, [period]))
     refractive_index = np.concatenate((n_left, [n_left[0]]))
+    _max_order = 2 * int(np.max(np.abs(orders)))
     return Texture1D(
         period=period,
         breaks=breaks,
         refractive_index=refractive_index,
         epsilon_fourier=_piecewise_fourier_coefficients(
-            breaks,
-            refractive_index,
-            period=period,
-            max_order=2 * int(np.max(np.abs(orders))),
-            _profiler=_profiler,
-            _fourier_backend=_fourier_backend,
+            breaks, refractive_index, period=period, max_order=_max_order,
+            _profiler=_profiler, _fourier_backend=_fourier_backend,
+        ),
+        inv_epsilon_fourier=_piecewise_fourier_coefficients(
+            breaks, 1.0 / refractive_index, period=period, max_order=_max_order,
+            _profiler=None, _fourier_backend=_fourier_backend,
         ),
     )
 
@@ -679,7 +683,9 @@ def _solve_te_stack(
                 texture=texture,
                 orders=orders,
                 k0=k0,
+                kx=kx,
                 kx_matrix_sq=kx_matrix_sq,
+                polarization=1,
                 eigen_cache=eigen_cache,
                 boundary_block_cache=boundary_block_cache,
                 _profiler=_profiler,
@@ -741,13 +747,120 @@ def _solve_te_stack(
     )
 
 
+def _solve_tm_stack(
+    wavelength: float,
+    period: float,
+    orders: np.ndarray,
+    beta0: float,
+    n_top: complex,
+    n_bottom: complex,
+    layers: list[tuple[float, Texture1D]],
+    *,
+    _profiler: SolverProfiler | None = None,
+) -> tuple[DiffractionResult, DiffractionResult]:
+    """Solve the 1D TM stack.
+
+    Uses the inverse-permittivity convolution operator and TM boundary admittances.
+    Structure mirrors _solve_te_stack; only the layer operator and semi-infinite
+    derivatives differ.
+    """
+
+    k0 = 2 * np.pi / wavelength
+    kx = k0 * beta0 + (2 * np.pi * orders / period)
+    kx_matrix_sq = np.diag(kx**2)
+    basis_size = len(orders)
+
+    kz_top = _kz_branch_array((k0 * n_top) ** 2 - kx**2)
+    kz_bottom = _kz_branch_array((k0 * n_bottom) ** 2 - kx**2)
+    derivative_top = 1j * np.diag(kz_top / n_top**2)
+    derivative_bottom = 1j * np.diag(kz_bottom / n_bottom**2)
+
+    eigen_cache: EigenCache = {}
+    boundary_block_cache: BoundaryBlockCache = {}
+    stack_boundary: np.ndarray | None = None
+    with _profiler.record("layer_propagation_cascade") if _profiler is not None else _nullcontext():
+        for thickness, texture in layers:
+            block = _layer_boundary_block(
+                thickness=thickness,
+                texture=texture,
+                orders=orders,
+                k0=k0,
+                kx=kx,
+                kx_matrix_sq=kx_matrix_sq,
+                polarization=-1,
+                eigen_cache=eigen_cache,
+                boundary_block_cache=boundary_block_cache,
+                _profiler=_profiler,
+            )
+            if _profiler is not None:
+                _profiler.add_detail_count("layer_boundary_blocks_constructed", 1)
+                _profiler.update_detail_peak("layer_boundary_block_temp_peak", 1.0)
+                _profiler.update_detail_peak("layer_boundary_block_bytes_peak", float(block.nbytes))
+            if stack_boundary is None:
+                stack_boundary = block
+                continue
+            stack_boundary = _cascade_boundary_pair(
+                stack_boundary,
+                block,
+                basis_size,
+                _profiler=_profiler,
+            )
+    top_stack_admittance = _top_admittance_from_boundary_block(
+        stack_boundary=stack_boundary,
+        derivative_bottom=derivative_bottom,
+    )
+
+    incident = np.zeros(basis_size, dtype=complex)
+    incident[np.where(orders == 0)[0][0]] = 1.0
+
+    with _profiler.record("matrix_solves") if _profiler is not None else _nullcontext():
+        reflected_amplitude = np.linalg.solve(
+            derivative_top + top_stack_admittance,
+            (derivative_top - top_stack_admittance) @ incident,
+        )
+    top_field = incident + reflected_amplitude
+    transmitted_amplitude = _bottom_field_from_boundary_block(
+        top_field=top_field,
+        stack_boundary=stack_boundary,
+        derivative_bottom=derivative_bottom,
+        _profiler=_profiler,
+    )
+
+    incident_idx = np.where(orders == 0)[0][0]
+    incident_kz = kz_top[incident_idx]
+    # TM Poynting flux ~ Re(kz/n²); normalise by incident admittance Re(kz_inc/n_top²)
+    incident_admittance = np.real(incident_kz / n_top**2)
+    reflected_efficiency = np.real(kz_top / n_top**2) / incident_admittance * np.abs(reflected_amplitude) ** 2
+    transmitted_efficiency = np.real(kz_bottom / n_bottom**2) / incident_admittance * np.abs(transmitted_amplitude) ** 2
+
+    reflected_theta = _angles_from_kx(kx, k0, n_top)
+    transmitted_theta = _angles_from_kx(kx, k0, n_bottom)
+
+    return (
+        DiffractionResult(
+            order=orders.copy(),
+            theta=reflected_theta,
+            efficiency=reflected_efficiency,
+            amplitude=reflected_amplitude,
+        ),
+        DiffractionResult(
+            order=orders.copy(),
+            theta=transmitted_theta,
+            efficiency=transmitted_efficiency,
+            amplitude=transmitted_amplitude,
+        ),
+    )
+
+
 def _layer_boundary_block(
     *,
     thickness: float,
     texture: Texture1D,
     orders: np.ndarray,
     k0: float,
+    kx: np.ndarray,
     kx_matrix_sq: np.ndarray,
+    polarization: int = 1,
     eigen_cache: EigenCache,
     boundary_block_cache: BoundaryBlockCache,
     _profiler: SolverProfiler | None = None,
@@ -766,6 +879,7 @@ def _layer_boundary_block(
         float(thickness),
         tuple(int(order) for order in orders),
         float(k0),
+        int(polarization),
     )
     cached_block = boundary_block_cache.get(boundary_cache_key)
     if cached_block is not None:
@@ -775,9 +889,23 @@ def _layer_boundary_block(
     if _profiler is not None:
         _profiler.add_detail_count("layer_boundary_block_cache_misses", 1)
 
+    inv_epsilon_conv_tm: np.ndarray | None = None
     with _profiler.record("layer_operator_build") if _profiler is not None else _nullcontext():
         epsilon_conv = _convolution_matrix(texture.epsilon_fourier, orders)
-        operator = kx_matrix_sq - (k0**2) * epsilon_conv
+        if polarization == 1:
+            operator = kx_matrix_sq - (k0**2) * epsilon_conv
+        else:
+            # TM: Li factorization — A = a1 @ a2
+            # a2 = kx @ inv([ε]) @ kx - k0² I
+            # a1 = inv([1/ε])
+            # The correct eigenproblem is a1*a2 (not a2*a1), consistent with
+            # dH/dz = ik0*a1*E_x and dE_x/dz = ik0*a2*H → d²H/dz² = -k0²*a1*a2*H.
+            kx_diag = np.diag(kx)
+            inv_epsilon_conv_tm = _convolution_matrix(texture.inv_epsilon_fourier, orders)
+            inv_eps_matrix = np.linalg.inv(epsilon_conv)
+            inv_inveps_matrix = np.linalg.inv(inv_epsilon_conv_tm)
+            a2 = kx_diag @ inv_eps_matrix @ kx_diag - (k0**2) * np.eye(basis_size)
+            operator = inv_inveps_matrix @ a2
         if np.any(np.isnan(operator)) or np.any(np.isinf(operator)):
             raise ValueError("Layer operator contains NaN/Inf values")
 
@@ -785,6 +913,7 @@ def _layer_boundary_block(
         texture.signature,
         tuple(int(order) for order in orders),
         float(k0),
+        int(polarization),
     )
     if _profiler is not None:
         operator_key = hashlib.sha1(operator.tobytes()).hexdigest()
@@ -821,6 +950,10 @@ def _layer_boundary_block(
             _profiler.add_detail_timing("layer_modal_matrices_call", perf_counter() - t0)
             _profiler.add_detail_count("layer_modal_matrices_calls", 1)
     with _profiler.record("layer_block_assembly") if _profiler is not None else _nullcontext():
+        if polarization == -1 and inv_epsilon_conv_tm is not None:
+            # TM: block tracks [H; E_x] where E_x = [1/ε] @ ∂H/∂z
+            admittance = inv_epsilon_conv_tm @ admittance
+            coupling = inv_epsilon_conv_tm @ coupling
         block = np.empty((2 * basis_size, 2 * basis_size), dtype=complex)
         block[:basis_size, :basis_size] = -admittance
         block[:basis_size, basis_size:] = coupling

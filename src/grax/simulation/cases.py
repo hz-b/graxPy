@@ -21,6 +21,7 @@ def fixed_angle_cases(
     grating: BaseGrating,
     energies_ev: Iterable[float],
     grazing_angle_deg: float,
+    polarization: str | None = None,
 ) -> Iterator[dict[str, object]]:
     """Yield fixed-angle energy-sweep cases lazily.
 
@@ -32,6 +33,8 @@ def fixed_angle_cases(
         grating: Grating reused by every generated case.
         energies_ev: Iterable of photon energies in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
+        polarization: Incident polarization, ``"s"`` or ``"p"``. When ``None``
+            the runner's ``default_polarization`` is used.
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.
@@ -48,12 +51,15 @@ def fixed_angle_cases(
     """
 
     for index, energy_ev in enumerate(energies_ev):
-        yield {
+        case: dict[str, object] = {
             "case_id": f"{_FIXED_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": float(grazing_angle_deg),
         }
+        if polarization is not None:
+            case["polarization"] = polarization
+        yield case
 
 
 def monochromator_cases(
@@ -63,6 +69,7 @@ def monochromator_cases(
     period_lpermm: float | None = None,
     diffraction_order: int = 1,
     cff: float = 2.25,
+    polarization: str | None = None,
 ) -> Iterator[dict[str, object]]:
     """Yield fixed-cff monochromator sweep cases lazily.
 
@@ -106,19 +113,23 @@ def monochromator_cases(
                 cff=cff,
             )[0]
         )
-        yield {
+        case: dict[str, object] = {
             "case_id": f"{_MONOCHROMATOR_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": grazing_angle,
             "diffraction_order": diffraction_order,
         }
+        if polarization is not None:
+            case["polarization"] = polarization
+        yield case
 
 
 def energy_angle_cases(
     *,
     grating: BaseGrating,
     energy_angle_pairs: Iterable[tuple[float, float]],
+    polarization: str | None = None,
 ) -> Iterator[dict[str, object]]:
     """Yield arbitrary energy-angle simulation cases lazily.
 
@@ -143,12 +154,15 @@ def energy_angle_cases(
     """
 
     for index, (energy_ev, grazing_angle_deg) in enumerate(energy_angle_pairs):
-        yield {
+        case: dict[str, object] = {
             "case_id": f"{_ENERGY_ANGLE_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": float(grazing_angle_deg),
         }
+        if polarization is not None:
+            case["polarization"] = polarization
+        yield case
 
 
 def multilayer_theta_search_cases(
