@@ -1,4 +1,4 @@
-"""Monochromator sweep using monochromator_cases helper."""
+"""Monochromator sweep using explicit p polarization."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ cases = grax.monochromator_cases(
     energies_ev=energies_ev,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

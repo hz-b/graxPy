@@ -68,6 +68,7 @@ def _single_result_to_record(result: SingleSimulationResult) -> dict[str, object
         "diffraction_order": result.diffraction_order,
         "fourier_orders": result.fourier_orders,
         "roughness_sigma_nm": result.roughness_sigma_nm,
+        "polarization": result.polarization,
         "theta_search_diagnostics": diagnostics_record,
         "retry_triggered": result.retry_triggered,
         "retry_attempts": result.retry_attempts,
@@ -166,6 +167,7 @@ def _single_result_from_record(record: dict[str, object]) -> SingleSimulationRes
         roughness_sigma_nm=(
             None if record.get("roughness_sigma_nm") is None else float(record["roughness_sigma_nm"])
         ),
+        polarization=str(record.get("polarization", "s")),
         theta_search_diagnostics=diagnostics,
         retry_triggered=bool(record.get("retry_triggered", False)),
         retry_attempts=int(record.get("retry_attempts", 0)),
@@ -254,6 +256,7 @@ def _case_result_to_record(result: CaseExecutionResult) -> dict[str, object]:
         "peak_memory_bytes": result.peak_memory_bytes,
         "wall_seconds": result.wall_seconds,
         "case_data": _json_safe_case_data(result.case_data),
+        "polarization": result.polarization,
         "theta_search_diagnostics": diagnostics_record,
         "retry_triggered": result.retry_triggered,
         "retry_attempts": result.retry_attempts,
@@ -358,6 +361,7 @@ def _case_result_from_record(record: dict[str, object]) -> CaseExecutionResult:
         ),
         wall_seconds=None if record.get("wall_seconds") is None else float(record["wall_seconds"]),
         case_data=dict(record.get("case_data", {})),
+        polarization=str(record.get("polarization", "s")),
         theta_search_diagnostics=diagnostics,
         retry_triggered=bool(record.get("retry_triggered", False)),
         retry_attempts=int(record.get("retry_attempts", 0)),

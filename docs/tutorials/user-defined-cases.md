@@ -45,6 +45,7 @@ for depth_nm in depths_nm:
             "grating": grating,
             "energy_ev": energy_ev,
             "grazing_angle_deg": grazing_angle_deg,
+            "polarization": "p",
             "depth_nm": float(depth_nm),
         }
     )
@@ -62,6 +63,10 @@ grax.write_all_orders_csv(results, "results/batch_user_cases_all_orders.csv")
 
 Plotting efficiency versus depth is then straightforward because each case keeps
 its own `depth_nm` in `case_data`.
+
+The maintained example also sets `polarization="p"` explicitly on each case so
+the depth sweep does not depend on the default polarization. Accepted values
+are `s` and `p`.
 
 ```{image} images/simulation/batch_user_cases_orders_1_3_vs_depth.png
 :alt: User-defined laminar depth sweep, orders 1 to 3 versus depth

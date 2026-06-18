@@ -841,6 +841,7 @@ def _queue_run(
     )
     diffraction_order = int(float(form.get("diffraction_order", 1)))
     fourier_orders = int(float(form.get("fourier_orders", 5)))
+    polarization = _normalized_polarization(form.get("polarization", "s"))
     worker_mode, max_workers_setting, requested_workers = _worker_settings_from_form(form)
     manifest: dict[str, Any] = {
         "id": run_id,
@@ -851,6 +852,7 @@ def _queue_run(
         "grating_spec": dict(grating_spec),
         "display_name": f"{grating_name} · {workflow}",
         "comment": str(form.get("comment", "")).strip(),
+        "polarization": polarization,
         "status": "queued",
         "artifacts": [],
         "worker_mode": worker_mode,
@@ -998,6 +1000,7 @@ def _execute_run_job(
                 energies_ev=energies,
                 grazing_angle_deg=float(form_data["grazing_angle_deg"]),
                 diffraction_order=diffraction_order,
+                polarization=_normalized_polarization(form_data.get("polarization", "s")),
                 fourier_orders_values=[fourier_orders],
                 x_resolution_values=[run_x_resolution_nm],
                 z_resolution_values=[run_z_resolution_nm],
@@ -1177,7 +1180,17 @@ def _run_input_from_form(form: Any) -> dict[str, Any]:
     for key in form.keys():
         values = form.getlist(key)
         input_data[key] = values if len(values) > 1 else form.get(key)
+    input_data["polarization"] = _normalized_polarization(input_data.get("polarization", "s"))
     return input_data
+
+
+def _normalized_polarization(value: Any) -> str:
+    """Return a validated polarization code for Web UI run inputs."""
+
+    polarization = str(value or "s").strip().lower()
+    if polarization not in {"s", "p"}:
+        raise ValueError("polarization must be 's' or 'p'.")
+    return polarization
 
 
 def _request_run_abort(app: Any, data_dir: Path, run_id: str, *, delete_after_abort: bool) -> bool:
@@ -1448,6 +1461,9 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
         payload = json.load(handle)
     payload.setdefault("id", run_id)
     payload.setdefault("display_name", f"{payload.get('grating_name', 'Run')} · {payload.get('workflow', 'run')}")
+    payload.setdefault("polarization", _normalized_polarization(payload.get("run_input", {}).get("polarization", "s")))
+    if isinstance(payload.get("run_input"), dict):
+        payload["run_input"].setdefault("polarization", payload["polarization"])
     return payload
 
 
@@ -1790,6 +1806,7 @@ def _cases_for_workflow(
     """Return batch cases for one supported workflow."""
     run_x_resolution_nm = float(form.get("run_x_resolution_nm") or grating.x_resolution_nm)
     run_z_resolution_nm = float(form.get("run_z_resolution_nm") or grating.z_resolution_nm)
+    polarization = _normalized_polarization(form.get("polarization", "s"))
 
     if workflow == "fixed_angle":
         cases = list(
@@ -1797,6 +1814,7 @@ def _cases_for_workflow(
                 grating=grating,
                 energies_ev=energies,
                 grazing_angle_deg=float(form["grazing_angle_deg"]),
+                polarization=polarization,
             )
         )
     elif workflow == "monochromator":
@@ -1806,6 +1824,7 @@ def _cases_for_workflow(
                 energies_ev=energies,
                 diffraction_order=diffraction_order,
                 cff=float(form.get("cff", 2.25) or 2.25),
+                polarization=polarization,
             )
         )
     elif workflow == "multilayer_theta_search":
@@ -1828,6 +1847,7 @@ def _cases_for_workflow(
     for index, case in enumerate(cases):
         case["case_id"] = f"{workflow}-{index:08d}"
         case["fourier_orders"] = fourier_orders
+        case["polarization"] = polarization
         if workflow != "multilayer_theta_search":
             case["x_resolution_nm"] = run_x_resolution_nm
             case["z_resolution_nm"] = run_z_resolution_nm

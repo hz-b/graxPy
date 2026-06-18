@@ -75,6 +75,7 @@ if angle_mode == "fixed":
         grating=grating,
         energies_ev=energies,
         grazing_angle_deg=float(fitted_payload["grazing_angle_deg"]),
+        polarization="p",
     )
     cases = (dict(case, label="fixed-angle") for case in cases)
 else:
@@ -83,6 +84,7 @@ else:
         energies_ev=energies,
         diffraction_order=diffraction_order,
         cff=float(fitted_payload["cff"]),
+        polarization="p",
     )
     cases = (dict(case, label="monochromator") for case in cases)
 

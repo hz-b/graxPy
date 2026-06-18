@@ -62,6 +62,7 @@ cases = grax.monochromator_cases(
     period_lpermm=period_lpermm,
     diffraction_order=1,
     cff=2.25,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

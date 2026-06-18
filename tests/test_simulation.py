@@ -3278,3 +3278,105 @@ def test_blazed_single_layer_200ev_matches_reticolo_reference_more_closely() -> 
 
     assert python_result["diffraction_angle_all"][order_index] == pytest.approx(5.517321, abs=1e-6)
     assert python_result["efficiency_all"][order_index] == pytest.approx(0.115515, abs=3e-3)
+
+
+# ── TM (p-polarization) tests ─────────────────────────────────────────────────
+
+
+def test_tm_smoke_run_simulation_returns_valid_result() -> None:
+    """TM run_simulation returns a SingleSimulationResult with non-negative efficiency."""
+    grating = build_test_grating()
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+        polarization="p",
+    )
+
+    assert isinstance(result, SingleSimulationResult)
+    assert result.polarization == "p"
+    assert result.selected_efficiency >= 0.0
+    assert np.isfinite(result.selected_efficiency)
+
+
+def test_tm_parity_reticolo_exemple1_1d() -> None:
+    """TM T0 matches RETICOLO exemple1_1D.m to within 1e-4.
+
+    Geometry: λ=6µm, period=10µm, height=20µm, n_top=1, n_bottom=1.5,
+    grating texture: ridges n=1.5 at [0,1µm] and [9,10µm], groove n=1.0 at [1,9µm].
+    Normal incidence, 25 Fourier orders, TM (pol=-1).
+    RETICOLO reference: T0=0.9111790287.
+    """
+    from grax.rcwa_1d import res0, res1, res2
+
+    grating_texture = [
+        np.array([1000.0, 9000.0]),
+        np.array([1.5, 1.0], dtype=complex),
+    ]
+    parm = res0(-1)
+    aa = res1(6000.0, 10000.0, [1.0, 1.5, grating_texture], 25, 0.0, parm)
+    result = res2(aa, ([0.0, 20000.0, 0.0], [0, 2, 1]))
+
+    idx0 = int(np.where(result.inc_top_reflected.order == 0)[0][0])
+    T0 = result.inc_top_transmitted.efficiency[idx0]
+    R0 = result.inc_top_reflected.efficiency[idx0]
+    sum_rt = float(
+        np.sum(result.inc_top_reflected.efficiency)
+        + np.sum(result.inc_top_transmitted.efficiency)
+    )
+
+    assert T0 == pytest.approx(0.9111790287, abs=1e-4)
+    assert sum_rt == pytest.approx(1.0, abs=1e-6)
+
+
+def test_tm_fresnel_homogeneous_layer_energy_conservation() -> None:
+    """TM homogeneous layer gives correct Fresnel R and energy conservation."""
+    from grax.rcwa_1d import res0, res1, res2
+
+    parm = res0(-1)
+    aa = res1(6000.0, 10000.0, [1.0, 1.5, 1.5], 3, 0.0, parm)
+    result = res2(aa, ([0.0, 20000.0, 0.0], [0, 2, 1]))
+
+    idx0 = int(np.where(result.inc_top_reflected.order == 0)[0][0])
+    R0 = result.inc_top_reflected.efficiency[idx0]
+    T0 = result.inc_top_transmitted.efficiency[idx0]
+    sum_rt = float(
+        np.sum(result.inc_top_reflected.efficiency)
+        + np.sum(result.inc_top_transmitted.efficiency)
+    )
+
+    k0 = 2 * np.pi / 6000.0
+    kz_top = k0 * 1.0
+    kz_bot = k0 * 1.5
+    r_fresnel = (kz_top / 1.0**2 - kz_bot / 1.5**2) / (kz_top / 1.0**2 + kz_bot / 1.5**2)
+    R_fresnel = float(np.abs(r_fresnel) ** 2)
+
+    assert R0 == pytest.approx(R_fresnel, abs=1e-6)
+    assert sum_rt == pytest.approx(1.0, abs=1e-6)
+
+
+def test_te_parity_reticolo_exemple1_1d_regression() -> None:
+    """TE T0 continues to match RETICOLO exemple1_1D.m after TM changes.
+
+    Sanity check that the a1*a2 operator fix did not disturb the TE path.
+    """
+    from grax.rcwa_1d import res0, res1, res2
+
+    grating_texture = [
+        np.array([1000.0, 9000.0]),
+        np.array([1.5, 1.0], dtype=complex),
+    ]
+    parm = res0(1)
+    aa = res1(6000.0, 10000.0, [1.0, 1.5, grating_texture], 25, 0.0, parm)
+    result = res2(aa, ([0.0, 20000.0, 0.0], [0, 2, 1]))
+
+    idx0 = int(np.where(result.inc_top_reflected.order == 0)[0][0])
+    T0 = result.inc_top_transmitted.efficiency[idx0]
+    sum_rt = float(
+        np.sum(result.inc_top_reflected.efficiency)
+        + np.sum(result.inc_top_transmitted.efficiency)
+    )
+
+    assert T0 == pytest.approx(0.5050632035, abs=1e-4)
+    assert sum_rt == pytest.approx(1.0, abs=1e-6)

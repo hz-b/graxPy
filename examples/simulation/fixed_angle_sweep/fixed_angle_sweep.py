@@ -1,4 +1,4 @@
-"""Fixed-angle energy sweep using fixed_angle_cases helper."""
+"""Fixed-angle energy sweep using explicit p polarization."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
+    polarization="p",
 )
 
 runner = grax.BatchSimulationRunner(

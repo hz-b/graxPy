@@ -1,4 +1,4 @@
-"""Blazed-grating parameter study across energies."""
+"""Blazed-grating parameter study across energies with explicit p polarization."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ study = grax.run_parameter_study(
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
     diffraction_order=1,
+    polarization="p",
     fourier_orders_values=fourier_orders_values,
     x_resolution_values=x_resolution_values,
     z_resolution_values=z_resolution_values,

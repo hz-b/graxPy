@@ -21,6 +21,10 @@ That comment is saved with the run, shown in the saved-run selector together
 with the date/time, grating name, and sweep type, and can be edited later from
 `Manage runs`.
 
+The run form keeps polarization together with the other numerics controls, so
+you choose the diffraction order, Fourier orders, polarization, and x/z
+resolution in one place before launching the simulation.
+
 If you install from PyPI, use:
 
 ```bash

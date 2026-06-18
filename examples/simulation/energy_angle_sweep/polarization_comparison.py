@@ -1,8 +1,4 @@
-"""Fast multilayer energy-angle sweep tutorial example with explicit p polarization.
-
-This tutorial samples predefined energy-angle pairs every 50 rows and uses
-coarse RCWA settings for short runtime.
-"""
+"""Polarization comparison for energy-angle sweep (s vs p)."""
 
 from __future__ import annotations
 
@@ -49,12 +45,6 @@ grating = grax.BlazedGrating(
     z_resolution_nm=1.0,
 )
 
-cases = grax.energy_angle_cases(
-    grating=grating,
-    energy_angle_pairs=energy_angle_pairs,
-    polarization="p",
-)
-
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=2,
     default_fourier_orders=5,
@@ -64,33 +54,44 @@ runner = grax.BatchSimulationRunner(
     backend="numba",
 )
 
-results = list(runner.run_cases(cases))
+results_s = list(runner.run_cases(
+    grax.energy_angle_cases(grating=grating, energy_angle_pairs=energy_angle_pairs, polarization="s")
+))
+results_p = list(runner.run_cases(
+    grax.energy_angle_cases(grating=grating, energy_angle_pairs=energy_angle_pairs, polarization="p")
+))
 
-csv_path = output_dir / "energy_angle_multilayer_all_orders.csv"
-plot_path = output_dir / "energy_angle_multilayer_fast.png"
-profile_path = output_dir / "energy_angle_multilayer_profile.png"
+ok_s = [r for r in results_s if r.status == "ok"]
+ok_p = [r for r in results_p if r.status == "ok"]
 
-grax.write_all_orders_csv(results, csv_path)
-grating.plot_profile(profile_path)
-
-successful_results = [result for result in results if result.status == "ok"]
+comparison_plot_path = output_dir / "energy_angle_pol_comparison.png"
 figure, axis = plt.subplots(figsize=(10, 6))
 axis.plot(
-    [result.energy_ev for result in successful_results],
-    [result.selected_efficiency for result in successful_results],
+    [r.energy_ev for r in ok_s],
+    [r.selected_efficiency for r in ok_s],
     "o-",
-    linewidth=1.0,
-    markersize=2.0,
+    linewidth=1.5,
+    markersize=3,
+    color="tab:blue",
+    label="s (TE)",
+)
+axis.plot(
+    [r.energy_ev for r in ok_p],
+    [r.selected_efficiency for r in ok_p],
+    "s--",
+    linewidth=1.5,
+    markersize=3,
+    color="tab:orange",
+    label="p (TM)",
 )
 axis.set_xlabel("Energy (eV)")
 axis.set_ylabel("Efficiency (2nd order)")
-axis.set_title("Fast Multilayer Energy-Angle Sweep (grax)")
+axis.set_title("Energy-Angle Sweep: s vs p Polarization")
 axis.grid(True, alpha=0.3)
+axis.legend(loc="best")
 figure.tight_layout()
-figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
 plt.close(figure)
 
 print(f"Sampled {len(energy_angle_pairs)} energy-angle pairs from: {input_path}")
-print(f"Results saved to: {csv_path}")
-print(f"Plot saved to: {plot_path}")
-print(f"Profile plot saved to: {profile_path}")
+print(f"Polarization comparison plot saved to: {comparison_plot_path}")

@@ -24,6 +24,7 @@ study = grax.run_parameter_study(
     energies_ev=[100.0, 600.0, 2000.0],
     grazing_angle_deg=1.5,
     diffraction_order=1,
+    polarization="p",
     fourier_orders_values=range(5, 26, 2),
     x_resolution_values=grax.get_default_parameter_study_ranges()[1],
     z_resolution_values=grax.get_default_parameter_study_ranges()[2],
@@ -40,6 +41,10 @@ grax.plot_parameter_study(
 The maintained example uses the same blazed geometry as the monochromator
 tutorial and produces one grid plot with rows for `100`, `600`, and `2000 eV`,
 and columns for the three swept parameters.
+
+It also sets `polarization="p"` explicitly so the convergence study matches the
+intended reflected-polarization workflow without relying on defaults. Accepted
+values are `s` and `p`.
 
 The maintained example should complete without failures on current source. When
 failures do happen, the CSV output records them explicitly with
