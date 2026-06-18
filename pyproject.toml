@@ -49,6 +49,7 @@ docs = [
 ]
 web = [
   "flask>=3.0",
+  "plotly>=5.20",
 ]
 
 [tool.setuptools]

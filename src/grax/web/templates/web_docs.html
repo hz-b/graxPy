@@ -82,13 +82,14 @@
     <li>Open a saved grating from the home page.</li>
     <li>Pick a workflow: fixed angle, monochromator, multilayer theta search, or parameter study.</li>
     <li>Enter the energy range, diffraction order, Fourier orders, and any workflow-specific values.</li>
+    <li>Add an optional run comment if you want the saved run to carry a note or experiment tag.</li>
     <li>Choose the worker mode if you want auto or manual multiprocessing.</li>
     <li>Run the sweep and follow the progress page while the simulation writes results.</li>
   </ol>
   <p>
     Each run gets its own directory under <code>runs/&lt;run-id&gt;/</code>. The manifest records the workflow, grating
-    metadata, selected orders, and progress state. The run directory also stores the result CSV files and generated
-    preview images for that run.
+    metadata, selected orders, comment, and progress state. The run directory also stores the result CSV files and
+    generated preview images for that run.
   </p>
 </section>
 
@@ -98,26 +99,24 @@
     <li>Open <strong>Plots</strong> from the top bar.</li>
     <li>Select one or more saved runs.</li>
     <li>Choose the diffraction orders you want to compare.</li>
-    <li>Use the live preview to inspect the combined plot before saving it.</li>
+    <li>Use the live Plotly preview to inspect the combined plot before saving it.</li>
+    <li>Adjust the line color, marker type, marker size, and x/y axis scales directly in the form.</li>
     <li>Save the plot to create a dedicated entry under <code>plots/&lt;plot-id&gt;/</code>.</li>
   </ol>
   <p>
-    The saved plot page shows the rendered image together with the selected runs and orders so you can trace exactly
-    how the comparison was assembled.
+    The saved plot page reopens the same interactive Plotly figure together with the selected runs and orders, so the
+    comparison styling and the axis modes persist with the saved plot.
   </p>
 </section>
 
 <section class="docs-section" id="export">
   <h2>Export plots and manage saved data</h2>
   <ul>
-    <li>Use <strong>Save plot</strong> in the plot builder to copy the live preview into a chosen directory.</li>
-    <li>Use <strong>Manage runs</strong> to rename or delete saved runs.</li>
+    <li>Use <strong>Save plot</strong> in the plot builder to store the interactive compare view in <code>plots/</code>.</li>
+    <li>Use <strong>Manage runs</strong> to rename saved runs, edit their comments, or delete them.</li>
     <li>Use <strong>Manage gratings</strong> to inspect, edit, or delete saved grating definitions.</li>
     <li>Use the workspace switcher on the home page if you want the app to read and write a different local folder.</li>
   </ul>
-  <p>
-    Exported plot images are copied from the live preview so the saved file matches what you saw in the browser.
-  </p>
 </section>
 
 <section class="docs-section" id="modify">
@@ -127,7 +126,7 @@
     <li><code>src/grax/web/app.py</code>: routes, workspace behavior, simulation wiring, and runtime page data.</li>
     <li><code>src/grax/web/templates/*.html</code>: page text, layout, and button placement.</li>
     <li><code>src/grax/web/static/web.css</code>: styling and responsive layout.</li>
-    <li><code>src/grax/web/static/web.js</code>: client-side preview and form interactions.</li>
+    <li><code>src/grax/web/static/web.js</code>: client-side preview, Plotly rendering, and form interactions.</li>
     <li><code>src/grax/web/persistence.py</code>: how gratings are stored and reconstructed from JSON.</li>
     <li><code>src/grax/web/runs.py</code>: run manifests, result loading, and comparison plot saving.</li>
   </ul>

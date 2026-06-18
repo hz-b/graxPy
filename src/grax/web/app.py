@@ -22,6 +22,17 @@ import numpy as np
 
 matplotlib.use("Agg")
 
+try:
+    import plotly.graph_objects as go
+    import plotly.io as plotly_io
+    from plotly.offline import get_plotlyjs
+    from plotly.subplots import make_subplots
+except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime.
+    go = None
+    plotly_io = None
+    get_plotlyjs = None
+    make_subplots = None
+
 from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
 
 from .persistence import GratingStore, build_grating_from_spec
@@ -58,6 +69,30 @@ def _plotly_bundle_text() -> str:
     _require_plotly()
     assert get_plotlyjs is not None
     return str(get_plotlyjs())
+
+
+PLOTLY_MARKER_SYMBOLS: tuple[tuple[str, str], ...] = (
+    ("circle", "Circle"),
+    ("square", "Square"),
+    ("diamond", "Diamond"),
+    ("triangle-up", "Triangle up"),
+    ("triangle-down", "Triangle down"),
+    ("cross", "Cross"),
+    ("x", "X"),
+    ("star", "Star"),
+)
+PLOTLY_DEFAULT_COLORS: tuple[str, ...] = (
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+)
 
 
 @dataclass
@@ -371,8 +406,11 @@ def create_app(*, data_dir: str | Path | None = None):
         for run in store.list():
             run_id = str(run["id"])
             field_name = f"display_name_{run_id}"
+            comment_field_name = f"comment_{run_id}"
             if field_name in request.form:
                 store.rename(run_id, str(request.form.get(field_name, "")))
+            if comment_field_name in request.form:
+                store.update_comment(run_id, str(request.form.get(comment_field_name, "")))
         return redirect(url_for("manage_runs"))
 
     @app.get("/runs/<run_id>")
@@ -439,6 +477,8 @@ def create_app(*, data_dir: str | Path | None = None):
             run_options=runs,
             results_dir=active_data_dir() / "runs",
             preview=None,
+            plotly_bundle=_plotly_bundle_text(),
+            marker_symbols=PLOTLY_MARKER_SYMBOLS,
         )
 
     @app.post("/_preview/plot")
@@ -495,11 +535,17 @@ def create_app(*, data_dir: str | Path | None = None):
         for run_id, orders in order_selection.items():
             if not orders:
                 abort(400, f"Select at least one diffraction order for run {run_id}.")
+        plot_options = _plot_options_from_form(
+            form_data=request.form,
+            run_ids=run_ids,
+            order_selection=order_selection,
+        )
         plot = _build_combined_plot(
             data_dir=app.config["GRAx_DATA_DIR"],
             run_ids=run_ids,
             order_selection=order_selection,
-            title=str(request.form.get("title", "")).strip() or "Combined plot",
+            title=plot_options["title"],
+            plot_options=plot_options,
         )
         return redirect(url_for("plot_detail", plot_id=plot["id"]))
 
@@ -512,7 +558,27 @@ def create_app(*, data_dir: str | Path | None = None):
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
         manifest["plots_dir"] = app.config["GRAx_DATA_DIR"] / "plots"
-        return render_template("plot_detail.html", plot=manifest)
+        if "figure_json" not in manifest and manifest.get("plot_config") is not None:
+            run_ids = [str(run["id"]) for run in manifest.get("selected_runs", [])]
+            order_selection = {
+                str(run["id"]): [int(value) for value in run.get("orders", [])]
+                for run in manifest.get("selected_runs", [])
+            }
+            try:
+                _, figure_json, _ = _build_plotly_compare_payload(
+                    data_dir=app.config["GRAx_DATA_DIR"],
+                    run_ids=run_ids,
+                    order_selection=order_selection,
+                    plot_options=dict(manifest["plot_config"]),
+                )
+                manifest["figure_json"] = figure_json
+            except ValueError:
+                manifest["figure_json"] = None
+        return render_template(
+            "plot_detail.html",
+            plot=manifest,
+            plotly_bundle=_plotly_bundle_text() if manifest.get("figure_json") else None,
+        )
 
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
@@ -784,6 +850,7 @@ def _queue_run(
         "grating_name": grating_name,
         "grating_spec": dict(grating_spec),
         "display_name": f"{grating_name} · {workflow}",
+        "comment": str(form.get("comment", "")).strip(),
         "status": "queued",
         "artifacts": [],
         "worker_mode": worker_mode,
@@ -1802,23 +1869,41 @@ def _list_runs(run_dir: Path) -> list[dict[str, Any]]:
 
 
 def _run_summary_label(run: dict[str, Any]) -> str:
-    """Return a rich one-line label for one saved run."""
+    """Return the primary saved-run descriptor used in plot selection."""
 
-    primary = str(run.get("display_name") or run.get("grating_name") or run.get("id", "Run"))
-    workflow = str(run.get("workflow", "run"))
-    created_at = str(run.get("created_at", ""))
-    run_id = str(run.get("id", ""))
-    state = str(run.get("status", "completed"))
-    return f"{primary} · {workflow} · {created_at} · {run_id} · {state}"
+    return (
+        f"name: {run.get('grating_name', 'Run')} · "
+        f"date/time: {run.get('created_at', '')} · "
+        f"grating type: {_run_grating_type(run)}"
+    )
 
 
 def _run_summary_meta(run: dict[str, Any]) -> str:
     """Return a secondary metadata line for one saved run."""
 
+    comment = str(run.get("comment", "")).strip() or "—"
     return (
-        f"{run.get('grating_name', 'Run')} · {run.get('workflow', 'run')} · "
-        f"{run.get('created_at', '')} · {run.get('id', '')} · {run.get('status', 'completed')}"
+        f"sweep type: {run.get('workflow', 'run')} · "
+        f"comment: {comment}"
     )
+
+
+def _run_grating_type(run: dict[str, Any]) -> str:
+    """Return the grating type recorded for one run."""
+
+    grating_spec = run.get("grating_spec")
+    if isinstance(grating_spec, dict):
+        value = str(grating_spec.get("grating_type", "")).strip()
+        if value:
+            return value
+    value = str(run.get("grating_type", "")).strip()
+    return value or "unknown"
+
+
+def _run_selector_text(run: dict[str, Any]) -> str:
+    """Return the full run text shown in plot-selection UIs."""
+
+    return f"{_run_summary_label(run)} · {_run_summary_meta(run)}"
 
 
 def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
@@ -1844,6 +1929,7 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
                 "available_orders": _available_orders(run_dir_for_id),
                 "summary_label": _run_summary_label(enriched_run),
                 "summary_meta": _run_summary_meta(enriched_run),
+                "selector_text": _run_selector_text(enriched_run),
                 "checkpoint_completed_points": checkpoint_completed_points,
                 "checkpoint_total_points": checkpoint_total_points or int(run.get("total_points") or 0),
             }
@@ -1869,59 +1955,52 @@ def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
         return {
             "ok": False,
             "error": "Select at least one saved run.",
-            "preview_id": None,
-            "preview_url": None,
+            "figure_json": None,
             "selected_runs": [],
+            "series_controls": [],
         }
 
     order_selection: dict[str, list[int]] = {}
-    selected_runs: list[dict[str, Any]] = []
     for run_id in run_ids:
         orders = [int(value) for value in form_data.getlist(f"orders_{run_id}") if str(value).strip() != ""]
         if not orders:
             return {
                 "ok": False,
                 "error": f"Select at least one diffraction order for run {run_id}.",
-                "preview_id": None,
-                "preview_url": None,
+                "figure_json": None,
                 "selected_runs": [],
+                "series_controls": [],
             }
         order_selection[run_id] = orders
-        run_manifest = RunStore(data_dir / "runs").load(run_id)
-        selected_runs.append(
-            {
-                "id": run_id,
-                "name": _run_summary_label(run_manifest),
-                "orders": orders,
-            }
-        )
 
-    preview_id = uuid4().hex
-    preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
-    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    plot_options = _plot_options_from_form(
+        form_data=form_data,
+        run_ids=run_ids,
+        order_selection=order_selection,
+    )
     try:
-        _render_combined_plot_image(
+        selected_runs, figure_json, series_controls = _build_plotly_compare_payload(
             data_dir=data_dir,
             run_ids=run_ids,
             order_selection=order_selection,
-            title=str(form_data.get("title", "")).strip() or "Combined plot",
-            output_path=preview_path,
+            plot_options=plot_options,
         )
     except ValueError as error:
         return {
             "ok": False,
             "error": str(error),
-            "preview_id": None,
-            "preview_url": None,
+            "figure_json": None,
             "selected_runs": [],
+            "series_controls": [],
         }
 
     return {
         "ok": True,
         "error": "",
-        "preview_id": preview_id,
-        "preview_url": f"/_data/previews/live/{preview_id}.png",
+        "figure_json": figure_json,
         "selected_runs": selected_runs,
+        "series_controls": series_controls,
+        "plot_options": plot_options,
     }
 
 
@@ -1952,6 +2031,7 @@ def _build_combined_plot(
     run_ids: list[str],
     order_selection: dict[str, list[int]],
     title: str,
+    plot_options: dict[str, Any],
 ) -> dict[str, Any]:
     """Build and save a combined plot for several runs and selected orders."""
     plot_root = data_dir / "plots"
@@ -1960,13 +2040,11 @@ def _build_combined_plot(
     plot_dir = plot_root / plot_id
     plot_dir.mkdir(parents=True, exist_ok=True)
 
-    plot_path = plot_dir / "combined.png"
-    run_summaries = _render_combined_plot_image(
+    run_summaries, figure_json, series_controls = _build_plotly_compare_payload(
         data_dir=data_dir,
         run_ids=run_ids,
         order_selection=order_selection,
-        title=title,
-        output_path=plot_path,
+        plot_options=plot_options,
     )
 
     manifest = {
@@ -1974,12 +2052,242 @@ def _build_combined_plot(
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "title": title,
         "selected_runs": run_summaries,
-        "plot_path": "combined.png",
+        "plot_config": {
+            "title": title,
+            "x_axis_type": plot_options["x_axis_type"],
+            "y_axis_type": plot_options["y_axis_type"],
+            "series_styles": {
+                item["series_key"]: {
+                    "color": item["color"],
+                    "marker_symbol": item["marker_symbol"],
+                    "marker_size": item["marker_size"],
+                }
+                for item in series_controls
+            },
+        },
+        "figure_json": figure_json,
     }
     with (plot_dir / "manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
     return manifest
+
+
+def _plot_options_from_form(
+    *,
+    form_data: Any,
+    run_ids: list[str],
+    order_selection: dict[str, list[int]],
+) -> dict[str, Any]:
+    """Return normalized compare-plot configuration from form data."""
+
+    plot_options = {
+        "title": str(form_data.get("title", "")).strip() or "Combined plot",
+        "x_axis_type": _normalize_axis_type(form_data.get("x_axis_type")),
+        "y_axis_type": _normalize_axis_type(form_data.get("y_axis_type")),
+        "series_styles": {},
+    }
+    for run_id in run_ids:
+        for order in order_selection.get(run_id, []):
+            token = _series_token(run_id, int(order))
+            series_key = _series_key(run_id, int(order))
+            marker_symbol = str(form_data.get(f"marker_symbol_{token}", "")).strip() or "circle"
+            valid_marker_symbols = {value for value, _ in PLOTLY_MARKER_SYMBOLS}
+            if marker_symbol not in valid_marker_symbols:
+                marker_symbol = "circle"
+            try:
+                marker_size = int(float(form_data.get(f"marker_size_{token}", 3) or 3))
+            except (TypeError, ValueError):
+                marker_size = 3
+            marker_size = max(1, min(marker_size, 24))
+            plot_options["series_styles"][series_key] = {
+                "color": _normalize_hex_color(form_data.get(f"color_{token}")),
+                "marker_symbol": marker_symbol,
+                "marker_size": marker_size,
+            }
+    return plot_options
+
+
+def _normalize_axis_type(raw_value: Any) -> str:
+    """Return a safe Plotly axis type."""
+
+    value = str(raw_value or "").strip().lower()
+    if value == "log":
+        return "log"
+    return "linear"
+
+
+def _normalize_hex_color(raw_value: Any) -> str | None:
+    """Return a normalized hex color or None when invalid."""
+
+    value = str(raw_value or "").strip()
+    if len(value) == 7 and value.startswith("#"):
+        hex_digits = value[1:]
+        if all(character in "0123456789abcdefABCDEF" for character in hex_digits):
+            return value.lower()
+    return None
+
+
+def _series_key(run_id: str, order: int) -> str:
+    """Return the stable manifest key for one compare-plot series."""
+
+    return f"{run_id}::order::{int(order)}"
+
+
+def _series_token(run_id: str, order: int) -> str:
+    """Return the form-safe token for one compare-plot series."""
+
+    safe_run_id = "".join(character if character.isalnum() else "_" for character in run_id)
+    return f"{safe_run_id}__order_{int(order)}"
+
+
+def _default_series_style(index: int) -> dict[str, Any]:
+    """Return the default style for one compare-plot series."""
+
+    marker_cycle = [value for value, _ in PLOTLY_MARKER_SYMBOLS]
+    return {
+        "color": PLOTLY_DEFAULT_COLORS[index % len(PLOTLY_DEFAULT_COLORS)],
+        "marker_symbol": marker_cycle[index % len(marker_cycle)],
+        "marker_size": 3,
+    }
+
+
+def _build_plotly_compare_payload(
+    *,
+    data_dir: Path,
+    run_ids: list[str],
+    order_selection: dict[str, list[int]],
+    plot_options: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
+    """Return selected-run summaries, serialized Plotly figure, and style controls."""
+
+    _require_plotly()
+    run_summaries, selected_series = _load_selected_plot_series(
+        data_dir=data_dir,
+        run_ids=run_ids,
+        order_selection=order_selection,
+    )
+    if not selected_series:
+        raise ValueError("Select at least one run and one diffraction order.")
+    series_controls = _series_controls_for_selected_series(
+        selected_series=selected_series,
+        saved_styles=dict(plot_options.get("series_styles", {})),
+    )
+    figure = _build_plotly_compare_figure(
+        selected_series=selected_series,
+        title=str(plot_options["title"]),
+        x_axis_type=str(plot_options["x_axis_type"]),
+        y_axis_type=str(plot_options["y_axis_type"]),
+        series_controls=series_controls,
+    )
+    assert plotly_io is not None
+    return run_summaries, plotly_io.to_json(figure, validate=False), series_controls
+
+
+def _load_selected_plot_series(
+    *,
+    data_dir: Path,
+    run_ids: list[str],
+    order_selection: dict[str, list[int]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return selected run summaries plus all order series requested for comparison."""
+
+    run_summaries: list[dict[str, Any]] = []
+    selected_series: list[dict[str, Any]] = []
+    for run_id in run_ids:
+        run_dir = data_dir / "runs" / run_id
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        run_label = _run_selector_text(manifest)
+        orders = order_selection.get(run_id) or _available_orders(run_dir)
+        run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
+        for order in orders:
+            series = _load_order_series(run_dir, order=order, label=run_label)
+            if series is not None:
+                series["series_key"] = _series_key(run_id, int(order))
+                series["series_token"] = _series_token(run_id, int(order))
+                series["run_id"] = run_id
+                selected_series.append(series)
+    return run_summaries, selected_series
+
+
+def _series_controls_for_selected_series(
+    *,
+    selected_series: list[dict[str, Any]],
+    saved_styles: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return the normalized per-series style controls for one compare plot."""
+
+    series_controls: list[dict[str, Any]] = []
+    for index, series in enumerate(selected_series):
+        default_style = _default_series_style(index)
+        saved_style = dict(saved_styles.get(str(series["series_key"]), {}))
+        marker_symbol = str(saved_style.get("marker_symbol", default_style["marker_symbol"]))
+        if marker_symbol not in {value for value, _ in PLOTLY_MARKER_SYMBOLS}:
+            marker_symbol = str(default_style["marker_symbol"])
+        try:
+            marker_size = int(float(saved_style.get("marker_size", default_style["marker_size"])))
+        except (TypeError, ValueError):
+            marker_size = int(default_style["marker_size"])
+        marker_size = max(1, min(marker_size, 24))
+        series_controls.append(
+            {
+                "series_key": str(series["series_key"]),
+                "series_token": str(series["series_token"]),
+                "run_id": str(series["run_id"]),
+                "order": int(series["order"]),
+                "label": f"{series['label']} · order: {series['order']}",
+                "color": _normalize_hex_color(saved_style.get("color")) or str(default_style["color"]),
+                "marker_symbol": marker_symbol,
+                "marker_size": marker_size,
+            }
+        )
+    return series_controls
+
+
+def _build_plotly_compare_figure(
+    *,
+    selected_series: list[dict[str, Any]],
+    title: str,
+    x_axis_type: str,
+    y_axis_type: str,
+    series_controls: list[dict[str, Any]],
+) -> Any:
+    """Build the interactive Plotly figure for one compare plot."""
+
+    _require_plotly()
+    assert go is not None
+    control_map = {item["series_key"]: item for item in series_controls}
+    figure = go.Figure()
+    for series in selected_series:
+        style = control_map[str(series["series_key"])]
+        figure.add_trace(
+            go.Scatter(
+                x=np.asarray(series["energies"], dtype=float),
+                y=np.asarray(series["efficiencies"], dtype=float),
+                mode="lines+markers",
+                name=style["label"],
+                line={"color": style["color"], "width": 1.6},
+                marker={
+                    "color": style["color"],
+                    "symbol": style["marker_symbol"],
+                    "size": style["marker_size"],
+                },
+                hovertemplate="Energy: %{x:.3f} eV<br>Efficiency: %{y:.6f}<extra>%{fullData.name}</extra>",
+            )
+        )
+    figure.update_layout(
+        title=title,
+        template="plotly_white",
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0.0},
+        margin={"l": 64, "r": 24, "t": 72, "b": 60},
+    )
+    figure.update_xaxes(title_text="Photon Energy (eV)", type=x_axis_type, showgrid=True, zeroline=False)
+    figure.update_yaxes(title_text="Diffraction Efficiency", type=y_axis_type, showgrid=True, zeroline=False)
+    return figure
 
 
 def _render_combined_plot_image(

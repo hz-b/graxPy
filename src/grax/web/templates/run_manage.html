@@ -4,14 +4,14 @@
 <section class="section-head">
   <div>
     <h1>Manage saved runs</h1>
-    <p>Rename runs inline or bulk delete selected runs.</p>
+    <p>Rename runs, edit comments inline, or bulk delete selected runs.</p>
   </div>
 </section>
 
 {% if runs %}
   <form class="form" method="post" action="{{ url_for('update_runs') }}">
     <div class="manage-actions">
-      <button class="button primary" type="submit" name="action" value="save">Save names</button>
+      <button class="button primary" type="submit" name="action" value="save">Save changes</button>
       <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">
         Delete selected
       </button>
@@ -27,6 +27,15 @@
                 name="display_name_{{ run.id }}"
                 type="text"
                 value="{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}"
+              >
+            </label>
+            <label>
+              Comment
+              <input
+                name="comment_{{ run.id }}"
+                type="text"
+                value="{{ run.comment | default('', true) }}"
+                placeholder="Optional note for this run"
               >
             </label>
             <p class="subtle">
