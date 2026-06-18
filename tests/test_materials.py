@@ -7,7 +7,14 @@ import pytest
 from xrt.backends.raycing import materials as xrt_materials
 
 from grax.gratings import LaminarGrating
-from grax.materials import MaterialSpec, optical_constants_dataframe, resolve_refractive_index, validate_material_input
+from grax.materials import (
+    MaterialSpec,
+    available_material_symbols,
+    material_density_catalog,
+    optical_constants_dataframe,
+    resolve_refractive_index,
+    validate_material_input,
+)
 from grax.simulation import run_simulation
 from tests.optical_constants import OpticalConstantsTable
 
@@ -168,8 +175,8 @@ def test_validate_material_input_accepts_henke_string_material_names() -> None:
 
 
 def test_material_spec_density_override_resolves_and_matches_xrt() -> None:
-    material = MaterialSpec("Ag", density_g_cm3=10.49)
-    xrt_material = xrt_materials.Material("Ag", rho=10.49, table="Henke", name="Ag-xrt")
+    material = MaterialSpec("Ag", density_g_cm3=10.501)
+    xrt_material = xrt_materials.Material("Ag", rho=10.501, table="Henke", name="Ag-xrt")
 
     index = resolve_refractive_index(material, 150.0)
     with pytest.warns(FutureWarning, match="deprecated"):
@@ -196,9 +203,10 @@ def test_resolve_refractive_index_rejects_unknown_string_material_names() -> Non
     assert "Pt" in message
 
 
-def test_validate_material_input_rejects_henke_materials_without_density_metadata() -> None:
-    with pytest.raises(ValueError, match="no density metadata is configured"):
-        validate_material_input("Ag", field_name="substrate_material")
+def test_validate_material_input_accepts_completed_henke_density_catalog() -> None:
+    validate_material_input("Ag", field_name="substrate_material")
+    validate_material_input("Ac", field_name="layer_material")
+    validate_material_input("Cd", field_name="top_material")
 
 
 def test_resolve_refractive_index_rejects_numeric_constants() -> None:
@@ -283,11 +291,13 @@ def test_optical_constants_dataframe_exports_henke_string_material() -> None:
 @pytest.mark.parametrize(
     ("symbol", "density_g_cm3"),
     [
-        ("Si", 2.329),
-        ("Pt", 21.45),
-        ("Au", 19.3),
-        ("C", 2.2),
-        ("Cr", 7.19),
+        ("Si", 2.3296),
+        ("Pt", 21.46),
+        ("Au", 19.282),
+        ("C", 2.2670),
+        ("Cr", 7.15),
+        ("Ac", 10.07),
+        ("Cd", 8.69),
     ],
 )
 def test_henke_string_resolution_matches_xrt_henke_close_enough(
@@ -310,6 +320,12 @@ def test_packaged_henke_tables_are_discoverable() -> None:
     assert table_path.is_file()
 
 
+def test_every_packaged_henke_symbol_has_builtin_density_metadata() -> None:
+    catalog_symbols = {symbol for symbol, _density in material_density_catalog()}
+
+    assert catalog_symbols == set(available_material_symbols())
+
+
 def test_runnable_examples_use_local_optical_constants_directories() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     example_scripts = [
@@ -325,6 +341,17 @@ def test_runnable_examples_use_local_optical_constants_directories() -> None:
         assert "optical_constants_dir" in script
 
 
+def test_public_examples_use_henke_strings_instead_of_xrt_material_construction() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    for script_path in (repo_root / "examples").rglob("*.py"):
+        if "optimizer" in script_path.parts:
+            continue
+        script = script_path.read_text(encoding="utf-8")
+        assert "xrt.backends.raycing" not in script
+        assert "xrt_materials.Material(" not in script
+
+
 def test_materials_tutorial_documents_string_and_xrt_material_paths() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "docs" / "tutorials" / "materials.md"
@@ -336,3 +363,15 @@ def test_materials_tutorial_documents_string_and_xrt_material_paths() -> None:
     assert 'table="Henke"' in script
     assert "get_refractive_index()" in script
     assert "DataFrame-like object" in script
+    assert "generated/material_density_table.md" in script
+    assert "material_density_catalog()" in script
+
+
+def test_custom_stack_example_uses_te_instead_of_coo() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "examples" / "grating" / "blazed_multilayer_custom_stack.py"
+
+    script = script_path.read_text(encoding="utf-8")
+
+    assert '"Te"' in script
+    assert "CoO" not in script

@@ -23,6 +23,7 @@ maintainers = [
 ]
 dependencies = [
   "numpy>=1.24",
+  "numba>=0.59",
   "pandas>=2.0",
   "scipy>=1.10",
   "matplotlib>=3.7",
@@ -39,9 +40,6 @@ dev = [
 ]
 opt = [
   "ax-platform>=0.5",
-]
-numba = [
-  "numba>=0.59",
 ]
 docs = [
   "sphinx>=7.0",

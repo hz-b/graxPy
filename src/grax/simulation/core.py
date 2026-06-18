@@ -6,6 +6,7 @@ import csv
 import importlib
 import inspect
 import logging
+import warnings
 from collections.abc import Iterable, Iterator
 from contextlib import nullcontext as _nullcontext
 from copy import copy
@@ -27,6 +28,19 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
+    """Warn when callers explicitly request the deprecated NumPy backend."""
+
+    if str(backend).lower() != "numpy":
+        return
+    warnings.warn(
+        "backend='numpy' is deprecated and will be removed in a future version. "
+        "Use backend='numba' or rely on the default numba backend instead.",
+        FutureWarning,
+        stacklevel=stacklevel,
+    )
 
 
 def _simulation_api():
@@ -143,7 +157,7 @@ def run_simulation(
     max_total_reflected_efficiency: float = 1.05,
     _memory_mode: Literal["legacy_dense", "low_memory"] = "low_memory",
     _profiler: SolverProfiler | None = None,
-    backend: str = "numpy",
+    backend: str = "numba",
 ) -> SingleSimulationResult:
     """Run one RCWA simulation case and return a typed result.
 
@@ -161,7 +175,10 @@ def run_simulation(
         _memory_mode: Internal texture-generation mode. ``"low_memory"`` is the
             public path. ``"legacy_dense"`` keeps the older dense-grid path
             available for internal regression and debugging.
-        backend: Fourier coefficient backend selector.
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default backend. ``"numpy"`` remains available temporarily for
+            compatibility but is deprecated and will be removed in a future
+            version.
 
     Returns:
         Single-case RCWA result.
@@ -173,6 +190,7 @@ def run_simulation(
         raise TypeError("grating must derive from BaseGrating.")
     if _memory_mode not in {"legacy_dense", "low_memory"}:
         raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
+    _warn_if_numpy_backend_requested(backend, stacklevel=2)
 
     logger.info(
         "Running simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s, memory_mode=%s",
@@ -481,10 +499,11 @@ class RCWASimulation:
         min_efficiency: float = -1e-8,
         max_total_reflected_efficiency: float = 1.05,
         roughness_sigma_nm: float | None = None,
-        backend: str = "numpy",
+        backend: str = "numba",
     ) -> None:
         """Initialize a compatibility simulation object."""
 
+        _warn_if_numpy_backend_requested(backend, stacklevel=2)
         self.grating = grating
         self.diffraction_order = diffraction_order
         self.fourier_orders = fourier_orders

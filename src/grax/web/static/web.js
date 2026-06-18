@@ -22,6 +22,21 @@ function syncStackSections(select) {
   });
 }
 
+function syncMaterialDensity(select) {
+  const fieldKey = select.dataset.materialSelect;
+  if (!fieldKey) {
+    return;
+  }
+  const densityInput = document.querySelector(`[data-material-density="${fieldKey}"]`);
+  if (!densityInput) {
+    return;
+  }
+  const selectedOption = select.selectedOptions[0];
+  const density = selectedOption ? selectedOption.dataset.density || "" : "";
+  densityInput.value = density;
+  densityInput.placeholder = density;
+}
+
 function syncWorkerFields(select) {
   const isManual = select.value === "manual";
   document.querySelectorAll("[data-manual-workers]").forEach((field) => {
@@ -90,6 +105,15 @@ function initGratingPreview(form) {
   form.querySelectorAll("input, select, textarea").forEach((field) => {
     field.addEventListener("input", updatePreview);
     field.addEventListener("change", updatePreview);
+  });
+}
+
+function initMaterialDensitySync() {
+  document.querySelectorAll("[data-material-select]").forEach((select) => {
+    syncMaterialDensity(select);
+    select.addEventListener("change", () => {
+      syncMaterialDensity(select);
+    });
   });
 }
 
@@ -257,6 +281,10 @@ function initPlotWorkspace(form) {
     });
   }
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  initMaterialDensitySync();
+});
 
 function formatSeconds(value) {
   if (value === null || value === undefined || Number.isNaN(value)) {

@@ -32,8 +32,8 @@ class FourierBackend(str, Enum):
     """Internal Fourier coefficient implementations.
 
     Two backends are available:
-    - NUMPY: Reference implementation using NumPy (no dependencies)
-    - NUMBA: JIT-compiled kernel for optimal performance (requires numba)
+    - NUMPY: Reference implementation kept for transition-time compatibility
+    - NUMBA: JIT-compiled kernel and the default production path
     """
 
     NUMPY = "numpy"
@@ -155,7 +155,7 @@ def _resolve_fourier_backend(
     if backend == "numba" and not _NUMBA_AVAILABLE:
         raise RuntimeError(
             "numba backend requested but numba is not installed. "
-            "Install with: python -m pip install \"graxpy[numba]\""
+            "Reinstall the standard graxpy package so the required numba dependency is available."
         )
     try:
         return FourierBackend(backend)
@@ -590,7 +590,7 @@ def _piecewise_fourier_coefficients_numba(
     *,
     profiler: SolverProfiler | None,
 ) -> np.ndarray:
-    """Return Fourier coefficients using the optional Numba kernel."""
+    """Return Fourier coefficients using the Numba kernel."""
 
     call_start = perf_counter() if profiler is not None else None
     coeffs = _piecewise_fourier_coefficients_numba_kernel(breaks, refractive_index, period, max_order)

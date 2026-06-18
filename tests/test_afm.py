@@ -340,6 +340,21 @@ def test_afm_preprocessing_respects_custom_results_folder(tmp_path: Path) -> Non
     assert expected.exists()
 
 
+def test_afm_tutorial_references_both_example_workflows_and_image_sets() -> None:
+    tutorial_path = Path(__file__).resolve().parents[1] / "docs" / "tutorials" / "gratings" / "afm-preprocessing-profile.md"
+    build_docs_path = Path(__file__).resolve().parents[1] / "tools" / "build_docs.sh"
+
+    tutorial = tutorial_path.read_text(encoding="utf-8")
+    build_docs = build_docs_path.read_text(encoding="utf-8")
+
+    assert "afm_preprocessing_blazed_profile.py" in tutorial
+    assert "afm_preprocessing_laminar_profile.py" in tutorial
+    assert "afm_preprocessing_blazed/01_normalize_scan.png" in tutorial
+    assert "afm_preprocessing_laminar/01_normalize_scan.png" in tutorial
+    assert "examples/grating/results/afm_preprocessing_blazed/01_normalize_scan.png" in build_docs
+    assert "examples/grating/results/afm_preprocessing_laminar/01_normalize_scan.png" in build_docs
+
+
 def test_afm_grating_from_preprocessing_infers_period_lpermm() -> None:
     period_nm = 1600.0
     afm = _build_processed_afm(period_nm=period_nm)

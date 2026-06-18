@@ -21,7 +21,13 @@ import numpy as np
 from tqdm import tqdm
 
 from ..gratings import BaseGrating
-from .core import _clone_grating_with_overrides, _refresh_interactive_figure, efficiency_for_order, run_simulation
+from .core import (
+    _clone_grating_with_overrides,
+    _refresh_interactive_figure,
+    _warn_if_numpy_backend_requested,
+    efficiency_for_order,
+    run_simulation,
+)
 from ._profiling import SolverProfiler
 from .models import (
     AUTO_WORKER_MEMORY_RESERVE_BYTES,
@@ -546,8 +552,10 @@ class BatchSimulationRunner:
         default_diffraction_order: Default selected diffraction order.
         default_fourier_orders: Default Fourier truncation order.
         max_fourier_orders: Maximum allowed Fourier orders.
-        backend: Fourier coefficient backend selector. Options: "numpy"
-            (default, pure Python), "numba" (JIT-compiled, requires numba package).
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default backend. ``"numpy"`` remains available temporarily for
+            compatibility but is deprecated and will be removed in a future
+            version.
         checkpoint_dir: Directory for ``results.jsonl`` and ``metadata.json``.
         checkpoint_interval: Flush checkpoint file every N completed cases.
         resume: Whether to skip case IDs already present in the checkpoint.
@@ -610,7 +618,7 @@ class BatchSimulationRunner:
         retry_on_selected_efficiency_zero: bool = True,
         retry_selected_efficiency_threshold: float = 1e-4,
         max_zero_efficiency_retries: int = 3,
-        backend: str = "numpy",
+        backend: str = "numba",
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
@@ -661,7 +669,10 @@ class BatchSimulationRunner:
             retry_selected_efficiency_threshold: Threshold that triggers retry when
                 ``selected_efficiency <= retry_selected_efficiency_threshold``.
             max_zero_efficiency_retries: Maximum retry attempts for threshold-triggered cases.
-            backend: RCWA backend implementation. ``"numpy"`` or ``"jax"``.
+            backend: Fourier coefficient backend selector. ``"numba"`` is the
+                default backend. ``"numpy"`` remains available temporarily for
+                compatibility but is deprecated and will be removed in a future
+                version.
 
         Example:
             >>> runner = BatchSimulationRunner(
@@ -679,6 +690,7 @@ class BatchSimulationRunner:
             raise ValueError("execution_mode must be 'inline' or 'subprocess'.")
         if on_error not in {"continue", "fail_fast"}:
             raise ValueError("on_error must be 'continue' or 'fail_fast'.")
+        _warn_if_numpy_backend_requested(backend, stacklevel=2)
         if not np.isfinite(retry_selected_efficiency_threshold) or retry_selected_efficiency_threshold < 0.0:
             raise ValueError("retry_selected_efficiency_threshold must be finite and >= 0.0.")
         resolved_max_workers = _resolve_max_workers(max_workers)
