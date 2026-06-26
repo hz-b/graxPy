@@ -467,9 +467,19 @@ def create_app(*, data_dir: str | Path | None = None):
     def system_memory():
         return jsonify(_memory_status_payload())
 
+    @app.get("/system/resource-status")
+    def system_resource_status():
+        from .resource_manager import resource_status
+        return jsonify(resource_status())
+
     @app.get("/plots")
-    @app.get("/runs/compare")
     def plot_index():
+        plots = _list_plots(active_data_dir() / "plots")
+        return render_template("plot_list.html", plots=plots)
+
+    @app.get("/plots/new")
+    @app.get("/runs/compare")
+    def plot_new():
         runs = _list_plot_runs(active_data_dir() / "runs")
         return render_template(
             "plot_form.html",
@@ -579,6 +589,20 @@ def create_app(*, data_dir: str | Path | None = None):
             plot=manifest,
             plotly_bundle=_plotly_bundle_text() if manifest.get("figure_json") else None,
         )
+
+    @app.get("/plots/<plot_id>/delete")
+    @app.post("/plots/<plot_id>/delete")
+    def plot_delete(plot_id: str):
+        plot_dir = app.config["GRAx_DATA_DIR"] / "plots" / plot_id
+        manifest_path = plot_dir / "manifest.json"
+        if not manifest_path.exists():
+            abort(404)
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        if request.method == "POST":
+            shutil.rmtree(plot_dir, ignore_errors=True)
+            return redirect(url_for("plot_index"))
+        return render_template("plot_delete.html", plot=manifest)
 
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
@@ -987,8 +1011,19 @@ def _execute_run_job(
     """Execute one queued run in a background thread and persist its outputs."""
 
     from grax import parameter_sweep, simulation
+    from .resource_manager import allocate_workers, release_workers
 
     run_dir = data_dir / "runs" / run_id
+
+    # Block here until the global pool has room — run stays "queued" while waiting.
+    granted_workers = allocate_workers(run_id)
+
+    # Honour manual cap if set; otherwise use all granted workers.
+    if isinstance(max_workers_setting, int):
+        effective_max_workers: int = min(granted_workers, max_workers_setting)
+    else:
+        effective_max_workers = granted_workers
+
     _update_active_run(app, run_id, state="running", started=True)
     _update_manifest_fields(data_dir, run_id, status="running")
     try:
@@ -1039,7 +1074,7 @@ def _execute_run_job(
         runner = simulation.BatchSimulationRunner(
             default_diffraction_order=diffraction_order,
             default_fourier_orders=fourier_orders,
-            max_workers=max_workers_setting,
+            max_workers=effective_max_workers,
             show_progress=False,
             on_error="continue",
             checkpoint_dir=run_dir / "checkpoints",
@@ -1159,6 +1194,8 @@ def _execute_run_job(
             artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
         )
         _finish_active_run(app, run_id, state="failed", error_text=str(error))
+    finally:
+        release_workers(run_id)
 
 
 def _worker_settings_from_form(form: Any) -> tuple[str, str | int, int | None]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from pathlib import Path
 import sys
 
@@ -11,7 +12,13 @@ sys.path.insert(0, str(ROOT / "src"))
 project = "grax"
 author = "grax contributors"
 copyright = "2026, grax contributors"
-release = "0.1.1"
+
+try:
+    release = _pkg_version("graxpy")
+except PackageNotFoundError:
+    release = "unknown"
+
+version = ".".join(release.split(".")[:2]) if release != "unknown" else "unknown"
 
 extensions = [
     "myst_parser",
@@ -43,7 +50,10 @@ napoleon_use_ivar = True
 myst_enable_extensions = [
     "colon_fence",
     "deflist",
+    "substitution",
 ]
+
+myst_substitutions = {"release": release}
 
 todo_include_todos = False
 bibtex_bibfiles = ["references.bib"]
@@ -57,6 +67,7 @@ intersphinx_mapping = {
 html_theme = "furo"
 html_static_path = ["_static"]
 html_title = "grax documentation"
+templates_path = ["_templates"]
 
 latex_engine = "pdflatex"
 latex_elements = {

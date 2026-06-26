@@ -1,5 +1,7 @@
 # grax documentation
 
+*Version {{ release }}*
+
 `grax` is an independent Python package for one-dimensional RCWA simulations of X-ray diffraction gratings. The current solver implementation is inspired by the one-dimensional RETICOLO approach and currently supports 1D RCWA simulations, including multilayer coating stacks.
 
 On top of the RCWA solver, `grax` provides higher-level abstractions to define and simulate different grating geometries, currently including laminar and blazed gratings, together with user-friendly simulation utilities for single simulations, batch execution, and energy-angle sweeps.

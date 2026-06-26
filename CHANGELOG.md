@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.5 - 2026-06-26
+- Web UI: add global CPU-pool resource manager, saved-plots list page with per-plot deletion, and dynamic version display in the docs sidebar and homepage.
+
 ## 0.4.4 - 2026-06-18
 - Numba is now the dafault solver backend. Numpy will be deprecated in a future release, but is still available as an explicit `solver_backend` option for now.
 - use Plotly for the web-ui plotting. minor improvements to the web-ui.

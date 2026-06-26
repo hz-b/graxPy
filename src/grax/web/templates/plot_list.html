@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Saved plots{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Saved plots</h1>
+    <p>Interactive comparison plots of completed simulation runs.</p>
+  </div>
+  <a class="button primary" href="{{ url_for('plot_new') }}">New plot</a>
+</section>
+
+{% if plots %}
+  <div class="list">
+    {% for plot in plots %}
+      <div class="row">
+        <div>
+          <strong><a href="{{ url_for('plot_detail', plot_id=plot.id) }}">{{ plot.title }}</a></strong>
+          <p class="subtle">
+            {{ plot.created_at }}
+            {% if plot.selected_runs %}
+              &middot; {{ plot.selected_runs | length }} run{% if plot.selected_runs | length != 1 %}s{% endif %}
+            {% endif %}
+          </p>
+        </div>
+        <div class="actions">
+          <a class="button" href="{{ url_for('plot_detail', plot_id=plot.id) }}">View</a>
+          <a class="button" href="{{ url_for('plot_delete', plot_id=plot.id) }}">Delete</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="empty">No saved plots yet. <a href="{{ url_for('plot_new') }}">Create one</a> from completed runs.</p>
+{% endif %}
+{% endblock %}
