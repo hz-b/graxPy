@@ -33,7 +33,7 @@ def create_grating(*, substrate_material: object) -> grax.LaminarGrating:
         left_wall_angle_deg=LEFT_WALL_ANGLE_DEG,
         right_wall_angle_deg=RIGHT_WALL_ANGLE_DEG,
         substrate_material=substrate_material,
-        layer_material=None,
+        layer_material=substrate_material,
         layer_thickness_nm=0.0,
         top_cap_material=None,
         top_cap_thickness_nm=0.0,
