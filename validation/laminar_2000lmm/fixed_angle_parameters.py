@@ -4,16 +4,31 @@ from __future__ import annotations
 
 import grax
 
-NUM_ENERGY_POINTS = 20
-FOURIER_ORDERS = 10
-X_RESOLUTION_NM = 0.3
-Z_RESOLUTION_NM = 0.3
+NUM_ENERGY_POINTS = 500#s1039
+FOURIER_ORDERS = 20
+X_RESOLUTION_NM = 0.1
+Z_RESOLUTION_NM = 0.1
 
 PERIOD_LPERMM = 2000
 WIDTH_TO_PERIOD_RATIO = 0.6
 DEPTH_NM = 5.0
-LEFT_WALL_ANGLE_DEG = 90.0
-RIGHT_WALL_ANGLE_DEG = 90.0
+LEFT_WALL_ANGLE_DEG = 10.0
+RIGHT_WALL_ANGLE_DEG = 10.0
+SI_DENSITY_G_CM3 = 2.330
+SIO2_DENSITY_G_CM3 = 2.530
+C4O_DENSITY_G_CM3 = 1.000
+SIO2_THICKNESS_NM = 0.87
+C4O_THICKNESS_NM = 0.68
+
+
+def resolve_material(
+    *,
+    material_name: str,
+    density_g_cm3: float | None = None,
+) -> object:
+    """Return one explicit material definition for elemental or formula inputs."""
+
+    return grax.MaterialSpec(name=material_name, density_g_cm3=density_g_cm3)
 
 
 def create_grating(*, substrate_material: object) -> grax.LaminarGrating:
@@ -39,4 +54,21 @@ def create_grating(*, substrate_material: object) -> grax.LaminarGrating:
         top_cap_thickness_nm=0.0,
         x_resolution_nm=X_RESOLUTION_NM,
         z_resolution_nm=Z_RESOLUTION_NM,
+    )
+
+
+def create_layered_stack(
+    *,
+    substrate_material: object,
+    sio2_material: object,
+    c4o_material: object,
+) -> grax.CustomStack:
+    """Build the Si substrate + SiO2 + C4O stack used in the layered sweeps."""
+
+    return grax.assemble_custom_stack(
+        substrate_material=substrate_material,
+        layers_bottom_up=[
+            grax.LayerSpec(material=sio2_material, thickness_nm=SIO2_THICKNESS_NM),
+            grax.LayerSpec(material=c4o_material, thickness_nm=C4O_THICKNESS_NM),
+        ],
     )

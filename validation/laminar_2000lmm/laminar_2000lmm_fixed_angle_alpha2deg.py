@@ -19,18 +19,19 @@ from fixed_angle_parameters import (
     NUM_ENERGY_POINTS,
     PERIOD_LPERMM,
     RIGHT_WALL_ANGLE_DEG,
+    SI_DENSITY_G_CM3,
     WIDTH_TO_PERIOD_RATIO,
     X_RESOLUTION_NM,
     Z_RESOLUTION_NM,
     create_grating,
+    resolve_material,
 )
 
 
 grax.setup_logging(level="INFO", run_id="laminar_2000lmm_fixed_angle_alpha2deg")
 
 example_root = Path(__file__).resolve().parent
-optical_constants_dir = example_root / "optical_constants"
-simulation_path = (
+measurement_path = (
     example_root / "simulation" / "lG2000-DLS-B07_ascan-(twt-non)_energy_1order_alpha-2deg.dat"
 )
 results_dir = example_root / "results"
@@ -40,25 +41,23 @@ csv_path = results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_all_orders.csv"
 comparison_plot_path = results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_comparison.png"
 profile_plot_path = results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_profile.png"
 
-reference_data = pd.read_csv(
-    simulation_path,
+measurement_data = pd.read_csv(
+    measurement_path,
     sep=r"\s+",
     engine="python",
     header=None,
     names=["energy_ev", "efficiency"],
 )
-live_plot_reference_data = reference_data[["energy_ev", "efficiency"]].to_numpy(dtype=float)
-energy_start_ev = float(reference_data["energy_ev"].iloc[0])
-energy_stop_ev = float(reference_data["energy_ev"].iloc[-1])
+live_plot_measurement_data = measurement_data[["energy_ev", "efficiency"]].to_numpy(dtype=float)
+energy_start_ev = float(measurement_data["energy_ev"].iloc[0])
+energy_stop_ev = float(measurement_data["energy_ev"].iloc[-1])
 num_points = NUM_ENERGY_POINTS
 energies_ev = np.linspace(energy_start_ev, energy_stop_ev, num_points, dtype=float)
 
-silicon = pd.read_csv(
-    optical_constants_dir / "OC_Si_SSTR.dat",
-    sep=r"\s*,\s*|\s+",
-    engine="python",
+silicon = resolve_material(
+    material_name="Si",
+    density_g_cm3=SI_DENSITY_G_CM3,
 )
-silicon.attrs["name"] = "Si"
 
 grating = create_grating(substrate_material=silicon)
 
@@ -76,7 +75,7 @@ runner = grax.BatchSimulationRunner(
     live_plot=True,
     live_plot_x_key="energy_ev",
     live_plot_order_count=1,
-    live_plot_reference_data=live_plot_reference_data,
+    live_plot_reference_data=live_plot_measurement_data,
     on_error="fail_fast",
     max_workers="auto",
     resume=False,
@@ -101,7 +100,7 @@ batch_result = list(
             "x_resolution_nm": X_RESOLUTION_NM,
             "z_resolution_nm": Z_RESOLUTION_NM,
             "polarization": "p",
-            "reference_file": simulation_path.name,
+            "measurement_file": measurement_path.name,
         },
     )
 )
@@ -120,11 +119,11 @@ axis.plot(
     label="grax order 1",
 )
 axis.plot(
-    reference_data["energy_ev"],
-    reference_data["efficiency"],
+    measurement_data["energy_ev"],
+    measurement_data["efficiency"],
     linestyle="--",
     linewidth=1.4,
-    label=simulation_path.name,
+    label="Measurement",
 )
 axis.set_xlabel("Energy (eV)")
 axis.set_ylabel("Efficiency")

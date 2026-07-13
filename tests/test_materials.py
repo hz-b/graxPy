@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import grax.materials as materials_module
 import numpy as np
 import pytest
 from xrt.backends.raycing import materials as xrt_materials
@@ -43,6 +44,32 @@ class NegativeImaginaryFakeXrtMaterial:
         """Return a complex index with negative imaginary absorption."""
 
         return 1.0 - energy_ev * 1e-6 - 1j * energy_ev * 1e-7
+
+
+def _expected_formula_index(formula: str, density_g_cm3: float, energy_ev: float) -> complex:
+    """Return the expected compound index from raw elemental Henke factors."""
+
+    formula_terms = materials_module._parse_formula_terms(formula)
+    molar_mass_g_mol = sum(
+        float(count) * materials_module.ELEMENT_ATOMIC_WEIGHTS_G_MOL[symbol]
+        for symbol, count in formula_terms
+    )
+    total_f1 = 0.0
+    total_f2 = 0.0
+    for symbol, count in formula_terms:
+        scattering_factors = materials_module._load_henke_scattering_factors(symbol)
+        total_f1 += float(count) * float(np.interp(energy_ev, scattering_factors.energy_ev, scattering_factors.f1))
+        total_f2 += float(count) * float(np.interp(energy_ev, scattering_factors.energy_ev, scattering_factors.f2))
+
+    wavelength_cm = materials_module.PLANCK_C_EV_CM / float(energy_ev)
+    number_density_cm3 = density_g_cm3 * materials_module.AVOGADRO_NUMBER / molar_mass_g_mol
+    coefficient = (
+        number_density_cm3
+        * materials_module.CLASSICAL_ELECTRON_RADIUS_CM
+        * (wavelength_cm ** 2)
+        / (2.0 * np.pi)
+    )
+    return complex(1.0 - coefficient * total_f1 + 1j * coefficient * total_f2)
 
 
 def test_resolve_refractive_index_accepts_xrt_like_material() -> None:
@@ -172,6 +199,76 @@ def test_resolve_refractive_index_accepts_henke_string_material_names() -> None:
 
 def test_validate_material_input_accepts_henke_string_material_names() -> None:
     validate_material_input("Pt", field_name="substrate_material")
+
+
+@pytest.mark.parametrize(
+    ("formula", "expected_terms"),
+    [
+        ("SiO2", (("Si", 1), ("O", 2))),
+        ("Al2O3", (("Al", 2), ("O", 3))),
+        ("B4C", (("B", 4), ("C", 1))),
+        ("C", (("C", 1),)),
+    ],
+)
+def test_formula_parser_accepts_flat_stoichiometric_formulas(
+    formula: str,
+    expected_terms: tuple[tuple[str, int], ...],
+) -> None:
+    assert materials_module._parse_formula_terms(formula) == expected_terms
+
+
+@pytest.mark.parametrize(
+    ("formula", "message"),
+    [
+        ("", "cannot be empty"),
+        ("2H2O", "leading coefficients"),
+        ("Ca(OH)2", "flat stoichiometric"),
+        ("Al2.5O3", "flat stoichiometric"),
+        ("Si0O2", "positive integers"),
+        ("Sio2", "unable to parse"),
+    ],
+)
+def test_formula_parser_rejects_invalid_formulas(formula: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        materials_module._parse_formula_terms(formula)
+
+
+def test_validate_material_input_rejects_formula_material_without_density() -> None:
+    with pytest.raises(ValueError, match="requires density_g_cm3"):
+        validate_material_input(MaterialSpec("SiO2"), field_name="layer_material")
+
+
+def test_validate_material_input_rejects_formula_with_unknown_element() -> None:
+    with pytest.raises(ValueError, match=r"Unknown element 'Xx'"):
+        validate_material_input(MaterialSpec("Xx2", density_g_cm3=1.0), field_name="layer_material")
+
+
+@pytest.mark.parametrize(
+    ("formula", "density_g_cm3"),
+    [
+        ("SiO2", 2.53),
+        ("Al2O3", 3.95),
+    ],
+)
+def test_resolve_refractive_index_accepts_formula_material_specs(
+    formula: str,
+    density_g_cm3: float,
+) -> None:
+    energy_ev = 150.0
+    material = MaterialSpec(formula, density_g_cm3=density_g_cm3)
+
+    index = resolve_refractive_index(material, energy_ev)
+    expected_index = _expected_formula_index(formula, density_g_cm3, energy_ev)
+
+    assert index == pytest.approx(expected_index, rel=1e-12, abs=1e-12)
+
+
+def test_single_element_material_spec_matches_elemental_resolution() -> None:
+    energy_ev = 150.0
+    elemental_index = resolve_refractive_index("Si", energy_ev)
+    material_spec_index = resolve_refractive_index(MaterialSpec("Si", density_g_cm3=2.3296), energy_ev)
+
+    assert material_spec_index == pytest.approx(elemental_index, rel=1e-12, abs=1e-12)
 
 
 def test_material_spec_density_override_resolves_and_matches_xrt() -> None:
@@ -360,8 +457,10 @@ def test_materials_tutorial_documents_string_and_xrt_material_paths() -> None:
 
     assert 'substrate_material="Si"' in script
     assert 'layer_material="Pt"' in script
+    assert 'grax.MaterialSpec("SiO2", density_g_cm3=2.53)' in script
     assert 'table="Henke"' in script
     assert "get_refractive_index()" in script
+    assert "flat stoichiometric formulas" in script
     assert "DataFrame-like object" in script
     assert "generated/material_density_table.md" in script
     assert "material_density_catalog()" in script

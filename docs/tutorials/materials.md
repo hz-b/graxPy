@@ -51,6 +51,28 @@ This is useful for thin films, porous coatings, and other samples that do not be
 prefills the density fields with the built-in default values; edit them only when your sample density differs from the
 tabulated bulk value.
 
+## Compound formulas
+
+For compounds without bundled Henke tables, use `grax.MaterialSpec` with a flat chemical formula and an explicit
+density:
+
+```python
+import grax
+
+silica = grax.MaterialSpec("SiO2", density_g_cm3=2.53)
+boron_carbide = grax.MaterialSpec("B4C", density_g_cm3=2.52)
+
+grating = grax.LaminarGrating(
+    substrate_material=grax.MaterialSpec("Si", density_g_cm3=2.3296),
+    layer_material=silica,
+    top_cap_material=boron_carbide,
+)
+```
+
+`grax` supports flat stoichiometric formulas such as `SiO2`, `Al2O3`, `B4C`, and `Cr2O3`. It combines the elemental
+Henke scattering factors using the formula stoichiometry and the provided mass density. In v1, grouped formulas such
+as `Ca(OH)2`, hydrate or dot notation, charges, and fractional stoichiometry are rejected with a validation error.
+
 ## Built-in Henke density table
 
 The following table is generated from the same runtime density registry that the string-material resolver and the Web

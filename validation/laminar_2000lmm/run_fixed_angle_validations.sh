@@ -14,12 +14,15 @@ run_python_script() {
   local log_name="$2"
 
   echo "Running ${script_name}"
-  python "${script_dir}/${script_name}" 2>&1 | tee "${log_dir}/${log_name}"
+  python3 "${script_dir}/${script_name}" 2>&1 | tee "${log_dir}/${log_name}"
 }
 
 run_python_script "laminar_2000lmm_fixed_angle_alpha1deg.py" "laminar_2000lmm_fixed_angle_alpha1deg.log"
 run_python_script "laminar_2000lmm_fixed_angle_alpha2deg.py" "laminar_2000lmm_fixed_angle_alpha2deg.log"
 run_python_script "laminar_2000lmm_fixed_angle_alpha4deg.py" "laminar_2000lmm_fixed_angle_alpha4deg.log"
+run_python_script "laminar_2000lmm_fixed_angle_alpha1deg_layered.py" "laminar_2000lmm_fixed_angle_alpha1deg_layered.log"
+run_python_script "laminar_2000lmm_fixed_angle_alpha2deg_layered.py" "laminar_2000lmm_fixed_angle_alpha2deg_layered.log"
+run_python_script "laminar_2000lmm_fixed_angle_alpha4deg_layered.py" "laminar_2000lmm_fixed_angle_alpha4deg_layered.log"
 run_python_script "comparison_laminar_2000lmm_fixed_angle.py" "comparison_laminar_2000lmm_fixed_angle.log"
 
 current_branch="$(git -C "${repo_root}" branch --show-current)"

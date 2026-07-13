@@ -1,4 +1,4 @@
-"""Fixed-angle energy sweep for the 2000 l/mm laminar grating at alpha = 4 deg."""
+"""Fixed-angle energy sweep for the 2000 l/mm laminar grating at alpha = 2 deg."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ import pandas as pd
 
 import grax
 from fixed_angle_parameters import (
+    C4O_DENSITY_G_CM3,
+    C4O_THICKNESS_NM,
     DEPTH_NM,
     FOURIER_ORDERS,
     LEFT_WALL_ANGLE_DEG,
@@ -20,26 +22,28 @@ from fixed_angle_parameters import (
     PERIOD_LPERMM,
     RIGHT_WALL_ANGLE_DEG,
     SI_DENSITY_G_CM3,
+    SIO2_DENSITY_G_CM3,
+    SIO2_THICKNESS_NM,
     WIDTH_TO_PERIOD_RATIO,
     X_RESOLUTION_NM,
     Z_RESOLUTION_NM,
-    create_grating,
+    create_layered_stack,
     resolve_material,
 )
 
 
-grax.setup_logging(level="INFO", run_id="laminar_2000lmm_fixed_angle_alpha4deg")
+grax.setup_logging(level="INFO", run_id="laminar_2000lmm_fixed_angle_alpha2deg_layered")
 
 example_root = Path(__file__).resolve().parent
 measurement_path = (
-    example_root / "simulation" / "lG2000-DLS-B07_ascan-(twt-non)_energy_1order_alpha-4deg.dat"
+    example_root / "simulation" / "lG2000-DLS-B07_ascan-(twt-non)_energy_1order_alpha-2deg.dat"
 )
 results_dir = example_root / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
 
-csv_path = results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_all_orders.csv"
-comparison_plot_path = results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_comparison.png"
-profile_plot_path = results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_profile.png"
+csv_path = results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_layered_all_orders.csv"
+comparison_plot_path = results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_layered_comparison.png"
+profile_plot_path = results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_layered_profile.png"
 
 measurement_data = pd.read_csv(
     measurement_path,
@@ -51,20 +55,47 @@ measurement_data = pd.read_csv(
 live_plot_measurement_data = measurement_data[["energy_ev", "efficiency"]].to_numpy(dtype=float)
 energy_start_ev = float(measurement_data["energy_ev"].iloc[0])
 energy_stop_ev = float(measurement_data["energy_ev"].iloc[-1])
-num_points = NUM_ENERGY_POINTS
-energies_ev = np.linspace(energy_start_ev, energy_stop_ev, num_points, dtype=float)
+energies_ev = np.linspace(energy_start_ev, energy_stop_ev, NUM_ENERGY_POINTS, dtype=float)
 
 silicon = resolve_material(
     material_name="Si",
     density_g_cm3=SI_DENSITY_G_CM3,
 )
+silicon_o2 = resolve_material(
+    material_name="SiO2",
+    density_g_cm3=SIO2_DENSITY_G_CM3,
+)
+c4o = resolve_material(
+    material_name="C4O",
+    density_g_cm3=C4O_DENSITY_G_CM3,
+)
 
-grating = create_grating(substrate_material=silicon)
+layered_stack = create_layered_stack(
+    substrate_material=silicon,
+    sio2_material=silicon_o2,
+    c4o_material=c4o,
+)
+
+grating = grax.LaminarGrating(
+    period_lpermm=PERIOD_LPERMM,
+    width_to_period_ratio=WIDTH_TO_PERIOD_RATIO,
+    depth_nm=DEPTH_NM,
+    left_wall_angle_deg=LEFT_WALL_ANGLE_DEG,
+    right_wall_angle_deg=RIGHT_WALL_ANGLE_DEG,
+    substrate_material=silicon,
+    layer_material=silicon,
+    layer_thickness_nm=0.0,
+    top_cap_material=None,
+    top_cap_thickness_nm=0.0,
+    coating_stack=layered_stack,
+    x_resolution_nm=X_RESOLUTION_NM,
+    z_resolution_nm=Z_RESOLUTION_NM,
+)
 
 cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies_ev,
-    grazing_angle_deg=4.0,
+    grazing_angle_deg=2.0,
     polarization="p",
 )
 
@@ -87,14 +118,18 @@ batch_result = list(
     runner.run_cases(
         cases,
         metadata={
-            "description": "Laminar 2000 l/mm fixed-angle sweep",
+            "description": "Laminar 2000 l/mm fixed-angle sweep with SiO2/C4O layers",
             "period_lpermm": PERIOD_LPERMM,
             "width_to_period_ratio": WIDTH_TO_PERIOD_RATIO,
             "depth_nm": DEPTH_NM,
             "left_wall_angle_deg": LEFT_WALL_ANGLE_DEG,
             "right_wall_angle_deg": RIGHT_WALL_ANGLE_DEG,
-            "layer_thickness_nm": 0.0,
-            "grazing_angle_deg": 4.0,
+            "substrate_material": "Si",
+            "layer_stack": [
+                {"material": "SiO2", "thickness_nm": SIO2_THICKNESS_NM},
+                {"material": "C4O", "thickness_nm": C4O_THICKNESS_NM},
+            ],
+            "grazing_angle_deg": 2.0,
             "diffraction_order": 1,
             "fourier_orders": FOURIER_ORDERS,
             "x_resolution_nm": X_RESOLUTION_NM,
@@ -127,7 +162,7 @@ axis.plot(
 )
 axis.set_xlabel("Energy (eV)")
 axis.set_ylabel("Efficiency")
-axis.set_title("Laminar 2000 l/mm Fixed-Angle Sweep at Alpha = 4 deg")
+axis.set_title("Laminar 2000 l/mm Fixed-Angle Sweep at Alpha = 2 deg")
 axis.grid(True, alpha=0.3)
 axis.legend(loc="best")
 figure.tight_layout()

@@ -22,8 +22,8 @@ function syncStackSections(select) {
   });
 }
 
-function syncMaterialDensity(select) {
-  const fieldKey = select.dataset.materialSelect;
+function syncMaterialDensity(field) {
+  const fieldKey = field.dataset.materialSelect;
   if (!fieldKey) {
     return;
   }
@@ -31,10 +31,31 @@ function syncMaterialDensity(select) {
   if (!densityInput) {
     return;
   }
-  const selectedOption = select.selectedOptions[0];
-  const density = selectedOption ? selectedOption.dataset.density || "" : "";
-  densityInput.value = density;
-  densityInput.placeholder = density;
+  const datalistId = field.getAttribute("list");
+  const datalist = datalistId ? document.getElementById(datalistId) : null;
+  const matchedOption = datalist
+    ? Array.from(datalist.options).find((option) => option.value === field.value.trim())
+    : null;
+  const density = matchedOption ? matchedOption.dataset.density || "" : "";
+  const previousAutoDensity = densityInput.dataset.autoDensity || "";
+
+  if (density !== "") {
+    densityInput.value = density;
+    densityInput.placeholder = density;
+    densityInput.dataset.autoDensity = density;
+    densityInput.dataset.autoFilled = "true";
+    return;
+  }
+
+  if (
+    densityInput.dataset.autoFilled === "true" &&
+    densityInput.value === previousAutoDensity
+  ) {
+    densityInput.value = "";
+  }
+  densityInput.placeholder = "";
+  densityInput.dataset.autoDensity = "";
+  densityInput.dataset.autoFilled = "false";
 }
 
 function syncWorkerFields(select) {
@@ -109,10 +130,18 @@ function initGratingPreview(form) {
 }
 
 function initMaterialDensitySync() {
-  document.querySelectorAll("[data-material-select]").forEach((select) => {
-    syncMaterialDensity(select);
-    select.addEventListener("change", () => {
-      syncMaterialDensity(select);
+  document.querySelectorAll("[data-material-select]").forEach((field) => {
+    syncMaterialDensity(field);
+    field.addEventListener("input", () => {
+      syncMaterialDensity(field);
+    });
+    field.addEventListener("change", () => {
+      syncMaterialDensity(field);
+    });
+  });
+  document.querySelectorAll("[data-material-density]").forEach((densityInput) => {
+    densityInput.addEventListener("input", () => {
+      densityInput.dataset.autoFilled = "false";
     });
   });
 }
