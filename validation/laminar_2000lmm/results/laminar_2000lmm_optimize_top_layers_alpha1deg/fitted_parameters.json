@@ -1078,5 +1078,9 @@
   "diffraction_order": 1,
   "fourier_orders": 20,
   "angle_mode": "fixed",
-  "grazing_angle_deg": 1.0
+  "grazing_angle_deg": 1.0,
+  "result_json_path": "/home/jny/projects/graxPy/validation/laminar_2000lmm/results/laminar_2000lmm_optimize_top_layers_alpha1deg/best_result.json",
+  "trial_history_csv_path": "/home/jny/projects/graxPy/validation/laminar_2000lmm/results/laminar_2000lmm_optimize_top_layers_alpha1deg/trial_history.csv",
+  "best_fit_plot_path": "/home/jny/projects/graxPy/validation/laminar_2000lmm/results/laminar_2000lmm_optimize_top_layers_alpha1deg/best_fit.png",
+  "loss_history_plot_path": "/home/jny/projects/graxPy/validation/laminar_2000lmm/results/laminar_2000lmm_optimize_top_layers_alpha1deg/optimization_loss_history.png"
 }
