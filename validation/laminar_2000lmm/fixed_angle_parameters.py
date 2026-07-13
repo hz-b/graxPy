@@ -62,13 +62,15 @@ def create_layered_stack(
     substrate_material: object,
     sio2_material: object,
     c4o_material: object,
+    sio2_thickness_nm: float = SIO2_THICKNESS_NM,
+    c4o_thickness_nm: float = C4O_THICKNESS_NM,
 ) -> grax.CustomStack:
     """Build the Si substrate + SiO2 + C4O stack used in the layered sweeps."""
 
     return grax.assemble_custom_stack(
         substrate_material=substrate_material,
         layers_bottom_up=[
-            grax.LayerSpec(material=sio2_material, thickness_nm=SIO2_THICKNESS_NM),
-            grax.LayerSpec(material=c4o_material, thickness_nm=C4O_THICKNESS_NM),
+            grax.LayerSpec(material=sio2_material, thickness_nm=sio2_thickness_nm),
+            grax.LayerSpec(material=c4o_material, thickness_nm=c4o_thickness_nm),
         ],
     )
