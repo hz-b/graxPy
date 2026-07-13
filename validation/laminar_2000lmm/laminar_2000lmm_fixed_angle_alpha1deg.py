@@ -5,13 +5,25 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLBACKEND", "TkAgg")
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 import grax
+from fixed_angle_parameters import (
+    DEPTH_NM,
+    FOURIER_ORDERS,
+    LEFT_WALL_ANGLE_DEG,
+    NUM_ENERGY_POINTS,
+    PERIOD_LPERMM,
+    RIGHT_WALL_ANGLE_DEG,
+    WIDTH_TO_PERIOD_RATIO,
+    X_RESOLUTION_NM,
+    Z_RESOLUTION_NM,
+    create_grating,
+)
 
 
 grax.setup_logging(level="INFO", run_id="laminar_2000lmm_fixed_angle_alpha1deg")
@@ -35,9 +47,10 @@ reference_data = pd.read_csv(
     header=None,
     names=["energy_ev", "efficiency"],
 )
+live_plot_reference_data = reference_data[["energy_ev", "efficiency"]].to_numpy(dtype=float)
 energy_start_ev = float(reference_data["energy_ev"].iloc[0])
 energy_stop_ev = float(reference_data["energy_ev"].iloc[-1])
-num_points = 1039
+num_points = NUM_ENERGY_POINTS
 energies_ev = np.linspace(energy_start_ev, energy_stop_ev, num_points, dtype=float)
 
 silicon = pd.read_csv(
@@ -47,27 +60,7 @@ silicon = pd.read_csv(
 )
 silicon.attrs["name"] = "Si"
 
-gold = pd.read_csv(
-    optical_constants_dir / "OC_Au_SSTR.dat",
-    sep=r"\s*,\s*|\s+",
-    engine="python",
-)
-gold.attrs["name"] = "Au"
-
-grating = grax.LaminarGrating(
-    period_lpermm=2000,
-    width_to_period_ratio=0.6,
-    depth_nm=5.0,
-    left_wall_angle_deg=10.0,
-    right_wall_angle_deg=10.0,
-    substrate_material=silicon,
-    layer_material=gold,
-    layer_thickness_nm=30.0,
-    top_cap_material=None,
-    top_cap_thickness_nm=0.0,
-    x_resolution_nm=0.3,
-    z_resolution_nm=0.3,
-)
+grating = create_grating(substrate_material=silicon)
 
 cases = grax.fixed_angle_cases(
     grating=grating,
@@ -78,9 +71,12 @@ cases = grax.fixed_angle_cases(
 
 runner = grax.BatchSimulationRunner(
     default_diffraction_order=1,
-    default_fourier_orders=10,
+    default_fourier_orders=FOURIER_ORDERS,
     show_progress=True,
-    live_plot=False,
+    live_plot=True,
+    live_plot_x_key="energy_ev",
+    live_plot_order_count=1,
+    live_plot_reference_data=live_plot_reference_data,
     on_error="fail_fast",
     max_workers="auto",
     resume=False,
@@ -93,17 +89,17 @@ batch_result = list(
         cases,
         metadata={
             "description": "Laminar 2000 l/mm fixed-angle sweep",
-            "period_lpermm": 2000,
-            "width_to_period_ratio": 0.6,
-            "depth_nm": 5.0,
-            "left_wall_angle_deg": 10.0,
-            "right_wall_angle_deg": 10.0,
-            "layer_thickness_nm": 30.0,
+            "period_lpermm": PERIOD_LPERMM,
+            "width_to_period_ratio": WIDTH_TO_PERIOD_RATIO,
+            "depth_nm": DEPTH_NM,
+            "left_wall_angle_deg": LEFT_WALL_ANGLE_DEG,
+            "right_wall_angle_deg": RIGHT_WALL_ANGLE_DEG,
+            "layer_thickness_nm": 0.0,
             "grazing_angle_deg": 1.0,
             "diffraction_order": 1,
-            "fourier_orders": 10,
-            "x_resolution_nm": 0.3,
-            "z_resolution_nm": 0.3,
+            "fourier_orders": FOURIER_ORDERS,
+            "x_resolution_nm": X_RESOLUTION_NM,
+            "z_resolution_nm": Z_RESOLUTION_NM,
             "polarization": "p",
             "reference_file": simulation_path.name,
         },
@@ -112,7 +108,10 @@ batch_result = list(
 
 grax.write_all_orders_csv(batch_result, csv_path)
 
-successful_cases = [case for case in batch_result if case.status == "ok"]
+successful_cases = sorted(
+    [case for case in batch_result if case.status == "ok"],
+    key=lambda case: float(case.energy_ev),
+)
 figure, axis = plt.subplots(figsize=(10, 7))
 axis.plot(
     [case.energy_ev for case in successful_cases],

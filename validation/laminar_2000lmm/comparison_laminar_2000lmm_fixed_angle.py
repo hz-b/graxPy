@@ -12,6 +12,7 @@ example_root = Path(__file__).resolve().parent
 results_dir = example_root / "results"
 simulation_dir = example_root / "simulation"
 output_file = results_dir / "comparison_laminar_2000lmm_fixed_angle.png"
+comparison_order = -1
 
 CASE_CONFIG = {
     1: {
@@ -39,7 +40,7 @@ figure, axes = plt.subplots(3, 1, figsize=(11, 14), sharex=False)
 
 for axis, (angle_deg, config) in zip(axes, CASE_CONFIG.items(), strict=True):
     df_grax = pd.read_csv(config["results_file"])
-    df_grax = df_grax[df_grax["order"] == 1].copy().sort_values("energy_ev")
+    df_grax = df_grax[df_grax["order"] == comparison_order].copy().sort_values("energy_ev")
     df_reference = pd.read_csv(
         config["simulation_file"],
         sep=r"\s+",
@@ -52,7 +53,7 @@ for axis, (angle_deg, config) in zip(axes, CASE_CONFIG.items(), strict=True):
         df_grax["energy_ev"],
         df_grax["efficiency"],
         linewidth=1.8,
-        label="grax order 1",
+        label=f"grax order {comparison_order}",
     )
     axis.plot(
         df_reference["energy_ev"],

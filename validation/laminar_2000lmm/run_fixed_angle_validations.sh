@@ -22,4 +22,16 @@ run_python_script "laminar_2000lmm_fixed_angle_alpha2deg.py" "laminar_2000lmm_fi
 run_python_script "laminar_2000lmm_fixed_angle_alpha4deg.py" "laminar_2000lmm_fixed_angle_alpha4deg.log"
 run_python_script "comparison_laminar_2000lmm_fixed_angle.py" "comparison_laminar_2000lmm_fixed_angle.log"
 
+current_branch="$(git -C "${repo_root}" branch --show-current)"
+timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+git -C "${repo_root}" add "${results_dir}"
+
+if git -C "${repo_root}" diff --cached --quiet -- "${results_dir}"; then
+  echo "No result changes to commit."
+else
+  git -C "${repo_root}" commit -m "Add laminar 2000 l/mm fixed-angle validation results (${timestamp})"
+  git -C "${repo_root}" push origin "${current_branch}"
+fi
+
 echo "Fixed-angle validation batch complete."
