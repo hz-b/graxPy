@@ -29,6 +29,7 @@ diffraction_order = 1
 fourier_orders = 15
 optimizer_backend = "auto"
 simulation_backend = "numba"
+optimizer_max_workers = None
 
 total_trials = 20
 batch_size = 15

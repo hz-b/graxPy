@@ -97,10 +97,25 @@ Important optional keys:
 - `equality_constraints`: map constrained targets to a source parameter (for tied parameters).
 - `diffraction_order`, `fourier_orders`: solver settings for each evaluation.
 - `total_trials`, `batch_size`, `random_seed`: optimization runtime controls.
+- `max_workers`: optional trial-level multiprocessing worker count for objective evaluation.
 - `backend`: `"auto"`, `"numba"`, or `"numpy"`.
 - loss metric: fixed to mean squared error (MSE).
 - `enable_early_stopping` and related early-stop thresholds.
 - `save_best_fit_plot`, `save_loss_plot`: artifact toggles.
+
+## Trial Multiprocessing
+
+The optimizer can evaluate one trial through `grax.BatchSimulationRunner` by
+setting `max_workers` in the optimization spec.
+
+- `max_workers=1` or `None`: serial trial evaluation
+- `max_workers=<int>`: fixed worker count
+- `max_workers="all"`: all logical CPU cores
+- `max_workers="auto"`: batch-runner auto worker selection
+
+This multiprocessing is **within one trial** across its energy-angle
+evaluation cases. It is not combined with Ax candidate batching. When
+`max_workers` resolves above `1`, keep `batch_size=1`.
 
 ## Parameter bounds and optimized variables
 
@@ -161,6 +176,9 @@ Written files in `output_dir`:
 - `trial_history.csv`: per-trial history.
 - `best_fit.png`: optional comparison of measured vs simulated curve.
 - `optimization_loss_history.png`: optional loss history plot.
+
+`best_result.json` also records optimizer worker metadata, including the
+requested and resolved `max_workers` values.
 
 ```{toctree}
 :maxdepth: 1
