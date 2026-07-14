@@ -66,6 +66,20 @@ generated case. Accepted polarization values are `s` and `p`.
 
 See `examples/simulation/fixed_angle_sweep/fixed_angle_sweep.py` for the complete script.
 
+For a roughness-specific variant, see
+`examples/simulation/fixed_angle_roughness/fixed_angle_roughness.py`. That
+workflow reruns the same fixed-angle laminar sweep for `sigma=0.0`, `0.5`,
+`1.0`, and `2.0 nm`, enables live plotting during each run, and then writes a
+combined first-order comparison figure. The current roughness implementation is
+a per-case scalar Debye-Waller damping model, so the example is intended to
+show how that maintained model changes the spectrum across energy.
+
+```{image} images/simulation/fixed_angle_roughness_order1_comparison.png
+:alt: First-order fixed-angle roughness comparison for four Debye-Waller roughness levels
+:align: center
+:width: 80%
+```
+
 
 For batch execution details, see {doc}`batch-simulations`, then
 {doc}`multiprocessing` and {doc}`checkpoints-and-resume`.

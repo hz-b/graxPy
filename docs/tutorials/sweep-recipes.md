@@ -7,6 +7,7 @@ construction patterns.
 :maxdepth: 1
 
 fixed-angle-sweep
+roughness
 monochromator-sweep
 energy-angle-sweep
 multilayer-theta-search
