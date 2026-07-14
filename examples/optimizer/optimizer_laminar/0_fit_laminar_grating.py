@@ -28,6 +28,7 @@ from example_config import (
     random_seed,
     results_dir,
     right_wall_angle_deg,
+    optimizer_max_workers,
     top_cap_thickness_nm,
     total_trials,
     width_to_period_ratio,
@@ -103,6 +104,7 @@ spec = {
     "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
     "backend": optimizer_backend,
+    "max_workers": optimizer_max_workers,
 }
 
 try:
@@ -126,6 +128,7 @@ fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8
 
 print(f"Measurement: {result.measurement_path}")
 print(f"Optimizer backend request: {optimizer_backend}")
+print(f"Optimizer max_workers request: {optimizer_max_workers}")
 print(f"Batch size: {batch_size}")
 print(f"Best loss: {result.best_loss:.6g}")
 print(f"Best parameters: {result.best_parameters}")

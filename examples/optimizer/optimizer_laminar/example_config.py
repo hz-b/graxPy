@@ -29,9 +29,10 @@ diffraction_order = 1
 fourier_orders = 15
 optimizer_backend = "auto"
 simulation_backend = "numba"
+optimizer_max_workers = "auto"
 
 total_trials = 20
-batch_size = 15
+batch_size = 1
 random_seed = 7
 evaluation_energies_ev = np.arange(100.0, 501.0, 10.0)
 evaluation_grazing_angles_deg = []

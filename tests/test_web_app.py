@@ -302,6 +302,31 @@ def test_saved_grating_round_trips_blazed_single_layer(tmp_path: Path) -> None:
     assert loaded.layer_material.density_g_cm3 == pytest.approx(19.3)
 
 
+def test_saved_grating_round_trips_formula_material_spec(tmp_path: Path) -> None:
+    grating = LaminarGrating(
+        period_lpermm=400,
+        width_to_period_ratio=0.67,
+        depth_nm=14.9,
+        left_wall_angle_deg=15.0,
+        right_wall_angle_deg=15.0,
+        substrate_material=MaterialSpec("Si", density_g_cm3=2.329),
+        layer_material=MaterialSpec("SiO2", density_g_cm3=2.53),
+        layer_thickness_nm=2.0,
+        x_resolution_nm=1.5,
+        z_resolution_nm=0.25,
+    )
+    store = GratingStore(tmp_path / "gratings")
+
+    saved = store.save(grating_to_spec(grating, name="Formula coating"))
+    payload = store.load(saved["id"])
+    loaded = build_grating_from_spec(payload)
+
+    assert payload["stack"]["layer_material"]["name"] == "SiO2"
+    assert payload["stack"]["layer_material"]["density_g_cm3"] == pytest.approx(2.53)
+    assert loaded.layer_material.name == "SiO2"
+    assert loaded.layer_material.density_g_cm3 == pytest.approx(2.53)
+
+
 def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
     store = GratingStore(tmp_path / "gratings")
 
@@ -405,6 +430,8 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'name="layer_material_density_g_cm3" type="number" step="any" value="21.46"' in response.data
     assert b'data-material-select="substrate_material"' in response.data
     assert b'data-material-density="substrate_material"' in response.data
+    assert b'list="material-suggestions"' in response.data
+    assert b'<datalist id="material-suggestions">' in response.data
     assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
 
@@ -494,8 +521,40 @@ def test_flask_app_rejects_unknown_material_names_before_save(tmp_path: Path) ->
     )
 
     assert response.status_code == 400
-    assert b"not available" in response.data
-    assert b"Available materials:" in response.data
+    assert b"Unknown element" in response.data
+
+
+def test_flask_app_accepts_formula_material_names_with_density(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    response = client.post(
+        "/gratings",
+        data={
+            "name": "Formula laminar",
+            "grating_type": "laminar",
+            "period_lpermm": "400",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "width_to_period_ratio": "0.67",
+            "depth_nm": "14.9",
+            "left_wall_angle_deg": "15.0",
+            "right_wall_angle_deg": "15.0",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "substrate_material_density_g_cm3": "2.3296",
+            "layer_material": "SiO2",
+            "layer_material_density_g_cm3": "2.53",
+            "layer_thickness_nm": "28.77",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Formula laminar" in response.data
 
 
 def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(

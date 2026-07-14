@@ -18,7 +18,7 @@ import numpy as np
 from grax.materials import material_label
 
 from .data import MeasurementData
-from .objective import evaluate_trial
+from .objective import evaluate_trial_with_metadata
 
 
 def _is_cuda_usable() -> bool:
@@ -179,7 +179,7 @@ def _evaluate_candidate_worker(
     backend_effective: str,
     build_grating_fn=None,
     resolve_solver_parameters_fn=None,
-) -> tuple[int, dict[str, float], float]:
+) -> tuple[int, dict[str, float], float, int]:
     """Evaluate one optimizer candidate and return trial index, params, and loss."""
 
     trial_index, parameters = candidate
@@ -190,8 +190,13 @@ def _evaluate_candidate_worker(
         evaluate_kwargs["build_grating_fn"] = build_grating_fn
     if resolve_solver_parameters_fn is not None:
         evaluate_kwargs["resolve_solver_parameters_fn"] = resolve_solver_parameters_fn
-    loss = float(evaluate_trial(config, parameters, measurement, **evaluate_kwargs))
-    return int(trial_index), dict(parameters), float(loss)
+    loss, resolved_max_workers = evaluate_trial_with_metadata(
+        config,
+        parameters,
+        measurement,
+        **evaluate_kwargs,
+    )
+    return int(trial_index), dict(parameters), float(loss), int(resolved_max_workers)
 
 
 def _evaluate_candidate_batch(
@@ -202,7 +207,7 @@ def _evaluate_candidate_batch(
     backend_effective: str,
     build_grating_fn=None,
     resolve_solver_parameters_fn=None,
-) -> list[tuple[int, dict[str, float], float]]:
+) -> list[tuple[int, dict[str, float], float, int]]:
     """Evaluate a candidate batch, optionally in parallel."""
 
     if len(candidates) <= 1:

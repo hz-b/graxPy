@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Dict, Mapping, Optional
 
 import numpy as np
+from grax.simulation import _resolve_max_workers as _resolve_simulation_max_workers
 
 from .config import ParameterBounds
 from .evaluation import normalize_evaluation_selection
@@ -174,6 +175,8 @@ class MeasurementFitConfig:
         evaluation_energies_ev: Discrete energies used for objective evaluation.
         evaluation_grazing_angles_deg: Optional grazing angles (deg) used for
             explicit energy-angle evaluation pairs.
+        max_workers: Optional trial-level multiprocessing worker count used for
+            objective evaluation through ``BatchSimulationRunner``.
         solver_parameter_resolver: Optional callable that resolves solver
             parameters from the fully expanded parameter dictionary.
     """
@@ -206,6 +209,7 @@ class MeasurementFitConfig:
     backend: str = "auto"
     evaluation_energies_ev: list[float] = field(default_factory=list)
     evaluation_grazing_angles_deg: list[float] = field(default_factory=list)
+    max_workers: int | str | None = None
     solver_parameter_resolver: ResolveSolverParametersFunction | None = None
 
     def __post_init__(self) -> None:
@@ -242,6 +246,12 @@ class MeasurementFitConfig:
             raise ValueError("total_trials must be > 0.")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be > 0.")
+        resolved_max_workers = _resolve_simulation_max_workers(self.max_workers)
+        if resolved_max_workers > 1 and self.batch_size > 1:
+            raise ValueError(
+                "batch_size > 1 cannot be combined with optimizer max_workers > 1. "
+                "Use trial-level multiprocessing or candidate batching, but not both."
+            )
         if self.failure_penalty <= 0.0:
             raise ValueError("failure_penalty must be > 0.")
         if not np.isfinite(self.objective_sem) or self.objective_sem <= 0.0:
@@ -337,6 +347,7 @@ class MeasurementFitConfig:
             evaluation_grazing_angles_deg=list(
                 config.pop("evaluation_grazing_angles_deg", [])
             ),
+            max_workers=config.pop("max_workers", None),
             solver_parameter_resolver=config.pop("solver_parameter_resolver", None),
         )
         if config:
@@ -497,6 +508,8 @@ def _write_measurement_fit_result_json(
     early_stop_reason: str | None,
     backend_requested: str,
     backend_effective: str,
+    optimizer_requested_max_workers: int | str | None,
+    optimizer_resolved_max_workers: int,
     output_path: Path,
 ) -> None:
     """Write the best measurement-fit optimization result to JSON."""
@@ -531,6 +544,9 @@ def _write_measurement_fit_result_json(
         "early_stop_reason": early_stop_reason,
         "backend_requested": backend_requested,
         "backend_effective": backend_effective,
+        "optimizer_execution_strategy": "trial_batch_runner",
+        "optimizer_requested_max_workers": optimizer_requested_max_workers,
+        "optimizer_resolved_max_workers": int(optimizer_resolved_max_workers),
         "diffraction_order": int(config.diffraction_order),
         "fourier_orders": int(config.fourier_orders),
         "angle_mode": config.angle_mode,
@@ -556,6 +572,8 @@ def _persist_measurement_fit_optimizer_artifacts(
     early_stop_reason: str | None,
     backend_requested: str,
     backend_effective: str,
+    optimizer_requested_max_workers: int | str | None,
+    optimizer_resolved_max_workers: int,
 ) -> tuple[Path, Path, Path | None, Path | None]:
     """Persist measurement-fit optimizer artifacts and return their paths."""
 
@@ -581,6 +599,8 @@ def _persist_measurement_fit_optimizer_artifacts(
         early_stop_reason=early_stop_reason,
         backend_requested=backend_requested,
         backend_effective=backend_effective,
+        optimizer_requested_max_workers=optimizer_requested_max_workers,
+        optimizer_resolved_max_workers=optimizer_resolved_max_workers,
         output_path=result_json_path,
     )
     _write_trial_history_csv(trial_records, trial_history_csv_path)
@@ -662,6 +682,7 @@ def optimize_to_measurements(
     completed_trials = 0
     trial_index_cursor = 0
     no_improvement_trials = 0
+    optimizer_resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
 
     build_grating_fn = lambda trial_parameters: config.build_grating(
         resolve_measurement_fit_trial_parameters(config, trial_parameters)
@@ -697,7 +718,8 @@ def optimize_to_measurements(
             build_grating_fn=build_grating_fn,
             resolve_solver_parameters_fn=resolve_solver_parameters_fn,
         )
-        for trial_index, parameters, loss in evaluated_candidates:
+        for trial_index, parameters, loss, trial_resolved_max_workers in evaluated_candidates:
+            optimizer_resolved_max_workers = int(trial_resolved_max_workers)
             _complete_ax_trial(
                 ax_client=ax_client,
                 config=config,
@@ -739,6 +761,8 @@ def optimize_to_measurements(
                 early_stop_reason=early_stop_reason,
                 backend_requested=config.backend,
                 backend_effective=backend_effective,
+                optimizer_requested_max_workers=config.max_workers,
+                optimizer_resolved_max_workers=optimizer_resolved_max_workers,
             )
 
             if (
@@ -780,6 +804,8 @@ def optimize_to_measurements(
         early_stop_reason=early_stop_reason,
         backend_requested=config.backend,
         backend_effective=backend_effective,
+        optimizer_requested_max_workers=config.max_workers,
+        optimizer_resolved_max_workers=optimizer_resolved_max_workers,
     )
 
     return OptimizationResult(

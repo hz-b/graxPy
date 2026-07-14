@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Delete plot{% endblock %}
+{% block body %}
+<section class="section-head">
+  <h1>Delete plot</h1>
+</section>
+<section class="notice">
+  <p>Delete <strong>{{ plot.title }}</strong>? This cannot be undone.</p>
+</section>
+<form class="form" method="post" action="{{ url_for('plot_delete', plot_id=plot.id) }}">
+  <div class="actions">
+    <a class="button" href="{{ url_for('plot_detail', plot_id=plot.id) }}">Cancel</a>
+    <button class="button danger" type="submit">Confirm delete</button>
+  </div>
+</form>
+{% endblock %}

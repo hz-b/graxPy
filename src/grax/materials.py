@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+import re
 import warnings
 
 import numpy as np
@@ -28,6 +29,16 @@ class HenkeOpticalConstants:
     energy_ev: np.ndarray
     delta: np.ndarray
     beta: np.ndarray
+    symbol: str
+
+
+@dataclass(frozen=True)
+class HenkeScatteringFactors:
+    """Parsed elemental Henke scattering factors."""
+
+    energy_ev: np.ndarray
+    f1: np.ndarray
+    f2: np.ndarray
     symbol: str
 
 
@@ -332,7 +343,8 @@ def resolve_refractive_index(
 
     Args:
         material: Material input. Supported values are elemental string
-            symbols backed by packaged Henke tables, xrt-like objects with
+            symbols backed by packaged Henke tables, ``MaterialSpec`` values
+            for elemental or flat-formula materials, xrt-like objects with
             ``get_refractive_index()``, and pandas DataFrames with columns
             ``Energy(eV)``, ``Delta``, and ``Beta``.
         photon_energy_ev: Photon energy in electronvolts.
@@ -350,11 +362,7 @@ def resolve_refractive_index(
         return _interpolate_dataframe_index(material, photon_energy_ev)
 
     if isinstance(material, MaterialSpec):
-        return _interpolate_henke_index(
-            material.name,
-            photon_energy_ev,
-            density_g_cm3=material.density_g_cm3,
-        )
+        return _interpolate_material_spec_index(material, photon_energy_ev)
 
     if isinstance(material, str):
         return _interpolate_henke_index(material, photon_energy_ev)
@@ -389,7 +397,8 @@ def validate_material_input(
 
     Args:
         material: Material input to validate. Supported values are elemental
-            string symbols backed by packaged Henke tables, DataFrame-like
+            string symbols backed by packaged Henke tables, ``MaterialSpec``
+            values for elemental or flat-formula materials, DataFrame-like
             optical-constants tables, and objects with
             ``get_refractive_index()``.
         field_name: Optional grating or stack field name used in error messages.
@@ -399,11 +408,7 @@ def validate_material_input(
     """
 
     if isinstance(material, MaterialSpec):
-        _validate_henke_material_name(
-            material.name,
-            density_g_cm3=material.density_g_cm3,
-            field_name=field_name,
-        )
+        _validate_material_spec(material, field_name=field_name)
         return
 
     if isinstance(material, str):
@@ -475,6 +480,13 @@ def _normalize_material_symbol(material_name: str) -> str | None:
     return stripped[0].upper() + stripped[1:].lower()
 
 
+def _is_packaged_henke_symbol(material_name: str) -> bool:
+    """Return whether a material name resolves to a packaged elemental symbol."""
+
+    symbol = _normalize_material_symbol(material_name)
+    return symbol is not None and symbol in _available_henke_symbols()
+
+
 def _validate_henke_material_name(
     material_name: str,
     *,
@@ -515,6 +527,87 @@ def _validate_henke_material_name(
         )
 
 
+def _validate_material_spec(
+    material: MaterialSpec,
+    *,
+    field_name: str | None = None,
+) -> None:
+    """Validate one ``MaterialSpec`` for elemental or flat-formula use."""
+
+    if _is_packaged_henke_symbol(material.name):
+        _validate_henke_material_name(
+            material.name,
+            density_g_cm3=material.density_g_cm3,
+            field_name=field_name,
+        )
+        return
+
+    _validate_formula_material_name(
+        material.name,
+        density_g_cm3=material.density_g_cm3,
+        field_name=field_name,
+    )
+
+
+def _validate_formula_material_name(
+    material_name: str,
+    *,
+    density_g_cm3: float | None,
+    field_name: str | None = None,
+) -> None:
+    """Validate one flat-formula material name and density."""
+
+    field_prefix = f"{field_name} " if field_name else ""
+    _parse_formula_terms(material_name)
+    if density_g_cm3 is None:
+        raise ValueError(f"{field_prefix}formula material {material_name!r} requires density_g_cm3.")
+    if float(density_g_cm3) <= 0.0:
+        raise ValueError("density_g_cm3 must be positive.")
+
+
+def _parse_formula_terms(formula: str) -> tuple[tuple[str, int], ...]:
+    """Parse one flat stoichiometric formula into element/count pairs."""
+
+    stripped = formula.strip()
+    if stripped == "":
+        raise ValueError("Material formula cannot be empty.")
+    if stripped[0].isdigit():
+        raise ValueError(f"Invalid formula {formula!r}: leading coefficients are not supported.")
+    if any(character in stripped for character in "()[]{}.+-"):
+        raise ValueError(
+            f"Invalid formula {formula!r}: only flat stoichiometric formulas are supported."
+        )
+    if any(character.isspace() for character in stripped):
+        raise ValueError(f"Invalid formula {formula!r}: whitespace is not supported.")
+
+    terms: dict[str, int] = {}
+    position = 0
+    for match in re.finditer(r"([A-Z][a-z]?)(\d*)", stripped):
+        if match.start() != position:
+            raise ValueError(
+                f"Invalid formula {formula!r}: unable to parse near {stripped[position:]!r}."
+            )
+        symbol = match.group(1)
+        if symbol not in _available_henke_symbols():
+            raise ValueError(f"Unknown element {symbol!r} in formula {formula!r}.")
+        count_text = match.group(2)
+        count = 1 if count_text == "" else int(count_text)
+        if count <= 0:
+            raise ValueError(
+                f"Invalid formula {formula!r}: stoichiometric counts must be positive integers."
+            )
+        terms[symbol] = terms.get(symbol, 0) + count
+        position = match.end()
+
+    if position != len(stripped):
+        raise ValueError(
+            f"Invalid formula {formula!r}: unable to parse near {stripped[position:]!r}."
+        )
+    if not terms:
+        raise ValueError(f"Invalid formula {formula!r}: no elements were found.")
+    return tuple(terms.items())
+
+
 @lru_cache(maxsize=None)
 def _available_henke_symbols() -> frozenset[str]:
     """Return the set of elemental symbols with packaged Henke tables."""
@@ -534,29 +627,11 @@ def _available_henke_error_list() -> str:
 
 
 @lru_cache(maxsize=None)
-def _load_henke_optical_constants(
-    symbol: str,
-    density_g_cm3: float | None = None,
-) -> HenkeOpticalConstants:
-    """Load one packaged Henke table and convert it to grax optical constants.
-
-    Args:
-        symbol: Canonical elemental symbol.
-
-    Returns:
-        Parsed Henke optical constants converted to ``delta`` and ``beta``.
-
-    Raises:
-        ValueError: If the symbol is unsupported or required metadata is missing.
-    """
+def _load_henke_scattering_factors(symbol: str) -> HenkeScatteringFactors:
+    """Load one packaged elemental Henke table as raw scattering factors."""
 
     if symbol not in _available_henke_symbols():
         raise ValueError(f"No packaged Henke table is available for {symbol!r}.")
-    atomic_weight_g_mol = ELEMENT_ATOMIC_WEIGHTS_G_MOL.get(symbol)
-    if atomic_weight_g_mol is None:
-        raise ValueError(
-            f"A packaged Henke table exists for {symbol!r}, but no atomic-weight metadata is configured."
-        )
 
     table_path = Path(__file__).resolve().parent / "henke_tables" / f"{symbol.lower()}.nff"
     energy_ev_values: list[float] = []
@@ -582,27 +657,108 @@ def _load_henke_optical_constants(
     if not energy_ev_values:
         raise ValueError(f"Packaged Henke table for {symbol!r} did not contain valid f1/f2 rows.")
 
-    energy_ev = np.asarray(energy_ev_values, dtype=float)
-    f1 = np.asarray(f1_values, dtype=float)
-    f2 = np.asarray(f2_values, dtype=float)
+    order = np.argsort(np.asarray(energy_ev_values, dtype=float), kind="stable")
+    scattering_factors = HenkeScatteringFactors(
+        energy_ev=np.asarray(energy_ev_values, dtype=float)[order],
+        f1=np.asarray(f1_values, dtype=float)[order],
+        f2=np.asarray(f2_values, dtype=float)[order],
+        symbol=symbol,
+    )
+    _validate_henke_scattering_factors(scattering_factors)
+    return scattering_factors
+
+
+def _validate_henke_scattering_factors(constants: HenkeScatteringFactors) -> None:
+    """Validate one raw Henke scattering-factor table."""
+
+    arrays = (constants.energy_ev, constants.f1, constants.f2)
+    if any(array.ndim != 1 for array in arrays):
+        raise ValueError(f"Henke table for {constants.symbol!r} must be one-dimensional.")
+    if len(constants.energy_ev) == 0:
+        raise ValueError(f"Henke table for {constants.symbol!r} did not contain any valid rows.")
+    if not (len(constants.energy_ev) == len(constants.f1) == len(constants.f2)):
+        raise ValueError(f"Henke table for {constants.symbol!r} has incompatible energy/f1/f2 lengths.")
+    if not all(np.all(np.isfinite(array)) for array in arrays):
+        raise ValueError(f"Henke table for {constants.symbol!r} contains non-finite values.")
+    energy_steps = np.diff(constants.energy_ev)
+    if np.any(energy_steps < 0.0):
+        raise ValueError(f"Henke table for {constants.symbol!r} must have a nondecreasing energy grid.")
+    if not np.any(energy_steps > 0.0):
+        raise ValueError(f"Henke table for {constants.symbol!r} must span more than one unique energy.")
+
+
+def _henke_density_or_error(symbol: str, density_g_cm3: float | None = None) -> float:
+    """Return one validated density value for elemental or formula materials."""
+
     effective_density = density_g_cm3 if density_g_cm3 is not None else ELEMENT_DENSITIES_G_CM3.get(symbol)
     if effective_density is None:
         raise ValueError(
             f"A packaged Henke table exists for {symbol!r}, but no density metadata is configured. "
             "Provide density_g_cm3 explicitly or add the element to the built-in density registry."
         )
-    number_density_cm3 = effective_density * AVOGADRO_NUMBER / atomic_weight_g_mol
-    wavelength_cm = PLANCK_C_EV_CM / energy_ev
-    coefficient = number_density_cm3 * CLASSICAL_ELECTRON_RADIUS_CM * (wavelength_cm ** 2) / (
-        2.0 * np.pi
-    )
-    delta = coefficient * f1
-    beta = coefficient * f2
+    if float(effective_density) <= 0.0:
+        raise ValueError("density_g_cm3 must be positive.")
+    return float(effective_density)
+
+
+def _henke_atomic_weight_or_error(symbol: str) -> float:
+    """Return one validated atomic weight."""
+
+    atomic_weight_g_mol = ELEMENT_ATOMIC_WEIGHTS_G_MOL.get(symbol)
+    if atomic_weight_g_mol is None:
+        raise ValueError(
+            f"A packaged Henke table exists for {symbol!r}, but no atomic-weight metadata is configured."
+        )
+    return float(atomic_weight_g_mol)
+
+
+def _convert_scattering_factors_to_optical_constants(
+    *,
+    scattering_factors: HenkeScatteringFactors,
+    density_g_cm3: float,
+    molar_mass_g_mol: float,
+) -> HenkeOpticalConstants:
+    """Convert raw Henke scattering factors into grax optical constants."""
+
+    if molar_mass_g_mol <= 0.0:
+        raise ValueError("molar_mass_g_mol must be positive.")
+    number_density_cm3 = density_g_cm3 * AVOGADRO_NUMBER / molar_mass_g_mol
+    wavelength_cm = PLANCK_C_EV_CM / scattering_factors.energy_ev
+    coefficient = number_density_cm3 * CLASSICAL_ELECTRON_RADIUS_CM * (wavelength_cm ** 2) / (2.0 * np.pi)
+    delta = coefficient * scattering_factors.f1
+    beta = coefficient * scattering_factors.f2
     return HenkeOpticalConstants(
-        energy_ev=energy_ev,
+        energy_ev=np.asarray(scattering_factors.energy_ev, dtype=float),
         delta=np.asarray(delta, dtype=float),
         beta=np.asarray(beta, dtype=float),
-        symbol=symbol,
+        symbol=scattering_factors.symbol,
+    )
+
+
+@lru_cache(maxsize=None)
+def _load_henke_optical_constants(
+    symbol: str,
+    density_g_cm3: float | None = None,
+) -> HenkeOpticalConstants:
+    """Load one packaged elemental Henke table and convert it to optical constants."""
+
+    scattering_factors = _load_henke_scattering_factors(symbol)
+    return _convert_scattering_factors_to_optical_constants(
+        scattering_factors=scattering_factors,
+        density_g_cm3=_henke_density_or_error(symbol, density_g_cm3),
+        molar_mass_g_mol=_henke_atomic_weight_or_error(symbol),
+    )
+
+
+def _interpolate_scattering_factors(
+    scattering_factors: HenkeScatteringFactors,
+    photon_energy_ev: float,
+) -> tuple[float, float]:
+    """Interpolate elemental ``f1`` and ``f2`` at one photon energy."""
+
+    return (
+        float(np.interp(photon_energy_ev, scattering_factors.energy_ev, scattering_factors.f1)),
+        float(np.interp(photon_energy_ev, scattering_factors.energy_ev, scattering_factors.f2)),
     )
 
 
@@ -630,6 +786,58 @@ def _interpolate_henke_index(
         1.0 - np.interp(photon_energy_ev, constants.energy_ev, constants.delta)
         + 1j * np.interp(photon_energy_ev, constants.energy_ev, constants.beta)
     )
+
+
+def _interpolate_material_spec_index(material: MaterialSpec, photon_energy_ev: float) -> complex:
+    """Resolve one ``MaterialSpec`` as an elemental or compound material."""
+
+    if _is_packaged_henke_symbol(material.name):
+        return _interpolate_henke_index(
+            material.name,
+            photon_energy_ev,
+            density_g_cm3=material.density_g_cm3,
+        )
+
+    _validate_formula_material_name(material.name, density_g_cm3=material.density_g_cm3)
+    return _interpolate_compound_formula_index(
+        material.name,
+        photon_energy_ev,
+        density_g_cm3=float(material.density_g_cm3),
+    )
+
+
+def _compound_molar_mass_g_mol(formula_terms: tuple[tuple[str, int], ...]) -> float:
+    """Return the molar mass for one parsed flat formula."""
+
+    return float(sum(float(count) * _henke_atomic_weight_or_error(symbol) for symbol, count in formula_terms))
+
+
+def _interpolate_compound_formula_index(
+    material_name: str,
+    photon_energy_ev: float,
+    *,
+    density_g_cm3: float,
+) -> complex:
+    """Resolve one flat chemical formula by summing elemental Henke factors."""
+
+    formula_terms = _parse_formula_terms(material_name)
+    effective_density = _henke_density_or_error(material_name, density_g_cm3)
+    molar_mass_g_mol = _compound_molar_mass_g_mol(formula_terms)
+
+    total_f1 = 0.0
+    total_f2 = 0.0
+    for symbol, count in formula_terms:
+        scattering_factors = _load_henke_scattering_factors(symbol)
+        f1_value, f2_value = _interpolate_scattering_factors(scattering_factors, photon_energy_ev)
+        total_f1 += float(count) * f1_value
+        total_f2 += float(count) * f2_value
+
+    wavelength_cm = PLANCK_C_EV_CM / float(photon_energy_ev)
+    number_density_cm3 = effective_density * AVOGADRO_NUMBER / molar_mass_g_mol
+    coefficient = number_density_cm3 * CLASSICAL_ELECTRON_RADIUS_CM * (wavelength_cm ** 2) / (2.0 * np.pi)
+    delta = coefficient * total_f1
+    beta = coefficient * total_f2
+    return complex(1.0 - delta + 1j * beta)
 
 
 def _is_dataframe_like(material: Any) -> bool:
