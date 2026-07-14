@@ -24,6 +24,10 @@ Modes:
   fitted-edge-excluded
                     Run the three edge-excluded best-fit fixed-angle simulations.
   fitted-all        Run both fitted simulation families.
+  family-full-range Run the full-range optimizations and the matching fitted simulations.
+  family-edge-excluded
+                    Run the edge-excluded optimizations and the matching fitted simulations.
+  family-all        Run both optimization families together with their matching fitted simulations.
   validations       Run baseline and layered fixed-angle simulations, then comparison.
   optimizations     Run the three top-layer optimization scripts.
   optimizations-edge-excluded
@@ -90,6 +94,21 @@ run_fitted_all() {
   run_fitted_edge_excluded
 }
 
+run_family_full_range() {
+  run_optimizations
+  run_fitted
+}
+
+run_family_edge_excluded() {
+  run_optimizations_edge_excluded
+  run_fitted_edge_excluded
+}
+
+run_family_all() {
+  run_family_full_range
+  run_family_edge_excluded
+}
+
 run_optimizations() {
   run_python_script "laminar_2000lmm_optimize_top_layers_alpha1deg.py" "laminar_2000lmm_optimize_top_layers_alpha1deg.log"
   run_python_script "laminar_2000lmm_optimize_top_layers_alpha2deg.py" "laminar_2000lmm_optimize_top_layers_alpha2deg.log"
@@ -116,7 +135,7 @@ do_git="yes"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    baseline|layered|fitted|fitted-edge-excluded|fitted-all|validations|optimizations|optimizations-edge-excluded|optimizations-all|parameter-study|comparison|all)
+    baseline|layered|fitted|fitted-edge-excluded|fitted-all|family-full-range|family-edge-excluded|family-all|validations|optimizations|optimizations-edge-excluded|optimizations-all|parameter-study|comparison|all)
       mode="$1"
       shift
       ;;
@@ -151,6 +170,15 @@ case "${mode}" in
     ;;
   fitted-all)
     run_fitted_all
+    ;;
+  family-full-range)
+    run_family_full_range
+    ;;
+  family-edge-excluded)
+    run_family_edge_excluded
+    ;;
+  family-all)
+    run_family_all
     ;;
   validations)
     run_validations
