@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6 - 2026-07-14
+- Added flat chemical-formula material support through `grax.MaterialSpec`, so compounds such as `SiO2`, `Al2O3`, `B4C`, and similar Henke-derived formulas can be resolved even when no bundled compound table exists.
+- Combined elemental Henke scattering factors and density-driven refractive-index reconstruction into the material runtime while preserving the existing elemental string workflow.
+- Expanded material validation, tests, and documentation for formula parsing, required compound densities, and unknown-element handling.
+- Updated the Web UI and persistence flow so formula-based `MaterialSpec` inputs round-trip cleanly and free-text compound materials can be entered alongside packaged elemental suggestions.
+
 ## 0.4.5 - 2026-06-26
 - Web UI: add global CPU-pool resource manager, saved-plots list page with per-plot deletion, and dynamic version display in the docs sidebar and homepage.
 
