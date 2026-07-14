@@ -23,15 +23,16 @@ def _label_from_csv_path(path: Path) -> str:
 def _load_first_order_series(csv_path: Path) -> tuple[list[float], list[float]]:
     """Load energy and first-order efficiency from one all-orders CSV file."""
 
-    energies_ev: list[float] = []
-    efficiencies: list[float] = []
+    samples: list[tuple[float, float]] = []
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
             if int(row["order"]) != -1:
                 continue
-            energies_ev.append(float(row["energy_ev"]))
-            efficiencies.append(float(row["efficiency"]))
+            samples.append((float(row["energy_ev"]), float(row["efficiency"])))
+    samples.sort(key=lambda item: item[0])
+    energies_ev = [energy_ev for energy_ev, _efficiency in samples]
+    efficiencies = [efficiency for _energy_ev, efficiency in samples]
     return energies_ev, efficiencies
 
 
