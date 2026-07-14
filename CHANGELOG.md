@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.4.6 - 2026-07-14
+- Added trial-level optimizer multiprocessing through `BatchSimulationRunner`, so measurement-fit optimizer evaluations can use the existing batch `max_workers` worker pool.
+- Added optimizer config/runtime metadata for requested and resolved worker counts, plus validation that prevents combining per-trial multiprocessing with Ax candidate batching.
 - Added flat chemical-formula material support through `grax.MaterialSpec`, so compounds such as `SiO2`, `Al2O3`, `B4C`, and similar Henke-derived formulas can be resolved even when no bundled compound table exists.
 - Combined elemental Henke scattering factors and density-driven refractive-index reconstruction into the material runtime while preserving the existing elemental string workflow.
 - Expanded material validation, tests, and documentation for formula parsing, required compound densities, and unknown-element handling.

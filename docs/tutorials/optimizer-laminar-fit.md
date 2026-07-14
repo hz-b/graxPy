@@ -34,6 +34,12 @@ The optimizer example starts from the design parameters defined in
 then writes optimized values in the corresponding `fitted_parameters.json`
 files under `results/laminar_fit/` and `results/laminar_fit_tied_walls/`.
 
+Trial-level multiprocessing for optimizer evaluations is configured separately
+through `optimizer_max_workers` in
+`examples/optimizer/optimizer_laminar/example_config.py`. Keep `batch_size=1`
+when enabling optimizer multiprocessing so Ax candidate batching does not
+compete with per-trial worker pools.
+
 | Parameter | Design | Standard fit | Tied-wall fit |
 | --- | --- | --- | --- |
 | `period_lpermm` | `400.0` | `400.0` | `400.0` |
