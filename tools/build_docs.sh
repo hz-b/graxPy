@@ -144,6 +144,8 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${SIM_IMAGE_DIR}/batch_user_cases_orders_1_3_vs_depth.png"
     cp "${PROJECT_ROOT}/examples/simulation/fixed_angle_sweep/results/fixed_angle_orders_1_3.png" \
       "${SIM_IMAGE_DIR}/fixed_angle_orders_1_3.png"
+    cp "${PROJECT_ROOT}/examples/simulation/fixed_angle_roughness/results/fixed_angle_roughness_order1_comparison.png" \
+      "${SIM_IMAGE_DIR}/fixed_angle_roughness_order1_comparison.png"
     cp "${PROJECT_ROOT}/examples/simulation/monochromator_sweep/results/monochromator_orders_1_3.png" \
       "${SIM_IMAGE_DIR}/monochromator_orders_1_3.png"
     cp "${PROJECT_ROOT}/examples/simulation/energy_angle_sweep/results/energy_angle_multilayer_fast.png" \

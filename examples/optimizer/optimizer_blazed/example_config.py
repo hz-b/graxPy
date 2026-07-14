@@ -26,9 +26,10 @@ diffraction_order = 1
 fourier_orders = 10
 optimizer_backend = "auto"
 simulation_backend = "numba"
+optimizer_max_workers = "auto"
 
 total_trials = 50
-batch_size = 15
+batch_size = 1
 random_seed = 7
 energy1 = np.arange(51, 201, 10)      # 51 to 200 inclusive, step 10
 energy2 = np.arange(200, 1851, 50)    # 200 to 1900 inclusive, step 50

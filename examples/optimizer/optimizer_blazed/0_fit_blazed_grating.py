@@ -13,6 +13,7 @@ from grax_opt import (
 from example_config import (
     anti_blaze_angle_deg,
     optimizer_backend,
+    optimizer_max_workers,
     batch_size,
     blaze_angle_deg,
     cff,
@@ -92,6 +93,7 @@ spec = {
     "batch_size": batch_size,
     "random_seed": random_seed,
     "backend": optimizer_backend,
+    "max_workers": optimizer_max_workers,
     "experiment_name": "blazed_fit",
     "save_best_fit_plot": True,
     "evaluation_energies_ev": list(evaluation_energies_ev),
@@ -118,6 +120,7 @@ fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8
 
 print(f"Measurement: {result.measurement_path}")
 print(f"Optimizer backend request: {optimizer_backend}")
+print(f"Optimizer max_workers request: {optimizer_max_workers}")
 print(
     f"Baseline top-cap setting: use_top_cap={use_top_cap}, "
     f"material={top_cap_material_name if use_top_cap else 'None'}, "
