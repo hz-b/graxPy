@@ -7,6 +7,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
+ROUGHNESS_KINDS = {"baseline", "debye-waller", "random-interface"}
+
 
 def _roughness_from_csv_path(path: Path) -> tuple[str, float]:
     """Return the roughness kind and sigma encoded in one CSV filename."""
@@ -16,8 +18,10 @@ def _roughness_from_csv_path(path: Path) -> tuple[str, float]:
     if stem.startswith(prefix) and stem.endswith(suffix):
         roughness_tokens = stem[len(prefix) : -len(suffix)]
         roughness_kind, raw_value = roughness_tokens.split("_sigma_", maxsplit=1)
+        if roughness_kind not in ROUGHNESS_KINDS:
+            raise ValueError(f"Unknown roughness kind in {path.name!r}: {roughness_kind!r}")
         return roughness_kind, float(raw_value.replace("p", "."))
-    return stem, float("inf")
+    raise ValueError(f"Unable to parse roughness CSV filename: {path.name!r}")
 
 
 def _label_for_roughness(*, roughness_kind: str, roughness_sigma_nm: float) -> str:
@@ -58,6 +62,18 @@ def _sorted_csv_paths(csv_paths: list[Path]) -> list[Path]:
             path.name,
         ),
     )
+
+
+def _current_roughness_csv_paths(results_dir: Path) -> list[Path]:
+    """Return only CSV outputs for the current roughness comparison modes."""
+    csv_paths: list[Path] = []
+    for csv_path in results_dir.glob("fixed_angle_roughness_*_sigma_*_all_orders.csv"):
+        try:
+            _roughness_from_csv_path(csv_path)
+        except ValueError:
+            continue
+        csv_paths.append(csv_path)
+    return _sorted_csv_paths(csv_paths)
 
 
 def _load_first_order_series(csv_path: Path) -> tuple[list[float], list[float]]:
@@ -113,7 +129,7 @@ def main() -> None:
     """Plot all roughness CSV outputs from the example results directory."""
     example_dir = Path(__file__).resolve().parent
     results_dir = example_dir / "results"
-    csv_paths = sorted(results_dir.glob("fixed_angle_roughness_*_sigma_*_all_orders.csv"))
+    csv_paths = _current_roughness_csv_paths(results_dir)
     if not csv_paths:
         raise FileNotFoundError(
             f"No roughness CSV outputs found in {results_dir}. Run fixed_angle_roughness.py first."
