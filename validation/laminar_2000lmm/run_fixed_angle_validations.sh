@@ -18,11 +18,21 @@ show_usage() {
 Usage: run_fixed_angle_validations.sh [mode] [--no-git]
 
 Modes:
+  baseline          Run only the baseline fixed-angle simulations.
+  layered           Run only the nominal layered fixed-angle simulations.
+  fitted            Run the three best-fit fixed-angle simulations.
+  fitted-edge-excluded
+                    Run the three edge-excluded best-fit fixed-angle simulations.
+  fitted-all        Run both fitted simulation families.
   validations       Run baseline and layered fixed-angle simulations, then comparison.
   optimizations     Run the three top-layer optimization scripts.
+  optimizations-edge-excluded
+                    Run the three edge-excluded top-layer optimization scripts.
+  optimizations-all Run both optimization families.
   parameter-study   Run the layered parameter study script.
   comparison        Run only the comparison plot script.
-  all               Run validations, optimizations, and parameter study.
+  all               Run baseline, layered, both fitted families, both optimization families,
+                    parameter study, and comparison.
 
 Defaults:
   If no mode is provided, the script runs: validations
@@ -46,19 +56,55 @@ run_comparison() {
 }
 
 run_validations() {
+  run_baseline
+  run_layered
+  run_comparison
+}
+
+run_baseline() {
   run_python_script "laminar_2000lmm_fixed_angle_alpha1deg.py" "laminar_2000lmm_fixed_angle_alpha1deg.log"
   run_python_script "laminar_2000lmm_fixed_angle_alpha2deg.py" "laminar_2000lmm_fixed_angle_alpha2deg.log"
   run_python_script "laminar_2000lmm_fixed_angle_alpha4deg.py" "laminar_2000lmm_fixed_angle_alpha4deg.log"
+}
+
+run_layered() {
   run_python_script "laminar_2000lmm_fixed_angle_alpha1deg_layered.py" "laminar_2000lmm_fixed_angle_alpha1deg_layered.log"
   run_python_script "laminar_2000lmm_fixed_angle_alpha2deg_layered.py" "laminar_2000lmm_fixed_angle_alpha2deg_layered.log"
   run_python_script "laminar_2000lmm_fixed_angle_alpha4deg_layered.py" "laminar_2000lmm_fixed_angle_alpha4deg_layered.log"
-  run_comparison
+}
+
+run_fitted() {
+  run_python_script "laminar_2000lmm_fixed_angle_alpha1deg_fitted.py" "laminar_2000lmm_fixed_angle_alpha1deg_fitted.log"
+  run_python_script "laminar_2000lmm_fixed_angle_alpha2deg_fitted.py" "laminar_2000lmm_fixed_angle_alpha2deg_fitted.log"
+  run_python_script "laminar_2000lmm_fixed_angle_alpha4deg_fitted.py" "laminar_2000lmm_fixed_angle_alpha4deg_fitted.log"
+}
+
+run_fitted_edge_excluded() {
+  run_python_script "laminar_2000lmm_fixed_angle_alpha1deg_edge_excluded_fitted.py" "laminar_2000lmm_fixed_angle_alpha1deg_edge_excluded_fitted.log"
+  run_python_script "laminar_2000lmm_fixed_angle_alpha2deg_edge_excluded_fitted.py" "laminar_2000lmm_fixed_angle_alpha2deg_edge_excluded_fitted.log"
+  run_python_script "laminar_2000lmm_fixed_angle_alpha4deg_edge_excluded_fitted.py" "laminar_2000lmm_fixed_angle_alpha4deg_edge_excluded_fitted.log"
+}
+
+run_fitted_all() {
+  run_fitted
+  run_fitted_edge_excluded
 }
 
 run_optimizations() {
   run_python_script "laminar_2000lmm_optimize_top_layers_alpha1deg.py" "laminar_2000lmm_optimize_top_layers_alpha1deg.log"
   run_python_script "laminar_2000lmm_optimize_top_layers_alpha2deg.py" "laminar_2000lmm_optimize_top_layers_alpha2deg.log"
   run_python_script "laminar_2000lmm_optimize_top_layers_alpha4deg.py" "laminar_2000lmm_optimize_top_layers_alpha4deg.log"
+}
+
+run_optimizations_edge_excluded() {
+  run_python_script "laminar_2000lmm_optimize_top_layers_alpha1deg_edge_excluded.py" "laminar_2000lmm_optimize_top_layers_alpha1deg_edge_excluded.log"
+  run_python_script "laminar_2000lmm_optimize_top_layers_alpha2deg_edge_excluded.py" "laminar_2000lmm_optimize_top_layers_alpha2deg_edge_excluded.log"
+  run_python_script "laminar_2000lmm_optimize_top_layers_alpha4deg_edge_excluded.py" "laminar_2000lmm_optimize_top_layers_alpha4deg_edge_excluded.log"
+}
+
+run_optimizations_all() {
+  run_optimizations
+  run_optimizations_edge_excluded
 }
 
 run_parameter_study() {
@@ -70,7 +116,7 @@ do_git="yes"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    validations|optimizations|parameter-study|comparison|all)
+    baseline|layered|fitted|fitted-edge-excluded|fitted-all|validations|optimizations|optimizations-edge-excluded|optimizations-all|parameter-study|comparison|all)
       mode="$1"
       shift
       ;;
@@ -91,11 +137,32 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${mode}" in
+  baseline)
+    run_baseline
+    ;;
+  layered)
+    run_layered
+    ;;
+  fitted)
+    run_fitted
+    ;;
+  fitted-edge-excluded)
+    run_fitted_edge_excluded
+    ;;
+  fitted-all)
+    run_fitted_all
+    ;;
   validations)
     run_validations
     ;;
   optimizations)
     run_optimizations
+    ;;
+  optimizations-edge-excluded)
+    run_optimizations_edge_excluded
+    ;;
+  optimizations-all)
+    run_optimizations_all
     ;;
   parameter-study)
     run_parameter_study
@@ -104,9 +171,12 @@ case "${mode}" in
     run_comparison
     ;;
   all)
-    run_validations
-    run_optimizations
+    run_baseline
+    run_layered
+    run_fitted_all
+    run_optimizations_all
     run_parameter_study
+    run_comparison
     ;;
 esac
 

@@ -19,16 +19,22 @@ CASE_CONFIG = {
         "measurement": measurement_dir / "lG2000-DLS-B07_ascan-(twt-non)_energy_1order_alpha-1deg.dat",
         "baseline": results_dir / "laminar_2000lmm_fixed_angle_alpha1deg_all_orders.csv",
         "layered": results_dir / "laminar_2000lmm_fixed_angle_alpha1deg_layered_all_orders.csv",
+        "fitted": results_dir / "laminar_2000lmm_fixed_angle_alpha1deg_fitted_all_orders.csv",
+        "edge_excluded_fitted": results_dir / "laminar_2000lmm_fixed_angle_alpha1deg_edge_excluded_fitted_all_orders.csv",
     },
     2: {
         "measurement": measurement_dir / "lG2000-DLS-B07_ascan-(twt-non)_energy_1order_alpha-2deg.dat",
         "baseline": results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_all_orders.csv",
         "layered": results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_layered_all_orders.csv",
+        "fitted": results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_fitted_all_orders.csv",
+        "edge_excluded_fitted": results_dir / "laminar_2000lmm_fixed_angle_alpha2deg_edge_excluded_fitted_all_orders.csv",
     },
     4: {
         "measurement": measurement_dir / "lG2000-DLS-B07_ascan-(twt-non)_energy_1order_alpha-4deg.dat",
         "baseline": results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_all_orders.csv",
         "layered": results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_layered_all_orders.csv",
+        "fitted": results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_fitted_all_orders.csv",
+        "edge_excluded_fitted": results_dir / "laminar_2000lmm_fixed_angle_alpha4deg_edge_excluded_fitted_all_orders.csv",
     },
 }
 
@@ -81,6 +87,8 @@ for axis, (angle_deg, config) in zip(axes, CASE_CONFIG.items(), strict=True):
     measurement_curve = _load_measurement_curve(config["measurement"])
     baseline_curve = _load_order_curve(config["baseline"])
     layered_curve = _load_order_curve(config["layered"])
+    fitted_curve = _load_order_curve(config["fitted"])
+    edge_excluded_fitted_curve = _load_order_curve(config["edge_excluded_fitted"])
 
     axis.plot(
         measurement_curve["energy_ev"],
@@ -102,7 +110,21 @@ for axis, (angle_deg, config) in zip(axes, CASE_CONFIG.items(), strict=True):
         layered_curve["efficiency"],
         linestyle="--",
         linewidth=1.8,
-        label="Simulation with top layers",
+        label="Simulation with nominal top layers",
+    )
+    axis.plot(
+        fitted_curve["energy_ev"],
+        fitted_curve["efficiency"],
+        linestyle="-.",
+        linewidth=1.8,
+        label="Simulation with full-range optimized top layers",
+    )
+    axis.plot(
+        edge_excluded_fitted_curve["energy_ev"],
+        edge_excluded_fitted_curve["efficiency"],
+        linestyle=":",
+        linewidth=2.0,
+        label="Simulation with edge-excluded optimized top layers",
     )
     axis.set_title(f"Laminar 2000 l/mm Fixed-Angle Comparison at Alpha = {angle_deg} deg")
     axis.set_ylabel("Efficiency")
@@ -113,6 +135,7 @@ axes[-1].set_xlabel("Energy (eV)")
 
 figure.tight_layout()
 figure.savefig(output_file, dpi=200, bbox_inches="tight")
+plt.show()
 plt.close(figure)
 
 print(f"Combined comparison plot saved to: {output_file}")
