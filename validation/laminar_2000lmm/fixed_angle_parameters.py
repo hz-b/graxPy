@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import grax
 
-NUM_ENERGY_POINTS = 500#s1039
+NUM_ENERGY_POINTS = 1039
 FOURIER_ORDERS = 20
 X_RESOLUTION_NM = 0.1
 Z_RESOLUTION_NM = 0.1
