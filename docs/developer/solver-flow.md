@@ -8,8 +8,9 @@ solver routines.
 1. The user creates a grating, usually {class}`grax.LaminarGrating` or
    {class}`grax.BlazedGrating`.
 2. The user calls {func}`grax.run_simulation` with the grating,
-   selected diffraction order, Fourier order count, grazing angle, and
-   optional roughness.
+   selected diffraction order, Fourier order count, and grazing angle.
+   Roughness can be attached to the grating with `RoughnessSpec`, while the
+   legacy `roughness_sigma_nm` solver argument remains available.
 3. {func}`grax.run_simulation` converts photon energy to
    wavelength with `1239.8 / photon_energy_ev`.
 4. `run_simulation()` computes `k_parallel` from the grazing angle.
@@ -17,8 +18,8 @@ solver routines.
 6. `build_textures()` resolves the coating stack and substrate material at the
    requested photon energy.
 7. `build_textures()` creates the `x` grid, `z` grid, interpolated surface
-   profile, refractive-index grid, texture list, and RETICOLO-style profile
-   arrays.
+   profile, optional grating-level rough interfaces, refractive-index grid,
+   texture list, and RETICOLO-style profile arrays.
 8. `run_simulation()` calls `res0(1)` to create the parameter bundle.
 9. `run_simulation()` calls `res1(wavelength, period, textures, fourier_orders, k_parallel, parm)`.
 10. `res1()` normalizes diffraction orders and converts raw textures into
@@ -26,7 +27,8 @@ solver routines.
 11. `run_simulation()` calls `res2(aa, profile, parm, roughness_sigma_nm=...)`.
 12. `res2()` validates the profile, compresses adjacent identical textures, and
     solves the TE stack.
-13. `res2()` optionally applies scalar Debye-Waller roughness damping.
+13. `res2()` optionally applies scalar Debye-Waller roughness damping for
+    solver-level roughness.
 14. `run_simulation()` finds the requested reflected diffraction order, validates
     reflected efficiencies when enabled, and returns selected-order and
     all-order arrays.
@@ -68,7 +70,8 @@ If `on_error="continue"`, failures are stored as case results with
 Important runtime checks include:
 
 - Case dictionaries must contain a grating derived from `BaseGrating`.
-- `run_simulation` rejects negative roughness values.
+- `run_simulation` rejects negative roughness values and rejects simultaneous
+  grating-level/API roughness plus legacy `roughness_sigma_nm`.
 - Reflected efficiencies are checked for negative values, excessive single-order
   efficiency, and excessive total propagating reflected efficiency.
 - Collected export or plotting helpers should validate order-grid assumptions when they need rectangular arrays.

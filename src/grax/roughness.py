@@ -2,7 +2,35 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 import numpy as np
+
+RoughnessKind = Literal["debye-waller", "random-interface"]
+
+
+@dataclass(frozen=True)
+class RoughnessSpec:
+    """Roughness configuration attached to a grating at construction time."""
+
+    kind: RoughnessKind
+    sigma_nm: float
+    seed: int = 0
+    resolution_factor: float = 4.0
+
+    def __post_init__(self) -> None:
+        """Validate roughness configuration."""
+
+        if self.kind not in {"debye-waller", "random-interface"}:
+            raise ValueError(
+                "roughness kind must be 'debye-waller' or 'random-interface'."
+            )
+        if self.sigma_nm < 0.0:
+            raise ValueError("roughness sigma_nm must be >= 0.")
+        if self.resolution_factor <= 0.0:
+            raise ValueError("roughness resolution_factor must be > 0.")
+
 
 def apply_debye_waller_roughness(
     *,

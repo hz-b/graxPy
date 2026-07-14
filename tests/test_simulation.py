@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from grax import RoughnessSpec
 from grax.gratings import BlazedGrating, LaminarGrating
 from grax.materials import resolve_refractive_index
 from grax.rcwa_1d import (
@@ -26,6 +27,7 @@ from grax.rcwa_1d import (
 )
 from grax import simulation as simulation_module
 from grax import peak_fitting as peak_fitting_module
+from grax.simulation import core as simulation_core_module
 from grax.simulation import (
     BatchSimulationResult,
     BatchSimulationRunner,
@@ -985,6 +987,99 @@ def test_batch_runner_passes_roughness(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured == [0.5]
 
 
+def test_run_simulation_uses_solver_roughness_from_grating(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[float | None] = []
+
+    class FakeEfficiencies:
+        inc_top_reflected = DiffractionResult(
+            order=np.asarray([-1, 0, 1], dtype=int),
+            theta=np.asarray([1.0, 2.0, 3.0], dtype=float),
+            efficiency=np.asarray([0.2, 0.1, 0.05], dtype=float),
+            amplitude=np.asarray([1.0, 1.0, 1.0], dtype=complex),
+        )
+
+    def fake_res2(
+        *args: object,
+        roughness_sigma_nm: float | None = None,
+        **kwargs: object,
+    ) -> FakeEfficiencies:
+        del args, kwargs
+        captured.append(roughness_sigma_nm)
+        return FakeEfficiencies()
+
+    grating = build_test_grating()
+    grating.roughness = RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
+    fake_profile = (np.asarray([0.0]), np.asarray([0]))
+    monkeypatch.setattr(grating, "build_textures", lambda *args, **kwargs: ([], fake_profile))
+    monkeypatch.setattr(simulation_core_module, "res0", lambda *args, **kwargs: object())
+    monkeypatch.setattr(simulation_core_module, "res1", lambda *args, **kwargs: object())
+    monkeypatch.setattr(simulation_core_module, "res2", fake_res2)
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=1,
+    )
+
+    assert captured == [0.5]
+    assert result.roughness_sigma_nm == pytest.approx(0.5)
+
+
+def test_run_simulation_keeps_random_interface_roughness_out_of_res2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[float | None] = []
+
+    class FakeEfficiencies:
+        inc_top_reflected = DiffractionResult(
+            order=np.asarray([-1, 0, 1], dtype=int),
+            theta=np.asarray([1.0, 2.0, 3.0], dtype=float),
+            efficiency=np.asarray([0.2, 0.1, 0.05], dtype=float),
+            amplitude=np.asarray([1.0, 1.0, 1.0], dtype=complex),
+        )
+
+    def fake_res2(
+        *args: object,
+        roughness_sigma_nm: float | None = None,
+        **kwargs: object,
+    ) -> FakeEfficiencies:
+        del args, kwargs
+        captured.append(roughness_sigma_nm)
+        return FakeEfficiencies()
+
+    grating = build_test_grating()
+    grating.roughness = RoughnessSpec(kind="random-interface", sigma_nm=0.5)
+    fake_profile = (np.asarray([0.0]), np.asarray([0]))
+    monkeypatch.setattr(grating, "build_textures", lambda *args, **kwargs: ([], fake_profile))
+    monkeypatch.setattr(simulation_core_module, "res0", lambda *args, **kwargs: object())
+    monkeypatch.setattr(simulation_core_module, "res1", lambda *args, **kwargs: object())
+    monkeypatch.setattr(simulation_core_module, "res2", fake_res2)
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=1,
+    )
+
+    assert captured == [None]
+    assert result.roughness_sigma_nm is None
+
+
+def test_run_simulation_rejects_explicit_and_grating_roughness() -> None:
+    grating = build_test_grating()
+    grating.roughness = RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
+
+    with pytest.raises(ValueError, match="either on the grating or as roughness_sigma_nm"):
+        run_simulation(
+            grating=grating,
+            energy_ev=100.0,
+            grazing_angle_deg=4.0,
+            roughness_sigma_nm=0.5,
+        )
+
+
 def test_batch_runner_records_errors_in_continue_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run_simulation(**kwargs: object) -> SingleSimulationResult:
         if kwargs["energy_ev"] == 150.0:
@@ -1459,6 +1554,7 @@ def test_batch_runner_live_plot_uses_requested_x_axis_and_order_count(
         live_plot_x_key="energy_ev",
         live_plot_order_count=2,
     )
+    monkeypatch.setattr(runner, "close_live_plot", lambda: None)
 
     list(
         runner.run_cases(
@@ -1494,6 +1590,7 @@ def test_batch_runner_live_plot_can_overlay_reference_data(monkeypatch: pytest.M
         live_plot_order_count=1,
         live_plot_reference_data=reference_data,
     )
+    monkeypatch.setattr(runner, "close_live_plot", lambda: None)
 
     list(
         runner.run_cases(
@@ -1507,6 +1604,40 @@ def test_batch_runner_live_plot_can_overlay_reference_data(monkeypatch: pytest.M
     assert np.allclose(lines[1].get_xdata(), reference_data[:, 0])
     assert np.allclose(lines[1].get_ydata(), reference_data[:, 1])
     plt.close("all")
+
+
+def test_batch_runner_closes_live_plot_after_run_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run_simulation(**kwargs: object) -> SingleSimulationResult:
+        return fake_single_result(
+            energy_ev=float(kwargs["energy_ev"]),
+            grazing_angle_deg=float(kwargs["grazing_angle_deg"]),
+            selected_efficiency=0.3,
+        )
+
+    monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(simulation_batch_module, "_refresh_interactive_figure", lambda figure: None)
+    runner = BatchSimulationRunner(live_plot=True, live_plot_order_count=1)
+    closed_figures = []
+    original_close = simulation_batch_module.plt.close
+
+    def close_spy(figure: object) -> None:
+        closed_figures.append(figure)
+        original_close(figure)
+
+    monkeypatch.setattr(simulation_batch_module.plt, "close", close_spy)
+
+    results = list(
+        runner.run_cases(
+            [{"case_id": "case-1", "grating": build_test_grating(), "energy_ev": 100.0, "grazing_angle_deg": 4.0}]
+        )
+    )
+
+    assert len(results) == 1
+    assert len(closed_figures) == 1
+    assert runner._live_figure is None
+    assert runner._live_axis is None
+    assert runner._live_x_values == []
+    assert runner._live_y_values == {1: []}
 
 
 def test_batch_runner_theta_search_writes_checkpoints_and_resumes(

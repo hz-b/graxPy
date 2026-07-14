@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.4.6 - 2026-07-14
+- Added `grax.RoughnessSpec` for construction-time roughness selection, including solver-level Debye-Waller roughness and grating-level stochastic interface roughness.
 - Added trial-level optimizer multiprocessing through `BatchSimulationRunner`, so measurement-fit optimizer evaluations can use the existing batch `max_workers` worker pool.
 - Added optimizer config/runtime metadata for requested and resolved worker counts, plus validation that prevents combining per-trial multiprocessing with Ax candidate batching.
 - Added a maintained fixed-angle roughness simulation example with live plotting, multiprocessing, first-order comparison output, and tutorial/docs integration including synced tutorial images.
