@@ -160,8 +160,14 @@ def _save_grating_closeup_plot(
 
 
 def _save_all_grating_closeup_plots(simulation_runs: list[tuple[str, float]]) -> None:
-    """Save grating close-up PDFs for all roughness runs."""
+    """Save grating close-up PDFs for the geometry-distorting roughness runs.
+
+    Only ``random-interface`` roughness changes the geometry, so Debye-Waller
+    runs (whose close-ups would look identical to the baseline) are skipped.
+    """
     for roughness_kind, roughness_sigma_nm in simulation_runs:
+        if roughness_kind == "debye-waller":
+            continue
         grating = _build_grating(roughness_kind, roughness_sigma_nm)
         output_path = _save_grating_closeup_plot(
             grating,
