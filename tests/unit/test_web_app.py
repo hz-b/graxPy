@@ -14,7 +14,7 @@ from werkzeug.datastructures import MultiDict
 
 from grax.gratings import BlazedGrating, LaminarGrating
 from grax.materials import MaterialSpec
-from grax.stacks import MultilayerStack
+from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
 from grax.web.persistence import (
     GratingStore,
@@ -274,6 +274,86 @@ def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     assert loaded.coating_stack.substrate_material.density_g_cm3 == pytest.approx(2.329)
 
 
+def test_saved_grating_round_trips_per_layer_roughness(tmp_path: Path) -> None:
+    grating = LaminarGrating(
+        period_lpermm=400,
+        width_to_period_ratio=0.67,
+        depth_nm=14.9,
+        left_wall_angle_deg=15.0,
+        right_wall_angle_deg=15.0,
+        coating_stack=SingleLayerStack(
+            substrate_material=MaterialSpec("Si", density_g_cm3=2.329),
+            layer_material=MaterialSpec("Pt", density_g_cm3=21.46),
+            layer_thickness_nm=28.77,
+            substrate_roughness_sigma_nm=0.4,
+            layer_roughness_sigma_nm=1.2,
+        ),
+    )
+    store = GratingStore(tmp_path / "gratings")
+
+    saved = store.save(grating_to_spec(grating, name="Rough"))
+    payload = store.load(saved["id"])
+
+    assert payload["stack"]["substrate_roughness_sigma_nm"] == pytest.approx(0.4)
+    assert payload["stack"]["layer_roughness_sigma_nm"] == pytest.approx(1.2)
+    assert payload["stack"]["top_cap_roughness_sigma_nm"] is None
+
+    loaded = build_grating_from_spec(payload)
+    # interfaces: [substrate boundary, top of layer]
+    assert loaded.resolved_stack().interface_roughness_sigmas_bottom_up(0.0) == [0.4, 1.2]
+
+
+def test_old_grating_spec_without_roughness_still_loads(tmp_path: Path) -> None:
+    spec = {
+        "name": "Legacy",
+        "grating_type": "laminar",
+        "period_lpermm": 400,
+        "x_resolution_nm": 1.0,
+        "z_resolution_nm": 1.0,
+        "width_to_period_ratio": 0.67,
+        "depth_nm": 14.9,
+        "left_wall_angle_deg": 15.0,
+        "right_wall_angle_deg": 15.0,
+        "stack": {
+            "type": "single_layer",
+            "substrate_material": {"name": "Si", "density_g_cm3": 2.329},
+            "layer_material": {"name": "Pt", "density_g_cm3": 21.46},
+            "layer_thickness_nm": 28.77,
+        },
+    }
+
+    loaded = build_grating_from_spec(spec)
+
+    assert loaded.resolved_stack().has_per_layer_roughness() is False
+    assert loaded.layer_thickness_nm == pytest.approx(28.77)
+
+
+def test_attach_roughness_sets_and_clears_grating_kind() -> None:
+    grating = LaminarGrating(
+        coating_stack=SingleLayerStack(
+            substrate_material="Si",
+            layer_material="Pt",
+            layer_thickness_nm=28.77,
+            layer_roughness_sigma_nm=1.0,
+        )
+    )
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "random-interface"})
+    assert grating.roughness is not None
+    assert grating.roughness.kind == "random-interface"
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "debye-waller"})
+    assert grating.roughness.kind == "debye-waller"
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "none"})
+    assert grating.roughness is None
+
+    # Missing field defaults to no roughness.
+    grating.roughness = object()  # type: ignore[assignment]
+    web_app_module._attach_roughness(grating, {})
+    assert grating.roughness is None
+
+
 def test_saved_grating_round_trips_blazed_single_layer(tmp_path: Path) -> None:
     grating = BlazedGrating(
         period_lpermm=600,
@@ -352,7 +432,7 @@ def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text())
 
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["id"] == saved["id"]
     assert payload["name"] == "Demo"
 

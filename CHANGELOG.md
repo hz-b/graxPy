@@ -1,7 +1,8 @@
 # Changelog
 
 ## Unreleased
-- Added per-layer roughness: `LayerSpec` accepts `roughness_sigma_nm`, and `SingleLayerStack`/`MultilayerStack`/`CustomStack` expose per-layer/per-material roughness arguments. Each value sets the roughness of that layer's top interface, falling back to the grating-level `RoughnessSpec.sigma_nm` when unset. `random-interface` perturbs each interface with its own sigma; per-layer `debye-waller` sigmas combine in quadrature into an effective damping.
+- Added per-layer roughness: `LayerSpec` accepts `roughness_sigma_nm`, and `SingleLayerStack`/`MultilayerStack`/`CustomStack` expose per-layer/per-material roughness arguments (plus a `substrate_roughness_sigma_nm` for the substrate boundary). Each value sets the roughness of that interface, falling back to the grating-level `RoughnessSpec.sigma_nm` when unset. `random-interface` perturbs each interface with its own sigma; per-layer `debye-waller` sigmas combine in quadrature into an effective damping.
+- Web UI: the grating form now has a roughness sigma field for the substrate, each coating layer/material, and the top cap (persisted with the grating, schema v2). The run form has a roughness-kind dropdown (None / Debye-Waller / Random interface) that selects the model applied at run time.
 
 ## 0.4.7 - 2026-07-15
 - Added a grating-level `"random-interface"` roughness kind to `grax.RoughnessSpec` as an alternative to solver-level Debye-Waller roughness, applying independent stochastic offsets per multilayer interface instead of a single analytic damping factor.

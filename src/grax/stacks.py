@@ -19,6 +19,7 @@ class BaseStack(ABC):
     substrate_material: Any
     top_cap_material: Any | None = None
     top_cap_thickness_nm: float = 0.0
+    substrate_roughness_sigma_nm: float | None = None
 
     @abstractmethod
     def layer_sequence_bottom_up(self) -> list[tuple[Any, float]]:
@@ -44,19 +45,27 @@ class BaseStack(ABC):
         """Return one roughness sigma per material interface, bottom-up.
 
         There are ``n_layers + 1`` interfaces: index 0 is the substrate boundary
-        (always the ``default_sigma_nm``), and interface ``j + 1`` is the top of
-        layer ``j``. Per-layer overrides fall back to ``default_sigma_nm``.
+        (``substrate_roughness_sigma_nm`` when set, else ``default_sigma_nm``),
+        and interface ``j + 1`` is the top of layer ``j``. Per-layer and
+        substrate overrides fall back to ``default_sigma_nm``.
         """
 
         default = float(default_sigma_nm)
+        substrate_sigma = (
+            default
+            if self.substrate_roughness_sigma_nm is None
+            else float(self.substrate_roughness_sigma_nm)
+        )
         layer_sigmas = self._layer_roughness_sigmas_bottom_up()
-        return [default] + [
+        return [substrate_sigma] + [
             default if sigma is None else float(sigma) for sigma in layer_sigmas
         ]
 
     def has_per_layer_roughness(self) -> bool:
-        """Return whether any layer specifies its own roughness sigma."""
+        """Return whether any layer or the substrate specifies its own roughness sigma."""
 
+        if self.substrate_roughness_sigma_nm is not None:
+            return True
         return any(sigma is not None for sigma in self._layer_roughness_sigmas_bottom_up())
 
     def material_names(self, *, include_incident_medium: bool = False) -> list[str]:
@@ -526,6 +535,7 @@ def build_single_layer_stack(
     layer_thickness_nm: float,
     top_cap_material: Any | None = None,
     top_cap_thickness_nm: float = 0.0,
+    substrate_roughness_sigma_nm: float | None = None,
     layer_roughness_sigma_nm: float | None = None,
     top_cap_roughness_sigma_nm: float | None = None,
 ) -> SingleLayerStack:
@@ -537,6 +547,7 @@ def build_single_layer_stack(
         layer_thickness_nm=float(layer_thickness_nm),
         top_cap_material=top_cap_material,
         top_cap_thickness_nm=float(top_cap_thickness_nm),
+        substrate_roughness_sigma_nm=substrate_roughness_sigma_nm,
         layer_roughness_sigma_nm=layer_roughness_sigma_nm,
         top_cap_roughness_sigma_nm=top_cap_roughness_sigma_nm,
     )
@@ -553,6 +564,7 @@ def build_multilayer_stack(
     top_material: Any,
     top_cap_material: Any | None = None,
     top_cap_thickness_nm: float = 0.0,
+    substrate_roughness_sigma_nm: float | None = None,
     material_a_roughness_sigma_nm: float | None = None,
     material_b_roughness_sigma_nm: float | None = None,
     top_cap_roughness_sigma_nm: float | None = None,
@@ -569,6 +581,7 @@ def build_multilayer_stack(
         top_material=top_material,
         top_cap_material=top_cap_material,
         top_cap_thickness_nm=float(top_cap_thickness_nm),
+        substrate_roughness_sigma_nm=substrate_roughness_sigma_nm,
         material_a_roughness_sigma_nm=material_a_roughness_sigma_nm,
         material_b_roughness_sigma_nm=material_b_roughness_sigma_nm,
         top_cap_roughness_sigma_nm=top_cap_roughness_sigma_nm,
@@ -581,6 +594,7 @@ def assemble_custom_stack(
     layers_bottom_up: list[LayerSpec] | tuple[LayerSpec, ...],
     top_cap_material: Any | None = None,
     top_cap_thickness_nm: float = 0.0,
+    substrate_roughness_sigma_nm: float | None = None,
     top_cap_roughness_sigma_nm: float | None = None,
 ) -> CustomStack:
     """Assemble and return a custom stack from explicit layer specs.
@@ -593,6 +607,7 @@ def assemble_custom_stack(
         substrate_material=substrate_material,
         top_cap_material=top_cap_material,
         top_cap_thickness_nm=float(top_cap_thickness_nm),
+        substrate_roughness_sigma_nm=substrate_roughness_sigma_nm,
         top_cap_roughness_sigma_nm=top_cap_roughness_sigma_nm,
         layers_bottom_up=list(layers_bottom_up),
     )

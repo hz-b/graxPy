@@ -30,6 +30,33 @@ def test_base_stack_defaults_to_uniform_interface_sigmas() -> None:
     assert stack.interface_roughness_sigmas_bottom_up(0.7) == [0.7, 0.7]
 
 
+def test_substrate_roughness_overrides_interface_zero() -> None:
+    stack = build_single_layer_stack(
+        substrate_material="Si",
+        layer_material="Pt",
+        layer_thickness_nm=10.0,
+        substrate_roughness_sigma_nm=0.8,
+        layer_roughness_sigma_nm=1.2,
+    )
+
+    assert stack.has_per_layer_roughness() is True
+    # interfaces: [substrate boundary (override), top of layer]
+    assert stack.interface_roughness_sigmas_bottom_up(0.3) == [0.8, 1.2]
+
+
+def test_substrate_roughness_alone_marks_per_layer_roughness() -> None:
+    stack = build_single_layer_stack(
+        substrate_material="Si",
+        layer_material="Pt",
+        layer_thickness_nm=10.0,
+        substrate_roughness_sigma_nm=0.5,
+    )
+
+    assert stack.has_per_layer_roughness() is True
+    # Only the substrate boundary is overridden; the layer falls back to default.
+    assert stack.interface_roughness_sigmas_bottom_up(0.0) == [0.5, 0.0]
+
+
 def test_single_layer_stack_per_layer_and_top_cap_sigmas() -> None:
     stack = build_single_layer_stack(
         substrate_material="Si",
