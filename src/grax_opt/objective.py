@@ -58,6 +58,18 @@ def _trial_max_workers(config: Any) -> int:
     return int(_resolve_simulation_max_workers(getattr(config, "max_workers", None)))
 
 
+class _BatchCaseFailure(RuntimeError):
+    """Raised when a trial's batch evaluation contains a failed case.
+
+    Carries the runner's resolved worker count so callers can still report it
+    on the failure-penalty path instead of falling back to a generic default.
+    """
+
+    def __init__(self, case_id: str, status: str, resolved_max_workers: int) -> None:
+        super().__init__(f"Optimizer trial batch case {case_id} failed with status={status}.")
+        self.resolved_max_workers = resolved_max_workers
+
+
 def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
     """Warn when callers explicitly request the deprecated NumPy backend."""
 
@@ -160,7 +172,7 @@ def simulate_efficiency_curve_with_metadata(
     efficiencies = np.empty(len(cases), dtype=float)
     for result in trial_results:
         if result.status != "ok":
-            raise RuntimeError(f"Optimizer trial batch case {result.case_id} failed with status={result.status}.")
+            raise _BatchCaseFailure(result.case_id, result.status, int(runner.resolved_max_workers))
         efficiencies[int(result.index)] = float(result.selected_efficiency)
 
     return efficiencies, int(runner.resolved_max_workers)
@@ -264,6 +276,8 @@ def evaluate_trial_with_metadata(
             build_grating_fn=build_grating_fn,
             resolve_solver_parameters_fn=resolve_solver_parameters_fn,
         )
+    except _BatchCaseFailure as error:
+        return float(config.failure_penalty), int(error.resolved_max_workers)
     except Exception:
         return float(config.failure_penalty), _trial_max_workers(config)
     return (

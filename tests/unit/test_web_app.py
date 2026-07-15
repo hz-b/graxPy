@@ -163,7 +163,7 @@ def _write_saved_png_plot_fixture(base_dir: Path, *, plot_id: str = "plot-legacy
 
 
 def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     readme_text = (repo_root / "README.md").read_text(encoding="utf-8")
     web_ui_text = (repo_root / "docs" / "installation" / "web-ui.md").read_text(encoding="utf-8")
 
@@ -186,7 +186,7 @@ def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatc
     assert 'python -m pip install "graxpy[web]"' in message
     assert 'python -m pip install -e ".[web]"' in message
 
-    app_source = (Path(__file__).resolve().parents[1] / "src" / "grax" / "web" / "app.py").read_text(encoding="utf-8")
+    app_source = (Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "app.py").read_text(encoding="utf-8")
     assert 'graxpy[web]' in app_source
     assert '.[web]' in app_source
 
@@ -435,7 +435,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
 
-    web_js = (Path(__file__).resolve().parents[1] / "src" / "grax" / "web" / "static" / "web.js").read_text(
+    web_js = (Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js").read_text(
         encoding="utf-8"
     )
     assert "syncMaterialDensity" in web_js
@@ -755,7 +755,7 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     )
 
     app = create_app(data_dir=tmp_path)
-    response = app.test_client().get("/plots")
+    response = app.test_client().get("/plots/new")
 
     assert response.status_code == 200
     assert b"name: Alpha grating" in response.data
@@ -1121,7 +1121,7 @@ def test_saved_run_pages_render_placeholder_for_missing_comment(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    response = create_app(data_dir=tmp_path).test_client().get("/plots")
+    response = create_app(data_dir=tmp_path).test_client().get("/plots/new")
 
     assert response.status_code == 200
     assert b"name: Legacy grating" in response.data
@@ -2181,7 +2181,7 @@ def test_flask_app_plots_selected_orders_across_runs(
     assert b"Run A" in runs
     assert b"Run B" in runs
 
-    plot_index = client.get("/plots")
+    plot_index = client.get("/plots/new")
     assert plot_index.status_code == 200
     assert b"orders_" in plot_index.data
 

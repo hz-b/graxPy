@@ -67,6 +67,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "reticolo/tests"]
 pythonpath = ["src"]
+markers = [
+    "unit: fast, fully-mocked tests with no external dependencies",
+    "smoke: end-to-end tests that exercise example scripts or compare against external references (Octave/RETICOLO)",
+]
 
 [tool.ruff]
 line-length = 100

@@ -18,7 +18,7 @@ from grax.stacks import (
 )
 from tests.optical_constants import load_optical_constants_table
 
-OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "examples" / "optical_constants"
+OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[2] / "examples" / "optical_constants"
 SI = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Si_cxro.txt", "Si")
 PT = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Pt_cxro.txt", "Pt")
 C = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_C_cxro.txt", "C")
