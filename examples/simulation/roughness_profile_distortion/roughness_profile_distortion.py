@@ -25,7 +25,7 @@ import numpy as np  # noqa: E402
 import grax  # noqa: E402
 from grax.stacks import LayerSpec, assemble_custom_stack  # noqa: E402
 
-ROUGHNESS_SIGMA_NM = 100.0
+ROUGHNESS_SIGMA_NM = 10.0
 OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 
 
