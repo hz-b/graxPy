@@ -10,8 +10,8 @@ from grax import AFMGrating, AFMPreprocessing, BatchSimulationRunner, run_simula
 from grax.gratings import ProfileGrating
 from tests.optical_constants import load_optical_constants_table
 
-OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "examples" / "optical_constants"
-EXAMPLES_GRATING_DIR = Path(__file__).resolve().parents[1] / "examples" / "grating"
+OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[2] / "examples" / "optical_constants"
+EXAMPLES_GRATING_DIR = Path(__file__).resolve().parents[2] / "examples" / "grating"
 SI = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Si_cxro.txt", "Si")
 PT = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Pt_cxro.txt", "Pt")
 
@@ -341,8 +341,8 @@ def test_afm_preprocessing_respects_custom_results_folder(tmp_path: Path) -> Non
 
 
 def test_afm_tutorial_references_both_example_workflows_and_image_sets() -> None:
-    tutorial_path = Path(__file__).resolve().parents[1] / "docs" / "tutorials" / "gratings" / "afm-preprocessing-profile.md"
-    build_docs_path = Path(__file__).resolve().parents[1] / "tools" / "build_docs.sh"
+    tutorial_path = Path(__file__).resolve().parents[2] / "docs" / "tutorials" / "gratings" / "afm-preprocessing-profile.md"
+    build_docs_path = Path(__file__).resolve().parents[2] / "tools" / "build_docs.sh"
 
     tutorial = tutorial_path.read_text(encoding="utf-8")
     build_docs = build_docs_path.read_text(encoding="utf-8")

@@ -540,7 +540,7 @@ def test_resolve_optimizer_backend_numba_first_and_numpy_warning(monkeypatch: py
 
 
 def test_example_configs_split_optimizer_and_simulation_backends() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     blazed_config = runpy.run_path(
         str(repo_root / "examples" / "optimizer" / "optimizer_blazed" / "example_config.py")
     )

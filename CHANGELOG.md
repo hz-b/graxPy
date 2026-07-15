@@ -1,6 +1,15 @@
 # Changelog
 
+## 0.4.7 - 2026-07-15
+- Added a grating-level `"random-interface"` roughness kind to `grax.RoughnessSpec` as an alternative to solver-level Debye-Waller roughness, applying independent stochastic offsets per multilayer interface instead of a single analytic damping factor.
+- Updated the fixed-angle roughness example, comparison script, and tutorial docs to cover both roughness kinds, including new per-sigma grating close-up previews and refreshed comparison artifacts.
+- Fixed a `TypeError` in the Octave slag parity test from a stale `LaminarGrating(base_dir=...)` argument, three web-app tests left pointing at `/plots` after the plot-list/plot-form route split, and an optimizer bug that dropped the resolved worker count on the trial failure-penalty path.
+- Removed an orphaned test referencing a non-existent `examples/reference_baselines/` example.
+- Reorganized `tests/` and `reticolo/tests/` into `unit/` (fast, mocked) and `smoke/` (example scripts, Octave/RETICOLO parity) subdirectories, with shared test builders moved into `tests/simulation_helpers.py`.
+- Added GitHub Actions CI (`.github/workflows/tests.yml`) running the unit and smoke suites on every push/PR, plus `TESTING.md` and `tests/README.md` documenting how to run tests locally.
+
 ## 0.4.6 - 2026-07-14
+- Added `grax.RoughnessSpec` for construction-time roughness selection, including solver-level Debye-Waller roughness and grating-level stochastic interface roughness.
 - Added trial-level optimizer multiprocessing through `BatchSimulationRunner`, so measurement-fit optimizer evaluations can use the existing batch `max_workers` worker pool.
 - Added optimizer config/runtime metadata for requested and resolved worker counts, plus validation that prevents combining per-trial multiprocessing with Ax candidate batching.
 - Added a maintained fixed-angle roughness simulation example with live plotting, multiprocessing, first-order comparison output, and tutorial/docs integration including synced tutorial images.

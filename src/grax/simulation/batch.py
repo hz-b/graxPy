@@ -803,6 +803,7 @@ class BatchSimulationRunner:
         completed_ids: set[str] = set()
         checkpoint_handle = None
         completed_since_flush = 0
+        progress = None
         if self.checkpoint_dir is not None:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             self._write_metadata(metadata or {})
@@ -814,7 +815,6 @@ class BatchSimulationRunner:
         try:
             pending_cases = self._prepare_pending_cases(iterable, completed_ids)
             effective_total_cases = len(completed_ids) + len(pending_cases) if self.resume else len(pending_cases)
-            progress = None
             if self.show_progress:
                 progress = _simulation_api().tqdm(total=effective_total_cases, desc="RCWA batch", unit="case")
                 if self.resume and completed_ids:
@@ -861,6 +861,8 @@ class BatchSimulationRunner:
                 checkpoint_handle.close()
             if progress is not None:
                 progress.close()
+            if self.live_plot:
+                self.close_live_plot()
 
     def _settings(self) -> dict[str, object]:
         """Return runner settings used to prepare each case payload.
@@ -1315,6 +1317,16 @@ class BatchSimulationRunner:
         if hasattr(case, self.live_plot_x_key):
             return float(getattr(case, self.live_plot_x_key))
         raise KeyError(f"Unable to extract live-plot x axis from key '{self.live_plot_x_key}'.")
+
+    def close_live_plot(self) -> None:
+        """Close and reset the live plot figure, if one exists."""
+
+        if self._live_figure is not None and plt.fignum_exists(self._live_figure.number):
+            plt.close(self._live_figure)
+        self._live_figure = None
+        self._live_axis = None
+        self._live_x_values = []
+        self._live_y_values = {order: [] for order in range(1, self.live_plot_order_count + 1)}
 
     def _update_live_plot(self, case: CaseExecutionResult) -> None:
         """Update the live plot incrementally from one successful result.

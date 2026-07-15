@@ -7,11 +7,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import hashlib
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from .materials import material_label, resolve_refractive_index, validate_material_input
+from .roughness import RoughnessSpec
 from .stacks import BaseStack, MultilayerStack, SingleLayerStack
 
 
@@ -29,6 +31,7 @@ class BaseGrating(ABC):
         top_cap_thickness_nm: Top cap thickness in nanometers.
         z_resolution_nm: Vertical resolution for profile discretization.
         x_resolution_nm: Horizontal resolution for profile discretization.
+        roughness: Optional roughness model selected at grating construction time.
     """
 
     period_lpermm: int = 400
@@ -40,6 +43,7 @@ class BaseGrating(ABC):
     top_cap_thickness_nm: float = 0.0
     z_resolution_nm: float = 0.1
     x_resolution_nm: float = 1.0
+    roughness: RoughnessSpec | None = None
 
     @property
     def period_nm(self) -> float:
@@ -258,6 +262,7 @@ class BaseGrating(ABC):
         if _memory_mode not in {"legacy_dense", "low_memory"}:
             raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
         self._validate_simulation_materials()
+        self._warn_if_roughness_underresolved()
 
         if _memory_mode == "low_memory":
             return self._build_textures_low_memory(
@@ -345,7 +350,9 @@ class BaseGrating(ABC):
         texture_registry: dict[tuple[object, ...], int] = {}
         textures: list[object] = []
         prepared_multilayer = None
-        if isinstance(coating_stack, MultilayerStack):
+        if isinstance(coating_stack, MultilayerStack) and not (
+            self.roughness is not None and self.roughness.kind == "random-interface"
+        ):
             prepared_multilayer = _prepare_multilayer_texture_builder(
                 x_grid=x_grid,
                 surface=surface,
@@ -419,6 +426,7 @@ class BaseGrating(ABC):
 
         row_values = self._refractive_index_row(
             z_value=z_value,
+            x_grid=x_grid,
             surface=surface,
             coating_stack=coating_stack,
             photon_energy_ev=photon_energy_ev,
@@ -451,6 +459,7 @@ class BaseGrating(ABC):
         self,
         *,
         z_value: float,
+        x_grid: np.ndarray,
         surface: np.ndarray,
         coating_stack: BaseStack,
         photon_energy_ev: float,
@@ -466,11 +475,23 @@ class BaseGrating(ABC):
             n_material_b = resolve_refractive_index(coating_stack.material_b, photon_energy_ev)
             bottom_material, top_material = coating_stack.bilayer_materials_bottom_up
             bottom_thickness_nm, _ = coating_stack.bilayer_thicknesses_bottom_up
-            current_top = surface + 1.0 + coating_stack.d_period_nm * coating_stack.n_bilayers
+            stack_base = surface + 1.0
             for bilayer_index in range(coating_stack.n_bilayers):
-                lower_interface = surface + 1.0 + coating_stack.d_period_nm * bilayer_index
-                middle_interface = lower_interface + bottom_thickness_nm
-                upper_interface = lower_interface + coating_stack.d_period_nm
+                lower_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * bilayer_index,
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index,
+                )
+                middle_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * bilayer_index + bottom_thickness_nm,
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index + 1,
+                )
+                upper_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * (bilayer_index + 1),
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index + 2,
+                )
                 lower_mask = (z_value >= lower_interface) & (z_value < middle_interface)
                 upper_mask = (z_value >= middle_interface) & (z_value < upper_interface)
                 if np.any(lower_mask):
@@ -481,9 +502,20 @@ class BaseGrating(ABC):
                     row_values[upper_mask] = (
                         n_material_a if _material_matches(top_material, coating_stack.material_a) else n_material_b
                     )
+            current_top = self._rough_interface(
+                stack_base + coating_stack.d_period_nm * coating_stack.n_bilayers,
+                x_grid=x_grid,
+                interface_index=2 * coating_stack.n_bilayers,
+            )
             if coating_stack.top_cap_material is not None and coating_stack.top_cap_thickness_nm > 0.0:
                 n_top_cap = resolve_refractive_index(coating_stack.top_cap_material, photon_energy_ev)
-                top_cap_upper = current_top + coating_stack.top_cap_thickness_nm
+                top_cap_upper = self._rough_interface(
+                    stack_base
+                    + coating_stack.d_period_nm * coating_stack.n_bilayers
+                    + coating_stack.top_cap_thickness_nm,
+                    x_grid=x_grid,
+                    interface_index=2 * coating_stack.n_bilayers + 1,
+                )
                 top_cap_mask = (z_value >= current_top) & (z_value < top_cap_upper)
                 if np.any(top_cap_mask):
                     row_values[top_cap_mask] = n_top_cap
@@ -493,10 +525,20 @@ class BaseGrating(ABC):
                 row_values[incident_mask] = n_inc
             return row_values
 
-        current_lower = surface.copy()
-        for material_name, layer_thickness_nm in coating_stack.layer_sequence_bottom_up():
+        cumulative_thickness_nm = 0.0
+        current_lower = self._rough_interface(
+            surface + cumulative_thickness_nm,
+            x_grid=x_grid,
+            interface_index=0,
+        )
+        for layer_index, (material_name, layer_thickness_nm) in enumerate(coating_stack.layer_sequence_bottom_up()):
             refractive_index = resolve_refractive_index(material_name, photon_energy_ev)
-            current_upper = current_lower + layer_thickness_nm
+            cumulative_thickness_nm += layer_thickness_nm
+            current_upper = self._rough_interface(
+                surface + cumulative_thickness_nm,
+                x_grid=x_grid,
+                interface_index=layer_index + 1,
+            )
             layer_mask = (z_value >= current_lower) & (z_value < current_upper)
             if np.any(layer_mask):
                 row_values[layer_mask] = refractive_index
@@ -534,6 +576,60 @@ class BaseGrating(ABC):
         positions, heights = self._tiled_profile_points(num_periods=num_periods)
         return np.interp(x_grid, positions, heights)
 
+    def _warn_if_roughness_underresolved(self) -> None:
+        """Warn when enabled roughness is finer than the configured grid."""
+
+        if self.roughness is None or self.roughness.sigma_nm == 0.0:
+            return
+        threshold_nm = self.roughness.sigma_nm / self.roughness.resolution_factor
+        underresolved_axes = []
+        if self.x_resolution_nm >= threshold_nm:
+            underresolved_axes.append(f"x_resolution_nm={self.x_resolution_nm:g}")
+        if self.z_resolution_nm >= threshold_nm:
+            underresolved_axes.append(f"z_resolution_nm={self.z_resolution_nm:g}")
+        if not underresolved_axes:
+            return
+        warnings.warn(
+            "Roughness may be underresolved: "
+            + ", ".join(underresolved_axes)
+            + f" should be smaller than roughness/factor={threshold_nm:g} nm.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    def _roughness_interface_offset(self, x_grid: np.ndarray, interface_index: int) -> np.ndarray:
+        """Return the deterministic roughness offset for one interface."""
+
+        if (
+            self.roughness is None
+            or self.roughness.kind != "random-interface"
+            or self.roughness.sigma_nm == 0.0
+        ):
+            return np.zeros_like(x_grid, dtype=float)
+        rng = np.random.default_rng(int(self.roughness.seed) + int(interface_index))
+        offsets = rng.normal(loc=0.0, scale=1.0, size=x_grid.size)
+        if offsets.size > 1:
+            offsets[-1] = offsets[0]
+        offsets = offsets - float(np.mean(offsets))
+        rms = float(np.sqrt(np.mean(offsets**2)))
+        if rms == 0.0:
+            return np.zeros_like(x_grid, dtype=float)
+        return offsets * (self.roughness.sigma_nm / rms)
+
+    def _rough_interface(
+        self,
+        base_interface_nm: np.ndarray,
+        *,
+        x_grid: np.ndarray,
+        interface_index: int,
+    ) -> np.ndarray:
+        """Return one material interface with optional grating-level roughness."""
+
+        return np.asarray(base_interface_nm, dtype=float) + self._roughness_interface_offset(
+            x_grid,
+            interface_index,
+        )
+
     def _build_material_code_grid(
         self,
         *,
@@ -554,21 +650,44 @@ class BaseGrating(ABC):
         if isinstance(coating_stack, MultilayerStack):
             bottom_material, top_material = coating_stack.bilayer_materials_bottom_up
             bottom_thickness_nm, top_thickness_nm = coating_stack.bilayer_thicknesses_bottom_up
+            stack_base = surface + 1.0
             for bilayer_index in range(coating_stack.n_bilayers):
-                lower_interface = surface + 1.0 + coating_stack.d_period_nm * bilayer_index
-                middle_interface = lower_interface + bottom_thickness_nm
-                upper_interface = lower_interface + coating_stack.d_period_nm
+                lower_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * bilayer_index,
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index,
+                )
+                middle_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * bilayer_index + bottom_thickness_nm,
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index + 1,
+                )
+                upper_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * (bilayer_index + 1),
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index + 2,
+                )
                 lower_mask = (z_mesh >= lower_interface[None, :]) & (z_mesh < middle_interface[None, :])
                 upper_mask = (z_mesh >= middle_interface[None, :]) & (z_mesh < upper_interface[None, :])
                 material_map[lower_mask] = material_codes[material_label(bottom_material)]
                 material_map[upper_mask] = material_codes[material_label(top_material)]
 
-            current_top = surface + 1.0 + coating_stack.d_period_nm * coating_stack.n_bilayers
+            current_top = self._rough_interface(
+                stack_base + coating_stack.d_period_nm * coating_stack.n_bilayers,
+                x_grid=x_grid,
+                interface_index=2 * coating_stack.n_bilayers,
+            )
             if (
                 coating_stack.top_cap_material is not None
                 and coating_stack.top_cap_thickness_nm > 0.0
             ):
-                top_cap_upper = current_top + coating_stack.top_cap_thickness_nm
+                top_cap_upper = self._rough_interface(
+                    stack_base
+                    + coating_stack.d_period_nm * coating_stack.n_bilayers
+                    + coating_stack.top_cap_thickness_nm,
+                    x_grid=x_grid,
+                    interface_index=2 * coating_stack.n_bilayers + 1,
+                )
                 top_cap_mask = (z_mesh >= current_top[None, :]) & (z_mesh < top_cap_upper[None, :])
                 material_map[top_cap_mask] = material_codes[
                     material_label(coating_stack.top_cap_material)
@@ -581,9 +700,19 @@ class BaseGrating(ABC):
                 material_map[z_mesh >= current_top[None, :]] = -1
             return material_map
 
-        current_lower = surface
-        for material_name, layer_thickness_nm in coating_stack.layer_sequence_bottom_up():
-            current_upper = current_lower + layer_thickness_nm
+        cumulative_thickness_nm = 0.0
+        current_lower = self._rough_interface(
+            surface + cumulative_thickness_nm,
+            x_grid=x_grid,
+            interface_index=0,
+        )
+        for layer_index, (material_name, layer_thickness_nm) in enumerate(coating_stack.layer_sequence_bottom_up()):
+            cumulative_thickness_nm += layer_thickness_nm
+            current_upper = self._rough_interface(
+                surface + cumulative_thickness_nm,
+                x_grid=x_grid,
+                interface_index=layer_index + 1,
+            )
             layer_mask = (z_mesh >= current_lower[None, :]) & (z_mesh < current_upper[None, :])
             material_map[layer_mask] = material_codes[material_label(material_name)]
             current_lower = current_upper
@@ -657,10 +786,23 @@ class BaseGrating(ABC):
             ]
             bottom_material, top_material = coating_stack.bilayer_materials_bottom_up
             bottom_thickness_nm, _ = coating_stack.bilayer_thicknesses_bottom_up
+            stack_base = surface + 1.0
             for bilayer_index in range(coating_stack.n_bilayers):
-                lower_interface = surface + 1.0 + coating_stack.d_period_nm * bilayer_index
-                middle_interface = lower_interface + bottom_thickness_nm
-                upper_interface = lower_interface + coating_stack.d_period_nm
+                lower_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * bilayer_index,
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index,
+                )
+                middle_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * bilayer_index + bottom_thickness_nm,
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index + 1,
+                )
+                upper_interface = self._rough_interface(
+                    stack_base + coating_stack.d_period_nm * (bilayer_index + 1),
+                    x_grid=x_grid,
+                    interface_index=2 * bilayer_index + 2,
+                )
                 lower_mask = (z_mesh >= lower_interface[None, :]) & (z_mesh < middle_interface[None, :])
                 upper_mask = (z_mesh >= middle_interface[None, :]) & (z_mesh < upper_interface[None, :])
                 index_grid[lower_mask] = _index_for_material(
@@ -672,7 +814,11 @@ class BaseGrating(ABC):
                     refractive_index_by_material,
                 )
 
-            current_top = surface + 1.0 + coating_stack.d_period_nm * coating_stack.n_bilayers
+            current_top = self._rough_interface(
+                stack_base + coating_stack.d_period_nm * coating_stack.n_bilayers,
+                x_grid=x_grid,
+                interface_index=2 * coating_stack.n_bilayers,
+            )
             if (
                 coating_stack.top_cap_material is not None
                 and coating_stack.top_cap_thickness_nm > 0.0
@@ -681,7 +827,13 @@ class BaseGrating(ABC):
                     coating_stack.top_cap_material,
                     photon_energy_ev,
                 )
-                top_cap_upper = current_top + coating_stack.top_cap_thickness_nm
+                top_cap_upper = self._rough_interface(
+                    stack_base
+                    + coating_stack.d_period_nm * coating_stack.n_bilayers
+                    + coating_stack.top_cap_thickness_nm,
+                    x_grid=x_grid,
+                    interface_index=2 * coating_stack.n_bilayers + 1,
+                )
                 top_cap_mask = (z_mesh >= current_top[None, :]) & (z_mesh < top_cap_upper[None, :])
                 index_grid[top_cap_mask] = n_top_cap
                 current_top = top_cap_upper
@@ -689,13 +841,23 @@ class BaseGrating(ABC):
             index_grid[z_mesh >= current_top[None, :]] = n_inc
             return index_grid
 
-        current_lower = surface
-        for material_name, layer_thickness_nm in coating_stack.layer_sequence_bottom_up():
+        cumulative_thickness_nm = 0.0
+        current_lower = self._rough_interface(
+            surface + cumulative_thickness_nm,
+            x_grid=x_grid,
+            interface_index=0,
+        )
+        for layer_index, (material_name, layer_thickness_nm) in enumerate(coating_stack.layer_sequence_bottom_up()):
             refractive_index = resolve_refractive_index(
                 material_name,
                 photon_energy_ev,
             )
-            current_upper = current_lower + layer_thickness_nm
+            cumulative_thickness_nm += layer_thickness_nm
+            current_upper = self._rough_interface(
+                surface + cumulative_thickness_nm,
+                x_grid=x_grid,
+                interface_index=layer_index + 1,
+            )
             layer_mask = (z_mesh >= current_lower[None, :]) & (z_mesh < current_upper[None, :])
             index_grid[layer_mask] = refractive_index
             current_lower = current_upper
