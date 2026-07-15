@@ -576,12 +576,32 @@ class BaseGrating(ABC):
         positions, heights = self._tiled_profile_points(num_periods=num_periods)
         return np.interp(x_grid, positions, heights)
 
+    def _interface_sigmas(self) -> list[float]:
+        """Return the per-interface roughness sigmas for the resolved stack.
+
+        Interface 0 is the substrate boundary; interface ``j + 1`` is the top of
+        layer ``j``. Layers without an explicit sigma fall back to the
+        grating-level ``roughness.sigma_nm``. The result is cached because it is
+        consulted once per interface per solver row.
+        """
+
+        cached = self.__dict__.get("_interface_sigmas_cache")
+        if cached is not None:
+            return cached
+        default = float(self.roughness.sigma_nm) if self.roughness is not None else 0.0
+        sigmas = self.resolved_stack().interface_roughness_sigmas_bottom_up(default)
+        self.__dict__["_interface_sigmas_cache"] = sigmas
+        return sigmas
+
     def _warn_if_roughness_underresolved(self) -> None:
         """Warn when enabled roughness is finer than the configured grid."""
 
-        if self.roughness is None or self.roughness.sigma_nm == 0.0:
+        if self.roughness is None:
             return
-        threshold_nm = self.roughness.sigma_nm / self.roughness.resolution_factor
+        max_sigma_nm = max(self._interface_sigmas(), default=0.0)
+        if max_sigma_nm == 0.0:
+            return
+        threshold_nm = max_sigma_nm / self.roughness.resolution_factor
         underresolved_axes = []
         if self.x_resolution_nm >= threshold_nm:
             underresolved_axes.append(f"x_resolution_nm={self.x_resolution_nm:g}")
@@ -600,11 +620,15 @@ class BaseGrating(ABC):
     def _roughness_interface_offset(self, x_grid: np.ndarray, interface_index: int) -> np.ndarray:
         """Return the deterministic roughness offset for one interface."""
 
-        if (
-            self.roughness is None
-            or self.roughness.kind != "random-interface"
-            or self.roughness.sigma_nm == 0.0
-        ):
+        if self.roughness is None or self.roughness.kind != "random-interface":
+            return np.zeros_like(x_grid, dtype=float)
+        sigmas = self._interface_sigmas()
+        sigma_nm = (
+            sigmas[interface_index]
+            if 0 <= interface_index < len(sigmas)
+            else float(self.roughness.sigma_nm)
+        )
+        if sigma_nm == 0.0:
             return np.zeros_like(x_grid, dtype=float)
         rng = np.random.default_rng(int(self.roughness.seed) + int(interface_index))
         offsets = rng.normal(loc=0.0, scale=1.0, size=x_grid.size)
@@ -614,7 +638,7 @@ class BaseGrating(ABC):
         rms = float(np.sqrt(np.mean(offsets**2)))
         if rms == 0.0:
             return np.zeros_like(x_grid, dtype=float)
-        return offsets * (self.roughness.sigma_nm / rms)
+        return offsets * (sigma_nm / rms)
 
     def _rough_interface(
         self,

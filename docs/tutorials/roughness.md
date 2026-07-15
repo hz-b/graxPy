@@ -57,6 +57,44 @@ applied for this mode:
 roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=0)
 ```
 
+## Per-layer roughness
+
+Both roughness models can be configured **per layer** instead of using a single
+grating-wide sigma. The value attached to a layer is the roughness of that
+layer's *top* interface; the substrate boundary and any layer without an
+explicit value fall back to the grating-level `RoughnessSpec.sigma_nm`. The
+`kind`, `seed`, and `resolution_factor` stay grating-global.
+
+For a `CustomStack`, set `roughness_sigma_nm` on each `LayerSpec`:
+
+```python
+from grax.stacks import LayerSpec, assemble_custom_stack
+
+stack = assemble_custom_stack(
+    substrate_material="Si",
+    layers_bottom_up=[
+        LayerSpec(material="Cr", thickness_nm=2.0, roughness_sigma_nm=0.5),
+        LayerSpec(material="C", thickness_nm=3.0, roughness_sigma_nm=1.0),
+    ],
+)
+grating = grax.LaminarGrating(
+    substrate_material="Si",
+    coating_stack=stack,
+    roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.0, seed=0),
+)
+```
+
+The built-in stacks expose equivalent per-layer arguments:
+`SingleLayerStack` accepts `layer_roughness_sigma_nm` /
+`top_cap_roughness_sigma_nm`, and `MultilayerStack` accepts
+`material_a_roughness_sigma_nm`, `material_b_roughness_sigma_nm`, and
+`top_cap_roughness_sigma_nm`.
+
+For `random-interface`, each interface is perturbed by its own sigma. For
+`debye-waller`, uncorrelated interfaces add in quadrature, so the per-layer
+sigmas reduce to an effective scalar
+`sigma_eff = sqrt(sum(sigma_i**2))` before damping is applied.
+
 The example plot below compares the no-roughness baseline with both roughness
 implementations at the configured sigma values.
 

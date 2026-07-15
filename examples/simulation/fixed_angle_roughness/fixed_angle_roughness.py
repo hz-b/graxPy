@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import grax
+from grax.stacks import LayerSpec, assemble_custom_stack
 
 matplotlib.use("TkAgg")
 
@@ -17,6 +18,10 @@ ROUGHNESS_LEVELS_NM = [0.0, 0.5, 1.0, 2.0]
 ROUGHNESS_KINDS = ["debye-waller", "random-interface"]
 MAX_WORKERS = "auto"
 BASELINE_KIND = "baseline"
+
+# Coating layers above the substrate, bottom-up. Each layer is assigned the same
+# per-layer roughness so the example exercises the per-layer roughness system.
+COATING_LAYERS_NM = [("Pt", 28.77)]
 
 
 def _roughness_slug(roughness_sigma_nm: float) -> str:
@@ -53,12 +58,27 @@ def _grating_plot_path(roughness_kind: str, roughness_sigma_nm: float) -> Path:
 
 
 def _build_grating(roughness_kind: str, roughness_sigma_nm: float) -> grax.LaminarGrating:
-    """Build the example grating with the selected roughness model."""
+    """Build the example grating with the selected per-layer roughness model."""
+    # Assign the same roughness to every coating layer through the per-layer
+    # roughness system. The grating-level ``RoughnessSpec`` only carries the kind
+    # (and seed); its ``sigma_nm`` stays 0.0 so the per-layer values drive the
+    # roughness applied at each layer's top interface.
+    stack = assemble_custom_stack(
+        substrate_material="Si",
+        layers_bottom_up=[
+            LayerSpec(
+                material=material,
+                thickness_nm=thickness_nm,
+                roughness_sigma_nm=roughness_sigma_nm,
+            )
+            for material, thickness_nm in COATING_LAYERS_NM
+        ],
+    )
     roughness = None
     if roughness_sigma_nm > 0.0:
         roughness = grax.RoughnessSpec(
             kind=roughness_kind,
-            sigma_nm=roughness_sigma_nm,
+            sigma_nm=0.0,
             seed=0,
         )
     return grax.LaminarGrating(
@@ -68,8 +88,7 @@ def _build_grating(roughness_kind: str, roughness_sigma_nm: float) -> grax.Lamin
         left_wall_angle_deg=15.0,
         right_wall_angle_deg=15.0,
         substrate_material="Si",
-        layer_material="Pt",
-        layer_thickness_nm=28.77,
+        coating_stack=stack,
         x_resolution_nm=0.1,
         z_resolution_nm=0.1,
         roughness=roughness,

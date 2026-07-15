@@ -112,6 +112,59 @@ def test_grating_roughness_offsets_are_deterministic_and_interface_specific() ->
     )
 
 
+def test_per_layer_roughness_uses_layer_specific_sigma() -> None:
+    stack = assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=[
+            LayerSpec(material=CR, thickness_nm=2.0, roughness_sigma_nm=0.0),
+            LayerSpec(material=C, thickness_nm=3.0, roughness_sigma_nm=1.5),
+        ],
+    )
+    grating = LaminarGrating(
+        substrate_material=SI,
+        coating_stack=stack,
+        x_resolution_nm=10.0,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=4),
+    )
+    x_grid = grating._build_x_grid(num_periods=1)
+    base_surface = grating._surface_profile_on_grid(x_grid, num_periods=1)
+
+    # Interface 0 is the substrate boundary and falls back to the default sigma.
+    substrate_interface = grating._rough_interface(base_surface, x_grid=x_grid, interface_index=0)
+    # Interface 1 is the top of layer 0 (sigma == 0) -> no perturbation.
+    cr_top = grating._rough_interface(base_surface, x_grid=x_grid, interface_index=1)
+    # Interface 2 is the top of layer 1 (sigma == 1.5) -> perturbed.
+    c_top = grating._rough_interface(base_surface, x_grid=x_grid, interface_index=2)
+
+    assert not np.allclose(substrate_interface, base_surface)
+    assert np.allclose(cr_top, base_surface)
+    assert not np.allclose(c_top, base_surface)
+
+    default_rms = float(np.sqrt(np.mean((substrate_interface - base_surface) ** 2)))
+    c_rms = float(np.sqrt(np.mean((c_top - base_surface) ** 2)))
+    assert c_rms == pytest.approx(1.5, rel=1e-6)
+    assert default_rms == pytest.approx(0.5, rel=1e-6)
+
+
+def test_roughness_resolution_warning_uses_max_per_layer_sigma() -> None:
+    stack = assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=[
+            LayerSpec(material=CR, thickness_nm=2.0, roughness_sigma_nm=2.0),
+        ],
+    )
+    grating = LaminarGrating(
+        substrate_material=SI,
+        coating_stack=stack,
+        x_resolution_nm=0.5,
+        z_resolution_nm=0.1,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.0, resolution_factor=4.0),
+    )
+
+    with pytest.warns(UserWarning, match="roughness/factor=0.5"):
+        grating._warn_if_roughness_underresolved()
+
+
 def test_laminar_grating_can_save_profile_plot(tmp_path: Path) -> None:
     grating = LaminarGrating(
         substrate_material=SI,

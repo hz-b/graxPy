@@ -195,7 +195,18 @@ def run_simulation(
         raise ValueError("Pass roughness either on the grating or as roughness_sigma_nm, not both.")
     effective_roughness_sigma_nm = roughness_sigma_nm
     if grating.roughness is not None and grating.roughness.kind == "debye-waller":
-        effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
+        stack = grating.resolved_stack()
+        if stack.has_per_layer_roughness():
+            # Uncorrelated interface roughness adds in quadrature, reducing the
+            # per-layer Debye-Waller damping to a single effective sigma.
+            interface_sigmas = stack.interface_roughness_sigmas_bottom_up(
+                float(grating.roughness.sigma_nm)
+            )
+            effective_roughness_sigma_nm = float(
+                np.sqrt(sum(sigma * sigma for sigma in interface_sigmas))
+            )
+        else:
+            effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
     if polarization not in {"s", "p"}:
         raise ValueError("polarization must be 's' or 'p'.")
     if _memory_mode not in {"legacy_dense", "low_memory"}:

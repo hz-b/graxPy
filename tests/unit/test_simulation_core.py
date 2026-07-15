@@ -43,6 +43,8 @@ from grax.simulation import (
 from grax.simulation import batch as simulation_batch_module
 from grax.simulation import core as simulation_core_module
 from tests.simulation_helpers import (
+    C,
+    CR,
     PT,
     SI,
     build_blazed_multilayer_angle_parity_grating,
@@ -119,6 +121,48 @@ def test_debye_waller_roughness_diagnostics_does_not_modify_efficiencies() -> No
 def test_res2_rejects_negative_roughness() -> None:
     with pytest.raises(ValueError, match="roughness_sigma_nm must be >= 0"):
         res2(None, ([], []), roughness_sigma_nm=-0.1)
+
+
+def test_per_layer_debye_waller_combines_sigmas_in_quadrature() -> None:
+    from grax.stacks import LayerSpec, assemble_custom_stack
+
+    stack = assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=[
+            LayerSpec(material=CR, thickness_nm=2.0, roughness_sigma_nm=0.3),
+            LayerSpec(material=C, thickness_nm=3.0, roughness_sigma_nm=0.4),
+        ],
+    )
+    grating = LaminarGrating(
+        substrate_material=SI,
+        coating_stack=stack,
+        roughness=RoughnessSpec(kind="debye-waller", sigma_nm=0.0),
+    )
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    # interfaces: [substrate=0.0, top-of-Cr=0.3, top-of-C=0.4] -> quadrature.
+    expected = float(np.sqrt(0.0**2 + 0.3**2 + 0.4**2))
+    assert result.roughness_sigma_nm == pytest.approx(expected)
+
+
+def test_debye_waller_without_per_layer_overrides_keeps_single_sigma() -> None:
+    grating = build_test_grating()
+    grating.roughness = RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert result.roughness_sigma_nm == pytest.approx(0.5)
 
 
 def test_rcwa_simulation_runs_for_multiple_energies() -> None:
