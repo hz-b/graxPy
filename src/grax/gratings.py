@@ -16,6 +16,11 @@ from .materials import material_label, resolve_refractive_index, validate_materi
 from .roughness import RoughnessSpec
 from .stacks import BaseStack, MultilayerStack, SingleLayerStack
 
+# Default lateral autocorrelation length for random-interface roughness, as a
+# fraction of the grating period, used when RoughnessSpec.correlation_length_nm
+# is unset. period/10 keeps visible per-period structure at any pitch.
+_DEFAULT_CORRELATION_PERIOD_FRACTION = 0.1
+
 
 @dataclass
 class BaseGrating(ABC):
@@ -617,8 +622,27 @@ class BaseGrating(ABC):
             stacklevel=3,
         )
 
+    def _roughness_correlation_length_nm(self) -> float:
+        """Return the resolved lateral autocorrelation length in nanometers.
+
+        Falls back to ``period / 10`` when ``correlation_length_nm`` is unset so
+        the roughness always keeps visible per-period structure.
+        """
+
+        if self.roughness is None:
+            return 0.0
+        if self.roughness.correlation_length_nm is None:
+            return self.period_nm * _DEFAULT_CORRELATION_PERIOD_FRACTION
+        return float(self.roughness.correlation_length_nm)
+
     def _roughness_interface_offset(self, x_grid: np.ndarray, interface_index: int) -> np.ndarray:
-        """Return the deterministic roughness offset for one interface."""
+        """Return the deterministic roughness offset for one interface.
+
+        The offset is a periodic Gaussian random field with a Gaussian
+        autocorrelation of length ``correlation_length_nm`` (see
+        :class:`~grax.roughness.RoughnessSpec`). A correlation length of ``0``
+        reproduces the legacy uncorrelated (white-noise) interface.
+        """
 
         if self.roughness is None or self.roughness.kind != "random-interface":
             return np.zeros_like(x_grid, dtype=float)
@@ -631,14 +655,47 @@ class BaseGrating(ABC):
         if sigma_nm == 0.0:
             return np.zeros_like(x_grid, dtype=float)
         rng = np.random.default_rng(int(self.roughness.seed) + int(interface_index))
-        offsets = rng.normal(loc=0.0, scale=1.0, size=x_grid.size)
-        if offsets.size > 1:
-            offsets[-1] = offsets[0]
+        correlation_length_nm = self._roughness_correlation_length_nm()
+        offsets = self._roughness_random_field(x_grid, rng, correlation_length_nm)
         offsets = offsets - float(np.mean(offsets))
         rms = float(np.sqrt(np.mean(offsets**2)))
         if rms == 0.0:
             return np.zeros_like(x_grid, dtype=float)
         return offsets * (sigma_nm / rms)
+
+    def _roughness_random_field(
+        self,
+        x_grid: np.ndarray,
+        rng: np.random.Generator,
+        correlation_length_nm: float,
+    ) -> np.ndarray:
+        """Return a zero-mean periodic random field on one grating period.
+
+        When ``correlation_length_nm > 0`` the field is synthesised from a
+        Gaussian power spectrum (Gaussian autocorrelation). When it is ``0`` an
+        uncorrelated white-noise field is returned. The last sample duplicates
+        the first so the field is periodic over the grating period.
+        """
+
+        num_samples = x_grid.size
+        if correlation_length_nm <= 0.0 or num_samples < 3:
+            offsets = rng.normal(loc=0.0, scale=1.0, size=num_samples)
+            if offsets.size > 1:
+                offsets[-1] = offsets[0]
+            return offsets
+
+        # x_grid[-1] duplicates x_grid[0] of the next period, so synthesise on the
+        # N unique samples and append the first to restore periodicity.
+        n_unique = num_samples - 1
+        dx_nm = self.period_nm / n_unique
+        k = 2.0 * np.pi * np.fft.rfftfreq(n_unique, d=dx_nm)
+        amplitude = np.exp(-0.25 * (k * correlation_length_nm) ** 2)
+        spectrum = (
+            rng.normal(size=k.size) + 1j * rng.normal(size=k.size)
+        ) * amplitude
+        spectrum[0] = 0.0  # zero mean
+        field = np.fft.irfft(spectrum, n=n_unique)
+        return np.concatenate([field, field[:1]])
 
     def _rough_interface(
         self,

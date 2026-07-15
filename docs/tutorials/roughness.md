@@ -57,6 +57,32 @@ applied for this mode:
 roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=0)
 ```
 
+### Correlation length
+
+The random interface is a **Gaussian random field with a Gaussian
+autocorrelation**, `C(τ) = σ²·exp(−τ²/2ξ²)`, rather than uncorrelated white
+noise. The lateral autocorrelation length `ξ` is set by `correlation_length_nm`:
+
+```python
+roughness=grax.RoughnessSpec(
+    kind="random-interface", sigma_nm=0.5, seed=0, correlation_length_nm=250.0
+)
+```
+
+- **`None` (default)** — the correlation length defaults to one tenth of the
+  grating period, which keeps a visible, physical per-period undulation at any
+  pitch.
+- **`0.0`** — reproduces the legacy uncorrelated (per-sample white-noise)
+  interface.
+- **`> 0`** — an explicit correlation length in nanometers.
+
+Real metrology (e.g. an interferometer surface slice after Zernike removal)
+shows correlation lengths of order **~10 µm**. On fine-pitch gratings (period
+≈ 2.5 µm) such long correlations wash out geometrically — a roughness whose
+correlation length exceeds the grating period reduces to a near-constant height
+offset in single-period RCWA — so that long-scale regime is better represented
+by the `debye-waller` kind.
+
 ## Per-layer roughness
 
 Both roughness models can be configured **per layer** instead of using a single

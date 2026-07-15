@@ -60,6 +60,10 @@ def test_roughness_spec_validates_inputs() -> None:
         RoughnessSpec(kind="debye-waller", sigma_nm=-0.1)
     with pytest.raises(ValueError, match="resolution_factor"):
         RoughnessSpec(kind="random-interface", sigma_nm=0.5, resolution_factor=0.0)
+    with pytest.raises(ValueError, match="correlation_length_nm"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, correlation_length_nm=-1.0)
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, correlation_length_nm=None).correlation_length_nm is None
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, correlation_length_nm=0.0).correlation_length_nm == 0.0
 
 
 def test_laminar_grating_stores_roughness_spec() -> None:
@@ -110,6 +114,61 @@ def test_grating_roughness_offsets_are_deterministic_and_interface_specific() ->
     assert rough_surface_a[0] - base_surface[0] == pytest.approx(
         rough_surface_a[-1] - base_surface[-1]
     )
+
+
+def _roughness_offset(grating: LaminarGrating, interface_index: int = 1) -> np.ndarray:
+    x_grid = grating._build_x_grid(num_periods=1)
+    return grating._roughness_interface_offset(x_grid, interface_index)
+
+
+def _build_random_interface_grating(**roughness_kwargs) -> LaminarGrating:
+    return LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=1.0, seed=7, **roughness_kwargs),
+    )
+
+
+def test_correlated_roughness_is_smoother_than_white_noise() -> None:
+    white = _roughness_offset(_build_random_interface_grating(correlation_length_nm=0.0))
+    correlated = _roughness_offset(_build_random_interface_grating(correlation_length_nm=250.0))
+
+    # Both are normalized to the same rms, but the correlated field varies far
+    # more slowly between adjacent samples.
+    white_step = float(np.mean(np.diff(white) ** 2))
+    correlated_step = float(np.mean(np.diff(correlated) ** 2))
+    assert correlated_step < 0.05 * white_step
+    assert float(np.sqrt(np.mean(correlated**2))) == pytest.approx(1.0, rel=1e-6)
+
+
+def test_correlation_length_defaults_to_one_tenth_of_period() -> None:
+    fine = _build_random_interface_grating()  # correlation_length_nm=None
+    coarse = LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        period_lpermm=200,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=1.0, seed=7),
+    )
+
+    assert fine._roughness_correlation_length_nm() == pytest.approx(fine.period_nm / 10.0)
+    assert coarse._roughness_correlation_length_nm() == pytest.approx(coarse.period_nm / 10.0)
+    # A larger period yields a longer correlation length -> smoother steps.
+    assert coarse._roughness_correlation_length_nm() > fine._roughness_correlation_length_nm()
+
+
+def test_zero_correlation_length_reproduces_white_noise() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=0.0)
+    offset = _roughness_offset(grating)
+
+    # White noise: adjacent samples are uncorrelated, so the lag-1 correlation is
+    # near zero (a correlated field would be close to 1).
+    centered = offset[:-1] - offset[:-1].mean()
+    lag1 = float(np.corrcoef(centered[:-1], centered[1:])[0, 1])
+    assert abs(lag1) < 0.3
 
 
 def test_per_layer_roughness_uses_layer_specific_sigma() -> None:

@@ -12,12 +12,31 @@ RoughnessKind = Literal["debye-waller", "random-interface"]
 
 @dataclass(frozen=True)
 class RoughnessSpec:
-    """Roughness configuration attached to a grating at construction time."""
+    """Roughness configuration attached to a grating at construction time.
+
+    Attributes:
+        kind: Roughness model, ``"debye-waller"`` or ``"random-interface"``.
+        sigma_nm: Rms roughness height in nanometers.
+        seed: Deterministic seed for ``"random-interface"`` field generation.
+        resolution_factor: Grid-resolution safety factor for the underresolved
+            roughness warning.
+        correlation_length_nm: Lateral autocorrelation length of the
+            ``"random-interface"`` roughness, in nanometers. The interface is a
+            Gaussian random field with autocorrelation
+            ``C(tau) = sigma**2 * exp(-tau**2 / (2 * xi**2))``. When ``None`` the
+            correlation length defaults to one tenth of the grating period, which
+            keeps visible per-period structure at any pitch. ``0.0`` reproduces
+            the legacy uncorrelated (white-noise) interface. Real metrology shows
+            correlation lengths of order ~10 um; on fine-pitch gratings such long
+            correlations wash out geometrically and are better modelled by the
+            ``"debye-waller"`` kind.
+    """
 
     kind: RoughnessKind
     sigma_nm: float
     seed: int = 0
     resolution_factor: float = 4.0
+    correlation_length_nm: float | None = None
 
     def __post_init__(self) -> None:
         """Validate roughness configuration."""
@@ -30,6 +49,8 @@ class RoughnessSpec:
             raise ValueError("roughness sigma_nm must be >= 0.")
         if self.resolution_factor <= 0.0:
             raise ValueError("roughness resolution_factor must be > 0.")
+        if self.correlation_length_nm is not None and self.correlation_length_nm < 0.0:
+            raise ValueError("roughness correlation_length_nm must be >= 0 when provided.")
 
 
 def apply_debye_waller_roughness(
