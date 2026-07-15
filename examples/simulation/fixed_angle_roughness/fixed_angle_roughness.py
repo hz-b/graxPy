@@ -174,7 +174,7 @@ def _save_all_grating_closeup_plots(simulation_runs: list[tuple[str, float]]) ->
 output_dir = Path(__file__).resolve().parent / "results"
 output_dir.mkdir(parents=True, exist_ok=True)
 grazing_angle_deg = 4.0
-energies_ev = np.arange(50.0, 650.0, 2.0)
+energies_ev = np.arange(50.0, 650.0, 10.0)
 
 
 def main() -> None:
