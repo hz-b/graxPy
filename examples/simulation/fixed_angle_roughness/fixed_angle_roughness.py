@@ -59,12 +59,15 @@ def _grating_plot_path(roughness_kind: str, roughness_sigma_nm: float) -> Path:
 
 def _build_grating(roughness_kind: str, roughness_sigma_nm: float) -> grax.LaminarGrating:
     """Build the example grating with the selected per-layer roughness model."""
-    # Assign the same roughness to every coating layer through the per-layer
-    # roughness system. The grating-level ``RoughnessSpec`` only carries the kind
-    # (and seed); its ``sigma_nm`` stays 0.0 so the per-layer values drive the
-    # roughness applied at each layer's top interface.
+    # Assign the same roughness to the substrate boundary and to every coating
+    # layer through the per-layer roughness system. The grating-level
+    # ``RoughnessSpec`` only carries the kind (and seed); its ``sigma_nm`` stays
+    # 0.0 so the per-interface values drive the roughness. ``substrate_roughness_sigma_nm``
+    # roughens interface 0 (the substrate/coating boundary), which otherwise
+    # falls back to the default and stays flat.
     stack = assemble_custom_stack(
         substrate_material="Si",
+        substrate_roughness_sigma_nm=roughness_sigma_nm,
         layers_bottom_up=[
             LayerSpec(
                 material=material,
