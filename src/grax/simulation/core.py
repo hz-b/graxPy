@@ -610,7 +610,7 @@ class RCWASimulation:
             )
             for energy in energies
         ]
-        orders = single_results[0].orders if single_results else np.asarray([], dtype=int)
+        orders = single_results[0].orders if single_results else np.asarray([], dtype=float)
         for result in single_results[1:]:
             if not np.array_equal(orders, result.orders):
                 raise ValueError("Diffraction orders changed between energy points.")

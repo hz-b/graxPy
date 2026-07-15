@@ -1253,7 +1253,7 @@ def run_multilayer_theta_search_sweep(
                                 label=None if case.get("label") is None else str(case.get("label")),
                                 energy_ev=energy_ev,
                                 grazing_angle_deg=float("nan"),
-                                orders=np.asarray([], dtype=int),
+                                orders=np.asarray([], dtype=float),
                                 selected_efficiency=float("nan"),
                                 selected_diffraction_angle_deg=float("nan"),
                                 efficiency_all=np.asarray([], dtype=float),
@@ -1430,15 +1430,17 @@ def run_multilayer_theta_search_sweep(
         )
         for case in successful_cases:
             for order, efficiency, angle in zip(
-                np.asarray(case.orders, dtype=int),
+                np.asarray(case.orders, dtype=float),
                 np.asarray(case.efficiency_all, dtype=float),
                 np.asarray(case.diffraction_angle_all, dtype=float),
             ):
+                order_value = float(order)
+                order_cell = int(order_value) if order_value.is_integer() else order_value
                 writer.writerow(
                     [
                         float(case.energy_ev),
                         float(case.grazing_angle_deg),
-                        int(order),
+                        order_cell,
                         float(efficiency),
                         float(angle),
                         int(case.retry_triggered),

@@ -1696,3 +1696,29 @@ def test_case_execution_result_round_trip_preserves_peak_memory_bytes() -> None:
     assert restored.wall_seconds == pytest.approx(9.87)
 
 
+def test_case_execution_result_round_trip_preserves_fractional_orders() -> None:
+    # Supercell roughness produces fractional physical orders; the parallel
+    # batch path serializes results through these records, which previously
+    # truncated orders to int (collapsing e.g. -1.2 and -1.4 onto -1).
+    fractional_orders = np.asarray([-1.4, -1.2, -1.0, -0.8, 0.0, 1.0], dtype=float)
+    case = CaseExecutionResult(
+        case_id="case-1",
+        index=0,
+        label="case",
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        orders=fractional_orders,
+        selected_efficiency=0.1,
+        selected_diffraction_angle_deg=2.0,
+        efficiency_all=np.linspace(0.1, 0.6, fractional_orders.size),
+        diffraction_angle_all=np.linspace(1.0, 6.0, fractional_orders.size),
+        status="ok",
+    )
+
+    record = simulation_module._case_result_to_record(case)
+    restored = simulation_module._case_result_from_record(record)
+
+    assert np.allclose(restored.orders, fractional_orders)
+    assert np.unique(restored.orders).size == fractional_orders.size
+
+
