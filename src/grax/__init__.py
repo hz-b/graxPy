@@ -22,6 +22,7 @@ from .parameter_sweep import (
     run_parameter_study,
 )
 from .rcwa_1d import res0, res1, res2
+from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,
     CustomStack,
@@ -63,21 +64,24 @@ __all__ = [
     "BlazedGrating",
     "CaseExecutionResult",
     "CustomStack",
+    "LayerSpec",
     "MaterialSpec",
-    "available_material_symbols",
-    "material_density_catalog",
-    "material_density_g_cm3",
     "LaminarGrating",
-    "ProfileGrating",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
     "ParameterStudyEnergyResult",
     "ParameterStudyResult",
     "ParameterSweepSeries",
+    "ProfileGrating",
+    "RoughnessSpec",
     "SingleLayerStack",
     "SingleSimulationResult",
-    "ThetaSearchDiagnostics",
     "SlagConfig",
+    "ThetaSearchDiagnostics",
+    "assemble_custom_stack",
+    "available_material_symbols",
+    "build_multilayer_stack",
+    "build_single_layer_stack",
     "default_example_slag_config",
     "efficiency_for_order",
     "energy_angle_cases",
@@ -85,6 +89,8 @@ __all__ = [
     "fixed_angle_cases",
     "get_default_parameter_study_ranges",
     "load_experimental_csv",
+    "material_density_catalog",
+    "material_density_g_cm3",
     "multilayer_theta_search_cases",
     "monochromator_cases",
     "monochromator_grazing_angles_deg",
@@ -149,7 +155,3 @@ def setup_logging(
 
     logging.getLogger("numpy").setLevel(level)
     logging.getLogger("scipy").setLevel(level)
-    "LayerSpec",
-    "assemble_custom_stack",
-    "build_multilayer_stack",
-    "build_single_layer_stack",

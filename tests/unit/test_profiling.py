@@ -21,17 +21,17 @@ from grax.simulation import run_simulation
 from grax.simulation._profiling import SolverProfiler
 from tests.optical_constants import load_optical_constants_table
 
-OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[1] / "validation" / "optical_constants"
+OPTICAL_CONSTANTS_DIR = Path(__file__).resolve().parents[2] / "validation" / "optical_constants"
 SI = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Si_cxro.txt", "Si")
 PT = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Pt_cxro.txt", "Pt")
 PROFILING_TOOL_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "tools"
     / "profiling"
     / "profile_blazed_multilayer_case.py"
 )
 PROFILING_COMPARE_TOOL_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "tools"
     / "profiling"
     / "compare_blazed_multilayer_profiles.py"
@@ -123,7 +123,7 @@ def _build_test_blazed_multilayer_grating() -> object:
     """Return a coarse blazed multilayer grating for exact texture regression tests."""
 
     optical_constants_dir = (
-        Path(__file__).resolve().parents[1]
+        Path(__file__).resolve().parents[2]
         / "validation"
         / "blazed_multilayer"
         / "optical_constants"
@@ -157,7 +157,7 @@ def _build_repeating_blazed_multilayer_grating() -> object:
     """Return a blazed multilayer grating with repeated layer-block signatures."""
 
     optical_constants_dir = (
-        Path(__file__).resolve().parents[1]
+        Path(__file__).resolve().parents[2]
         / "validation"
         / "blazed_multilayer"
         / "optical_constants"

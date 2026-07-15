@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graxpy"
-version = "0.4.6"
+version = "0.4.7"
 description = "X-ray grating simulations"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -67,6 +67,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "reticolo/tests"]
 pythonpath = ["src"]
+markers = [
+    "unit: fast, fully-mocked tests with no external dependencies",
+    "smoke: end-to-end tests that exercise example scripts or compare against external references (Octave/RETICOLO)",
+]
 
 [tool.ruff]
 line-length = 100

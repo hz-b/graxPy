@@ -424,7 +424,7 @@ def test_every_packaged_henke_symbol_has_builtin_density_metadata() -> None:
 
 
 def test_runnable_examples_use_local_optical_constants_directories() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     example_scripts = [
         repo_root / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",
         repo_root / "examples" / "optimizer" / "optimizer_laminar" / "0_fit_laminar_grating.py",
@@ -439,7 +439,7 @@ def test_runnable_examples_use_local_optical_constants_directories() -> None:
 
 
 def test_public_examples_use_henke_strings_instead_of_xrt_material_construction() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
 
     for script_path in (repo_root / "examples").rglob("*.py"):
         if "optimizer" in script_path.parts:
@@ -450,7 +450,7 @@ def test_public_examples_use_henke_strings_instead_of_xrt_material_construction(
 
 
 def test_materials_tutorial_documents_string_and_xrt_material_paths() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     script_path = repo_root / "docs" / "tutorials" / "materials.md"
 
     script = script_path.read_text(encoding="utf-8")
@@ -467,7 +467,7 @@ def test_materials_tutorial_documents_string_and_xrt_material_paths() -> None:
 
 
 def test_custom_stack_example_uses_te_instead_of_coo() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     script_path = repo_root / "examples" / "grating" / "blazed_multilayer_custom_stack.py"
 
     script = script_path.read_text(encoding="utf-8")

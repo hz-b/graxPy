@@ -7,7 +7,7 @@ import importlib
 import inspect
 import logging
 import warnings
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext as _nullcontext
 from copy import copy
 from pathlib import Path
@@ -187,10 +187,15 @@ def run_simulation(
         Single-case RCWA result.
     """
 
-    if roughness_sigma_nm is not None and roughness_sigma_nm < 0.0:
-        raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
     if not isinstance(grating, BaseGrating):
         raise TypeError("grating must derive from BaseGrating.")
+    if roughness_sigma_nm is not None and roughness_sigma_nm < 0.0:
+        raise ValueError("roughness_sigma_nm must be >= 0 when provided.")
+    if roughness_sigma_nm is not None and grating.roughness is not None:
+        raise ValueError("Pass roughness either on the grating or as roughness_sigma_nm, not both.")
+    effective_roughness_sigma_nm = roughness_sigma_nm
+    if grating.roughness is not None and grating.roughness.kind == "debye-waller":
+        effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
     if polarization not in {"s", "p"}:
         raise ValueError("polarization must be 's' or 'p'.")
     if _memory_mode not in {"legacy_dense", "low_memory"}:
@@ -229,7 +234,7 @@ def run_simulation(
             aa,
             profile,
             parm,
-            roughness_sigma_nm=roughness_sigma_nm,
+            roughness_sigma_nm=effective_roughness_sigma_nm,
             _profiler=_profiler,
         )
 
@@ -270,7 +275,7 @@ def run_simulation(
             diffraction_angle_all=all_diffraction_angle_deg,
             diffraction_order=int(diffraction_order),
             fourier_orders=int(fourier_orders),
-            roughness_sigma_nm=roughness_sigma_nm,
+            roughness_sigma_nm=effective_roughness_sigma_nm,
             polarization=polarization,
         )
 
