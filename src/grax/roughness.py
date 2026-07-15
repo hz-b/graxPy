@@ -29,7 +29,22 @@ class RoughnessSpec:
             the legacy uncorrelated (white-noise) interface. Real metrology shows
             correlation lengths of order ~10 um; on fine-pitch gratings such long
             correlations wash out geometrically and are better modelled by the
-            ``"debye-waller"`` kind.
+            ``"debye-waller"`` kind. Note that this period-relative default does
+            **not** scale with ``num_supercells``: to see any effect from a
+            larger supercell, set ``correlation_length_nm`` explicitly (often
+            close to or above one grating period).
+        num_supercells: Number of grating periods over which the
+            ``"random-interface"`` roughness field is generated as one
+            continuous correlated Gaussian random field, instead of one
+            period. Only meaningful for ``kind == "random-interface"``; must
+            be ``1`` for ``"debye-waller"``, which has no geometric structure
+            to correlate across periods. ``num_supercells > 1`` changes the
+            RCWA solver's fundamental Fourier period to
+            ``num_supercells * grating.period_nm``, letting the simulation
+            resolve diffuse/satellite diffraction orders introduced by the
+            disorder. This increases solver cost roughly with the cube of
+            ``num_supercells`` (see ``run_simulation``'s Fourier-order
+            warning), so start small.
     """
 
     kind: RoughnessKind
@@ -37,6 +52,7 @@ class RoughnessSpec:
     seed: int = 0
     resolution_factor: float = 4.0
     correlation_length_nm: float | None = None
+    num_supercells: int = 1
 
     def __post_init__(self) -> None:
         """Validate roughness configuration."""
@@ -51,6 +67,14 @@ class RoughnessSpec:
             raise ValueError("roughness resolution_factor must be > 0.")
         if self.correlation_length_nm is not None and self.correlation_length_nm < 0.0:
             raise ValueError("roughness correlation_length_nm must be >= 0 when provided.")
+        if isinstance(self.num_supercells, bool) or not isinstance(self.num_supercells, int):
+            raise ValueError("roughness num_supercells must be an int.")
+        if self.num_supercells < 1:
+            raise ValueError("roughness num_supercells must be >= 1.")
+        if self.kind == "debye-waller" and self.num_supercells != 1:
+            raise ValueError(
+                "roughness num_supercells > 1 is only meaningful for kind='random-interface'."
+            )
 
 
 def apply_debye_waller_roughness(

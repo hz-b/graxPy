@@ -307,9 +307,10 @@ class BaseGrating(ABC):
             coating_stack.substrate_material,
             photon_energy_ev,
         )
-        x = self._build_x_grid(num_periods=1)
+        num_periods = self._roughness_num_supercells()
+        x = self._build_x_grid(num_periods=num_periods)
         z = self._build_solver_z_grid(coating_stack)
-        surface = self._surface_profile_on_grid(x, num_periods=1)
+        surface = self._surface_profile_on_grid(x, num_periods=num_periods)
         index_grid = self._build_refractive_index_grid(
             x_grid=x,
             z_grid=z,
@@ -349,9 +350,10 @@ class BaseGrating(ABC):
 
         coating_stack = self.resolved_stack()
         n_sub = resolve_refractive_index(coating_stack.substrate_material, photon_energy_ev)
-        x_grid = self._build_x_grid(num_periods=1)
+        num_periods = self._roughness_num_supercells()
+        x_grid = self._build_x_grid(num_periods=num_periods)
         z_grid = self._build_solver_z_grid(coating_stack)
-        surface = self._surface_profile_on_grid(x_grid, num_periods=1)
+        surface = self._surface_profile_on_grid(x_grid, num_periods=num_periods)
         texture_registry: dict[tuple[object, ...], int] = {}
         textures: list[object] = []
         prepared_multilayer = None
@@ -622,6 +624,18 @@ class BaseGrating(ABC):
             stacklevel=3,
         )
 
+    def _roughness_num_supercells(self) -> int:
+        """Return the number of grating periods spanned by the roughness field.
+
+        Only ``"random-interface"`` roughness can span more than one period;
+        all other cases (no roughness, or ``"debye-waller"``) simulate exactly
+        one period, as before.
+        """
+
+        if self.roughness is not None and self.roughness.kind == "random-interface":
+            return int(self.roughness.num_supercells)
+        return 1
+
     def _roughness_correlation_length_nm(self) -> float:
         """Return the resolved lateral autocorrelation length in nanometers.
 
@@ -669,12 +683,15 @@ class BaseGrating(ABC):
         rng: np.random.Generator,
         correlation_length_nm: float,
     ) -> np.ndarray:
-        """Return a zero-mean periodic random field on one grating period.
+        """Return a zero-mean periodic random field over the full span of ``x_grid``.
 
-        When ``correlation_length_nm > 0`` the field is synthesised from a
-        Gaussian power spectrum (Gaussian autocorrelation). When it is ``0`` an
-        uncorrelated white-noise field is returned. The last sample duplicates
-        the first so the field is periodic over the grating period.
+        The span is one grating period, or ``num_supercells`` periods when
+        supercell roughness is active. When ``correlation_length_nm > 0`` the
+        field is synthesised from a Gaussian power spectrum (Gaussian
+        autocorrelation), as one continuous field over the whole span rather
+        than independent copies per period. When it is ``0`` an uncorrelated
+        white-noise field is returned. The last sample duplicates the first so
+        the field is periodic over the span.
         """
 
         num_samples = x_grid.size
@@ -687,7 +704,7 @@ class BaseGrating(ABC):
         # x_grid[-1] duplicates x_grid[0] of the next period, so synthesise on the
         # N unique samples and append the first to restore periodicity.
         n_unique = num_samples - 1
-        dx_nm = self.period_nm / n_unique
+        dx_nm = float(x_grid[-1] - x_grid[0]) / n_unique
         k = 2.0 * np.pi * np.fft.rfftfreq(n_unique, d=dx_nm)
         amplitude = np.exp(-0.25 * (k * correlation_length_nm) ** 2)
         spectrum = (

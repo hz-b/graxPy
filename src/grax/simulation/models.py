@@ -75,7 +75,9 @@ class SingleSimulationResult:
     Attributes:
         energy_ev: Photon energy in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        orders: Calculated diffraction orders.
+        orders: Calculated diffraction orders. These are physical orders and may
+            be fractional (spaced at ``1/num_supercells``) when supercell
+            roughness (``RoughnessSpec.num_supercells > 1``) is active.
         selected_efficiency: Efficiency for the selected diffraction order.
         selected_diffraction_angle_deg: Diffraction angle for the selected order.
         efficiency_all: Efficiency for all calculated diffraction orders.
@@ -83,6 +85,9 @@ class SingleSimulationResult:
         diffraction_order: Positive selected diffraction order.
         fourier_orders: Fourier truncation order used for the solve.
         roughness_sigma_nm: Optional rms roughness in nanometers.
+        num_supercells: Number of grating periods spanned by the roughness
+            field at solve time (mirrors ``RoughnessSpec.num_supercells``);
+            ``1`` when no supercell roughness was in effect.
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
         retry_attempts: Number of additional retry attempts after the first run.
@@ -110,6 +115,7 @@ class SingleSimulationResult:
     diffraction_order: int
     fourier_orders: int
     roughness_sigma_nm: float | None = None
+    num_supercells: int = 1
     polarization: str = "s"
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
@@ -148,7 +154,9 @@ class CaseExecutionResult:
         label: Optional case label.
         energy_ev: Photon energy in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        orders: Calculated diffraction orders.
+        orders: Calculated diffraction orders. These are physical orders and may
+            be fractional (spaced at ``1/num_supercells``) when supercell
+            roughness (``RoughnessSpec.num_supercells > 1``) is active.
         selected_efficiency: Efficiency for the selected diffraction order.
         selected_diffraction_angle_deg: Diffraction angle for the selected order.
         efficiency_all: Efficiency for all calculated diffraction orders.
@@ -248,8 +256,8 @@ class BatchSimulationResult:
 
         successful_cases = self.successful_cases
         if not successful_cases:
-            return np.asarray([], dtype=int)
-        return np.asarray(successful_cases[0].orders, dtype=int)
+            return np.asarray([], dtype=float)
+        return np.asarray(successful_cases[0].orders, dtype=float)
 
     @property
     def efficiency(self) -> np.ndarray:

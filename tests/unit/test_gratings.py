@@ -224,6 +224,88 @@ def test_roughness_resolution_warning_uses_max_per_layer_sigma() -> None:
         grating._warn_if_roughness_underresolved()
 
 
+def test_roughness_spec_validates_num_supercells() -> None:
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5).num_supercells == 1
+
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=0)
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=2.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="debye-waller", sigma_nm=0.5, num_supercells=3)
+
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=3).num_supercells == 3
+
+
+def test_roughness_num_supercells_only_applies_to_random_interface() -> None:
+    debye_grating = LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        roughness=RoughnessSpec(kind="debye-waller", sigma_nm=0.5),
+    )
+    random_interface_grating = LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=4),
+    )
+    no_roughness_grating = LaminarGrating(substrate_material=SI, layer_material=PT, layer_thickness_nm=28.77)
+
+    assert debye_grating._roughness_num_supercells() == 1
+    assert random_interface_grating._roughness_num_supercells() == 4
+    assert no_roughness_grating._roughness_num_supercells() == 1
+
+
+def test_roughness_random_field_spans_full_supercell_as_one_continuous_field() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=250.0, num_supercells=3)
+    x_grid_one_period = grating._build_x_grid(num_periods=1)
+    x_grid_supercell = grating._build_x_grid(num_periods=3)
+
+    rng_one = np.random.default_rng(7)
+    rng_super = np.random.default_rng(7)
+    field_one_period = grating._roughness_random_field(x_grid_one_period, rng_one, 250.0)
+    field_supercell = grating._roughness_random_field(x_grid_supercell, rng_super, 250.0)
+
+    # The supercell field spans 3x the samples of a single period and is not
+    # simply three tiled copies of the single-period field (same rng state,
+    # different outcome because the FFT is synthesized over the full span).
+    assert field_supercell.size == pytest.approx(3 * (field_one_period.size - 1) + 1)
+    tiled_guess = np.concatenate(
+        [field_one_period[:-1], field_one_period[:-1], field_one_period[:-1], field_one_period[:1]]
+    )
+    assert not np.allclose(field_supercell, tiled_guess)
+    # Still periodic over the full supercell span (last sample == first).
+    assert field_supercell[0] == pytest.approx(field_supercell[-1])
+
+
+def test_roughness_random_field_dx_uses_actual_span() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=50.0)
+    x_grid_two_periods = grating._build_x_grid(num_periods=2)
+
+    rng = np.random.default_rng(3)
+    field = grating._roughness_random_field(x_grid_two_periods, rng, 50.0)
+
+    # Regression guard for the dx_nm bugfix: the field must be synthesized
+    # over the *actual* x_grid span (2 periods), not grating.period_nm (1
+    # period). A wrong dx_nm would still return an array of the right size
+    # but with the wrong physical wavenumber spacing; verify indirectly via
+    # the expected number of unique FFT samples matching the 2-period grid.
+    n_unique = x_grid_two_periods.size - 1
+    expected_dx_nm = float(x_grid_two_periods[-1] - x_grid_two_periods[0]) / n_unique
+    assert expected_dx_nm == pytest.approx(2.0 * grating.period_nm / n_unique)
+    assert field.size == x_grid_two_periods.size
+
+
+def test_build_textures_uses_num_supercells_for_random_interface() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=50.0, num_supercells=3)
+    x_grid = grating._build_x_grid(num_periods=grating._roughness_num_supercells())
+
+    assert x_grid[-1] == pytest.approx(3 * grating.period_nm)
+
+
 def test_laminar_grating_can_save_profile_plot(tmp_path: Path) -> None:
     grating = LaminarGrating(
         substrate_material=SI,

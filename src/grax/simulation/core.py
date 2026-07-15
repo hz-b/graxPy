@@ -29,6 +29,11 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# Above this many effective Fourier orders (fourier_orders * num_supercells),
+# warn the caller: RCWA solve cost grows worse than linearly with order
+# count, and the solver hard-caps at 100 orders (201 modes) regardless.
+_SUPERCELL_FOURIER_ORDER_WARNING_THRESHOLD = 40
+
 
 def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
     """Warn when callers explicitly request the deprecated NumPy backend."""
@@ -220,6 +225,19 @@ def run_simulation(
         fourier_orders,
         _memory_mode,
     )
+    num_supercells = grating._roughness_num_supercells()
+    effective_period_nm = grating.period_nm * num_supercells
+    effective_fourier_orders = int(fourier_orders) * num_supercells
+    if effective_fourier_orders > _SUPERCELL_FOURIER_ORDER_WARNING_THRESHOLD:
+        warnings.warn(
+            f"fourier_orders={fourier_orders} with num_supercells={num_supercells} requires "
+            f"{effective_fourier_orders} effective Fourier orders. RCWA solve cost grows worse "
+            "than linearly with this count, so this combination may be very slow; consider "
+            "reducing fourier_orders or num_supercells.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     with PeakMemorySampler() as memory_sampler:
         wavelength_nm = 1239.8 / float(energy_ev)
         k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
@@ -233,9 +251,9 @@ def run_simulation(
         parm = res0(1 if polarization == "s" else -1)
         aa = res1(
             wavelength_nm,
-            grating.period_nm,
+            effective_period_nm,
             textures,
-            int(fourier_orders),
+            effective_fourier_orders,
             k_parallel,
             parm,
             _profiler=_profiler,
@@ -250,12 +268,12 @@ def run_simulation(
         )
 
         with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
-            order_index = np.where(ef.inc_top_reflected.order == -int(diffraction_order))[0]
+            orders = np.asarray(ef.inc_top_reflected.order, dtype=float) / float(num_supercells)
+            order_index = np.where(np.isclose(orders, -float(diffraction_order)))[0]
             if len(order_index) != 1:
                 raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
             idx = int(order_index[0])
 
-            orders = np.asarray(ef.inc_top_reflected.order, dtype=int)
             all_efficiency = np.asarray(
                 np.real_if_close(ef.inc_top_reflected.efficiency),
                 dtype=float,
@@ -287,6 +305,7 @@ def run_simulation(
             diffraction_order=int(diffraction_order),
             fourier_orders=int(fourier_orders),
             roughness_sigma_nm=effective_roughness_sigma_nm,
+            num_supercells=num_supercells,
             polarization=polarization,
         )
 
@@ -371,9 +390,9 @@ def efficiency_for_order(
         Efficiency for the requested order, or ``nan`` if absent.
     """
 
-    orders_array = np.asarray(orders, dtype=int)
+    orders_array = np.asarray(orders, dtype=float)
     efficiency_array = np.asarray(efficiency_all, dtype=float)
-    order_index = np.where(orders_array == -diffraction_order)[0]
+    order_index = np.where(np.isclose(orders_array, -diffraction_order))[0]
     if order_index.size == 0:
         return float("nan")
     return float(efficiency_array[int(order_index[0])])
@@ -436,16 +455,18 @@ def write_all_orders_csv(
             if result.status != "ok":
                 continue
             for order, efficiency, angle in zip(
-                np.asarray(result.orders, dtype=int),
+                np.asarray(result.orders, dtype=float),
                 np.asarray(result.efficiency_all, dtype=float),
                 np.asarray(result.diffraction_angle_all, dtype=float),
             ):
+                order_value = float(order)
+                order_cell = int(order_value) if order_value.is_integer() else order_value
                 writer.writerow(
                     [
                         result.case_id,
                         float(result.energy_ev),
                         float(result.grazing_angle_deg),
-                        int(order),
+                        order_cell,
                         float(efficiency),
                         float(angle),
                     ]

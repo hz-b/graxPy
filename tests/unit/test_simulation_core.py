@@ -27,6 +27,7 @@ from grax.simulation import (
     MultilayerThetaSearchSweepResult,
     RCWASimulation,
     SingleSimulationResult,
+    efficiency_for_order,
     energy_angle_cases,
     estimate_multilayer_bragg_angle_deg,
     fixed_angle_cases,
@@ -237,6 +238,103 @@ def test_run_simulation_returns_typed_single_result() -> None:
     assert result.orders.shape == (11,)
     assert result.efficiency_all.shape == (11,)
     assert result.diffraction_angle_all.shape == (11,)
+
+
+def test_run_simulation_num_supercells_one_matches_baseline() -> None:
+    grating_default = build_test_grating()
+    grating_explicit = LaminarGrating(
+        substrate_material=grating_default.substrate_material,
+        layer_material=grating_default.layer_material,
+        layer_thickness_nm=grating_default.layer_thickness_nm,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.0, num_supercells=1),
+    )
+
+    result_default = run_simulation(
+        grating=grating_default,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+    )
+    result_explicit = run_simulation(
+        grating=grating_explicit,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+    )
+
+    assert result_explicit.num_supercells == 1
+    assert np.allclose(result_default.orders, result_explicit.orders)
+    assert np.allclose(result_default.efficiency_all, result_explicit.efficiency_all, atol=1e-6)
+
+
+def test_run_simulation_num_supercells_produces_fractional_orders() -> None:
+    base_grating = build_test_grating()
+    grating = LaminarGrating(
+        substrate_material=base_grating.substrate_material,
+        layer_material=base_grating.layer_material,
+        layer_thickness_nm=base_grating.layer_thickness_nm,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(
+            kind="random-interface",
+            sigma_nm=0.3,
+            seed=1,
+            correlation_length_nm=100.0,
+            num_supercells=3,
+        ),
+    )
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert result.num_supercells == 3
+    spacing = np.diff(np.sort(result.orders))
+    assert np.allclose(spacing, spacing[0])
+    assert spacing[0] == pytest.approx(1.0 / 3.0)
+    efficiency = efficiency_for_order(result.orders, result.efficiency_all, diffraction_order=1)
+    assert np.isfinite(efficiency)
+
+
+def test_run_simulation_warns_when_effective_fourier_orders_is_large() -> None:
+    grating = LaminarGrating(
+        substrate_material=build_test_grating().substrate_material,
+        layer_material=build_test_grating().layer_material,
+        layer_thickness_nm=build_test_grating().layer_thickness_nm,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.1, num_supercells=4),
+    )
+
+    with pytest.warns(UserWarning, match="effective Fourier orders"):
+        run_simulation(
+            grating=grating,
+            energy_ev=500.0,
+            grazing_angle_deg=1.0,
+            fourier_orders=15,
+        )
+
+
+def test_write_all_orders_csv_formats_fractional_and_integer_orders(tmp_path: Path) -> None:
+    result = SingleSimulationResult(
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        orders=np.array([-1.0, -1.0 / 3.0, 0.0, 1.0 / 3.0, 1.0]),
+        selected_efficiency=0.1,
+        selected_diffraction_angle_deg=5.0,
+        efficiency_all=np.array([0.1, 0.2, 0.3, 0.2, 0.1]),
+        diffraction_angle_all=np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+        diffraction_order=1,
+        fourier_orders=3,
+        num_supercells=3,
+    )
+    csv_path = tmp_path / "supercell_all_orders.csv"
+
+    write_all_orders_csv(result, csv_path)
+
+    rows = csv_path.read_text(encoding="utf-8").splitlines()
+    order_cells = [row.split(",")[3] for row in rows[1:]]
+    assert order_cells == ["-1", "-0.3333333333333333", "0", "0.3333333333333333", "1"]
 
 
 def test_estimate_multilayer_bragg_angle_returns_finite_value() -> None:
