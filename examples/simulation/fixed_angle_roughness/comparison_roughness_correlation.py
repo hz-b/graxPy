@@ -143,6 +143,7 @@ def main() -> None:
     """Plot all roughness correlation-length CSV outputs from the example results directory."""
     example_dir = Path(__file__).resolve().parent
     results_dir = example_dir / "results_roughness_correlation"
+    plots_dir = example_dir / "plots_roughness_correlation"
     csv_paths = _current_csv_paths(results_dir)
     if not csv_paths:
         raise FileNotFoundError(
@@ -150,7 +151,7 @@ def main() -> None:
         )
     plot_roughness_correlation_comparison(
         csv_paths=csv_paths,
-        output_path=results_dir / "roughness_correlation_order1_comparison.png",
+        output_path=plots_dir / "roughness_correlation_order1_comparison.png",
     )
 
 

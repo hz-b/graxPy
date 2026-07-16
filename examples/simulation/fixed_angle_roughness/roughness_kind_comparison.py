@@ -1,4 +1,9 @@
-"""Roughness-kind comparison (Debye-Waller vs random-interface) using live batch plotting."""
+"""Roughness-kind comparison (Debye-Waller vs random-interface) using live batch plotting.
+
+Compares zero roughness, 1 nm Debye-Waller roughness, and 1 nm random-interface
+roughness at a few supercell counts (the random-interface field spanning 1, 5,
+or 10 grating periods as one continuous correlated field).
+"""
 
 from __future__ import annotations
 
@@ -9,13 +14,15 @@ import matplotlib
 import numpy as np
 
 import grax
+from helpers_order_spectrum import closest_case, save_order_spectrum_plot
 from helpers_roughness_kind_comparison import (
+    RoughnessRun,
     build_grating,
     case_label,
     csv_path,
+    order_spectrum_plot_path,
     run_title,
     save_grating_plot,
-    simulation_runs,
 )
 
 matplotlib.use("TkAgg")
@@ -26,20 +33,23 @@ matplotlib.use("TkAgg")
 
 # Output
 OUTPUT_DIR = Path(__file__).resolve().parent / "results_roughness_kind_comparison"
+PLOTS_DIR = Path(__file__).resolve().parent / "plots_roughness_kind_comparison"
 
-# Roughness sweep
-ROUGHNESS_LEVELS_NM = [0.0, 0.5, 1.0, 2.0]
-ROUGHNESS_KINDS = ["debye-waller", "random-interface"]
-BASELINE_KIND = "baseline"
+# Photon energy at which the per-run diffraction-order spectrum plots are
+# made. ``None`` picks the energy closest to the middle of ``ENERGIES_EV``.
+CENTRAL_ENERGY_EV: float | None = None
+
+# Roughness runs. Baseline and Debye-Waller are supercell-independent, so
+# they are each run once; random-interface is swept over supercell counts at
+# a fixed sigma.
+DEBYE_SIGMA_NM = 1.0
+RANDOM_INTERFACE_SIGMA_NM = 1.0
+RANDOM_INTERFACE_NUM_SUPERCELLS = [1, 5, 10]
 ROUGHNESS_SEED = 0
 # Lateral autocorrelation length of the "random-interface" roughness, in nm.
 # ``None`` defaults to one tenth of the grating period; ``0.0`` gives an
 # uncorrelated (white-noise) interface.
 ROUGHNESS_CORRELATION_LENGTH_NM: float | None = 10
-# Number of grating periods the "random-interface" roughness field spans as
-# one continuous correlated field. 1 keeps today's single-period behavior;
-# only meaningful for "random-interface" (ignored for "debye-waller").
-ROUGHNESS_NUM_SUPERCELLS = 1
 
 # Simulation settings
 GRAZING_ANGLE_DEG = 1.0
@@ -47,6 +57,11 @@ ENERGIES_EV = np.arange(50.0, 2200.0, 50.0)
 POLARIZATION = "p"
 DIFFRACTION_ORDER = 1
 FOURIER_ORDERS = 20
+# Fourier orders used for the supercell runs (num_supercells > 1). Solver
+# cost scales with fourier_orders * num_supercells (and the solver hard-caps
+# around 100 effective orders), so this is set low enough that even the
+# largest supercell count here stays well within that limit.
+SUPERCELL_FOURIER_ORDERS = 4
 MAX_WORKERS = "auto"
 BACKEND = "numba"
 
@@ -64,7 +79,8 @@ Z_RESOLUTION_NM = 0.1
 
 # ---------------------------------------------------------------------------
 
-# Grating geometry passed to ``build_grating`` for every run.
+# Grating geometry passed to ``build_grating`` for every run. ``num_supercells``
+# is set per run (see ``_simulation_runs``), not here.
 GRATING_CONFIG = dict(
     substrate_material=SUBSTRATE_MATERIAL,
     coating_layers_nm=COATING_LAYERS_NM,
@@ -76,36 +92,56 @@ GRATING_CONFIG = dict(
     z_resolution_nm=Z_RESOLUTION_NM,
     roughness_seed=ROUGHNESS_SEED,
     roughness_correlation_length_nm=ROUGHNESS_CORRELATION_LENGTH_NM,
-    roughness_num_supercells=ROUGHNESS_NUM_SUPERCELLS,
 )
 
 
-def _save_all_grating_plots(runs: list[tuple[str, float]]) -> None:
+def _simulation_runs() -> list[RoughnessRun]:
+    """Return the roughness runs used by the example."""
+    return (
+        [("baseline", 0.0, 1), ("debye-waller", DEBYE_SIGMA_NM, 1)]
+        + [
+            ("random-interface", RANDOM_INTERFACE_SIGMA_NM, num_supercells)
+            for num_supercells in RANDOM_INTERFACE_NUM_SUPERCELLS
+        ]
+    )
+
+
+def _build_run_grating(roughness_kind: str, roughness_sigma_nm: float, num_supercells: int):
+    """Build the grating for one run in the roughness-kind sweep."""
+    return build_grating(
+        roughness_kind,
+        roughness_sigma_nm,
+        roughness_num_supercells=num_supercells,
+        **GRATING_CONFIG,
+    )
+
+
+def _save_all_grating_plots(runs: list[RoughnessRun]) -> None:
     """Save whole-grating PDFs of the example geometries.
 
     Debye-Waller roughness does not distort the geometry, so a single Debye-Waller
     grating is exported once. ``random-interface`` roughness changes the geometry,
-    so one grating is exported per interface-roughness level.
+    so one grating is exported per supercell count.
     """
-    debye_done = False
-    for roughness_kind, roughness_sigma_nm in runs:
-        if roughness_kind == "debye-waller":
-            if debye_done:
-                continue
-            debye_done = True
-        grating = build_grating(roughness_kind, roughness_sigma_nm, **GRATING_CONFIG)
+    for roughness_kind, roughness_sigma_nm, num_supercells in runs:
+        grating = _build_run_grating(roughness_kind, roughness_sigma_nm, num_supercells)
         output_path = save_grating_plot(
             grating,
-            OUTPUT_DIR,
+            PLOTS_DIR,
             roughness_kind=roughness_kind,
             roughness_sigma_nm=roughness_sigma_nm,
+            num_supercells=num_supercells,
         )
-        print(f"Saved grating plot for {case_label(roughness_kind, roughness_sigma_nm)} to: {output_path}")
+        print(
+            f"Saved grating plot for {case_label(roughness_kind, roughness_sigma_nm, num_supercells)} "
+            f"to: {output_path}"
+        )
 
 
 def main() -> None:
     """Run the roughness example or only write grating geometry previews."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     parser = argparse.ArgumentParser(description="Run the roughness-kind comparison example.")
     parser.add_argument(
@@ -115,17 +151,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    runs = simulation_runs(
-        roughness_kinds=ROUGHNESS_KINDS,
-        roughness_levels_nm=ROUGHNESS_LEVELS_NM,
-        baseline_kind=BASELINE_KIND,
-    )
+    runs = _simulation_runs()
     _save_all_grating_plots(runs)
     if args.geometry_only:
         return
 
-    for roughness_kind, roughness_sigma_nm in runs:
-        grating = build_grating(roughness_kind, roughness_sigma_nm, **GRATING_CONFIG)
+    for roughness_kind, roughness_sigma_nm, num_supercells in runs:
+        grating = _build_run_grating(roughness_kind, roughness_sigma_nm, num_supercells)
         cases = grax.fixed_angle_cases(
             grating=grating,
             energies_ev=ENERGIES_EV,
@@ -135,14 +167,15 @@ def main() -> None:
         labeled_cases = (
             dict(
                 case,
-                label=case_label(roughness_kind, roughness_sigma_nm),
+                label=case_label(roughness_kind, roughness_sigma_nm, num_supercells),
             )
             for case in cases
         )
 
+        fourier_orders = FOURIER_ORDERS if num_supercells == 1 else SUPERCELL_FOURIER_ORDERS
         runner = grax.BatchSimulationRunner(
             default_diffraction_order=DIFFRACTION_ORDER,
-            default_fourier_orders=FOURIER_ORDERS,
+            default_fourier_orders=fourier_orders,
             show_progress=True,
             live_plot=True,
             live_plot_x_key="energy_ev",
@@ -151,21 +184,38 @@ def main() -> None:
             max_workers=MAX_WORKERS,
             backend=BACKEND,
         )
-        print(f"\n{run_title(roughness_kind, roughness_sigma_nm)}")
+        print(f"\n{run_title(roughness_kind, roughness_sigma_nm, num_supercells)}")
         results = list(runner.run_cases(labeled_cases))
 
-        run_csv_path = csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm)
+        run_csv_path = csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm, num_supercells)
         grax.write_all_orders_csv(results, run_csv_path)
         print(
-            f"Saved {case_label(roughness_kind, roughness_sigma_nm)} results to: {run_csv_path} "
-            f"(max_workers={MAX_WORKERS})"
+            f"Saved {case_label(roughness_kind, roughness_sigma_nm, num_supercells)} results to: "
+            f"{run_csv_path} (max_workers={MAX_WORKERS})"
         )
+
+        central_energy_ev = (
+            CENTRAL_ENERGY_EV if CENTRAL_ENERGY_EV is not None else float(ENERGIES_EV[len(ENERGIES_EV) // 2])
+        )
+        central_case = closest_case(results, central_energy_ev)
+        spectrum_plot_path = order_spectrum_plot_path(PLOTS_DIR, roughness_kind, roughness_sigma_nm, num_supercells)
+        save_order_spectrum_plot(
+            central_case.orders,
+            central_case.efficiency_all,
+            energy_ev=central_case.energy_ev,
+            title=case_label(roughness_kind, roughness_sigma_nm, num_supercells),
+            output_path=spectrum_plot_path,
+        )
+        print(f"Saved order-spectrum plot at {central_case.energy_ev:.0f} eV to: {spectrum_plot_path}")
 
     from comparison_roughness_kind_comparison import plot_roughness_comparison
 
-    comparison_plot_path = OUTPUT_DIR / "roughness_kind_comparison_order1_comparison.png"
+    comparison_plot_path = PLOTS_DIR / "roughness_kind_comparison_order1_comparison.png"
     plot_roughness_comparison(
-        csv_paths=[csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm) for roughness_kind, roughness_sigma_nm in runs],
+        csv_paths=[
+            csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm, num_supercells)
+            for roughness_kind, roughness_sigma_nm, num_supercells in runs
+        ],
         output_path=comparison_plot_path,
     )
     print(f"Comparison plot saved to: {comparison_plot_path}")

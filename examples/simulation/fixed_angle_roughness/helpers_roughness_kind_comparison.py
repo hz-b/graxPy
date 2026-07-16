@@ -13,52 +13,59 @@ from grax.stacks import LayerSpec, assemble_custom_stack
 from helpers_grating_plot import save_grating_plot as _save_grating_plot
 
 
+RoughnessRun = tuple[str, float, int]
+
+
 def roughness_slug(roughness_sigma_nm: float) -> str:
     """Return a filename-safe roughness identifier."""
     return str(roughness_sigma_nm).replace(".", "p")
 
 
-def case_label(roughness_kind: str, roughness_sigma_nm: float) -> str:
-    """Return a readable label for one roughness level."""
+def _supercell_suffix(num_supercells: int) -> str:
+    """Return a filename suffix for the supercell count, empty when it's 1."""
+    return "" if num_supercells == 1 else f"_supercells_{num_supercells}"
+
+
+def case_label(roughness_kind: str, roughness_sigma_nm: float, num_supercells: int = 1) -> str:
+    """Return a readable label for one roughness run."""
     if roughness_sigma_nm == 0.0:
         return "sigma zero"
-    return f"{roughness_kind} sigma={roughness_sigma_nm:.1f} nm"
+    label = f"{roughness_kind} sigma={roughness_sigma_nm:.1f} nm"
+    if num_supercells != 1:
+        label += f", supercells={num_supercells}"
+    return label
 
 
-def run_title(roughness_kind: str, roughness_sigma_nm: float) -> str:
+def run_title(roughness_kind: str, roughness_sigma_nm: float, num_supercells: int = 1) -> str:
     """Return a terminal title for one simulation run."""
     if roughness_sigma_nm == 0.0:
         return "Running sigma zero baseline with no roughness"
-    if roughness_kind == "debye-waller":
-        return f"Running Debye-Waller roughness with sigma={roughness_sigma_nm:.1f} nm"
-    return f"Running random-interface roughness with sigma={roughness_sigma_nm:.1f} nm"
+    return f"Running {case_label(roughness_kind, roughness_sigma_nm, num_supercells)}"
 
 
-def csv_path(output_dir: Path, roughness_kind: str, roughness_sigma_nm: float) -> Path:
+def csv_path(output_dir: Path, roughness_kind: str, roughness_sigma_nm: float, num_supercells: int = 1) -> Path:
     """Return the CSV path for one roughness run."""
     slug = roughness_slug(roughness_sigma_nm)
-    return output_dir / f"roughness_kind_comparison_{roughness_kind}_sigma_{slug}_all_orders.csv"
+    suffix = _supercell_suffix(num_supercells)
+    return output_dir / f"roughness_kind_comparison_{roughness_kind}_sigma_{slug}{suffix}_all_orders.csv"
 
 
-def grating_plot_path(output_dir: Path, roughness_kind: str, roughness_sigma_nm: float) -> Path:
+def grating_plot_path(
+    output_dir: Path, roughness_kind: str, roughness_sigma_nm: float, num_supercells: int = 1
+) -> Path:
     """Return the PDF path for one whole-grating geometry plot."""
     slug = roughness_slug(roughness_sigma_nm)
-    return output_dir / f"roughness_kind_comparison_{roughness_kind}_sigma_{slug}_grating.pdf"
+    suffix = _supercell_suffix(num_supercells)
+    return output_dir / f"roughness_kind_comparison_{roughness_kind}_sigma_{slug}{suffix}_grating.pdf"
 
 
-def simulation_runs(
-    *,
-    roughness_kinds: list[str],
-    roughness_levels_nm: list[float],
-    baseline_kind: str,
-) -> list[tuple[str, float]]:
-    """Return the roughness runs used by the example."""
-    return [(baseline_kind, 0.0)] + [
-        (roughness_kind, roughness_sigma_nm)
-        for roughness_kind in roughness_kinds
-        for roughness_sigma_nm in roughness_levels_nm
-        if roughness_sigma_nm > 0.0
-    ]
+def order_spectrum_plot_path(
+    output_dir: Path, roughness_kind: str, roughness_sigma_nm: float, num_supercells: int = 1
+) -> Path:
+    """Return the PNG path for one order-spectrum-at-one-energy plot."""
+    slug = roughness_slug(roughness_sigma_nm)
+    suffix = _supercell_suffix(num_supercells)
+    return output_dir / f"roughness_kind_comparison_{roughness_kind}_sigma_{slug}{suffix}_order_spectrum.png"
 
 
 def build_grating(
@@ -128,7 +135,9 @@ def save_grating_plot(
     *,
     roughness_kind: str,
     roughness_sigma_nm: float,
+    num_supercells: int = 1,
 ) -> Path:
     """Save a whole-grating PDF of the generated material geometry."""
-    output_path = grating_plot_path(output_dir, roughness_kind, roughness_sigma_nm)
-    return _save_grating_plot(grating, output_path, title=case_label(roughness_kind, roughness_sigma_nm))
+    output_path = grating_plot_path(output_dir, roughness_kind, roughness_sigma_nm, num_supercells)
+    title = case_label(roughness_kind, roughness_sigma_nm, num_supercells)
+    return _save_grating_plot(grating, output_path, title=title)

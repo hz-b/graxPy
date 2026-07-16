@@ -27,6 +27,7 @@ matplotlib.use("TkAgg")
 
 # Output
 OUTPUT_DIR = Path(__file__).resolve().parent / "results_roughness_correlation"
+PLOTS_DIR = Path(__file__).resolve().parent / "plots_roughness_correlation"
 
 # Roughness runs. Zero roughness and Debye-Waller are correlation-independent,
 # so they are each run once; random-interface is swept over correlation
@@ -118,7 +119,7 @@ def _save_all_grating_plots(runs: list[RoughnessRun]) -> None:
         grating = _build_run_grating(roughness_kind, roughness_sigma_nm, correlation_length_nm, num_supercells)
         output_path = save_grating_plot(
             grating,
-            OUTPUT_DIR,
+            PLOTS_DIR,
             roughness_kind=roughness_kind,
             roughness_sigma_nm=roughness_sigma_nm,
             correlation_length_nm=correlation_length_nm,
@@ -133,6 +134,7 @@ def _save_all_grating_plots(runs: list[RoughnessRun]) -> None:
 def main() -> None:
     """Run the roughness correlation-length comparison example."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     parser = argparse.ArgumentParser(description="Run the roughness correlation-length comparison example.")
     parser.add_argument(
@@ -187,7 +189,7 @@ def main() -> None:
 
     from comparison_roughness_correlation import plot_roughness_correlation_comparison
 
-    comparison_plot_path = OUTPUT_DIR / "roughness_correlation_order1_comparison.png"
+    comparison_plot_path = PLOTS_DIR / "roughness_correlation_order1_comparison.png"
     plot_roughness_correlation_comparison(
         csv_paths=[
             csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm, correlation_length_nm, num_supercells)
