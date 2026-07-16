@@ -87,9 +87,12 @@ GRATING_CONFIG = dict(
 )
 
 
-def _simulation_runs() -> list[RoughnessRun]:
-    """Return the roughness runs used by the example."""
-    return (
+FAMILIES = ["baseline", "debye-waller", "random-interface"]
+
+
+def _simulation_runs(*, families: list[str]) -> list[RoughnessRun]:
+    """Return the roughness runs used by the example, filtered to ``families``."""
+    all_runs: list[RoughnessRun] = (
         [("baseline", 0.0, None, 1), ("debye-waller", DEBYE_SIGMA_NM, None, 1)]
         + [
             ("random-interface", RANDOM_INTERFACE_SIGMA_NM, correlation_length_nm, 1)
@@ -100,6 +103,7 @@ def _simulation_runs() -> list[RoughnessRun]:
             for correlation_length_nm in RANDOM_INTERFACE_CORRELATION_LENGTHS_NM
         ]
     )
+    return [run for run in all_runs if run[0] in families]
 
 
 def _build_run_grating(roughness_kind: str, roughness_sigma_nm: float, correlation_length_nm: float | None, num_supercells: int):
@@ -142,9 +146,17 @@ def main() -> None:
         action="store_true",
         help="Only build the gratings and save whole-grating geometry PDFs; do not run simulations.",
     )
+    parser.add_argument(
+        "--family",
+        choices=["all", *FAMILIES],
+        default="all",
+        help="Only run this roughness family (baseline, debye-waller, or random-interface). "
+        "Default: run all families.",
+    )
     args = parser.parse_args()
+    families = FAMILIES if args.family == "all" else [args.family]
 
-    runs = _simulation_runs()
+    runs = _simulation_runs(families=families)
     _save_all_grating_plots(runs)
     if args.geometry_only:
         return
@@ -187,14 +199,14 @@ def main() -> None:
             f"{run_csv_path} (max_workers={MAX_WORKERS})"
         )
 
-    from comparison_roughness_correlation import plot_roughness_correlation_comparison
+    from comparison_roughness_correlation import _current_csv_paths, plot_roughness_correlation_comparison
 
+    # Scan disk rather than just this invocation's runs, so running one
+    # family at a time still builds up a complete comparison plot once all
+    # families have been run.
     comparison_plot_path = PLOTS_DIR / "roughness_correlation_order1_comparison.png"
     plot_roughness_correlation_comparison(
-        csv_paths=[
-            csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm, correlation_length_nm, num_supercells)
-            for roughness_kind, roughness_sigma_nm, correlation_length_nm, num_supercells in runs
-        ],
+        csv_paths=_current_csv_paths(OUTPUT_DIR),
         output_path=comparison_plot_path,
     )
     print(f"Comparison plot saved to: {comparison_plot_path}")

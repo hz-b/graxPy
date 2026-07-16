@@ -44,7 +44,7 @@ CENTRAL_ENERGY_EV: float | None = None
 # a fixed sigma.
 DEBYE_SIGMA_NM = 1.0
 RANDOM_INTERFACE_SIGMA_NM = 1.0
-RANDOM_INTERFACE_NUM_SUPERCELLS = [1, 5, 10]
+RANDOM_INTERFACE_NUM_SUPERCELLS = [1, 5]
 ROUGHNESS_SEED = 0
 # Lateral autocorrelation length of the "random-interface" roughness, in nm.
 # ``None`` defaults to one tenth of the grating period; ``0.0`` gives an
@@ -61,7 +61,7 @@ FOURIER_ORDERS = 20
 # cost scales with fourier_orders * num_supercells (and the solver hard-caps
 # around 100 effective orders), so this is set low enough that even the
 # largest supercell count here stays well within that limit.
-SUPERCELL_FOURIER_ORDERS = 4
+SUPERCELL_FOURIER_ORDERS = 10
 MAX_WORKERS = "auto"
 BACKEND = "numba"
 
@@ -95,15 +95,19 @@ GRATING_CONFIG = dict(
 )
 
 
-def _simulation_runs() -> list[RoughnessRun]:
-    """Return the roughness runs used by the example."""
-    return (
+FAMILIES = ["baseline", "debye-waller", "random-interface"]
+
+
+def _simulation_runs(*, families: list[str]) -> list[RoughnessRun]:
+    """Return the roughness runs used by the example, filtered to ``families``."""
+    all_runs: list[RoughnessRun] = (
         [("baseline", 0.0, 1), ("debye-waller", DEBYE_SIGMA_NM, 1)]
         + [
             ("random-interface", RANDOM_INTERFACE_SIGMA_NM, num_supercells)
             for num_supercells in RANDOM_INTERFACE_NUM_SUPERCELLS
         ]
     )
+    return [run for run in all_runs if run[0] in families]
 
 
 def _build_run_grating(roughness_kind: str, roughness_sigma_nm: float, num_supercells: int):
@@ -149,9 +153,17 @@ def main() -> None:
         action="store_true",
         help="Only build the gratings and save whole-grating geometry PDFs; do not run simulations.",
     )
+    parser.add_argument(
+        "--family",
+        choices=["all", *FAMILIES],
+        default="all",
+        help="Only run this roughness family (baseline, debye-waller, or random-interface). "
+        "Default: run all families.",
+    )
     args = parser.parse_args()
+    families = FAMILIES if args.family == "all" else [args.family]
 
-    runs = _simulation_runs()
+    runs = _simulation_runs(families=families)
     _save_all_grating_plots(runs)
     if args.geometry_only:
         return
@@ -208,14 +220,14 @@ def main() -> None:
         )
         print(f"Saved order-spectrum plot at {central_case.energy_ev:.0f} eV to: {spectrum_plot_path}")
 
-    from comparison_roughness_kind_comparison import plot_roughness_comparison
+    from comparison_roughness_kind_comparison import _current_roughness_csv_paths, plot_roughness_comparison
 
+    # Scan disk rather than just this invocation's runs, so running one
+    # family at a time still builds up a complete comparison plot once all
+    # families have been run.
     comparison_plot_path = PLOTS_DIR / "roughness_kind_comparison_order1_comparison.png"
     plot_roughness_comparison(
-        csv_paths=[
-            csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm, num_supercells)
-            for roughness_kind, roughness_sigma_nm, num_supercells in runs
-        ],
+        csv_paths=_current_roughness_csv_paths(OUTPUT_DIR),
         output_path=comparison_plot_path,
     )
     print(f"Comparison plot saved to: {comparison_plot_path}")
