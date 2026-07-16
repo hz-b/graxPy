@@ -246,7 +246,7 @@ def test_run_simulation_num_supercells_one_matches_baseline() -> None:
         substrate_material=grating_default.substrate_material,
         layer_material=grating_default.layer_material,
         layer_thickness_nm=grating_default.layer_thickness_nm,
-        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.0, num_supercells=1),
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.0, num_supercells=1, num_realizations=1),
     )
 
     result_default = run_simulation(
@@ -303,7 +303,7 @@ def test_run_simulation_warns_when_effective_fourier_orders_is_large() -> None:
         substrate_material=build_test_grating().substrate_material,
         layer_material=build_test_grating().layer_material,
         layer_thickness_nm=build_test_grating().layer_thickness_nm,
-        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.1, num_supercells=4),
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.1, num_supercells=4, num_realizations=1),
     )
 
     with pytest.warns(UserWarning, match="effective Fourier orders"):
@@ -313,6 +313,105 @@ def test_run_simulation_warns_when_effective_fourier_orders_is_large() -> None:
             grazing_angle_deg=1.0,
             fourier_orders=15,
         )
+
+
+def test_run_simulation_num_realizations_default_and_debye_waller_result_fields() -> None:
+    debye_grating = LaminarGrating(
+        substrate_material=build_test_grating().substrate_material,
+        layer_material=build_test_grating().layer_material,
+        layer_thickness_nm=build_test_grating().layer_thickness_nm,
+        roughness=RoughnessSpec(kind="debye-waller", sigma_nm=0.5),
+    )
+    no_roughness_result = run_simulation(
+        grating=build_test_grating(),
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+    debye_result = run_simulation(
+        grating=debye_grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert no_roughness_result.num_realizations == 1
+    assert debye_result.num_realizations == 1
+
+
+def test_run_simulation_averages_efficiency_across_realizations() -> None:
+    base_grating = build_test_grating()
+    averaged_grating = LaminarGrating(
+        substrate_material=base_grating.substrate_material,
+        layer_material=base_grating.layer_material,
+        layer_thickness_nm=base_grating.layer_thickness_nm,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(
+            kind="random-interface",
+            sigma_nm=0.3,
+            seed=123,
+            correlation_length_nm=100.0,
+            num_realizations=4,
+        ),
+    )
+
+    averaged_result = run_simulation(
+        grating=averaged_grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert averaged_result.num_realizations == 4
+
+    realization_seeds = averaged_grating.roughness.realization_seeds()
+    assert len(realization_seeds) == 4
+
+    individual_efficiencies = []
+    for realization_seed in realization_seeds:
+        realization_grating = LaminarGrating(
+            substrate_material=base_grating.substrate_material,
+            layer_material=base_grating.layer_material,
+            layer_thickness_nm=base_grating.layer_thickness_nm,
+            x_resolution_nm=2.0,
+            roughness=RoughnessSpec(
+                kind="random-interface",
+                sigma_nm=0.3,
+                seed=realization_seed,
+                correlation_length_nm=100.0,
+                num_realizations=1,
+            ),
+        )
+        realization_result = run_simulation(
+            grating=realization_grating,
+            energy_ev=100.0,
+            grazing_angle_deg=4.0,
+            fourier_orders=3,
+        )
+        assert np.allclose(realization_result.orders, averaged_result.orders)
+        individual_efficiencies.append(realization_result.efficiency_all)
+
+    expected_mean = np.mean(individual_efficiencies, axis=0)
+    assert np.allclose(averaged_result.efficiency_all, expected_mean)
+    assert averaged_result.selected_efficiency == pytest.approx(
+        expected_mean[np.where(np.isclose(averaged_result.orders, -1.0))[0][0]]
+    )
+
+
+def test_run_simulation_num_realizations_one_matches_direct_solve() -> None:
+    base_grating = build_test_grating()
+    grating = LaminarGrating(
+        substrate_material=base_grating.substrate_material,
+        layer_material=base_grating.layer_material,
+        layer_thickness_nm=base_grating.layer_thickness_nm,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.2, seed=7, num_realizations=1),
+    )
+
+    result_a = run_simulation(grating=grating, energy_ev=100.0, grazing_angle_deg=4.0, fourier_orders=3)
+    result_b = run_simulation(grating=grating, energy_ev=100.0, grazing_angle_deg=4.0, fourier_orders=3)
+
+    assert result_a.num_realizations == 1
+    assert np.allclose(result_a.efficiency_all, result_b.efficiency_all)
 
 
 def test_write_all_orders_csv_formats_fractional_and_integer_orders(tmp_path: Path) -> None:
@@ -932,7 +1031,7 @@ def test_run_simulation_keeps_random_interface_roughness_out_of_res2(
         return FakeEfficiencies()
 
     grating = build_test_grating()
-    grating.roughness = RoughnessSpec(kind="random-interface", sigma_nm=0.5)
+    grating.roughness = RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=1)
     fake_profile = (np.asarray([0.0]), np.asarray([0]))
     monkeypatch.setattr(grating, "build_textures", lambda *args, **kwargs: ([], fake_profile))
     monkeypatch.setattr(simulation_core_module, "res0", lambda *args, **kwargs: object())

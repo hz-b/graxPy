@@ -80,9 +80,10 @@ def build_grating(
     wall_angle_deg: float,
     x_resolution_nm: float,
     z_resolution_nm: float,
-    roughness_seed: int,
+    roughness_seed: int | None,
     roughness_correlation_length_nm: float | None = None,
     roughness_num_supercells: int = 1,
+    roughness_num_realizations: int = 8,
 ) -> grax.LaminarGrating:
     """Build the example grating with the selected per-layer roughness model."""
     # Assign the same roughness to the substrate boundary and to every coating
@@ -110,10 +111,12 @@ def build_grating(
             sigma_nm=0.0,
             seed=roughness_seed,
             correlation_length_nm=roughness_correlation_length_nm,
-            # num_supercells > 1 is only valid for random-interface roughness;
-            # RoughnessSpec rejects it for debye-waller, so keep it at the
-            # default there regardless of the caller's config.
+            # num_supercells/num_realizations > 1 are only valid for
+            # random-interface roughness; RoughnessSpec rejects them for
+            # debye-waller, so keep both at their default there regardless
+            # of the caller's config.
             num_supercells=roughness_num_supercells if roughness_kind == "random-interface" else 1,
+            num_realizations=roughness_num_realizations if roughness_kind == "random-interface" else 1,
         )
     return grax.LaminarGrating(
         period_lpermm=period_lpermm,

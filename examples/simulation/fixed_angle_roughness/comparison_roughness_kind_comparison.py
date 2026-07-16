@@ -66,15 +66,23 @@ def _sort_key(path: Path) -> tuple[int, int]:
 
 
 def _current_roughness_csv_paths(results_dir: Path) -> list[Path]:
-    """Return only CSV outputs for the current roughness comparison modes."""
-    csv_paths: list[Path] = []
-    for csv_path in results_dir.glob("roughness_kind_comparison_*_sigma_*_all_orders.csv"):
-        try:
-            _parse_csv_path(csv_path)
-        except ValueError:
-            continue
-        csv_paths.append(csv_path)
-    return sorted(csv_paths, key=_sort_key)
+    """Return only CSV outputs for runs ``roughness_kind_comparison.py`` currently defines.
+
+    Deferred import avoids a circular import (that script imports
+    ``plot_roughness_comparison`` from this module). Filtering against its
+    current config -- rather than globbing every matching filename in the
+    results directory -- keeps this plot from picking up stale CSVs left
+    over from an older sigma/supercell sweep.
+    """
+    import roughness_kind_comparison as _script
+
+    expected_paths = {
+        _script.csv_path(results_dir, roughness_kind, roughness_sigma_nm, num_supercells)
+        for roughness_kind, roughness_sigma_nm, num_supercells in _script._simulation_runs(
+            families=_script.FAMILIES
+        )
+    }
+    return sorted((path for path in expected_paths if path.exists()), key=_sort_key)
 
 
 def _load_first_order_series(csv_path: Path) -> tuple[list[float], list[float]]:

@@ -2,7 +2,10 @@
 
 Compares zero roughness, 1 nm Debye-Waller roughness, and 1 nm random-interface
 roughness at a few supercell counts (the random-interface field spanning 1, 5,
-or 10 grating periods as one continuous correlated field).
+or 10 grating periods as one continuous correlated field). Each random-interface
+point is itself an average over several independent roughness realizations
+(``ROUGHNESS_NUM_REALIZATIONS``), so a full run is noticeably more expensive
+than a single solve per point -- supercells and realizations both multiply cost.
 """
 
 from __future__ import annotations
@@ -44,8 +47,16 @@ CENTRAL_ENERGY_EV: float | None = None
 # a fixed sigma.
 DEBYE_SIGMA_NM = 1.0
 RANDOM_INTERFACE_SIGMA_NM = 1.0
-RANDOM_INTERFACE_NUM_SUPERCELLS = [1, 5]
-ROUGHNESS_SEED = 0
+RANDOM_INTERFACE_NUM_SUPERCELLS = [1, 3]
+# Base seed for the random-interface roughness ensemble. ``None`` draws real
+# entropy (a genuinely random surface each run, so results are not
+# reproducible run to run); set an explicit int to reproduce one specific
+# ensemble for debugging.
+ROUGHNESS_SEED: int | None = None
+# Number of independent roughness realizations averaged per simulated point
+# (see ``RoughnessSpec.num_realizations``). The library default (8) is
+# usually fine as-is; exposed here for visibility/override.
+ROUGHNESS_NUM_REALIZATIONS = 8
 # Lateral autocorrelation length of the "random-interface" roughness, in nm.
 # ``None`` defaults to one tenth of the grating period; ``0.0`` gives an
 # uncorrelated (white-noise) interface.
@@ -92,6 +103,7 @@ GRATING_CONFIG = dict(
     z_resolution_nm=Z_RESOLUTION_NM,
     roughness_seed=ROUGHNESS_SEED,
     roughness_correlation_length_nm=ROUGHNESS_CORRELATION_LENGTH_NM,
+    roughness_num_realizations=ROUGHNESS_NUM_REALIZATIONS,
 )
 
 
@@ -220,14 +232,20 @@ def main() -> None:
         )
         print(f"Saved order-spectrum plot at {central_case.energy_ev:.0f} eV to: {spectrum_plot_path}")
 
-    from comparison_roughness_kind_comparison import _current_roughness_csv_paths, plot_roughness_comparison
+    from comparison_roughness_kind_comparison import plot_roughness_comparison
 
-    # Scan disk rather than just this invocation's runs, so running one
-    # family at a time still builds up a complete comparison plot once all
-    # families have been run.
+    # Only plot CSVs that correspond to a run this script currently defines
+    # (all families, so running one family at a time still builds up a
+    # complete comparison once all of them have been run) -- not any other
+    # CSV that happens to sit in the results directory from an older config
+    # (different sigma, a supercell count no longer swept, etc.).
+    expected_csv_paths = [
+        csv_path(OUTPUT_DIR, roughness_kind, roughness_sigma_nm, num_supercells)
+        for roughness_kind, roughness_sigma_nm, num_supercells in _simulation_runs(families=FAMILIES)
+    ]
     comparison_plot_path = PLOTS_DIR / "roughness_kind_comparison_order1_comparison.png"
     plot_roughness_comparison(
-        csv_paths=_current_roughness_csv_paths(OUTPUT_DIR),
+        csv_paths=[path for path in expected_csv_paths if path.exists()],
         output_path=comparison_plot_path,
     )
     print(f"Comparison plot saved to: {comparison_plot_path}")

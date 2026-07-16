@@ -4,7 +4,10 @@ Compares zero roughness, 1 nm Debye-Waller roughness, and 1 nm random-interface
 roughness swept across several lateral correlation lengths -- once with a
 single grating period simulated (today's default) and once with the
 random-interface roughness spanning several grating periods as one
-continuous correlated field (a "supercell").
+continuous correlated field (a "supercell"). Each random-interface point is
+itself an average over several independent roughness realizations
+(``ROUGHNESS_NUM_REALIZATIONS``), so a full run is noticeably more expensive
+than a single solve per point -- supercells and realizations both multiply cost.
 """
 
 from __future__ import annotations
@@ -35,7 +38,15 @@ PLOTS_DIR = Path(__file__).resolve().parent / "plots_roughness_correlation"
 DEBYE_SIGMA_NM = 1.0
 RANDOM_INTERFACE_SIGMA_NM = 1.0
 RANDOM_INTERFACE_CORRELATION_LENGTHS_NM = [0.0, 1.0, 10.0, 50.0, 100.0]
-ROUGHNESS_SEED = 0
+# Base seed for the random-interface roughness ensemble. ``None`` draws real
+# entropy (a genuinely random surface each run, so results are not
+# reproducible run to run); set an explicit int to reproduce one specific
+# ensemble for debugging.
+ROUGHNESS_SEED: int | None = None
+# Number of independent roughness realizations averaged per simulated point
+# (see ``RoughnessSpec.num_realizations``). The library default (8) is
+# usually fine as-is; exposed here for visibility/override.
+ROUGHNESS_NUM_REALIZATIONS = 8
 
 # In addition to the single-period random-interface sweep above, also run the
 # same correlation-length sweep with the roughness spanning several grating
@@ -84,6 +95,7 @@ GRATING_CONFIG = dict(
     x_resolution_nm=X_RESOLUTION_NM,
     z_resolution_nm=Z_RESOLUTION_NM,
     roughness_seed=ROUGHNESS_SEED,
+    roughness_num_realizations=ROUGHNESS_NUM_REALIZATIONS,
 )
 
 

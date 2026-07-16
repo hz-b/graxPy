@@ -259,6 +259,51 @@ def test_roughness_num_supercells_only_applies_to_random_interface() -> None:
     assert no_roughness_grating._roughness_num_supercells() == 1
 
 
+def test_roughness_spec_validates_num_realizations() -> None:
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5).num_realizations == 8
+
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=0)
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=2.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="debye-waller", sigma_nm=0.5, num_realizations=3)
+
+    assert (
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=3).num_realizations == 3
+    )
+
+
+def test_roughness_spec_seed_none_resolves_to_distinct_concrete_ints() -> None:
+    first = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=None)
+    second = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=None)
+
+    assert isinstance(first.seed, int)
+    assert isinstance(second.seed, int)
+    assert first.seed != second.seed
+
+
+def test_roughness_spec_explicit_seed_is_kept_as_is() -> None:
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=7).seed == 7
+    assert RoughnessSpec(kind="debye-waller", sigma_nm=0.5, seed=0).seed == 0
+
+
+def test_roughness_spec_realization_seeds_are_deterministic_and_distinct() -> None:
+    spec = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=42, num_realizations=8)
+
+    seeds_a = spec.realization_seeds()
+    seeds_b = spec.realization_seeds()
+
+    assert len(seeds_a) == 8
+    assert seeds_a == seeds_b
+    assert len(set(seeds_a)) == 8
+
+    other_seed_spec = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=43, num_realizations=8)
+    assert spec.realization_seeds() != other_seed_spec.realization_seeds()
+
+
 def test_roughness_random_field_spans_full_supercell_as_one_continuous_field() -> None:
     grating = _build_random_interface_grating(correlation_length_nm=250.0, num_supercells=3)
     x_grid_one_period = grating._build_x_grid(num_periods=1)

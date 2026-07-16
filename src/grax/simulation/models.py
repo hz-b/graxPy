@@ -88,6 +88,10 @@ class SingleSimulationResult:
         num_supercells: Number of grating periods spanned by the roughness
             field at solve time (mirrors ``RoughnessSpec.num_supercells``);
             ``1`` when no supercell roughness was in effect.
+        num_realizations: Number of independent random-interface roughness
+            realizations averaged into this result (mirrors
+            ``RoughnessSpec.num_realizations``); ``1`` when no averaging was
+            in effect (including all Debye-Waller and no-roughness runs).
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
         retry_attempts: Number of additional retry attempts after the first run.
@@ -116,6 +120,7 @@ class SingleSimulationResult:
     fourier_orders: int
     roughness_sigma_nm: float | None = None
     num_supercells: int = 1
+    num_realizations: int = 1
     polarization: str = "s"
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
