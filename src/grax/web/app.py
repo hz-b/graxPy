@@ -675,6 +675,11 @@ def _default_form_values() -> dict[str, str]:
         "top_cap_material": "",
         "top_cap_material_density_g_cm3": "",
         "top_cap_thickness_nm": "0.0",
+        "substrate_roughness_sigma_nm": "",
+        "layer_roughness_sigma_nm": "",
+        "material_a_roughness_sigma_nm": "",
+        "material_b_roughness_sigma_nm": "",
+        "top_cap_roughness_sigma_nm": "",
     }
 
 
@@ -815,6 +820,10 @@ def _stack_spec_from_form(form: Any) -> dict[str, Any]:
             "top_material": _material_spec_from_form(form, "top_material"),
             "top_cap_material": _optional_material_spec_from_form(form, "top_cap_material"),
             "top_cap_thickness_nm": top_cap_thickness,
+            "substrate_roughness_sigma_nm": _optional_float(form, "substrate_roughness_sigma_nm"),
+            "material_a_roughness_sigma_nm": _optional_float(form, "material_a_roughness_sigma_nm"),
+            "material_b_roughness_sigma_nm": _optional_float(form, "material_b_roughness_sigma_nm"),
+            "top_cap_roughness_sigma_nm": _optional_float(form, "top_cap_roughness_sigma_nm"),
         }
     return {
         "type": "single_layer",
@@ -823,7 +832,18 @@ def _stack_spec_from_form(form: Any) -> dict[str, Any]:
         "layer_thickness_nm": float(form["layer_thickness_nm"]),
         "top_cap_material": _optional_material_spec_from_form(form, "top_cap_material"),
         "top_cap_thickness_nm": top_cap_thickness,
+        "substrate_roughness_sigma_nm": _optional_float(form, "substrate_roughness_sigma_nm"),
+        "layer_roughness_sigma_nm": _optional_float(form, "layer_roughness_sigma_nm"),
+        "top_cap_roughness_sigma_nm": _optional_float(form, "top_cap_roughness_sigma_nm"),
     }
+
+
+def _optional_float(form: Any, field_name: str) -> float | None:
+    """Return an optional float from a form field, treating blanks as unset."""
+    text = str(form.get(field_name, "")).strip()
+    if text == "":
+        return None
+    return float(text)
 
 
 def _material_spec_from_form(form: Any, field_name: str) -> dict[str, Any]:
@@ -1012,6 +1032,8 @@ def _execute_run_job(
 
     from grax import parameter_sweep, simulation
     from .resource_manager import allocate_workers, release_workers
+
+    _attach_roughness(grating, form_data)
 
     run_dir = data_dir / "runs" / run_id
 
@@ -1828,6 +1850,23 @@ def _cleanup_finished_runs(app: Any, *, retention_seconds: float = 300.0) -> Non
         ]
         for run_id in stale_ids:
             _active_runs(app).pop(run_id, None)
+
+
+def _attach_roughness(grating: Any, form_data: Any) -> None:
+    """Attach a run-time roughness kind to the grating from the run form.
+
+    The per-layer sigma magnitudes live on the grating's coating stack. The kind
+    is chosen per run; ``sigma_nm=0.0`` is the fallback for any interface left
+    unset. ``"none"`` (or blank) leaves the grating unroughened.
+    """
+
+    kind = str(form_data.get("roughness_kind", "none") or "none").strip()
+    if kind in {"none", ""}:
+        grating.roughness = None
+        return
+    from grax import RoughnessSpec
+
+    grating.roughness = RoughnessSpec(kind=kind, sigma_nm=0.0, seed=0)
 
 
 def _cases_for_workflow(

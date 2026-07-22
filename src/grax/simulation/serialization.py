@@ -157,7 +157,7 @@ def _single_result_from_record(record: dict[str, object]) -> SingleSimulationRes
     return SingleSimulationResult(
         energy_ev=float(record["energy_ev"]),
         grazing_angle_deg=float(record["grazing_angle_deg"]),
-        orders=np.asarray(record["orders"], dtype=int),
+        orders=np.asarray(record["orders"], dtype=float),
         selected_efficiency=float(record["selected_efficiency"]),
         selected_diffraction_angle_deg=float(record["selected_diffraction_angle_deg"]),
         efficiency_all=np.asarray(record["efficiency_all"], dtype=float),
@@ -349,7 +349,7 @@ def _case_result_from_record(record: dict[str, object]) -> CaseExecutionResult:
         label=None if record.get("label") is None else str(record["label"]),
         energy_ev=float(record["energy_ev"]),
         grazing_angle_deg=float(record["grazing_angle_deg"]),
-        orders=np.asarray(record.get("orders", []), dtype=int),
+        orders=np.asarray(record.get("orders", []), dtype=float),
         selected_efficiency=float(record["selected_efficiency"]),
         selected_diffraction_angle_deg=float(record["selected_diffraction_angle_deg"]),
         efficiency_all=np.asarray(record.get("efficiency_all", []), dtype=float),

@@ -58,6 +58,7 @@
       <label>Substrate density, g/cm^3
         <input name="substrate_material_density_g_cm3" type="number" step="any" value="{{ defaults.substrate_material_density_g_cm3 }}" placeholder="{{ density_placeholders['substrate_material'] }}" data-material-density="substrate_material">
       </label>
+      <label>Substrate roughness &sigma;, nm <input name="substrate_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.substrate_roughness_sigma_nm }}"></label>
     </fieldset>
 
     <fieldset>
@@ -77,6 +78,7 @@
           <input name="layer_material_density_g_cm3" type="number" step="any" value="{{ defaults.layer_material_density_g_cm3 }}" placeholder="{{ density_placeholders['layer_material'] }}" data-material-density="layer_material">
         </label>
         <label>Layer thickness, nm <input name="layer_thickness_nm" type="number" step="0.01" value="{{ defaults.layer_thickness_nm }}"></label>
+        <label>Layer roughness &sigma;, nm <input name="layer_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.layer_roughness_sigma_nm }}"></label>
       </fieldset>
 
       <fieldset data-stack-controls>
@@ -87,12 +89,14 @@
         <label>Material A density, g/cm^3
           <input name="material_a_density_g_cm3" type="number" step="any" value="{{ defaults.material_a_density_g_cm3 }}" placeholder="{{ density_placeholders['material_a'] }}" data-material-density="material_a">
         </label>
+        <label>Material A roughness &sigma;, nm <input name="material_a_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_a_roughness_sigma_nm }}"></label>
         <label>Material B
           <input name="material_b" list="material-suggestions" value="{{ defaults.material_b|default('', true) }}" data-material-select="material_b" autocomplete="off">
         </label>
         <label>Material B density, g/cm^3
           <input name="material_b_density_g_cm3" type="number" step="any" value="{{ defaults.material_b_density_g_cm3 }}" placeholder="{{ density_placeholders['material_b'] }}" data-material-density="material_b">
         </label>
+        <label>Material B roughness &sigma;, nm <input name="material_b_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_b_roughness_sigma_nm }}"></label>
         <label>Bilayer period, nm <input name="d_period_nm" type="number" step="0.01" value="{{ defaults.d_period_nm }}"></label>
         <label>Gamma <input name="gamma" type="number" step="0.01" value="{{ defaults.gamma }}"></label>
         <label>Bilayers <input name="n_bilayers" type="number" step="1" value="{{ defaults.n_bilayers }}"></label>
@@ -114,6 +118,7 @@
         <input name="top_cap_material_density_g_cm3" type="number" step="any" value="{{ defaults.top_cap_material_density_g_cm3 }}" placeholder="{{ density_placeholders['top_cap_material'] }}" data-material-density="top_cap_material">
       </label>
       <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
+      <label>Top cap roughness &sigma;, nm <input name="top_cap_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.top_cap_roughness_sigma_nm }}"></label>
     </fieldset>
     <button class="button primary" type="submit">{{ submit_label }}</button>
   </form>

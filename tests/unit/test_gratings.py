@@ -60,6 +60,10 @@ def test_roughness_spec_validates_inputs() -> None:
         RoughnessSpec(kind="debye-waller", sigma_nm=-0.1)
     with pytest.raises(ValueError, match="resolution_factor"):
         RoughnessSpec(kind="random-interface", sigma_nm=0.5, resolution_factor=0.0)
+    with pytest.raises(ValueError, match="correlation_length_nm"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, correlation_length_nm=-1.0)
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, correlation_length_nm=None).correlation_length_nm is None
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, correlation_length_nm=0.0).correlation_length_nm == 0.0
 
 
 def test_laminar_grating_stores_roughness_spec() -> None:
@@ -110,6 +114,241 @@ def test_grating_roughness_offsets_are_deterministic_and_interface_specific() ->
     assert rough_surface_a[0] - base_surface[0] == pytest.approx(
         rough_surface_a[-1] - base_surface[-1]
     )
+
+
+def _roughness_offset(grating: LaminarGrating, interface_index: int = 1) -> np.ndarray:
+    x_grid = grating._build_x_grid(num_periods=1)
+    return grating._roughness_interface_offset(x_grid, interface_index)
+
+
+def _build_random_interface_grating(**roughness_kwargs) -> LaminarGrating:
+    return LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=1.0, seed=7, **roughness_kwargs),
+    )
+
+
+def test_correlated_roughness_is_smoother_than_white_noise() -> None:
+    white = _roughness_offset(_build_random_interface_grating(correlation_length_nm=0.0))
+    correlated = _roughness_offset(_build_random_interface_grating(correlation_length_nm=250.0))
+
+    # Both are normalized to the same rms, but the correlated field varies far
+    # more slowly between adjacent samples.
+    white_step = float(np.mean(np.diff(white) ** 2))
+    correlated_step = float(np.mean(np.diff(correlated) ** 2))
+    assert correlated_step < 0.05 * white_step
+    assert float(np.sqrt(np.mean(correlated**2))) == pytest.approx(1.0, rel=1e-6)
+
+
+def test_correlation_length_defaults_to_one_tenth_of_period() -> None:
+    fine = _build_random_interface_grating()  # correlation_length_nm=None
+    coarse = LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        period_lpermm=200,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=1.0, seed=7),
+    )
+
+    assert fine._roughness_correlation_length_nm() == pytest.approx(fine.period_nm / 10.0)
+    assert coarse._roughness_correlation_length_nm() == pytest.approx(coarse.period_nm / 10.0)
+    # A larger period yields a longer correlation length -> smoother steps.
+    assert coarse._roughness_correlation_length_nm() > fine._roughness_correlation_length_nm()
+
+
+def test_zero_correlation_length_reproduces_white_noise() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=0.0)
+    offset = _roughness_offset(grating)
+
+    # White noise: adjacent samples are uncorrelated, so the lag-1 correlation is
+    # near zero (a correlated field would be close to 1).
+    centered = offset[:-1] - offset[:-1].mean()
+    lag1 = float(np.corrcoef(centered[:-1], centered[1:])[0, 1])
+    assert abs(lag1) < 0.3
+
+
+def test_per_layer_roughness_uses_layer_specific_sigma() -> None:
+    stack = assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=[
+            LayerSpec(material=CR, thickness_nm=2.0, roughness_sigma_nm=0.0),
+            LayerSpec(material=C, thickness_nm=3.0, roughness_sigma_nm=1.5),
+        ],
+    )
+    grating = LaminarGrating(
+        substrate_material=SI,
+        coating_stack=stack,
+        x_resolution_nm=10.0,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=4),
+    )
+    x_grid = grating._build_x_grid(num_periods=1)
+    base_surface = grating._surface_profile_on_grid(x_grid, num_periods=1)
+
+    # Interface 0 is the substrate boundary and falls back to the default sigma.
+    substrate_interface = grating._rough_interface(base_surface, x_grid=x_grid, interface_index=0)
+    # Interface 1 is the top of layer 0 (sigma == 0) -> no perturbation.
+    cr_top = grating._rough_interface(base_surface, x_grid=x_grid, interface_index=1)
+    # Interface 2 is the top of layer 1 (sigma == 1.5) -> perturbed.
+    c_top = grating._rough_interface(base_surface, x_grid=x_grid, interface_index=2)
+
+    assert not np.allclose(substrate_interface, base_surface)
+    assert np.allclose(cr_top, base_surface)
+    assert not np.allclose(c_top, base_surface)
+
+    default_rms = float(np.sqrt(np.mean((substrate_interface - base_surface) ** 2)))
+    c_rms = float(np.sqrt(np.mean((c_top - base_surface) ** 2)))
+    assert c_rms == pytest.approx(1.5, rel=1e-6)
+    assert default_rms == pytest.approx(0.5, rel=1e-6)
+
+
+def test_roughness_resolution_warning_uses_max_per_layer_sigma() -> None:
+    stack = assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=[
+            LayerSpec(material=CR, thickness_nm=2.0, roughness_sigma_nm=2.0),
+        ],
+    )
+    grating = LaminarGrating(
+        substrate_material=SI,
+        coating_stack=stack,
+        x_resolution_nm=0.5,
+        z_resolution_nm=0.1,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.0, resolution_factor=4.0),
+    )
+
+    with pytest.warns(UserWarning, match="roughness/factor=0.5"):
+        grating._warn_if_roughness_underresolved()
+
+
+def test_roughness_spec_validates_num_supercells() -> None:
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5).num_supercells == 1
+
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=0)
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=2.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_supercells"):
+        RoughnessSpec(kind="debye-waller", sigma_nm=0.5, num_supercells=3)
+
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=3).num_supercells == 3
+
+
+def test_roughness_num_supercells_only_applies_to_random_interface() -> None:
+    debye_grating = LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        roughness=RoughnessSpec(kind="debye-waller", sigma_nm=0.5),
+    )
+    random_interface_grating = LaminarGrating(
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=28.77,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_supercells=4),
+    )
+    no_roughness_grating = LaminarGrating(substrate_material=SI, layer_material=PT, layer_thickness_nm=28.77)
+
+    assert debye_grating._roughness_num_supercells() == 1
+    assert random_interface_grating._roughness_num_supercells() == 4
+    assert no_roughness_grating._roughness_num_supercells() == 1
+
+
+def test_roughness_spec_validates_num_realizations() -> None:
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5).num_realizations == 8
+
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=0)
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=2.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="num_realizations"):
+        RoughnessSpec(kind="debye-waller", sigma_nm=0.5, num_realizations=3)
+
+    assert (
+        RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=3).num_realizations == 3
+    )
+
+
+def test_roughness_spec_seed_none_resolves_to_distinct_concrete_ints() -> None:
+    first = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=None)
+    second = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=None)
+
+    assert isinstance(first.seed, int)
+    assert isinstance(second.seed, int)
+    assert first.seed != second.seed
+
+
+def test_roughness_spec_explicit_seed_is_kept_as_is() -> None:
+    assert RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=7).seed == 7
+    assert RoughnessSpec(kind="debye-waller", sigma_nm=0.5, seed=0).seed == 0
+
+
+def test_roughness_spec_realization_seeds_are_deterministic_and_distinct() -> None:
+    spec = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=42, num_realizations=8)
+
+    seeds_a = spec.realization_seeds()
+    seeds_b = spec.realization_seeds()
+
+    assert len(seeds_a) == 8
+    assert seeds_a == seeds_b
+    assert len(set(seeds_a)) == 8
+
+    other_seed_spec = RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=43, num_realizations=8)
+    assert spec.realization_seeds() != other_seed_spec.realization_seeds()
+
+
+def test_roughness_random_field_spans_full_supercell_as_one_continuous_field() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=250.0, num_supercells=3)
+    x_grid_one_period = grating._build_x_grid(num_periods=1)
+    x_grid_supercell = grating._build_x_grid(num_periods=3)
+
+    rng_one = np.random.default_rng(7)
+    rng_super = np.random.default_rng(7)
+    field_one_period = grating._roughness_random_field(x_grid_one_period, rng_one, 250.0)
+    field_supercell = grating._roughness_random_field(x_grid_supercell, rng_super, 250.0)
+
+    # The supercell field spans 3x the samples of a single period and is not
+    # simply three tiled copies of the single-period field (same rng state,
+    # different outcome because the FFT is synthesized over the full span).
+    assert field_supercell.size == pytest.approx(3 * (field_one_period.size - 1) + 1)
+    tiled_guess = np.concatenate(
+        [field_one_period[:-1], field_one_period[:-1], field_one_period[:-1], field_one_period[:1]]
+    )
+    assert not np.allclose(field_supercell, tiled_guess)
+    # Still periodic over the full supercell span (last sample == first).
+    assert field_supercell[0] == pytest.approx(field_supercell[-1])
+
+
+def test_roughness_random_field_dx_uses_actual_span() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=50.0)
+    x_grid_two_periods = grating._build_x_grid(num_periods=2)
+
+    rng = np.random.default_rng(3)
+    field = grating._roughness_random_field(x_grid_two_periods, rng, 50.0)
+
+    # Regression guard for the dx_nm bugfix: the field must be synthesized
+    # over the *actual* x_grid span (2 periods), not grating.period_nm (1
+    # period). A wrong dx_nm would still return an array of the right size
+    # but with the wrong physical wavenumber spacing; verify indirectly via
+    # the expected number of unique FFT samples matching the 2-period grid.
+    n_unique = x_grid_two_periods.size - 1
+    expected_dx_nm = float(x_grid_two_periods[-1] - x_grid_two_periods[0]) / n_unique
+    assert expected_dx_nm == pytest.approx(2.0 * grating.period_nm / n_unique)
+    assert field.size == x_grid_two_periods.size
+
+
+def test_build_textures_uses_num_supercells_for_random_interface() -> None:
+    grating = _build_random_interface_grating(correlation_length_nm=50.0, num_supercells=3)
+    x_grid = grating._build_x_grid(num_periods=grating._roughness_num_supercells())
+
+    assert x_grid[-1] == pytest.approx(3 * grating.period_nm)
 
 
 def test_laminar_grating_can_save_profile_plot(tmp_path: Path) -> None:

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import csv
+import dataclasses
 import importlib
 import inspect
 import logging
 import warnings
+import weakref
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext as _nullcontext
 from copy import copy
@@ -28,6 +30,11 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Above this many effective Fourier orders (fourier_orders * num_supercells),
+# warn the caller: RCWA solve cost grows worse than linearly with order
+# count, and the solver hard-caps at 100 orders (201 modes) regardless.
+_SUPERCELL_FOURIER_ORDER_WARNING_THRESHOLD = 40
 
 
 def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
@@ -55,15 +62,27 @@ def _supports_interactive_pause() -> bool:
     return "agg" not in plt.get_backend().lower()
 
 
+_shown_figures: "weakref.WeakSet[plt.Figure]" = weakref.WeakSet()
+
+
 def _refresh_interactive_figure(figure: plt.Figure, *, pause_seconds: float = 0.05) -> None:
-    """Show and refresh an interactive Matplotlib figure."""
+    """Show and refresh an interactive Matplotlib figure.
+
+    ``plt.show()`` is only invoked the first time a given figure is shown.
+    On macOS's native "macosx" backend, re-invoking it on every refresh
+    forces the window to the front (orderFront) each time, which prevents
+    the user from minimizing it or sending it behind another window.
+    """
 
     if not _supports_interactive_pause():
         figure.canvas.draw_idle()
         return
 
-    plt.figure(figure.number)
-    plt.show(block=False)
+    if figure not in _shown_figures:
+        plt.figure(figure.number)
+        plt.show(block=False)
+        _shown_figures.add(figure)
+
     figure.canvas.draw_idle()
     figure.canvas.flush_events()
     plt.pause(pause_seconds)
@@ -143,6 +162,65 @@ def _log_simulation_memory_usage(
     )
 
 
+def _run_single_realization(
+    grating: BaseGrating,
+    *,
+    energy_ev: float,
+    grazing_angle_deg: float,
+    polarization: Literal["s", "p"],
+    effective_roughness_sigma_nm: float | None,
+    num_supercells: int,
+    effective_period_nm: float,
+    effective_fourier_orders: int,
+    _memory_mode: Literal["legacy_dense", "low_memory"],
+    _profiler: SolverProfiler | None,
+    backend: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Run one full RCWA solve and return raw (orders, efficiency_all, diffraction_angle_all).
+
+    One "realization" is one concrete roughness draw (or the single
+    deterministic solve when there's no roughness/Debye-Waller roughness).
+    Averaging several realizations together is the caller's responsibility.
+    """
+
+    wavelength_nm = 1239.8 / float(energy_ev)
+    k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
+    with _profiler.record("texture_generation") if _profiler is not None else _nullcontext():
+        textures, profile = grating.build_textures(
+            float(energy_ev),
+            n_inc=1.0 + 0.0j,
+            _memory_mode=_memory_mode,
+        )
+
+    parm = res0(1 if polarization == "s" else -1)
+    aa = res1(
+        wavelength_nm,
+        effective_period_nm,
+        textures,
+        effective_fourier_orders,
+        k_parallel,
+        parm,
+        _profiler=_profiler,
+        _fourier_backend=backend,
+    )
+    ef = res2(
+        aa,
+        profile,
+        parm,
+        roughness_sigma_nm=effective_roughness_sigma_nm,
+        _profiler=_profiler,
+    )
+
+    with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
+        orders = np.asarray(ef.inc_top_reflected.order, dtype=float) / float(num_supercells)
+        all_efficiency = np.asarray(
+            np.real_if_close(ef.inc_top_reflected.efficiency),
+            dtype=float,
+        )
+        all_diffraction_angle_deg = np.asarray(90.0 - ef.inc_top_reflected.theta, dtype=float)
+    return orders, all_efficiency, all_diffraction_angle_deg
+
+
 def run_simulation(
     *,
     grating: BaseGrating,
@@ -195,7 +273,18 @@ def run_simulation(
         raise ValueError("Pass roughness either on the grating or as roughness_sigma_nm, not both.")
     effective_roughness_sigma_nm = roughness_sigma_nm
     if grating.roughness is not None and grating.roughness.kind == "debye-waller":
-        effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
+        stack = grating.resolved_stack()
+        if stack.has_per_layer_roughness():
+            # Uncorrelated interface roughness adds in quadrature, reducing the
+            # per-layer Debye-Waller damping to a single effective sigma.
+            interface_sigmas = stack.interface_roughness_sigmas_bottom_up(
+                float(grating.roughness.sigma_nm)
+            )
+            effective_roughness_sigma_nm = float(
+                np.sqrt(sum(sigma * sigma for sigma in interface_sigmas))
+            )
+        else:
+            effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
     if polarization not in {"s", "p"}:
         raise ValueError("polarization must be 's' or 'p'.")
     if _memory_mode not in {"legacy_dense", "low_memory"}:
@@ -209,47 +298,81 @@ def run_simulation(
         fourier_orders,
         _memory_mode,
     )
+    num_supercells = grating._roughness_num_supercells()
+    effective_period_nm = grating.period_nm * num_supercells
+    effective_fourier_orders = int(fourier_orders) * num_supercells
+    num_realizations = (
+        int(grating.roughness.num_realizations)
+        if grating.roughness is not None and grating.roughness.kind == "random-interface"
+        else 1
+    )
+    if effective_fourier_orders > _SUPERCELL_FOURIER_ORDER_WARNING_THRESHOLD:
+        warnings.warn(
+            f"fourier_orders={fourier_orders} with num_supercells={num_supercells} requires "
+            f"{effective_fourier_orders} effective Fourier orders. RCWA solve cost grows worse "
+            "than linearly with this count, so this combination may be very slow; consider "
+            "reducing fourier_orders or num_supercells."
+            + (
+                f" This is on top of num_realizations={num_realizations}, which multiplies the "
+                "cost again (each realization is an independent full solve)."
+                if num_realizations > 1
+                else ""
+            ),
+            UserWarning,
+            stacklevel=2,
+        )
+
     with PeakMemorySampler() as memory_sampler:
-        wavelength_nm = 1239.8 / float(energy_ev)
-        k_parallel = np.sin(np.deg2rad(90.0 - float(grazing_angle_deg)))
-        with _profiler.record("texture_generation") if _profiler is not None else _nullcontext():
-            textures, profile = grating.build_textures(
-                float(energy_ev),
-                n_inc=1.0 + 0.0j,
+        if num_realizations > 1:
+            realization_seeds = grating.roughness.realization_seeds()
+            orders: np.ndarray | None = None
+            all_diffraction_angle_deg: np.ndarray | None = None
+            efficiency_sum: np.ndarray | None = None
+            for realization_seed in realization_seeds:
+                realization_grating = copy(grating)
+                realization_grating.roughness = dataclasses.replace(
+                    grating.roughness, seed=realization_seed, num_realizations=1
+                )
+                realization_orders, realization_efficiency, realization_angle = _run_single_realization(
+                    realization_grating,
+                    energy_ev=energy_ev,
+                    grazing_angle_deg=grazing_angle_deg,
+                    polarization=polarization,
+                    effective_roughness_sigma_nm=effective_roughness_sigma_nm,
+                    num_supercells=num_supercells,
+                    effective_period_nm=effective_period_nm,
+                    effective_fourier_orders=effective_fourier_orders,
+                    _memory_mode=_memory_mode,
+                    _profiler=_profiler,
+                    backend=backend,
+                )
+                if orders is None:
+                    orders = realization_orders
+                    all_diffraction_angle_deg = realization_angle
+                    efficiency_sum = realization_efficiency
+                else:
+                    efficiency_sum = efficiency_sum + realization_efficiency
+            all_efficiency = efficiency_sum / float(num_realizations)
+        else:
+            orders, all_efficiency, all_diffraction_angle_deg = _run_single_realization(
+                grating,
+                energy_ev=energy_ev,
+                grazing_angle_deg=grazing_angle_deg,
+                polarization=polarization,
+                effective_roughness_sigma_nm=effective_roughness_sigma_nm,
+                num_supercells=num_supercells,
+                effective_period_nm=effective_period_nm,
+                effective_fourier_orders=effective_fourier_orders,
                 _memory_mode=_memory_mode,
+                _profiler=_profiler,
+                backend=backend,
             )
 
-        parm = res0(1 if polarization == "s" else -1)
-        aa = res1(
-            wavelength_nm,
-            grating.period_nm,
-            textures,
-            int(fourier_orders),
-            k_parallel,
-            parm,
-            _profiler=_profiler,
-            _fourier_backend=backend,
-        )
-        ef = res2(
-            aa,
-            profile,
-            parm,
-            roughness_sigma_nm=effective_roughness_sigma_nm,
-            _profiler=_profiler,
-        )
+        order_index = np.where(np.isclose(orders, -float(diffraction_order)))[0]
+        if len(order_index) != 1:
+            raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
+        idx = int(order_index[0])
 
-        with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
-            order_index = np.where(ef.inc_top_reflected.order == -int(diffraction_order))[0]
-            if len(order_index) != 1:
-                raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
-            idx = int(order_index[0])
-
-            orders = np.asarray(ef.inc_top_reflected.order, dtype=int)
-            all_efficiency = np.asarray(
-                np.real_if_close(ef.inc_top_reflected.efficiency),
-                dtype=float,
-            )
-            all_diffraction_angle_deg = np.asarray(90.0 - ef.inc_top_reflected.theta, dtype=float)
         if validate_physical_results:
             _validate_reflected_efficiencies(
                 photon_energy_ev=float(energy_ev),
@@ -269,13 +392,15 @@ def run_simulation(
             energy_ev=float(energy_ev),
             grazing_angle_deg=float(grazing_angle_deg),
             orders=orders,
-            selected_efficiency=float(np.real_if_close(ef.inc_top_reflected.efficiency[idx])),
-            selected_diffraction_angle_deg=float(90.0 - ef.inc_top_reflected.theta[idx]),
+            selected_efficiency=float(all_efficiency[idx]),
+            selected_diffraction_angle_deg=float(all_diffraction_angle_deg[idx]),
             efficiency_all=all_efficiency,
             diffraction_angle_all=all_diffraction_angle_deg,
             diffraction_order=int(diffraction_order),
             fourier_orders=int(fourier_orders),
             roughness_sigma_nm=effective_roughness_sigma_nm,
+            num_supercells=num_supercells,
+            num_realizations=num_realizations,
             polarization=polarization,
         )
 
@@ -360,9 +485,9 @@ def efficiency_for_order(
         Efficiency for the requested order, or ``nan`` if absent.
     """
 
-    orders_array = np.asarray(orders, dtype=int)
+    orders_array = np.asarray(orders, dtype=float)
     efficiency_array = np.asarray(efficiency_all, dtype=float)
-    order_index = np.where(orders_array == -diffraction_order)[0]
+    order_index = np.where(np.isclose(orders_array, -diffraction_order))[0]
     if order_index.size == 0:
         return float("nan")
     return float(efficiency_array[int(order_index[0])])
@@ -425,16 +550,18 @@ def write_all_orders_csv(
             if result.status != "ok":
                 continue
             for order, efficiency, angle in zip(
-                np.asarray(result.orders, dtype=int),
+                np.asarray(result.orders, dtype=float),
                 np.asarray(result.efficiency_all, dtype=float),
                 np.asarray(result.diffraction_angle_all, dtype=float),
             ):
+                order_value = float(order)
+                order_cell = int(order_value) if order_value.is_integer() else order_value
                 writer.writerow(
                     [
                         result.case_id,
                         float(result.energy_ev),
                         float(result.grazing_angle_deg),
-                        int(order),
+                        order_cell,
                         float(efficiency),
                         float(angle),
                     ]
@@ -578,7 +705,7 @@ class RCWASimulation:
             )
             for energy in energies
         ]
-        orders = single_results[0].orders if single_results else np.asarray([], dtype=int)
+        orders = single_results[0].orders if single_results else np.asarray([], dtype=float)
         for result in single_results[1:]:
             if not np.array_equal(orders, result.orders):
                 raise ValueError("Diffraction orders changed between energy points.")

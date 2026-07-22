@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+- `random-interface` roughness is now a correlated Gaussian random field (Gaussian autocorrelation) instead of per-sample white noise. `grax.RoughnessSpec` gains `correlation_length_nm`: the lateral autocorrelation length in nanometers, defaulting to one tenth of the grating period (`0.0` reproduces the previous white-noise interface). This produces physically smooth interfaces; long correlation lengths (much larger than the grating period) wash out geometrically and are better modelled by the `debye-waller` kind.
+- Added per-layer roughness: `LayerSpec` accepts `roughness_sigma_nm`, and `SingleLayerStack`/`MultilayerStack`/`CustomStack` expose per-layer/per-material roughness arguments (plus a `substrate_roughness_sigma_nm` for the substrate boundary). Each value sets the roughness of that interface, falling back to the grating-level `RoughnessSpec.sigma_nm` when unset. `random-interface` perturbs each interface with its own sigma; per-layer `debye-waller` sigmas combine in quadrature into an effective damping.
+- Web UI: the grating form now has a roughness sigma field for the substrate, each coating layer/material, and the top cap (persisted with the grating, schema v2). The run form has a roughness-kind dropdown (None / Debye-Waller / Random interface) that selects the model applied at run time.
+- Fixed `live_plot` batch runs raising/re-focusing the plot window on every simulation point on macOS, which made the window impossible to minimize or send behind another app. The interactive figure is now only shown once (via `plt.show()`) and subsequently just redrawn in place.
+- Fixed macOS batch runs crashing or exhausting memory on larger supercell counts: multiprocessing workers now use the `spawn` start method on macOS (`fork` is unsafe once native BLAS/Numba/Cocoa state has been initialized in the parent), and `auto` worker-count calibration now sizes from each solve's peak RSS high-water mark instead of only its steady-state RSS, which understated the transient memory a large-supercell solve actually needs.
+
 ## 0.4.7 - 2026-07-15
 - Added a grating-level `"random-interface"` roughness kind to `grax.RoughnessSpec` as an alternative to solver-level Debye-Waller roughness, applying independent stochastic offsets per multilayer interface instead of a single analytic damping factor.
 - Updated the fixed-angle roughness example, comparison script, and tutorial docs to cover both roughness kinds, including new per-sigma grating close-up previews and refreshed comparison artifacts.

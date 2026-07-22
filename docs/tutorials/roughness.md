@@ -57,6 +57,70 @@ applied for this mode:
 roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=0)
 ```
 
+### Correlation length
+
+The random interface is a **Gaussian random field with a Gaussian
+autocorrelation**, `C(τ) = σ²·exp(−τ²/2ξ²)`, rather than uncorrelated white
+noise. The lateral autocorrelation length `ξ` is set by `correlation_length_nm`:
+
+```python
+roughness=grax.RoughnessSpec(
+    kind="random-interface", sigma_nm=0.5, seed=0, correlation_length_nm=250.0
+)
+```
+
+- **`None` (default)** — the correlation length defaults to one tenth of the
+  grating period, which keeps a visible, physical per-period undulation at any
+  pitch.
+- **`0.0`** — reproduces the legacy uncorrelated (per-sample white-noise)
+  interface.
+- **`> 0`** — an explicit correlation length in nanometers.
+
+Real metrology (e.g. an interferometer surface slice after Zernike removal)
+shows correlation lengths of order **~10 µm**. On fine-pitch gratings (period
+≈ 2.5 µm) such long correlations wash out geometrically — a roughness whose
+correlation length exceeds the grating period reduces to a near-constant height
+offset in single-period RCWA — so that long-scale regime is better represented
+by the `debye-waller` kind.
+
+## Per-layer roughness
+
+Both roughness models can be configured **per layer** instead of using a single
+grating-wide sigma. The value attached to a layer is the roughness of that
+layer's *top* interface; the substrate boundary and any layer without an
+explicit value fall back to the grating-level `RoughnessSpec.sigma_nm`. The
+`kind`, `seed`, and `resolution_factor` stay grating-global.
+
+For a `CustomStack`, set `roughness_sigma_nm` on each `LayerSpec`:
+
+```python
+from grax.stacks import LayerSpec, assemble_custom_stack
+
+stack = assemble_custom_stack(
+    substrate_material="Si",
+    layers_bottom_up=[
+        LayerSpec(material="Cr", thickness_nm=2.0, roughness_sigma_nm=0.5),
+        LayerSpec(material="C", thickness_nm=3.0, roughness_sigma_nm=1.0),
+    ],
+)
+grating = grax.LaminarGrating(
+    substrate_material="Si",
+    coating_stack=stack,
+    roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.0, seed=0),
+)
+```
+
+The built-in stacks expose equivalent per-layer arguments:
+`SingleLayerStack` accepts `layer_roughness_sigma_nm` /
+`top_cap_roughness_sigma_nm`, and `MultilayerStack` accepts
+`material_a_roughness_sigma_nm`, `material_b_roughness_sigma_nm`, and
+`top_cap_roughness_sigma_nm`.
+
+For `random-interface`, each interface is perturbed by its own sigma. For
+`debye-waller`, uncorrelated interfaces add in quadrature, so the per-layer
+sigmas reduce to an effective scalar
+`sigma_eff = sqrt(sum(sigma_i**2))` before damping is applied.
+
 The example plot below compares the no-roughness baseline with both roughness
 implementations at the configured sigma values.
 

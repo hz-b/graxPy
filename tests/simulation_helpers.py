@@ -25,7 +25,7 @@ AU = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Au_cxro.txt", "Au")
 EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "single_simulation" / "single_simulation.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_sweep" / "fixed_angle_sweep.py",
-    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_roughness" / "fixed_angle_roughness.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_roughness" / "roughness_kind_comparison.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "monochromator_sweep" / "monochromator_sweep.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "energy_angle_sweep" / "energy_angle_sweep.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",

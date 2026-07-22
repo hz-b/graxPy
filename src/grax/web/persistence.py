@@ -15,7 +15,7 @@ from grax.stacks import MultilayerStack, SingleLayerStack
 
 from .materials import OpticalConstantsTable, load_material_catalog
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class GratingStore:
@@ -133,15 +133,36 @@ def build_grating_from_spec(
             top_material=_material(stack_spec["top_material"], field_name="top_material"),
             top_cap_material=_optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material"),
             top_cap_thickness_nm=float(stack_spec.get("top_cap_thickness_nm", 0.0)),
+            substrate_roughness_sigma_nm=_optional_sigma(stack_spec.get("substrate_roughness_sigma_nm")),
+            material_a_roughness_sigma_nm=_optional_sigma(stack_spec.get("material_a_roughness_sigma_nm")),
+            material_b_roughness_sigma_nm=_optional_sigma(stack_spec.get("material_b_roughness_sigma_nm")),
+            top_cap_roughness_sigma_nm=_optional_sigma(stack_spec.get("top_cap_roughness_sigma_nm")),
         )
     else:
+        substrate_material = _material(stack_spec["substrate_material"], field_name="substrate_material")
+        layer_material = _material(stack_spec["layer_material"], field_name="layer_material")
+        layer_thickness_nm = float(stack_spec["layer_thickness_nm"])
+        top_cap_material = _optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material")
+        top_cap_thickness_nm = float(stack_spec.get("top_cap_thickness_nm", 0.0))
+        # Keep the individual grating fields (for direct attribute reads) and
+        # also attach a coating stack so per-interface roughness is carried.
         common.update(
             {
-                "substrate_material": _material(stack_spec["substrate_material"], field_name="substrate_material"),
-                "layer_material": _material(stack_spec["layer_material"], field_name="layer_material"),
-                "layer_thickness_nm": float(stack_spec["layer_thickness_nm"]),
-                "top_cap_material": _optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material"),
-                "top_cap_thickness_nm": float(stack_spec.get("top_cap_thickness_nm", 0.0)),
+                "substrate_material": substrate_material,
+                "layer_material": layer_material,
+                "layer_thickness_nm": layer_thickness_nm,
+                "top_cap_material": top_cap_material,
+                "top_cap_thickness_nm": top_cap_thickness_nm,
+                "coating_stack": SingleLayerStack(
+                    substrate_material=substrate_material,
+                    layer_material=layer_material,
+                    layer_thickness_nm=layer_thickness_nm,
+                    top_cap_material=top_cap_material,
+                    top_cap_thickness_nm=top_cap_thickness_nm,
+                    substrate_roughness_sigma_nm=_optional_sigma(stack_spec.get("substrate_roughness_sigma_nm")),
+                    layer_roughness_sigma_nm=_optional_sigma(stack_spec.get("layer_roughness_sigma_nm")),
+                    top_cap_roughness_sigma_nm=_optional_sigma(stack_spec.get("top_cap_roughness_sigma_nm")),
+                ),
             }
         )
 
@@ -178,6 +199,10 @@ def _stack_to_spec(grating: BaseGrating) -> dict[str, Any]:
             "top_material": _material_to_spec(stack.top_material),
             "top_cap_material": _optional_material_to_spec(stack.top_cap_material),
             "top_cap_thickness_nm": stack.top_cap_thickness_nm,
+            "substrate_roughness_sigma_nm": stack.substrate_roughness_sigma_nm,
+            "material_a_roughness_sigma_nm": stack.material_a_roughness_sigma_nm,
+            "material_b_roughness_sigma_nm": stack.material_b_roughness_sigma_nm,
+            "top_cap_roughness_sigma_nm": stack.top_cap_roughness_sigma_nm,
         }
     stack = grating.resolved_stack()
     if not isinstance(stack, SingleLayerStack):
@@ -189,6 +214,9 @@ def _stack_to_spec(grating: BaseGrating) -> dict[str, Any]:
         "layer_thickness_nm": stack.layer_thickness_nm,
         "top_cap_material": _optional_material_to_spec(stack.top_cap_material),
         "top_cap_thickness_nm": stack.top_cap_thickness_nm,
+        "substrate_roughness_sigma_nm": stack.substrate_roughness_sigma_nm,
+        "layer_roughness_sigma_nm": stack.layer_roughness_sigma_nm,
+        "top_cap_roughness_sigma_nm": stack.top_cap_roughness_sigma_nm,
     }
 
 
@@ -208,6 +236,13 @@ def _optional_material(
     if key in (None, ""):
         return None
     return _material(key, field_name=field_name)
+
+
+def _optional_sigma(value: Any) -> float | None:
+    """Return an optional roughness sigma from a serialized spec value."""
+    if value in (None, ""):
+        return None
+    return float(value)
 
 
 def _material_from_spec_value(value: Any) -> Any:
