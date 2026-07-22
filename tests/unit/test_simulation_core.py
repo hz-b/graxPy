@@ -860,7 +860,26 @@ def test_batch_runner_auto_workers_calibration_respects_memory_limit(
     monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_RESERVE_BYTES", 2 * 1024**3)
     monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_SAFETY_FACTOR", 1.0)
     monkeypatch.setattr(simulation_module, "_current_process_memory_bytes", lambda: 3 * 1024**3)
+    monkeypatch.setattr(simulation_module, "_peak_process_memory_bytes", lambda: 1 * 1024**3)
 
+    assert simulation_module._calibrate_auto_max_workers_from_result(
+        pending_case_count=10,
+        available_memory_bytes=8 * 1024**3,
+    ) == 2
+
+
+def test_batch_runner_auto_workers_calibration_uses_peak_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When the per-solve peak RSS exceeds the steady-state RSS, the peak must
+    # drive worker sizing so large-supercell solves do not oversubscribe RAM.
+    monkeypatch.setattr(simulation_module.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_RESERVE_BYTES", 2 * 1024**3)
+    monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_SAFETY_FACTOR", 1.0)
+    monkeypatch.setattr(simulation_module, "_current_process_memory_bytes", lambda: 1 * 1024**3)
+    monkeypatch.setattr(simulation_module, "_peak_process_memory_bytes", lambda: 3 * 1024**3)
+
+    # usable = 8 - 2 = 6 GiB; 6 // 3 (peak) = 2, not 6 // 1 (steady) = 6.
     assert simulation_module._calibrate_auto_max_workers_from_result(
         pending_case_count=10,
         available_memory_bytes=8 * 1024**3,
@@ -872,6 +891,7 @@ def test_batch_runner_auto_workers_calibration_falls_back_to_cpu_limit(
 ) -> None:
     monkeypatch.setattr(simulation_module.os, "cpu_count", lambda: 16)
     monkeypatch.setattr(simulation_module, "_current_process_memory_bytes", lambda: None)
+    monkeypatch.setattr(simulation_module, "_peak_process_memory_bytes", lambda: None)
 
     assert simulation_module._calibrate_auto_max_workers_from_result(
         pending_case_count=10,

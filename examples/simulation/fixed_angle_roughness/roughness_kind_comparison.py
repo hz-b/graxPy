@@ -47,7 +47,7 @@ CENTRAL_ENERGY_EV: float | None = None
 # a fixed sigma.
 DEBYE_SIGMA_NM = 1.0
 RANDOM_INTERFACE_SIGMA_NM = 1.0
-RANDOM_INTERFACE_NUM_SUPERCELLS = [1, 3]
+RANDOM_INTERFACE_NUM_SUPERCELLS = [10] # [1, 5, 10]
 # Base seed for the random-interface roughness ensemble. ``None`` draws real
 # entropy (a genuinely random surface each run, so results are not
 # reproducible run to run); set an explicit int to reproduce one specific
@@ -72,7 +72,7 @@ FOURIER_ORDERS = 20
 # cost scales with fourier_orders * num_supercells (and the solver hard-caps
 # around 100 effective orders), so this is set low enough that even the
 # largest supercell count here stays well within that limit.
-SUPERCELL_FOURIER_ORDERS = 10
+SUPERCELL_FOURIER_ORDERS = 20
 MAX_WORKERS = "auto"
 BACKEND = "numba"
 
@@ -201,9 +201,7 @@ def main() -> None:
             default_diffraction_order=DIFFRACTION_ORDER,
             default_fourier_orders=fourier_orders,
             show_progress=True,
-            live_plot=True,
-            live_plot_x_key="energy_ev",
-            live_plot_order_count=1,
+            live_plot=False,
             on_error="continue",
             max_workers=MAX_WORKERS,
             backend=BACKEND,

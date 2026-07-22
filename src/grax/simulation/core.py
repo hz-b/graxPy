@@ -8,6 +8,7 @@ import importlib
 import inspect
 import logging
 import warnings
+import weakref
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext as _nullcontext
 from copy import copy
@@ -61,15 +62,27 @@ def _supports_interactive_pause() -> bool:
     return "agg" not in plt.get_backend().lower()
 
 
+_shown_figures: "weakref.WeakSet[plt.Figure]" = weakref.WeakSet()
+
+
 def _refresh_interactive_figure(figure: plt.Figure, *, pause_seconds: float = 0.05) -> None:
-    """Show and refresh an interactive Matplotlib figure."""
+    """Show and refresh an interactive Matplotlib figure.
+
+    ``plt.show()`` is only invoked the first time a given figure is shown.
+    On macOS's native "macosx" backend, re-invoking it on every refresh
+    forces the window to the front (orderFront) each time, which prevents
+    the user from minimizing it or sending it behind another window.
+    """
 
     if not _supports_interactive_pause():
         figure.canvas.draw_idle()
         return
 
-    plt.figure(figure.number)
-    plt.show(block=False)
+    if figure not in _shown_figures:
+        plt.figure(figure.number)
+        plt.show(block=False)
+        _shown_figures.add(figure)
+
     figure.canvas.draw_idle()
     figure.canvas.flush_events()
     plt.pause(pause_seconds)

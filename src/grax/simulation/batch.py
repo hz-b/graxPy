@@ -396,9 +396,18 @@ def _available_memory_bytes() -> int | None:
 
 
 def _multiprocessing_start_method() -> str:
-    """Return the platform-appropriate multiprocessing start method."""
+    """Return the platform-appropriate multiprocessing start method.
 
-    return "spawn" if sys.platform.startswith("win") else "fork"
+    Uses ``"spawn"`` everywhere except Linux. On macOS ``"fork"`` is unsafe:
+    forking a parent that has already initialized non-fork-safe native state
+    (Accelerate/BLAS, Numba, and especially a Tk/Cocoa live-plot window)
+    segfaults the child, which is what crashed larger supercell runs. ``"fork"``
+    is kept only on Linux, where it is safe and faster to start.
+    """
+
+    if sys.platform.startswith("win") or sys.platform == "darwin":
+        return "spawn"
+    return "fork"
 
 
 def _worker_initializer() -> None:
@@ -463,6 +472,29 @@ def _current_process_memory_bytes() -> int | None:
     return None
 
 
+def _peak_process_memory_bytes() -> int | None:
+    """Return the process's lifetime peak RSS (high-water mark) in bytes.
+
+    Unlike :func:`_current_process_memory_bytes` (a point-in-time reading), this
+    captures the transient high-water mark reached during a solve -- including
+    NumPy/BLAS/Numba native allocations that ``tracemalloc`` does not see. That
+    peak is what each spawned worker actually needs, and it grows with supercell
+    count, so it is the right basis for sizing ``auto`` workers. Returns ``None``
+    on platforms where it cannot be determined (e.g. Windows).
+    """
+
+    try:
+        import resource  # Unix-only (macOS, Linux); absent on Windows.
+
+        max_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except Exception:
+        return None
+    # ``ru_maxrss`` is in bytes on macOS but in kibibytes on Linux.
+    if sys.platform == "darwin":
+        return max_rss
+    return max_rss * 1024
+
+
 def _calibrate_auto_max_workers_from_result(
     *,
     pending_case_count: int,
@@ -474,9 +506,16 @@ def _calibrate_auto_max_workers_from_result(
     if pending_case_count <= 1 or available_memory_bytes is None:
         return cpu_limited_workers
 
-    measured_memory = _current_process_memory_bytes()
-    if measured_memory is None:
+    # Size workers from the per-solve peak RSS when available, falling back to the
+    # current RSS. Steady-state RSS understates a solve's transient high-water
+    # mark, which grows with supercell count; oversubscribing on that stale
+    # figure is what let large-supercell runs exhaust RAM.
+    current_memory = _current_process_memory_bytes()
+    peak_memory = _peak_process_memory_bytes()
+    candidate_bytes = [value for value in (current_memory, peak_memory) if value is not None]
+    if not candidate_bytes:
         return cpu_limited_workers
+    measured_memory = max(candidate_bytes)
 
     per_worker_memory = max(int(measured_memory * AUTO_WORKER_MEMORY_SAFETY_FACTOR), 1)
     usable_memory = max(available_memory_bytes - AUTO_WORKER_MEMORY_RESERVE_BYTES, 0)
@@ -968,9 +1007,10 @@ class BatchSimulationRunner:
             (not necessarily the same as input order).
 
         Note:
-            Uses multiprocessing with spawn start method for cross-platform
-            compatibility. Workers are automatically calibrated based on
-            available memory.
+            Uses multiprocessing with the platform-appropriate start method
+            (``spawn`` on macOS and Windows, ``fork`` on Linux; see
+            ``_multiprocessing_start_method``). Workers are automatically
+            calibrated based on available memory.
         """
 
         context = mp.get_context(_multiprocessing_start_method())

@@ -15,9 +15,17 @@ _FILENAME_RE = re.compile(
 
 _SUPERCELL_COLORS = {
     1: "tab:orange",
+    3: "tab:blue",
     5: "tab:green",
     10: "tab:red",
 }
+
+# Supercell counts the comparison plot always attempts for random-interface
+# roughness, independent of whatever ``RANDOM_INTERFACE_NUM_SUPERCELLS`` is
+# currently set to in ``roughness_kind_comparison.py`` (that config only
+# controls what a given run computes, not what this plot should show). Counts
+# with no saved CSV yet are silently skipped.
+RANDOM_INTERFACE_SUPERCELLS_TO_PLOT = [1, 3, 5, 10]
 
 
 def _parse_csv_path(path: Path) -> tuple[str, float, int]:
@@ -66,21 +74,35 @@ def _sort_key(path: Path) -> tuple[int, int]:
 
 
 def _current_roughness_csv_paths(results_dir: Path) -> list[Path]:
-    """Return only CSV outputs for runs ``roughness_kind_comparison.py`` currently defines.
+    """Return CSV outputs for the runs this comparison plot expects.
 
     Deferred import avoids a circular import (that script imports
-    ``plot_roughness_comparison`` from this module). Filtering against its
-    current config -- rather than globbing every matching filename in the
-    results directory -- keeps this plot from picking up stale CSVs left
-    over from an older sigma/supercell sweep.
+    ``plot_roughness_comparison`` from this module). Baseline and Debye-Waller
+    are supercell-independent, so those come from the script's current config
+    (their sigma there is stable). Random-interface always tries every count
+    in ``RANDOM_INTERFACE_SUPERCELLS_TO_PLOT`` (1, 3, 5, 10) regardless of what
+    ``RANDOM_INTERFACE_NUM_SUPERCELLS`` currently computes -- a run that only
+    swept one or two of those counts still gets its curves plotted, and counts
+    with no saved CSV are silently skipped rather than raising.
     """
     import roughness_kind_comparison as _script
 
-    expected_paths = {
-        _script.csv_path(results_dir, roughness_kind, roughness_sigma_nm, num_supercells)
+    expected_runs = {
+        (roughness_kind, roughness_sigma_nm, num_supercells)
         for roughness_kind, roughness_sigma_nm, num_supercells in _script._simulation_runs(
             families=_script.FAMILIES
         )
+        if roughness_kind != "random-interface"
+    }
+    if "random-interface" in _script.FAMILIES:
+        expected_runs.update(
+            ("random-interface", _script.RANDOM_INTERFACE_SIGMA_NM, num_supercells)
+            for num_supercells in RANDOM_INTERFACE_SUPERCELLS_TO_PLOT
+        )
+
+    expected_paths = {
+        _script.csv_path(results_dir, roughness_kind, roughness_sigma_nm, num_supercells)
+        for roughness_kind, roughness_sigma_nm, num_supercells in expected_runs
     }
     return sorted((path for path in expected_paths if path.exists()), key=_sort_key)
 
