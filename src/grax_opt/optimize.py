@@ -416,6 +416,10 @@ def _save_loss_history_plot(
     axis.plot(trial_indices, running_best, "s-", linewidth=1.0, label="Running best")
     if np.any(positive_mask) and np.any(positive_running_best):
         axis.set_yscale("log")
+    if losses.size > 0 and np.isfinite(losses[0]) and losses[0] > 0.0:
+        outlier_ceiling = float(losses[0]) * 10.0
+        if np.any(losses[np.isfinite(losses)] > outlier_ceiling):
+            axis.set_ylim(top=outlier_ceiling)
     if stopped_early and trial_indices.size > 0:
         stop_trial_index = float(trial_indices[-1])
         axis.axvline(
