@@ -128,19 +128,20 @@ class AngleMeasurementSpec:
             raise ValueError("Each joint measurement requires 'grazing_angle_deg'.")
         if "measurement_path" not in spec:
             raise ValueError("Each joint measurement requires 'measurement_path'.")
+        evaluation_energies_ev = spec.pop("evaluation_energies_ev", None)
+        measurement_efficiency = spec.pop("measurement_efficiency", None)
         instance = cls(
             grazing_angle_deg=float(spec.pop("grazing_angle_deg")),
             measurement_path=Path(spec.pop("measurement_path")),  # type: ignore[arg-type]
-            evaluation_energies_ev=list(spec.pop("evaluation_energies_ev", []) or []),
+            evaluation_energies_ev=(
+                [] if evaluation_energies_ev is None else list(evaluation_energies_ev)
+            ),
             measurement_efficiency=(
-                None
-                if spec.get("measurement_efficiency") is None
-                else list(spec.pop("measurement_efficiency"))  # type: ignore[arg-type]
+                None if measurement_efficiency is None else list(measurement_efficiency)
             ),
             weight=float(spec.pop("weight", 1.0)),
             label=spec.pop("label", None),  # type: ignore[arg-type]
         )
-        spec.pop("measurement_efficiency", None)
         if spec:
             raise ValueError(f"Unexpected joint measurement keys: {sorted(spec)}")
         return instance

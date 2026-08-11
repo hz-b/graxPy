@@ -158,6 +158,31 @@ def test_angle_measurement_spec_rejects_mismatched_efficiency_length(tmp_path: P
         )
 
 
+def test_angle_measurement_spec_from_mapping_accepts_numpy_arrays(tmp_path: Path) -> None:
+    spec = AngleMeasurementSpec.from_mapping(
+        {
+            "grazing_angle_deg": 1.0,
+            "measurement_path": tmp_path / "m.dat",
+            "evaluation_energies_ev": np.array([100.0, 200.0]),
+            "measurement_efficiency": np.array([0.1, 0.2]),
+        }
+    )
+
+    assert spec.evaluation_energies_ev == [100.0, 200.0]
+    assert spec.measurement_efficiency == [0.1, 0.2]
+
+
+def test_angle_measurement_spec_from_mapping_rejects_unexpected_keys(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unexpected joint measurement keys"):
+        AngleMeasurementSpec.from_mapping(
+            {
+                "grazing_angle_deg": 1.0,
+                "measurement_path": tmp_path / "m.dat",
+                "not_a_real_key": 1,
+            }
+        )
+
+
 def test_joint_config_rejects_empty_measurements(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="measurements must be provided and non-empty"):
         JointMeasurementFitConfig(
