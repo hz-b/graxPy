@@ -180,9 +180,30 @@ Written files in `output_dir`:
 `best_result.json` also records optimizer worker metadata, including the
 requested and resolved `max_workers` values.
 
+## Joint multi-angle fits
+
+To fit one parameter set against several measured curves taken at different
+grazing angles, use `grax_opt.optimize_to_joint_measurements` instead. Each
+angle keeps its own measurement file and energy grid, and the per-angle losses
+are combined into a single objective. See {doc}`optimizer-joint-angles`.
+
+## Resume a run
+
+Optimizer runs are checkpointed, so an interrupted run can be continued and a
+finished run can be extended by raising `total_trials` and setting
+`resume=True`. Additional spec keys:
+
+- `resume`: read an existing checkpoint before starting (default `False`).
+- `checkpoint_dir`: checkpoint location (default `output_dir/checkpoint`).
+- `checkpoint_interval`: trials between checkpoint flushes (default `1`).
+
+`total_trials` is cumulative across resumed runs. See {doc}`optimizer-resume`.
+
 ```{toctree}
 :maxdepth: 1
 
 optimizer-laminar-fit
 optimizer-blazed-fit
+optimizer-joint-angles
+optimizer-resume
 ```
