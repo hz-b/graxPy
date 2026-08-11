@@ -8,7 +8,13 @@ from .dynamic import (
     optimize_to_measurements as _optimize_to_measurements,
     resolve_measurement_fit_trial_parameters,
 )
-from .objective import build_evaluation_measurement, evaluate_trial
+from .joint import (
+    AngleMeasurementSpec,
+    JointMeasurementFitConfig,
+    JointOptimizationResult,
+    optimize_to_joint_measurements as _optimize_to_joint_measurements,
+)
+from .objective import build_evaluation_measurement, evaluate_trial, reduce_joint_losses
 from .optimize import OptimizationResult, TrialRecord, json_safe_grating_parameters
 
 def optimize_to_measurements(config):
@@ -24,7 +30,26 @@ def optimize_to_measurements(config):
     return _optimize_to_measurements(config)
 
 
+def optimize_to_joint_measurements(config):
+    """Fit one parameter set jointly against several measured curves.
+
+    Each measurement is recorded at its own fixed grazing angle and keeps its
+    own energy grid.
+
+    Args:
+        config: Spec mapping describing the joint optimization run.
+
+    Returns:
+        JointOptimizationResult: Result bundle with persisted artifacts.
+    """
+
+    return _optimize_to_joint_measurements(config)
+
+
 __all__ = [
+    "AngleMeasurementSpec",
+    "JointMeasurementFitConfig",
+    "JointOptimizationResult",
     "MeasurementFitConfig",
     "MeasurementData",
     "OptimizationResult",
@@ -36,6 +61,8 @@ __all__ = [
     "json_safe_grating_parameters",
     "load_measurement_data",
     "sample_measurement_data",
+    "optimize_to_joint_measurements",
     "optimize_to_measurements",
+    "reduce_joint_losses",
     "resolve_measurement_fit_trial_parameters",
 ]
