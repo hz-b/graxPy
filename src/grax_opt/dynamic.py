@@ -588,8 +588,34 @@ def _persist_measurement_fit_optimizer_artifacts(
     backend_effective: str,
     optimizer_requested_max_workers: int | str | None,
     optimizer_resolved_max_workers: int,
+    best_simulated_efficiency: np.ndarray | None = None,
+    write_heavy_artifacts: bool = True,
 ) -> tuple[Path, Path, Path | None, Path | None]:
-    """Persist measurement-fit optimizer artifacts and return their paths."""
+    """Persist measurement-fit optimizer artifacts and return their paths.
+
+    Args:
+        config: Measurement-fit configuration for the run.
+        evaluation_measurement: Measurement sampled onto the evaluation grid.
+        best_parameters: Best free parameters found so far.
+        best_grating_parameters: Best resolved grating parameters.
+        best_solver_parameters: Best resolved solver parameters.
+        best_loss: Best objective value found so far.
+        trial_records: Completed trial records.
+        stopped_early: Whether early stopping ended the run.
+        completed_trials: Number of trials successfully evaluated.
+        early_stop_reason: Human-readable early-stopping reason, or ``None``.
+        backend_requested: Backend requested by the caller.
+        backend_effective: Backend actually used.
+        optimizer_requested_max_workers: Worker count requested by the caller.
+        optimizer_resolved_max_workers: Worker count actually used.
+        best_simulated_efficiency: Cached best-fit curve. When ``None`` the
+            curve is re-simulated so the plot can still be written.
+        write_heavy_artifacts: Whether to rewrite the plots.
+
+    Returns:
+        Paths to the JSON summary, trial-history CSV, best-fit plot, and
+        loss-history plot. Optional paths are ``None`` when disabled.
+    """
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     result_json_path = config.output_dir / "best_result.json"
@@ -618,26 +644,28 @@ def _persist_measurement_fit_optimizer_artifacts(
         output_path=result_json_path,
     )
     _write_trial_history_csv(trial_records, trial_history_csv_path)
-    if best_fit_plot_path is not None:
-        simulated_efficiency = simulate_efficiency_curve(
-            config,
-            best_parameters,
-            evaluation_measurement,
-            backend=backend_effective,
-            build_grating_fn=lambda trial_parameters: config.build_grating(
-                resolve_measurement_fit_trial_parameters(config, trial_parameters)
-            ),
-            resolve_solver_parameters_fn=lambda trial_parameters: _resolve_measurement_fit_solver_parameters(
+    if best_fit_plot_path is not None and write_heavy_artifacts and best_parameters:
+        simulated_efficiency = best_simulated_efficiency
+        if simulated_efficiency is None:
+            simulated_efficiency = simulate_efficiency_curve(
                 config,
-                resolve_measurement_fit_trial_parameters(config, trial_parameters),
-            ),
-        )
+                best_parameters,
+                evaluation_measurement,
+                backend=backend_effective,
+                build_grating_fn=lambda trial_parameters: config.build_grating(
+                    resolve_measurement_fit_trial_parameters(config, trial_parameters)
+                ),
+                resolve_solver_parameters_fn=lambda trial_parameters: _resolve_measurement_fit_solver_parameters(
+                    config,
+                    resolve_measurement_fit_trial_parameters(config, trial_parameters),
+                ),
+            )
         _save_best_fit_plot(
             measurement=evaluation_measurement,
             simulated_efficiency=simulated_efficiency,
             output_path=best_fit_plot_path,
         )
-    if loss_history_plot_path is not None:
+    if loss_history_plot_path is not None and write_heavy_artifacts and trial_records:
         _save_loss_history_plot(
             trial_records=trial_records,
             output_path=loss_history_plot_path,
@@ -734,8 +762,19 @@ def optimize_to_measurements(
                 parameters=dict(parameters),
                 loss=float(loss),
                 resolved_max_workers=int(trial_resolved_max_workers),
+                extras=(
+                    {}
+                    if simulated_efficiency is None
+                    else {"simulated_efficiency": simulated_efficiency}
+                ),
             )
-            for trial_index, parameters, loss, trial_resolved_max_workers in evaluated
+            for (
+                trial_index,
+                parameters,
+                loss,
+                trial_resolved_max_workers,
+                simulated_efficiency,
+            ) in evaluated
         ]
 
     def on_trial_completed(*, evaluation: TrialEvaluation, state: TrialLoopState, improved: bool) -> None:
@@ -772,6 +811,8 @@ def optimize_to_measurements(
             backend_effective=backend_effective,
             optimizer_requested_max_workers=config.max_workers,
             optimizer_resolved_max_workers=state.resolved_max_workers,
+            best_simulated_efficiency=state.best_extras.get("simulated_efficiency"),
+            write_heavy_artifacts=improved,
         )
         checkpoint.record_trial(state=state, ax_client=ax_client)
 
@@ -815,6 +856,8 @@ def optimize_to_measurements(
         backend_effective=backend_effective,
         optimizer_requested_max_workers=config.max_workers,
         optimizer_resolved_max_workers=state.resolved_max_workers,
+        best_simulated_efficiency=state.best_extras.get("simulated_efficiency"),
+        write_heavy_artifacts=True,
     )
 
     return OptimizationResult(

@@ -489,7 +489,7 @@ def evaluate_trial(
     return float(selected_loss_function(evaluation_measurement.efficiency, simulated_efficiency))
 
 
-def evaluate_trial_with_metadata(
+def evaluate_trial_curve_with_metadata(
     config: Any,
     trial_parameters: Mapping[str, float],
     measurement: MeasurementData,
@@ -498,10 +498,27 @@ def evaluate_trial_with_metadata(
     backend: str,
     build_grating_fn: BuildGratingFunction | None = None,
     resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
-) -> tuple[float, int]:
-    """Evaluate one Ax trial and return loss plus resolved worker count."""
+) -> tuple[float, int, np.ndarray | None]:
+    """Evaluate one Ax trial and also return its simulated curve.
 
-    _warn_if_numpy_backend_requested(backend, stacklevel=2)
+    Returning the curve lets callers plot the best fit without re-running the
+    simulation afterwards.
+
+    Args:
+        config: Optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        measurement: Energy grid and target efficiencies used for evaluation.
+        loss_function: Optional custom loss function.
+        backend: RCWA backend to use for the simulation.
+        build_grating_fn: Hook that builds a grating from the trial parameters.
+        resolve_solver_parameters_fn: Hook that resolves solver parameters.
+
+    Returns:
+        The loss, the resolved worker count, and the simulated efficiencies.
+        The curve is ``None`` when the trial was penalized.
+    """
+
+    _warn_if_numpy_backend_requested(backend, stacklevel=3)
     selected_loss_function = loss_function or mean_squared_error
     evaluation_measurement = build_evaluation_measurement(config, measurement)
     try:
@@ -514,10 +531,58 @@ def evaluate_trial_with_metadata(
             resolve_solver_parameters_fn=resolve_solver_parameters_fn,
         )
     except _BatchCaseFailure as error:
-        return float(config.failure_penalty), int(error.resolved_max_workers)
-    except Exception:
-        return float(config.failure_penalty), _trial_max_workers(config)
+        module_logger.warning(
+            "Optimizer trial penalized: %s (resolved_max_workers=%s).",
+            error,
+            error.resolved_max_workers,
+        )
+        return float(config.failure_penalty), int(error.resolved_max_workers), None
+    except Exception as error:
+        module_logger.warning(
+            "Optimizer trial penalized by %s: %s.",
+            type(error).__name__,
+            error,
+        )
+        return float(config.failure_penalty), _trial_max_workers(config), None
     return (
         float(selected_loss_function(evaluation_measurement.efficiency, simulated_efficiency)),
         int(resolved_max_workers),
+        simulated_efficiency,
     )
+
+
+def evaluate_trial_with_metadata(
+    config: Any,
+    trial_parameters: Mapping[str, float],
+    measurement: MeasurementData,
+    *,
+    loss_function: LossFunction | None = None,
+    backend: str,
+    build_grating_fn: BuildGratingFunction | None = None,
+    resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
+) -> tuple[float, int]:
+    """Evaluate one Ax trial and return loss plus resolved worker count.
+
+    Args:
+        config: Optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        measurement: Energy grid and target efficiencies used for evaluation.
+        loss_function: Optional custom loss function.
+        backend: RCWA backend to use for the simulation.
+        build_grating_fn: Hook that builds a grating from the trial parameters.
+        resolve_solver_parameters_fn: Hook that resolves solver parameters.
+
+    Returns:
+        The loss and the resolved worker count.
+    """
+
+    loss, resolved_max_workers, _simulated_efficiency = evaluate_trial_curve_with_metadata(
+        config,
+        trial_parameters,
+        measurement,
+        loss_function=loss_function,
+        backend=backend,
+        build_grating_fn=build_grating_fn,
+        resolve_solver_parameters_fn=resolve_solver_parameters_fn,
+    )
+    return loss, resolved_max_workers
