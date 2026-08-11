@@ -16,15 +16,14 @@ from .config import ParameterBounds
 from .evaluation import normalize_evaluation_selection
 from .data import MeasurementData, load_measurement_data
 from .objective import build_evaluation_measurement, simulate_efficiency_curve
+from .loop import TrialEvaluation, TrialLoopState, run_ax_trial_loop
 from .optimize import (
     OptimizationResult,
     TrialRecord,
-    _complete_ax_trial,
+    _atomic_write_text,
     _describe_optimizer_compute_context,
     _evaluate_candidate_batch,
     _import_ax_client as _import_ax_client_from_optimize,
-    _import_data_required_exception,
-    _import_max_parallelism_exception,
     _import_objective_properties,
     _patch_torch_fork_rng_for_cpu_only,
     _resolve_optimizer_backend,
@@ -555,7 +554,7 @@ def _write_measurement_fit_result_json(
         payload["grazing_angle_deg"] = float(config.grazing_angle_deg)
     else:
         payload["cff"] = float(config.cff)
-    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _atomic_write_text(output_path, json.dumps(payload, indent=2))
 
 
 def _persist_measurement_fit_optimizer_artifacts(
@@ -669,20 +668,9 @@ def optimize_to_measurements(
     measurement = load_measurement_data(config.measurement_path)
     evaluation_measurement = build_evaluation_measurement(config, measurement)
     ax_client = _create_ax_client_for_measurement_fit_config(config)
-    max_parallelism_exception = _import_max_parallelism_exception()
-    data_required_exception = _import_data_required_exception()
 
-    trial_records: list[TrialRecord] = []
-    best_loss = float("inf")
-    best_parameters: dict[str, float] = {}
-    best_grating_parameters: dict[str, object] = {}
-    best_solver_parameters: dict[str, float | None] = {}
-    early_stop_reason: str | None = None
-    stopped_early = False
-    completed_trials = 0
-    trial_index_cursor = 0
-    no_improvement_trials = 0
-    optimizer_resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
+    state = TrialLoopState()
+    state.resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
 
     build_grating_fn = lambda trial_parameters: config.build_grating(
         resolve_measurement_fit_trial_parameters(config, trial_parameters)
@@ -692,135 +680,123 @@ def optimize_to_measurements(
         resolve_measurement_fit_trial_parameters(config, trial_parameters),
     )
 
-    while trial_index_cursor < config.total_trials:
-        candidates: list[tuple[int, dict[str, float]]] = []
-        while len(candidates) < config.batch_size and trial_index_cursor < config.total_trials:
-            try:
-                raw_parameters, trial_index = ax_client.get_next_trial()
-            except Exception as error:
-                if max_parallelism_exception is not None and isinstance(error, max_parallelism_exception):
-                    break
-                if data_required_exception is not None and isinstance(error, data_required_exception):
-                    break
-                raise
-            parameters = {name: float(value) for name, value in raw_parameters.items()}
-            candidates.append((int(trial_index), parameters))
-            trial_index_cursor += 1
+    def evaluate_candidates(candidates) -> list[TrialEvaluation]:
+        """Evaluate one batch of measurement-fit candidates.
 
-        if not candidates:
-            break
+        Args:
+            candidates: Candidate ``(trial_index, parameters)`` pairs.
 
-        evaluated_candidates = _evaluate_candidate_batch(
-            candidates,
+        Returns:
+            One evaluation per candidate, ordered by trial index.
+        """
+
+        evaluated = _evaluate_candidate_batch(
+            list(candidates),
             config=config,
             measurement=measurement,
             backend_effective=backend_effective,
             build_grating_fn=build_grating_fn,
             resolve_solver_parameters_fn=resolve_solver_parameters_fn,
         )
-        for trial_index, parameters, loss, trial_resolved_max_workers in evaluated_candidates:
-            optimizer_resolved_max_workers = int(trial_resolved_max_workers)
-            _complete_ax_trial(
-                ax_client=ax_client,
-                config=config,
-                trial_index=trial_index,
+        return [
+            TrialEvaluation(
+                trial_index=int(trial_index),
+                parameters=dict(parameters),
                 loss=float(loss),
+                resolved_max_workers=int(trial_resolved_max_workers),
             )
-            trial_records.append(
-                TrialRecord(
-                    trial_index=int(trial_index),
-                    loss=float(loss),
-                    parameters=dict(parameters),
+            for trial_index, parameters, loss, trial_resolved_max_workers in evaluated
+        ]
+
+    def on_trial_completed(*, evaluation: TrialEvaluation, state: TrialLoopState, improved: bool) -> None:
+        """Refresh derived best-fit state and rewrite optimizer artifacts.
+
+        Args:
+            evaluation: Evaluation for the trial that just completed.
+            state: Mutable loop state to update.
+            improved: Whether this trial produced a new best loss.
+        """
+
+        if improved:
+            state.best_grating_parameters = dict(
+                resolve_measurement_fit_trial_parameters(config, evaluation.parameters)
+            )
+            state.best_solver_parameters = dict(
+                _resolve_measurement_fit_solver_parameters(
+                    config,
+                    state.best_grating_parameters,
                 )
             )
-            completed_trials += 1
-            current_grating_parameters = resolve_measurement_fit_trial_parameters(config, parameters)
-            current_solver_parameters = _resolve_measurement_fit_solver_parameters(
-                config,
-                current_grating_parameters,
-            )
-            if loss < best_loss:
-                best_loss = float(loss)
-                best_parameters = dict(parameters)
-                best_grating_parameters = dict(current_grating_parameters)
-                best_solver_parameters = dict(current_solver_parameters)
-                no_improvement_trials = 0
-            else:
-                no_improvement_trials += 1
+        _persist_measurement_fit_optimizer_artifacts(
+            config=config,
+            evaluation_measurement=evaluation_measurement,
+            best_parameters=state.best_parameters,
+            best_grating_parameters=state.best_grating_parameters,
+            best_solver_parameters=state.best_solver_parameters,
+            best_loss=state.best_loss,
+            trial_records=state.trial_records,
+            stopped_early=state.stopped_early,
+            completed_trials=state.completed_trials,
+            early_stop_reason=state.early_stop_reason,
+            backend_requested=config.backend,
+            backend_effective=backend_effective,
+            optimizer_requested_max_workers=config.max_workers,
+            optimizer_resolved_max_workers=state.resolved_max_workers,
+        )
 
-            _persist_measurement_fit_optimizer_artifacts(
-                config=config,
-                evaluation_measurement=evaluation_measurement,
-                best_parameters=best_parameters,
-                best_grating_parameters=best_grating_parameters,
-                best_solver_parameters=best_solver_parameters,
-                best_loss=best_loss,
-                trial_records=trial_records,
-                stopped_early=stopped_early,
-                completed_trials=completed_trials,
-                early_stop_reason=early_stop_reason,
-                backend_requested=config.backend,
-                backend_effective=backend_effective,
-                optimizer_requested_max_workers=config.max_workers,
-                optimizer_resolved_max_workers=optimizer_resolved_max_workers,
-            )
+    run_ax_trial_loop(
+        ax_client=ax_client,
+        config=config,
+        state=state,
+        evaluate_candidates=evaluate_candidates,
+        on_trial_completed=on_trial_completed,
+    )
 
-            if (
-                config.enable_early_stopping
-                and completed_trials >= config.early_stopping_warmup_trials
-                and no_improvement_trials >= config.early_stopping_patience
-            ):
-                stopped_early = True
-                early_stop_reason = (
-                    "Early stopping triggered after "
-                    f"{no_improvement_trials} non-improving trials."
-                )
-                break
-        if stopped_early:
-            break
-
-    if not trial_records:
+    if not state.trial_records:
         raise RuntimeError("Optimization produced no completed trials.")
 
-    if not best_parameters:
-        best_parameters = dict(trial_records[-1].parameters)
-        best_grating_parameters = resolve_measurement_fit_trial_parameters(config, best_parameters)
-        best_solver_parameters = _resolve_measurement_fit_solver_parameters(
+    if not state.best_parameters:
+        state.best_parameters = dict(state.trial_records[-1].parameters)
+        state.best_grating_parameters = resolve_measurement_fit_trial_parameters(
             config,
-            best_grating_parameters,
+            state.best_parameters,
         )
-        best_loss = float(trial_records[-1].loss)
+        state.best_solver_parameters = _resolve_measurement_fit_solver_parameters(
+            config,
+            state.best_grating_parameters,
+        )
+        state.best_loss = float(state.trial_records[-1].loss)
 
     result_paths = _persist_measurement_fit_optimizer_artifacts(
         config=config,
         evaluation_measurement=evaluation_measurement,
-        best_parameters=best_parameters,
-        best_grating_parameters=best_grating_parameters,
-        best_solver_parameters=best_solver_parameters,
-        best_loss=best_loss,
-        trial_records=trial_records,
-        stopped_early=stopped_early,
-        completed_trials=completed_trials,
-        early_stop_reason=early_stop_reason,
+        best_parameters=state.best_parameters,
+        best_grating_parameters=state.best_grating_parameters,
+        best_solver_parameters=state.best_solver_parameters,
+        best_loss=state.best_loss,
+        trial_records=state.trial_records,
+        stopped_early=state.stopped_early,
+        completed_trials=state.completed_trials,
+        early_stop_reason=state.early_stop_reason,
         backend_requested=config.backend,
         backend_effective=backend_effective,
         optimizer_requested_max_workers=config.max_workers,
-        optimizer_resolved_max_workers=optimizer_resolved_max_workers,
+        optimizer_resolved_max_workers=state.resolved_max_workers,
     )
 
     return OptimizationResult(
-        best_parameters=best_parameters,
-        best_grating_parameters=best_grating_parameters,
-        best_loss=best_loss,
+        best_parameters=state.best_parameters,
+        best_grating_parameters=state.best_grating_parameters,
+        best_loss=state.best_loss,
         measurement_path=config.measurement_path,
         result_json_path=result_paths[0],
         trial_history_csv_path=result_paths[1],
         best_fit_plot_path=result_paths[2],
         loss_history_plot_path=result_paths[3],
-        trial_records=trial_records,
-        stopped_early=stopped_early,
-        completed_trials=completed_trials,
-        early_stop_reason=early_stop_reason,
+        trial_records=state.trial_records,
+        stopped_early=state.stopped_early,
+        completed_trials=state.completed_trials,
+        early_stop_reason=state.early_stop_reason,
     )
 
 

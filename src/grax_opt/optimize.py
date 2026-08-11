@@ -5,10 +5,12 @@ from __future__ import annotations
 import concurrent.futures
 import csv
 import inspect
+import io
 import os
 import platform
+import tempfile
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -247,11 +249,19 @@ def _evaluate_candidate_batch(
 
 @dataclass(frozen=True)
 class TrialRecord:
-    """Summary of one completed Ax trial."""
+    """Summary of one completed Ax trial.
+
+    Attributes:
+        trial_index: Ax trial index for the completed trial.
+        loss: Objective value observed for the trial.
+        parameters: Free parameter values evaluated for the trial.
+        extras: Optional scalar diagnostics such as per-measurement losses.
+    """
 
     trial_index: int
     loss: float
     parameters: dict[str, float]
+    extras: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -333,11 +343,46 @@ def _import_data_required_exception():
     return DataRequiredError
 
 
+def _atomic_write_text(output_path: Path, text: str) -> None:
+    """Write text to a path atomically so a crash cannot truncate the file.
+
+    Args:
+        output_path: Destination path to replace.
+        text: File contents to write.
+    """
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        newline="",
+        dir=str(output_path.parent),
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temporary_path = Path(handle.name)
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
 def _write_trial_history_csv(
     trial_records: list[TrialRecord],
     output_path: Path,
 ) -> None:
-    """Write per-trial optimization history to CSV."""
+    """Write per-trial optimization history to CSV.
+
+    Args:
+        trial_records: Completed trial records to serialize.
+        output_path: Destination CSV path.
+    """
 
     parameter_names: list[str] = []
     for record in trial_records:
@@ -345,17 +390,25 @@ def _write_trial_history_csv(
             if name not in parameter_names:
                 parameter_names.append(name)
 
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["trial_index", "loss", *parameter_names])
-        for record in trial_records:
-            writer.writerow(
-                [
-                    record.trial_index,
-                    record.loss,
-                    *[record.parameters.get(name, "") for name in parameter_names],
-                ]
-            )
+    extra_names: list[str] = []
+    for record in trial_records:
+        for name in record.extras:
+            if name not in extra_names:
+                extra_names.append(name)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["trial_index", "loss", *parameter_names, *extra_names])
+    for record in trial_records:
+        writer.writerow(
+            [
+                record.trial_index,
+                record.loss,
+                *[record.parameters.get(name, "") for name in parameter_names],
+                *[record.extras.get(name, "") for name in extra_names],
+            ]
+        )
+    _atomic_write_text(output_path, buffer.getvalue())
 
 
 def json_safe_grating_parameters(parameters: dict[str, object]) -> dict[str, object]:
