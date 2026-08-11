@@ -345,6 +345,21 @@ def test_resume_accumulates_elapsed_seconds(
     )
 
 
+def test_created_timestamp_marks_the_run_start_not_the_last_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+
+    dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=4))
+
+    state = json.loads(
+        (tmp_path / "out" / "checkpoint" / "optimizer_state.json").read_text(encoding="utf-8")
+    )
+    assert state["created"] <= state["current_run_started"]
+    assert state["created"] < state["last_updated"]
+
+
 def test_optimize_to_joint_measurements_resumes_and_extends(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

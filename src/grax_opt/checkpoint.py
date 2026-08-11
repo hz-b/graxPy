@@ -447,6 +447,8 @@ def build_checkpoint_state_payload(
     backend_effective: str,
     best_extras_payload: Mapping[str, Any],
     elapsed_seconds: float,
+    created_iso: str | None = None,
+    run_started_iso: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the optimizer run-state payload.
 
@@ -462,6 +464,9 @@ def build_checkpoint_state_payload(
         backend_effective: Backend actually used.
         best_extras_payload: JSON-safe extras captured from the best trial.
         elapsed_seconds: Wall time spent in the current run.
+        created_iso: Creation timestamp carried across writes within a run, or
+            ``None`` on the first write.
+        run_started_iso: Start timestamp of the current run.
 
     Returns:
         The run state to persist.
@@ -493,8 +498,8 @@ def build_checkpoint_state_payload(
         "backend_requested": backend_requested,
         "backend_effective": backend_effective,
         "optimizer_resolved_max_workers": int(state.resolved_max_workers),
-        "created": previous.get("created", now_iso),
-        "current_run_started": previous.get("current_run_started_marker", now_iso),
+        "created": previous.get("created") or created_iso or run_started_iso or now_iso,
+        "current_run_started": run_started_iso or now_iso,
         "last_updated": now_iso,
         "cumulative_elapsed_seconds": cumulative_elapsed,
         "last_run_elapsed_seconds": float(elapsed_seconds),
@@ -588,6 +593,8 @@ class OptimizerCheckpointSession:
         self._handle: Any = None
         self._since_flush = 0
         self._started_monotonic = 0.0
+        self._created_iso: str | None = None
+        self._run_started_iso: str | None = None
 
     def restore_or_create_ax_client(self, create_ax_client: Any, state: Any) -> Any:
         """Restore the Ax client from a checkpoint, or create a fresh one.
@@ -666,6 +673,7 @@ class OptimizerCheckpointSession:
         import time
 
         self._started_monotonic = time.perf_counter()
+        self._run_started_iso = datetime.now().isoformat()
         if self.enabled:
             self.paths.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             open_mode = "a" if self.resumed else "w"
@@ -726,19 +734,20 @@ class OptimizerCheckpointSession:
                 error,
             )
             return
-        write_checkpoint_state(
-            paths=self.paths,
-            payload=build_checkpoint_state_payload(
-                config=self._config,
-                state=state,
-                fingerprint=self._fingerprint,
-                previous_state=self.previous_state,
-                backend_requested=self._backend_requested,
-                backend_effective=self._backend_effective,
-                best_extras_payload=json_safe_extras(state.best_extras),
-                elapsed_seconds=time.perf_counter() - self._started_monotonic,
-            ),
+        payload = build_checkpoint_state_payload(
+            config=self._config,
+            state=state,
+            fingerprint=self._fingerprint,
+            previous_state=self.previous_state,
+            backend_requested=self._backend_requested,
+            backend_effective=self._backend_effective,
+            best_extras_payload=json_safe_extras(state.best_extras),
+            elapsed_seconds=time.perf_counter() - self._started_monotonic,
+            created_iso=self._created_iso,
+            run_started_iso=self._run_started_iso,
         )
+        self._created_iso = str(payload["created"])
+        write_checkpoint_state(paths=self.paths, payload=payload)
 
 
 def restore_trial_loop_state(
