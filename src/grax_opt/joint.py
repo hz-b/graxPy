@@ -21,6 +21,7 @@ import numpy as np
 
 from grax.simulation import _resolve_max_workers as _resolve_simulation_max_workers
 
+from .checkpoint import OptimizerCheckpointSession
 from .config import ParameterBounds
 from .data import load_measurement_data, sample_measurement_data
 from .dynamic import (
@@ -788,10 +789,26 @@ def optimize_to_joint_measurements(
 
     backend_effective = _resolve_optimizer_backend(config.backend)
     measurements = prepare_joint_measurements(config.measurements)
-    ax_client = _create_ax_client_for_joint_config(config)
 
     state = TrialLoopState()
     state.resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
+
+    checkpoint = OptimizerCheckpointSession(
+        config=config,
+        backend_requested=config.backend,
+        backend_effective=backend_effective,
+    )
+    ax_client = checkpoint.restore_or_create_ax_client(
+        lambda run_config: _create_ax_client_for_joint_config(run_config),
+        state,
+    )
+    if checkpoint.resumed and state.best_parameters:
+        state.best_grating_parameters = dict(
+            resolve_measurement_fit_trial_parameters(config, state.best_parameters)
+        )
+        state.best_solver_parameters = dict(
+            _resolve_joint_solver_parameters(config, state.best_grating_parameters)
+        )
 
     build_grating_fn = lambda trial_parameters: config.build_grating(
         resolve_measurement_fit_trial_parameters(config, trial_parameters)
@@ -869,14 +886,17 @@ def optimize_to_joint_measurements(
             backend_effective=backend_effective,
             write_heavy_artifacts=improved,
         )
+        checkpoint.record_trial(state=state, ax_client=ax_client)
 
-    run_ax_trial_loop(
-        ax_client=ax_client,
-        config=config,
-        state=state,
-        evaluate_candidates=evaluate_candidates,
-        on_trial_completed=on_trial_completed,
-    )
+    with checkpoint:
+        run_ax_trial_loop(
+            ax_client=ax_client,
+            config=config,
+            state=state,
+            evaluate_candidates=evaluate_candidates,
+            on_trial_completed=on_trial_completed,
+        )
+        checkpoint.persist(state=state, ax_client=ax_client)
 
     if not state.trial_records:
         raise RuntimeError("Joint optimization produced no completed trials.")

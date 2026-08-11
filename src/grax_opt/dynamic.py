@@ -16,6 +16,7 @@ from .config import ParameterBounds
 from .evaluation import normalize_evaluation_selection
 from .data import MeasurementData, load_measurement_data
 from .objective import build_evaluation_measurement, simulate_efficiency_curve
+from .checkpoint import OptimizerCheckpointSession
 from .loop import TrialEvaluation, TrialLoopState, run_ax_trial_loop
 from .optimize import (
     OptimizationResult,
@@ -178,6 +179,10 @@ class MeasurementFitConfig:
             objective evaluation through ``BatchSimulationRunner``.
         solver_parameter_resolver: Optional callable that resolves solver
             parameters from the fully expanded parameter dictionary.
+        resume: Whether to continue a previous run from its checkpoint.
+            ``total_trials`` is cumulative, so raising it extends the run.
+        checkpoint_dir: Checkpoint directory. Defaults to ``output_dir/checkpoint``.
+        checkpoint_interval: Number of trials between checkpoint flushes.
     """
 
     build_grating: BuildGratingFunction
@@ -210,12 +215,17 @@ class MeasurementFitConfig:
     evaluation_grazing_angles_deg: list[float] = field(default_factory=list)
     max_workers: int | str | None = None
     solver_parameter_resolver: ResolveSolverParametersFunction | None = None
+    resume: bool = False
+    checkpoint_dir: Path | None = None
+    checkpoint_interval: int = 1
 
     def __post_init__(self) -> None:
         """Normalize paths, bounds, and validation settings."""
 
         object.__setattr__(self, "measurement_path", Path(self.measurement_path))
         object.__setattr__(self, "output_dir", Path(self.output_dir))
+        if self.checkpoint_dir is not None:
+            object.__setattr__(self, "checkpoint_dir", Path(self.checkpoint_dir))
         object.__setattr__(
             self,
             "parameter_bounds",
@@ -245,6 +255,8 @@ class MeasurementFitConfig:
             raise ValueError("total_trials must be > 0.")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be > 0.")
+        if self.checkpoint_interval <= 0:
+            raise ValueError("checkpoint_interval must be > 0.")
         resolved_max_workers = _resolve_simulation_max_workers(self.max_workers)
         if resolved_max_workers > 1 and self.batch_size > 1:
             raise ValueError(
@@ -348,6 +360,9 @@ class MeasurementFitConfig:
             ),
             max_workers=config.pop("max_workers", None),
             solver_parameter_resolver=config.pop("solver_parameter_resolver", None),
+            resume=bool(config.pop("resume", False)),
+            checkpoint_dir=config.pop("checkpoint_dir", None),
+            checkpoint_interval=int(config.pop("checkpoint_interval", 1)),
         )
         if config:
             raise ValueError(f"Unexpected measurement-fit spec keys: {sorted(config)}")
@@ -667,10 +682,25 @@ def optimize_to_measurements(
     backend_effective = _resolve_optimizer_backend(config.backend)
     measurement = load_measurement_data(config.measurement_path)
     evaluation_measurement = build_evaluation_measurement(config, measurement)
-    ax_client = _create_ax_client_for_measurement_fit_config(config)
-
     state = TrialLoopState()
     state.resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
+
+    checkpoint = OptimizerCheckpointSession(
+        config=config,
+        backend_requested=config.backend,
+        backend_effective=backend_effective,
+    )
+    ax_client = checkpoint.restore_or_create_ax_client(
+        lambda run_config: _create_ax_client_for_measurement_fit_config(run_config),
+        state,
+    )
+    if checkpoint.resumed and state.best_parameters:
+        state.best_grating_parameters = dict(
+            resolve_measurement_fit_trial_parameters(config, state.best_parameters)
+        )
+        state.best_solver_parameters = dict(
+            _resolve_measurement_fit_solver_parameters(config, state.best_grating_parameters)
+        )
 
     build_grating_fn = lambda trial_parameters: config.build_grating(
         resolve_measurement_fit_trial_parameters(config, trial_parameters)
@@ -743,14 +773,17 @@ def optimize_to_measurements(
             optimizer_requested_max_workers=config.max_workers,
             optimizer_resolved_max_workers=state.resolved_max_workers,
         )
+        checkpoint.record_trial(state=state, ax_client=ax_client)
 
-    run_ax_trial_loop(
-        ax_client=ax_client,
-        config=config,
-        state=state,
-        evaluate_candidates=evaluate_candidates,
-        on_trial_completed=on_trial_completed,
-    )
+    with checkpoint:
+        run_ax_trial_loop(
+            ax_client=ax_client,
+            config=config,
+            state=state,
+            evaluate_candidates=evaluate_candidates,
+            on_trial_completed=on_trial_completed,
+        )
+        checkpoint.persist(state=state, ax_client=ax_client)
 
     if not state.trial_records:
         raise RuntimeError("Optimization produced no completed trials.")
