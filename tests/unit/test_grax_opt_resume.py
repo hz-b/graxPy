@@ -139,6 +139,40 @@ def test_run_writes_checkpoint_files(tmp_path: Path, monkeypatch: pytest.MonkeyP
     ]
 
 
+def test_fresh_run_truncates_a_previous_trial_record_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=5))
+    trial_records_path = tmp_path / "out" / "checkpoint" / "trial_records.jsonl"
+    assert len(trial_records_path.read_text(encoding="utf-8").strip().splitlines()) == 5
+
+    dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=3))
+
+    records = [
+        json.loads(line)
+        for line in trial_records_path.read_text(encoding="utf-8").strip().splitlines()
+    ]
+    assert len(records) == 3
+    assert [record["trial_index"] for record in records] == [0, 1, 2]
+
+
+def test_resume_after_a_fresh_rerun_does_not_double_count_trials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=5))
+    dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=3))
+
+    result = dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=6, resume=True))
+
+    assert result.completed_trials == 6
+    rows = list(csv.reader(result.trial_history_csv_path.open(encoding="utf-8")))
+    assert [row[0] for row in rows[1:]] == [str(index) for index in range(6)]
+
+
 def test_resume_with_missing_checkpoint_starts_fresh(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

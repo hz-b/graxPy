@@ -653,7 +653,11 @@ class OptimizerCheckpointSession:
         return ax_client
 
     def __enter__(self) -> OptimizerCheckpointSession:
-        """Open the trial-record log for appending.
+        """Open the trial-record log.
+
+        A resumed run appends to the existing log. A fresh run truncates it, so
+        records from an earlier run at the same output directory cannot be
+        double-counted by a later resume.
 
         Returns:
             This session.
@@ -664,7 +668,8 @@ class OptimizerCheckpointSession:
         self._started_monotonic = time.perf_counter()
         if self.enabled:
             self.paths.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            self._handle = self.paths.trial_records_path.open("a", encoding="utf-8")
+            open_mode = "a" if self.resumed else "w"
+            self._handle = self.paths.trial_records_path.open(open_mode, encoding="utf-8")
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
