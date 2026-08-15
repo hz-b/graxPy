@@ -127,6 +127,9 @@ def run_parameter_study(
     output_dir: str | Path | None = None,
     save_csv: bool = True,
     show_progress: bool = True,
+    solver: str = "rcwa",
+    neviere_options: object | None = None,
+    backend: str = "numba",
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
 
@@ -156,6 +159,14 @@ def run_parameter_study(
         output_dir: Optional directory for CSV exports. Creates subdirectory if needed.
         save_csv: Whether to export per-energy sweep CSV files to output_dir.
         show_progress: Whether to display progress bars during execution.
+        solver: Electromagnetic solver used for every point of the study.
+            ``"rcwa"`` (default) or ``"neviere"``.
+        neviere_options: Integration settings for ``solver="neviere"``, as a
+            :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
+            RCWA solver.
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default. Previously fixed internally; exposing it here makes a
+            convergence study reproducible against the backend it ran on.
 
     Returns:
         Structured parameter-study result containing all sweep data and metadata.
@@ -212,6 +223,9 @@ def run_parameter_study(
                 polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
+                solver=solver,
+                neviere_options=neviere_options,
+                backend=backend,
             ),
             "x_resolution_nm": _run_single_parameter_sweep(
                 grating=grating,
@@ -223,6 +237,9 @@ def run_parameter_study(
                 polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
+                solver=solver,
+                neviere_options=neviere_options,
+                backend=backend,
             ),
             "z_resolution_nm": _run_single_parameter_sweep(
                 grating=grating,
@@ -234,6 +251,9 @@ def run_parameter_study(
                 polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
+                solver=solver,
+                neviere_options=neviere_options,
+                backend=backend,
             ),
         }
         results.append(
@@ -394,6 +414,9 @@ def _run_single_parameter_sweep(
     polarization: str,
     max_retries: int,
     fixed_fourier_orders: int,
+    solver: str,
+    neviere_options: object | None,
+    backend: str,
 ) -> ParameterSweepSeries:
     """Run one parameter sweep for one energy.
 
@@ -445,7 +468,9 @@ def _run_single_parameter_sweep(
                     fourier_orders=fourier_orders,
                     grazing_angle_deg=grazing_angle_deg,
                     polarization=polarization,
-                    backend="numba",
+                    backend=backend,
+                    solver=solver,
+                    neviere_options=neviere_options,
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True

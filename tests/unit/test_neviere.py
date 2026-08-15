@@ -768,3 +768,58 @@ def test_multilayer_theta_search_agrees_across_solvers() -> None:
         abs=SOLVER_PARITY_ATOL,
         rel=SOLVER_PARITY_RTOL,
     )
+
+
+@pytest.mark.unit
+def test_solver_options_round_trip_through_a_checkpoint(tmp_path: Path) -> None:
+    """Verify a checkpointed differential-method run records its integration settings.
+
+    The solver name alone does not pin the result: the same "neviere" label
+    covers every ``step_phase`` and both sampling modes. Recording the options
+    makes a resumed or archived run reproducible.
+    """
+
+    options = NeviereOptions(step_phase=0.01, block_phase=1.5)
+    checkpoint_dir = tmp_path / "checkpoints"
+    runner = BatchSimulationRunner(
+        default_fourier_orders=5,
+        default_solver="neviere",
+        default_neviere_options=options,
+        checkpoint_dir=checkpoint_dir,
+        on_error="fail_fast",
+    )
+    cases = list(
+        fixed_angle_cases(
+            grating=_laminar_grating(),
+            energies_ev=[300.0],
+            grazing_angle_deg=4.0,
+        )
+    )
+
+    results = list(runner.run_cases(cases))
+    assert results[0].solver_options == options.to_dict()
+
+    records = [
+        json.loads(line)
+        for line in (checkpoint_dir / "results.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    restored = _case_result_from_record(records[0])
+
+    assert restored.solver_options == options.to_dict()
+    assert NeviereOptions(**restored.solver_options) == options
+
+
+@pytest.mark.unit
+def test_rcwa_results_record_no_solver_options() -> None:
+    """Verify the RCWA path leaves solver_options unset rather than inventing one."""
+
+    result = run_simulation(
+        grating=_laminar_grating(),
+        energy_ev=300.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+    )
+
+    assert result.solver == "rcwa"
+    assert result.solver_options is None

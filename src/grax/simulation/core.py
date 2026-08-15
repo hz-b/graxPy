@@ -454,6 +454,9 @@ def run_simulation(
             num_realizations=num_realizations,
             polarization=polarization,
             solver=solver,
+            solver_options=(
+                resolved_neviere_options.to_dict() if solver == "neviere" else None
+            ),
         )
 
     _log_simulation_memory_usage(
