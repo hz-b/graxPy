@@ -210,6 +210,27 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${COMPARISON_IMAGE_DIR}/laminar_150lmm_monochromator_profile.png"
     cp "${PROJECT_ROOT}/validation/laminar_150lmm/comparison_laminar_150lmm_monochromator.png" \
       "${COMPARISON_IMAGE_DIR}/comparison_laminar_150lmm_monochromator.png"
+
+    # Solver comparison figures, produced by validation/compare_solvers.py after
+    # running each sweep with --solver rcwa --tag rerun and --solver neviere.
+    # Copied only when present so a docs build does not require those runs.
+    for solver_comparison in \
+      "laminar/results/laminar_fixed_angle_all_orders_solver_comparison.png" \
+      "blazed/results/blazed_comparison_monochromator_orders_1_3_solver_comparison.png" \
+      "laminar_150lmm/results/laminar_150lmm_monochromator_all_orders_solver_comparison.png" \
+      "blazed_multilayer/results/blazed_multilayer_all_orders_solver_comparison.png"; do
+        source_path="${PROJECT_ROOT}/validation/${solver_comparison}"
+        if [[ -f "${source_path}" ]]; then
+            cp "${source_path}" "${COMPARISON_IMAGE_DIR}/$(basename "${source_path}")"
+        else
+            echo "  skipping missing solver comparison: ${solver_comparison}"
+        fi
+    done
+
+    if [[ -f "${PROJECT_ROOT}/examples/simulation/neviere_solver/results/neviere_solver_comparison.png" ]]; then
+        cp "${PROJECT_ROOT}/examples/simulation/neviere_solver/results/neviere_solver_comparison.png" \
+          "${SIM_IMAGE_DIR}/neviere_solver_comparison.png"
+    fi
     echo
 fi
 

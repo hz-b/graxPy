@@ -10,6 +10,7 @@ execution.
 materials
 gratings
 simulations
+choosing-a-solver
 acceleration-backend
 optimizer
 ```
