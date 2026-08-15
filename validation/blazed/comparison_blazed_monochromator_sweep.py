@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Compare efficiency from grax, REFLEC, and DiffMod."""
 
+import sys
 from pathlib import Path
 
 import pandas as pd
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _solver_comparison import load_grax_curves  # noqa: E402
 
 base_path = Path(__file__).resolve().parent
 
@@ -22,11 +26,12 @@ meas = meas.apply(pd.to_numeric, errors="coerce").dropna()
 meas_energy = meas["energy"]
 meas_eff = meas["eff"]
 
-# Load grax results (current)
-ret = pd.read_csv(base_path / "results" / "blazed_comparison_monochromator_orders_1_3.csv")
-ret_m1 = ret[ret["order"] == -1].sort_values("energy_ev")
-ret_energy = ret_m1["energy_ev"]
-ret_eff = ret_m1["efficiency"]
+# Load grax results, one curve per solver that has been run
+print("graxpy curves:")
+grax_curves = load_grax_curves(
+    base_path / "results" / "blazed_comparison_monochromator_orders_1_3.csv",
+    order=-1,
+)
 
 # reticolo Matlab
 ret_mat = pd.read_csv(base_path / "simulations" / "reticolo_matlab.csv")
@@ -57,7 +62,9 @@ diffmod_eff = diffmod['eff']
 plt.figure(figsize=(10, 6))
 marker_size = 1
 linewidth = 1
-plt.plot(ret_energy, ret_eff, 'o-', label='grax', markersize=marker_size, linewidth=linewidth)
+for curve in grax_curves:
+    plt.plot(curve.energy_ev, curve.efficiency, marker='o', label=curve.label,
+             markersize=marker_size, linewidth=linewidth, **curve.style)
 plt.plot(ret_mat_energy, ret_mat_eff, 'd-', label='reticolo (Matlab)', markersize=marker_size, linewidth=linewidth)
 plt.plot(reflec_energy, reflec_eff, 's-', label='REFLEC', markersize=marker_size, linewidth=linewidth)
 plt.plot(diffmod_energy, diffmod_eff, '^-', label='DiffMod', markersize=marker_size, linewidth=linewidth)

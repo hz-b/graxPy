@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -354,3 +355,108 @@ def validation_root_on_path() -> Path:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     return root
+
+
+#: Legend labels for the two grax curves in the external-code comparison plots.
+GRAX_CURVE_LABELS = {"rcwa": "graxpy (RCWA)", "neviere": "graxpy (Nevière DM)"}
+
+#: Per-solver line styles. The two solvers agree to ~1e-11, so without a dashed
+#: overlay the second curve hides the first completely and the plot looks as
+#: though one of them is missing.
+GRAX_CURVE_STYLES: dict[str, dict[str, object]] = {
+    "rcwa": {"linestyle": "-"},
+    "neviere": {"linestyle": (0, (6, 4))},
+}
+
+
+@dataclass(frozen=True)
+class GraxCurve:
+    """One solver's efficiency curve for a validation case.
+
+    Attributes:
+        solver: Solver name.
+        label: Legend label.
+        energy_ev: Photon energies.
+        efficiency: Efficiencies aligned with ``energy_ev``.
+        source: CSV the curve was read from.
+        style: Matplotlib keyword arguments that keep overlapping curves legible.
+    """
+
+    solver: str
+    label: str
+    energy_ev: pd.Series
+    efficiency: pd.Series
+    source: Path
+    style: dict[str, object]
+
+
+def resolve_solver_csv(base_csv: Path, solver: str) -> Path | None:
+    """Return the all-orders CSV to plot for one solver, or ``None`` if absent.
+
+    For ``"rcwa"`` a same-revision ``*_rerun.csv`` is preferred over the
+    checked-in artifact when one exists. That matters: the committed RCWA CSVs
+    predate several solver changes, so pairing a fresh differential-method run
+    against them would show that drift as though it were a difference between
+    the two methods.
+
+    Args:
+        base_csv: Historical (RCWA) all-orders CSV path for the case.
+        solver: Solver name.
+
+    Returns:
+        Path to the CSV to plot, or ``None`` when that solver has not been run.
+    """
+
+    if solver == "rcwa":
+        for candidate in (solver_output_path(base_csv, "rcwa", "rerun"), base_csv):
+            if candidate.exists():
+                return candidate
+        return None
+    candidate = solver_output_path(base_csv, solver)
+    return candidate if candidate.exists() else None
+
+
+def load_grax_curves(
+    base_csv: Path,
+    *,
+    order: int,
+    solvers: tuple[str, ...] = SOLVER_CHOICES,
+) -> list[GraxCurve]:
+    """Return one plottable curve per solver that has been run for this case.
+
+    Missing solver runs are skipped rather than raising, so a comparison script
+    still works before the differential-method sweep has been run.
+
+    Args:
+        base_csv: Historical (RCWA) all-orders CSV path for the case.
+        order: Signed diffraction order to extract, as stored in the CSV
+            (reflected orders are negative).
+        solvers: Solvers to look for, in plot order.
+
+    Returns:
+        One :class:`GraxCurve` per available solver, in ``solvers`` order.
+    """
+
+    curves: list[GraxCurve] = []
+    for solver in solvers:
+        path = resolve_solver_csv(base_csv, solver)
+        if path is None:
+            print(f"  note: no {solver} results for {base_csv.name}, skipping that curve")
+            continue
+        frame = load_all_orders_csv(path)
+        selected = frame[np.isclose(frame["order"], order)].sort_values("energy_ev")
+        if selected.empty:
+            print(f"  note: {path.name} has no order {order}, skipping that curve")
+            continue
+        print(f"  {GRAX_CURVE_LABELS[solver]:<22} <- {path.name}  ({len(selected)} points)")
+        curves.append(
+            GraxCurve(
+                solver=solver,
+                label=GRAX_CURVE_LABELS[solver],
+                energy_ev=selected["energy_ev"],
+                efficiency=selected["efficiency"],
+                source=path,
+                style=dict(GRAX_CURVE_STYLES[solver]),
+            )
+        )
+    return curves

@@ -1,7 +1,11 @@
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _solver_comparison import load_grax_curves  # noqa: E402
 
 # =========================
 # PLOT CONFIGURATION - Easy to adjust
@@ -37,12 +41,10 @@ df_meas = pd.read_csv(
     names=["Energy_eV", "Intensity"]
 ).dropna()
 # =========================
-# Reticolopy simulation (-1 order)
+# graxpy simulations (-1 order), one curve per solver that has been run
 # =========================
-df_sim = pd.read_csv(sim_file)
-df_sim_m1 = df_sim[df_sim["order"] == -1].sort_values("energy_ev")
-energy_sim = df_sim_m1["energy_ev"]
-eff_m1 = df_sim_m1["efficiency"]
+print("graxpy curves:")
+grax_curves = load_grax_curves(sim_file, order=-1)
 
 # =========================
 # RETICOLO simulation
@@ -83,8 +85,9 @@ plt.figure(figsize=(19.2, 14.4))
 
 plt.plot(df_meas["Energy_eV"], df_meas["Intensity"],
          label="Measured data", linewidth=LINE_WIDTH)
-plt.plot(energy_sim, eff_m1,
-         label="Reticolopy", linewidth=LINE_WIDTH)
+for curve in grax_curves:
+    plt.plot(curve.energy_ev, curve.efficiency,
+             label=curve.label, linewidth=LINE_WIDTH, **curve.style)
 plt.plot(df_slag["PhotonEnergy_eV"], df_slag["DiffractionEfficiency"],
          label="Reticolo", linewidth=LINE_WIDTH)
 plt.plot(df_f3["Energy"], df_f3["efficiency_4deg"],

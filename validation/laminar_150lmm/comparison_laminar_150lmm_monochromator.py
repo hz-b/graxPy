@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _solver_comparison import load_grax_curves  # noqa: E402
 
 
 example_root = Path(__file__).resolve().parent
@@ -68,20 +72,22 @@ def _load_external_table(path: Path) -> tuple[pd.Series, list[tuple[str, pd.Seri
     return energy_series, cleaned_series
 
 
-df_grax = pd.read_csv(results_file)
-df_grax_m1 = df_grax[df_grax["order"] == -1].copy().sort_values("energy_ev")
+print("graxpy curves:")
+grax_curves = load_grax_curves(results_file, order=-1)
 
 external_files = sorted([path for path in simulation_dir.iterdir() if path.is_file()])
 if not external_files:
     raise FileNotFoundError(f"No external files found in {simulation_dir}")
 
 figure, axis = plt.subplots(figsize=(12, 8))
-axis.plot(
-    df_grax_m1["energy_ev"],
-    df_grax_m1["efficiency"],
-    label="grax (order -1 -> +1)",
-    linewidth=2.2,
-)
+for curve in grax_curves:
+    axis.plot(
+        curve.energy_ev,
+        curve.efficiency,
+        label=f"{curve.label}, order -1 -> +1",
+        linewidth=2.2,
+        **curve.style,
+    )
 
 for external_path in external_files:
     if not FILE_PLOT_OPTIONS.get(external_path.name, False):
