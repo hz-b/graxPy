@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -310,6 +312,70 @@ def test_neviere_reproduces_analytic_fresnel_in_the_flat_limit(
     other_efficiencies = np.delete(result.efficiency_all, zeroth_index)
     assert result.efficiency_all[zeroth_index] == pytest.approx(expected_efficiency, rel=1e-9)
     assert np.max(np.abs(other_efficiencies)) < 1e-20
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "roughness_kwargs",
+    [
+        pytest.param({"roughness_sigma_nm": 0.5}, id="solver-debye-waller"),
+        pytest.param(
+            {"roughness": grax.RoughnessSpec(kind="debye-waller", sigma_nm=0.5)},
+            id="grating-debye-waller",
+        ),
+        pytest.param(
+            {
+                "roughness": grax.RoughnessSpec(
+                    kind="random-interface",
+                    sigma_nm=0.3,
+                    num_supercells=2,
+                    num_realizations=2,
+                    seed=7,
+                )
+            },
+            id="random-interface-supercell",
+        ),
+    ],
+)
+def test_neviere_matches_rcwa_through_the_roughness_paths(
+    roughness_kwargs: dict[str, object],
+) -> None:
+    """Verify roughness reaches both solvers identically.
+
+    Roughness is applied around the solve rather than inside it, but the
+    supercell path also changes the period, the order grid and the realization
+    averaging, so it is worth pinning that the differential method threads
+    through all of it unchanged.
+    """
+
+    grating_kwargs = dict(roughness_kwargs)
+    solver_kwargs: dict[str, object] = {}
+    if "roughness_sigma_nm" in grating_kwargs:
+        solver_kwargs["roughness_sigma_nm"] = grating_kwargs.pop("roughness_sigma_nm")
+
+    common = dict(
+        grating=dataclasses.replace(_laminar_grating(), **grating_kwargs),
+        energy_ev=300.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=6,
+        polarization="p",
+        validate_physical_results=False,
+        **solver_kwargs,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        rcwa_result = run_simulation(**common, solver="rcwa")
+        neviere_result = run_simulation(**common, solver="neviere")
+
+    assert np.array_equal(rcwa_result.orders, neviere_result.orders)
+    assert np.allclose(
+        rcwa_result.efficiency_all,
+        neviere_result.efficiency_all,
+        atol=SOLVER_PARITY_ATOL,
+        rtol=SOLVER_PARITY_RTOL,
+    )
+    assert neviere_result.num_supercells == rcwa_result.num_supercells
+    assert neviere_result.num_realizations == rcwa_result.num_realizations
 
 
 @pytest.mark.unit
