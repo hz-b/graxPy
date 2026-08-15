@@ -21,7 +21,7 @@ from .parameter_sweep import (
     plot_parameter_study,
     run_parameter_study,
 )
-from .rcwa_1d import res0, res1, res2
+from .solvers import res0, res1, res2
 from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,

@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from ..gratings import BaseGrating
-from ..rcwa_1d import res0, res1, res2
+from ..solvers import res0, res1, res2
 from ._memory import PeakMemorySampler, format_memory_mb
 from ._profiling import SolverProfiler
 from .models import (
