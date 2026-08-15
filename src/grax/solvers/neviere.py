@@ -46,7 +46,8 @@ import logging
 import math
 from contextlib import nullcontext as _nullcontext
 from dataclasses import dataclass
-from typing import Callable, Literal
+from collections.abc import Callable
+from typing import Literal
 
 import numpy as np
 
@@ -116,8 +117,8 @@ class NeviereOptions:
             integrates through the same z-sliced permittivity the RCWA solver
             uses, which makes the two solvers directly comparable.
             ``"continuous"`` re-expands the permittivity from the true grating
-            profile at every Runge-Kutta stage, which is the textbook
-            differential method and does not inherit the staircase
+            profile every ``sample_phase`` of optical depth, which is the
+            textbook differential method and does not inherit the staircase
             approximation. ``"continuous"`` requires a grating and is selected
             through ``run_simulation``.
         step_phase: Target ``|q| * h`` for one Runge-Kutta step. Accuracy
@@ -128,7 +129,13 @@ class NeviereOptions:
             energy balance from ``1e-7`` to ``1e-9`` for 30% more runtime.
         block_phase: Maximum ``|q| * d`` accumulated before a sub-block is
             converted to an interface-response block and cascaded. Bounds the
-            dynamic range of any transfer matrix that is explicitly formed.
+            dynamic range of any transfer matrix that is explicitly formed, and
+            so affects conditioning rather than the converged answer.
+        sample_phase: Optical phase between permittivity samples, used only by
+            ``z_sampling="continuous"``. Unlike ``block_phase`` this one does set
+            accuracy: it is the depth quadrature step at which the true profile
+            is read, so it plays the role ``z_resolution_nm`` plays for the
+            staircase modes. Ignored when ``z_sampling="textures"``.
         max_step_nm: Optional hard upper bound on the Runge-Kutta step in
             nanometers, applied on top of ``step_phase``.
         max_steps_per_layer: Runaway guard on the number of Runge-Kutta steps
@@ -144,6 +151,7 @@ class NeviereOptions:
     z_sampling: ZSampling = "textures"
     step_phase: float = 0.02
     block_phase: float = 2.0
+    sample_phase: float = 0.02
     max_step_nm: float | None = None
     max_steps_per_layer: int = 4096
     energy_balance_tolerance: float | None = None
@@ -157,6 +165,8 @@ class NeviereOptions:
             raise ValueError("step_phase must be > 0.")
         if not self.block_phase > 0.0:
             raise ValueError("block_phase must be > 0.")
+        if not self.sample_phase > 0.0:
+            raise ValueError("sample_phase must be > 0.")
         if self.max_step_nm is not None and not self.max_step_nm > 0.0:
             raise ValueError("max_step_nm must be > 0 when provided.")
         if self.max_steps_per_layer < 1:
@@ -171,6 +181,7 @@ class NeviereOptions:
             "z_sampling": self.z_sampling,
             "step_phase": float(self.step_phase),
             "block_phase": float(self.block_phase),
+            "sample_phase": float(self.sample_phase),
             "max_step_nm": None if self.max_step_nm is None else float(self.max_step_nm),
             "max_steps_per_layer": int(self.max_steps_per_layer),
             "energy_balance_tolerance": (
@@ -330,7 +341,7 @@ def _resample_layers_continuously(
 
     Args:
         layers: Compressed staircase layers, used only to bound the slab count
-            and as a fallback scale.
+            and to estimate the permittivity scale.
         epsilon_sampler: Continuous permittivity for the grating.
         options: Integration settings.
 
@@ -342,11 +353,14 @@ def _resample_layers_continuously(
     if total_depth_nm <= 0.0:
         return layers
 
+    # sample_phase, not block_phase: here the slab thickness sets how finely the
+    # true profile is read along z, which is an accuracy knob, not a
+    # conditioning one.
     scale = max(
         (_spectral_scale_from_texture(texture) for _, texture in layers),
         default=1.0,
     )
-    target_nm = options.block_phase / scale if scale > 0.0 else total_depth_nm
+    target_nm = options.sample_phase / scale if scale > 0.0 else total_depth_nm
     if options.max_step_nm is not None:
         target_nm = min(target_nm, options.max_step_nm)
     slab_count = max(1, int(math.ceil(total_depth_nm / max(target_nm, 1e-12))))

@@ -372,7 +372,7 @@ def test_continuous_sampling_is_independent_of_z_resolution() -> None:
         continuous = run_simulation(
             **common,
             solver="neviere",
-            neviere_options=NeviereOptions(z_sampling="continuous", block_phase=0.1),
+            neviere_options=NeviereOptions(z_sampling="continuous", sample_phase=0.05),
         )
         staircase = run_simulation(**common, solver="rcwa")
         results.append(np.asarray(continuous.efficiency_all, dtype=float))
@@ -406,7 +406,7 @@ def test_continuous_sampling_matches_a_finely_sliced_staircase() -> None:
         fourier_orders=8,
         polarization="p",
         solver="neviere",
-        neviere_options=NeviereOptions(z_sampling="continuous", block_phase=0.05),
+        neviere_options=NeviereOptions(z_sampling="continuous", sample_phase=0.01),
         validate_physical_results=False,
     )
 
@@ -460,6 +460,8 @@ def test_neviere_options_reject_invalid_settings() -> None:
         NeviereOptions(step_phase=0.0)
     with pytest.raises(ValueError, match="block_phase"):
         NeviereOptions(block_phase=-1.0)
+    with pytest.raises(ValueError, match="sample_phase"):
+        NeviereOptions(sample_phase=-1.0)
     with pytest.raises(ValueError, match="max_step_nm"):
         NeviereOptions(max_step_nm=0.0)
     with pytest.raises(ValueError, match="max_steps_per_layer"):
