@@ -72,6 +72,43 @@ def _case_memory_mode(case: dict[str, object]) -> str:
     return memory_mode
 
 
+def runner_settings(**overrides: object) -> dict[str, object]:
+    """Return the settings mapping consumed by :func:`_case_payload`.
+
+    Both :class:`BatchSimulationRunner` and the multilayer theta-search sweep
+    need one of these. They used to build it independently, which is how
+    ``solver`` reached the plain-case payload but not the theta-search one: a
+    setting was added to one construction site and silently missed by the other.
+    Defining the keys once means a missing key now raises here instead of
+    quietly falling back to a different solver.
+
+    Args:
+        **overrides: Settings to replace. Unknown names are rejected so a typo
+            cannot silently leave a default in place.
+
+    Returns:
+        Complete runner settings.
+    """
+
+    settings: dict[str, object] = {
+        "default_diffraction_order": 1,
+        "default_fourier_orders": 25,
+        "max_fourier_orders": 100,
+        "validate_physical_results": True,
+        "max_reflected_efficiency": 1.05,
+        "min_reflected_efficiency": -1e-8,
+        "backend": "numba",
+        "default_polarization": "s",
+        "default_solver": "rcwa",
+        "default_neviere_options": None,
+    }
+    unknown = sorted(set(overrides) - set(settings))
+    if unknown:
+        raise ValueError(f"Unknown runner settings: {unknown}")
+    settings.update(overrides)
+    return settings
+
+
 def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -> dict[str, object]:
     """Build the serializable payload used by inline and subprocess execution."""
 
@@ -146,6 +183,12 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "max_total_reflected_efficiency": _BATCH_MAX_TOTAL_REFLECTED_EFFICIENCY,
             "precise_peak_selection_mode": str(case.get("precise_peak_selection_mode", "max")),
             "backend": runner_settings["backend"],
+            "solver": _validate_solver(
+                str(case.get("solver", runner_settings["default_solver"]))
+            ),
+            "neviere_options": case.get(
+                "neviere_options", runner_settings["default_neviere_options"]
+            ),
         }
 
     return {
@@ -929,18 +972,18 @@ class BatchSimulationRunner:
             backend.
         """
 
-        return {
-            "default_diffraction_order": self.default_diffraction_order,
-            "default_fourier_orders": self.default_fourier_orders,
-            "max_fourier_orders": self.max_fourier_orders,
-            "validate_physical_results": self.validate_physical_results,
-            "max_reflected_efficiency": self.max_reflected_efficiency,
-            "min_reflected_efficiency": self.min_reflected_efficiency,
-            "backend": self.backend,
-            "default_polarization": self.default_polarization,
-            "default_solver": self.default_solver,
-            "default_neviere_options": self.default_neviere_options,
-        }
+        return runner_settings(
+            default_diffraction_order=self.default_diffraction_order,
+            default_fourier_orders=self.default_fourier_orders,
+            max_fourier_orders=self.max_fourier_orders,
+            validate_physical_results=self.validate_physical_results,
+            max_reflected_efficiency=self.max_reflected_efficiency,
+            min_reflected_efficiency=self.min_reflected_efficiency,
+            backend=self.backend,
+            default_polarization=self.default_polarization,
+            default_solver=self.default_solver,
+            default_neviere_options=self.default_neviere_options,
+        )
 
     def _prepare_pending_cases(
         self,

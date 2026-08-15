@@ -168,6 +168,8 @@ def _run_theta_scan(
     min_efficiency: float,
     max_total_reflected_efficiency: float,
     backend: str,
+    solver: str,
+    neviere_options: object | None,
 ) -> tuple[np.ndarray, list[SingleSimulationResult]]:
     """Run one theta scan and return selected efficiencies plus full results."""
 
@@ -184,6 +186,8 @@ def _run_theta_scan(
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
             backend=backend,
+            solver=solver,
+            neviere_options=neviere_options,
         )
         for theta_deg in theta_grid_deg
     ]
@@ -322,6 +326,8 @@ def run_multilayer_theta_search(
     max_total_reflected_efficiency: float = 1.05,
     precise_peak_selection_mode: PeakSelectionMode = "max",
     backend: str = "numba",
+    solver: str = "rcwa",
+    neviere_options: object | None = None,
     diagnostic_callback: Callable[[ThetaSearchDiagnostics, float], None] | None = None,
 ) -> SingleSimulationResult:
     """Run one energy point with an internal rough/precise grazing-angle search.
@@ -382,6 +388,12 @@ def run_multilayer_theta_search(
         precise_peak_selection_mode: Mode used to select the final theta from the
             precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
             local Gaussian neighborhood, and ``"voigt"`` fits a local Voigt profile.
+        solver: Electromagnetic solver used for every stage of the search.
+            ``"rcwa"`` (default) or ``"neviere"``. All three stages use the same
+            solver so the selected angle and the final efficiency are consistent.
+        neviere_options: Integration settings for ``solver="neviere"``, as a
+            :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
+            RCWA solver.
         backend: Fourier coefficient backend selector. ``"numba"`` is the
             default backend. ``"numpy"`` remains available temporarily for
             compatibility but is deprecated and will be removed in a future
@@ -467,6 +479,8 @@ def run_multilayer_theta_search(
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
             backend=backend,
+            solver=solver,
+            neviere_options=neviere_options,
         )
         rough_peak_index = int(np.nanargmax(rough_efficiencies))
         rough_peak_angle_deg = float(rough_grazing_angles_deg[rough_peak_index])
@@ -522,6 +536,8 @@ def run_multilayer_theta_search(
             min_efficiency=min_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
             backend=backend,
+            solver=solver,
+            neviere_options=neviere_options,
         )
         precise_peak_index = int(np.nanargmax(precise_efficiencies))
         precise_ok, precise_status = _peak_capture_status(precise_efficiencies, precise_peak_index, edge_margin=2)
@@ -570,6 +586,8 @@ def run_multilayer_theta_search(
         min_efficiency=min_efficiency,
         max_total_reflected_efficiency=max_total_reflected_efficiency,
         backend=backend,
+        solver=solver,
+        neviere_options=neviere_options,
     )
     logger.info(
         "[theta-search][final-scan] done energy=%.6f eV selected_theta=%.6f selected_eff=%.6e",

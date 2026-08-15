@@ -13,7 +13,13 @@ import pytest
 import grax
 from grax import rcwa_1d
 from grax.gratings import BlazedGrating, LaminarGrating, ProfileGrating
-from grax.simulation import BatchSimulationRunner, fixed_angle_cases, run_simulation
+from grax.simulation import (
+    BatchSimulationRunner,
+    fixed_angle_cases,
+    multilayer_theta_search_cases,
+    run_multilayer_theta_search,
+    run_simulation,
+)
 from grax.simulation.serialization import _case_result_from_record
 from grax.solvers import res0, res1, res2, res2_dm
 from grax.solvers.common import prepare_layer_stack, propagating_energy_balance
@@ -681,3 +687,84 @@ def test_rcwa_1d_alias_module_still_exposes_the_historical_names() -> None:
     assert rcwa_1d.res2 is res2
     assert rcwa_1d.res2_dm is res2_dm
     assert grax.NeviereOptions is NeviereOptions
+
+
+@pytest.mark.unit
+def test_multilayer_theta_search_honours_the_requested_solver() -> None:
+    """Verify the theta-search workflow does not silently fall back to RCWA.
+
+    The batch runner builds a separate payload for this workflow. That payload
+    carried ``backend`` but not ``solver``, so a runner configured for the
+    differential method quietly computed with RCWA instead: no error, no warning,
+    and a result that correctly reported the solver that actually ran rather than
+    the one that was asked for.
+    """
+
+    cases = list(
+        multilayer_theta_search_cases(
+            grating=_multilayer_grating(),
+            energies_ev=[500.0],
+            diffraction_order=2,
+            rough_scan_half_width_deg=0.4,
+            rough_scan_points=5,
+            rough_fourier_orders=2,
+            rough_x_resolution_nm=4.0,
+            rough_z_resolution_nm=2.0,
+            fine_scan_half_width_deg=0.1,
+            fine_scan_points=5,
+            fine_fourier_orders=2,
+            fine_x_resolution_nm=4.0,
+            fine_z_resolution_nm=2.0,
+            final_fourier_orders=3,
+            final_x_resolution_nm=4.0,
+            final_z_resolution_nm=2.0,
+        )
+    )
+    runner = BatchSimulationRunner(
+        default_fourier_orders=3,
+        default_solver="neviere",
+        on_error="fail_fast",
+    )
+
+    results = list(runner.run_cases(cases))
+
+    assert [result.solver for result in results] == ["neviere"]
+
+
+@pytest.mark.unit
+def test_multilayer_theta_search_agrees_across_solvers() -> None:
+    """Verify both solvers select the same angle and efficiency for a theta search."""
+
+    search_kwargs = dict(
+        grating=_multilayer_grating(),
+        energy_ev=500.0,
+        diffraction_order=2,
+        initial_grazing_angle_deg=14.176,
+        rough_scan_half_width_deg=0.4,
+        rough_scan_points=5,
+        rough_fourier_orders=2,
+        rough_x_resolution_nm=4.0,
+        rough_z_resolution_nm=2.0,
+        fine_scan_half_width_deg=0.1,
+        fine_scan_points=5,
+        fine_fourier_orders=2,
+        fine_x_resolution_nm=4.0,
+        fine_z_resolution_nm=2.0,
+        final_fourier_orders=3,
+        final_x_resolution_nm=4.0,
+        final_z_resolution_nm=2.0,
+        validate_physical_results=False,
+    )
+    rcwa_result = run_multilayer_theta_search(**search_kwargs, solver="rcwa")
+    neviere_result = run_multilayer_theta_search(**search_kwargs, solver="neviere")
+
+    assert neviere_result.solver == "neviere"
+    assert rcwa_result.solver == "rcwa"
+    assert neviere_result.grazing_angle_deg == pytest.approx(
+        rcwa_result.grazing_angle_deg, abs=1e-9
+    )
+    assert neviere_result.selected_efficiency == pytest.approx(
+        rcwa_result.selected_efficiency,
+        abs=SOLVER_PARITY_ATOL,
+        rel=SOLVER_PARITY_RTOL,
+    )

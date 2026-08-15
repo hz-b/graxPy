@@ -22,6 +22,7 @@ from ..gratings import BaseGrating
 from .batch import (
     _case_payload,
     _run_payload,
+    runner_settings as _runner_settings,
     _available_memory_bytes,
     _calibrate_auto_max_workers_from_result,
     _load_checkpoint_case_results,
@@ -222,6 +223,8 @@ def run_multilayer_theta_search_sweep(
     save_profile_plot: bool = True,
     save_stack_plot: bool = True,
     backend: str = "numba",
+    solver: str = "rcwa",
+    neviere_options: object | None = None,
 ) -> MultilayerThetaSearchSweepResult:
     """Run a multilayer theta-search sweep and persist standard output artifacts.
 
@@ -275,6 +278,11 @@ def run_multilayer_theta_search_sweep(
             positive energy step in the requested sweep.
         save_profile_plot: Whether to save the grating profile plot.
         save_stack_plot: Whether to save the resolved stack schematic when available.
+        solver: Electromagnetic solver used for every energy point.
+            ``"rcwa"`` (default) or ``"neviere"``.
+        neviere_options: Integration settings for ``solver="neviere"``, as a
+            :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
+            RCWA solver.
         backend: Fourier coefficient backend selector. ``"numba"`` is the
             default backend. ``"numpy"`` remains available temporarily for
             compatibility but is deprecated and will be removed in a future
@@ -415,15 +423,17 @@ def run_multilayer_theta_search_sweep(
     )
     live_figure: plt.Figure | None = None
     live_axis: plt.Axes | None = None
-    settings = {
-        "default_diffraction_order": diffraction_order,
-        "default_fourier_orders": final_fourier_orders,
-        "max_fourier_orders": max(rough_fourier_orders, fine_fourier_orders, final_fourier_orders),
-        "validate_physical_results": True,
-        "max_reflected_efficiency": 1.05,
-        "min_reflected_efficiency": -1e-8,
-        "backend": backend,
-    }
+    settings = _runner_settings(
+        default_diffraction_order=diffraction_order,
+        default_fourier_orders=final_fourier_orders,
+        max_fourier_orders=max(rough_fourier_orders, fine_fourier_orders, final_fourier_orders),
+        validate_physical_results=True,
+        max_reflected_efficiency=1.05,
+        min_reflected_efficiency=-1e-8,
+        backend=backend,
+        default_solver=solver,
+        default_neviere_options=neviere_options,
+    )
     retry_jitter_values = _THETA_RETRY_JITTER_DEG[: max(0, int(max_zero_efficiency_retries))]
     theta_continuity_tolerance_deg = 0.02
     def _tracking_metadata_from_case(case: dict[str, object]) -> dict[str, object]:
