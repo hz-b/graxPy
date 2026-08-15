@@ -322,7 +322,7 @@ def test_run_simulation_skips_peak_ram_log_when_memory_unavailable(
             fourier_orders=15,
         )
 
-    assert "Running simulation at 500.00 eV" in caplog.text
+    assert "Running rcwa simulation at 500.00 eV" in caplog.text
     assert "peak_ram=" not in caplog.text
 
 

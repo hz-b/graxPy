@@ -23,6 +23,7 @@ from tqdm import tqdm
 from ..gratings import BaseGrating
 from .core import (
     _clone_grating_with_overrides,
+    _validate_solver,
     _refresh_interactive_figure,
     _warn_if_numpy_backend_requested,
     efficiency_for_order,
@@ -161,6 +162,8 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "profile_memory": bool(case.get("profile_memory", False)),
         "roughness_sigma_nm": case.get("roughness_sigma_nm"),
         "polarization": str(case.get("polarization", runner_settings["default_polarization"])),
+        "solver": _validate_solver(str(case.get("solver", runner_settings["default_solver"]))),
+        "neviere_options": case.get("neviere_options", runner_settings["default_neviere_options"]),
         "validate_physical_results": bool(runner_settings["validate_physical_results"]),
         "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
         "min_efficiency": float(runner_settings["min_reflected_efficiency"]),
@@ -660,6 +663,8 @@ class BatchSimulationRunner:
         max_zero_efficiency_retries: int = 3,
         backend: str = "numba",
         default_polarization: str = "s",
+        default_solver: str = "rcwa",
+        default_neviere_options: object | None = None,
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
@@ -716,6 +721,11 @@ class BatchSimulationRunner:
                 version.
             default_polarization: Default polarization used when a case omits the
                 value. Must be ``"s"`` or ``"p"``.
+            default_solver: Default electromagnetic solver used when a case omits
+                ``"solver"``. ``"rcwa"`` (default) or ``"neviere"``.
+            default_neviere_options: Default :class:`grax.NeviereOptions` (or
+                equivalent mapping) used when a case omits ``"neviere_options"``.
+                Ignored by the RCWA solver.
 
         Example:
             >>> runner = BatchSimulationRunner(
@@ -772,6 +782,8 @@ class BatchSimulationRunner:
         self.default_polarization = default_polarization
         if self.default_polarization not in {"s", "p"}:
             raise ValueError("default_polarization must be 's' or 'p'.")
+        self.default_solver = _validate_solver(default_solver)
+        self.default_neviere_options = default_neviere_options
         self._live_figure: plt.Figure | None = None
         self._live_axis: plt.Axes | None = None
         self._live_x_values: list[float] = []
@@ -926,6 +938,8 @@ class BatchSimulationRunner:
             "min_reflected_efficiency": self.min_reflected_efficiency,
             "backend": self.backend,
             "default_polarization": self.default_polarization,
+            "default_solver": self.default_solver,
+            "default_neviere_options": self.default_neviere_options,
         }
 
     def _prepare_pending_cases(
@@ -1080,6 +1094,7 @@ class BatchSimulationRunner:
                                 status="ok",
                                 case_data=case_data,
                                 polarization=single.polarization,
+                                solver=single.solver,
                                 theta_search_diagnostics=single.theta_search_diagnostics,
                                 retry_triggered=single.retry_triggered,
                                 retry_attempts=single.retry_attempts,
@@ -1111,6 +1126,7 @@ class BatchSimulationRunner:
                                 error_message=str(message["error"]),
                                 case_data=case_data,
                                 polarization=str(case.get("polarization", self.default_polarization)),
+                                solver=str(case.get("solver", self.default_solver)),
                                 peak_memory_bytes=None,
                                 wall_seconds=None,
                             )
@@ -1237,6 +1253,7 @@ class BatchSimulationRunner:
                 status="ok",
                 case_data=case_data,
                 polarization=single.polarization,
+                solver=single.solver,
                 theta_search_diagnostics=single.theta_search_diagnostics,
                 retry_triggered=single.retry_triggered,
                 retry_attempts=single.retry_attempts,
@@ -1264,6 +1281,7 @@ class BatchSimulationRunner:
                 error_message=str(error),
                 case_data=case_data,
                 polarization=str(case.get("polarization", self.default_polarization)),
+                solver=str(case.get("solver", self.default_solver)),
                 peak_memory_bytes=None,
                 wall_seconds=None,
             )

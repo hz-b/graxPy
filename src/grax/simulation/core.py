@@ -19,7 +19,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from ..gratings import BaseGrating
-from ..solvers import res0, res1, res2
+from ..solvers import res0, res1, res2, res2_dm
+from ..solvers.neviere import NeviereOptions, build_grating_epsilon_sampler, coerce_neviere_options
 from ._memory import PeakMemorySampler, format_memory_mb
 from ._profiling import SolverProfiler
 from .models import (
@@ -35,6 +36,17 @@ logger = logging.getLogger(__name__)
 # warn the caller: RCWA solve cost grows worse than linearly with order
 # count, and the solver hard-caps at 100 orders (201 modes) regardless.
 _SUPERCELL_FOURIER_ORDER_WARNING_THRESHOLD = 40
+
+#: Electromagnetic solvers selectable through ``solver=``.
+SOLVER_NAMES = ("rcwa", "neviere")
+
+
+def _validate_solver(solver: str) -> str:
+    """Return the validated solver name."""
+
+    if solver not in SOLVER_NAMES:
+        raise ValueError(f"solver must be one of {SOLVER_NAMES}, got {solver!r}.")
+    return solver
 
 
 def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
@@ -175,8 +187,10 @@ def _run_single_realization(
     _memory_mode: Literal["legacy_dense", "low_memory"],
     _profiler: SolverProfiler | None,
     backend: str,
+    solver: str,
+    neviere_options: NeviereOptions,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Run one full RCWA solve and return raw (orders, efficiency_all, diffraction_angle_all).
+    """Run one full solve and return raw (orders, efficiency_all, diffraction_angle_all).
 
     One "realization" is one concrete roughness draw (or the single
     deterministic solve when there's no roughness/Debye-Waller roughness).
@@ -203,13 +217,33 @@ def _run_single_realization(
         _profiler=_profiler,
         _fourier_backend=backend,
     )
-    ef = res2(
-        aa,
-        profile,
-        parm,
-        roughness_sigma_nm=effective_roughness_sigma_nm,
-        _profiler=_profiler,
-    )
+    if solver == "neviere":
+        epsilon_sampler = None
+        if neviere_options.z_sampling == "continuous":
+            epsilon_sampler = build_grating_epsilon_sampler(
+                grating,
+                photon_energy_ev=float(energy_ev),
+                period_nm=effective_period_nm,
+                orders=aa.orders,
+                fourier_backend=backend,
+            )
+        ef = res2_dm(
+            aa,
+            profile,
+            parm,
+            roughness_sigma_nm=effective_roughness_sigma_nm,
+            options=neviere_options,
+            epsilon_sampler=epsilon_sampler,
+            _profiler=_profiler,
+        )
+    else:
+        ef = res2(
+            aa,
+            profile,
+            parm,
+            roughness_sigma_nm=effective_roughness_sigma_nm,
+            _profiler=_profiler,
+        )
 
     with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
         orders = np.asarray(ef.inc_top_reflected.order, dtype=float) / float(num_supercells)
@@ -237,8 +271,10 @@ def run_simulation(
     _memory_mode: Literal["legacy_dense", "low_memory"] = "low_memory",
     _profiler: SolverProfiler | None = None,
     backend: str = "numba",
+    solver: Literal["rcwa", "neviere"] = "rcwa",
+    neviere_options: NeviereOptions | dict[str, object] | None = None,
 ) -> SingleSimulationResult:
-    """Run one RCWA simulation case and return a typed result.
+    """Run one simulation case and return a typed result.
 
     Args:
         grating: Grating profile and material stack.
@@ -260,9 +296,17 @@ def run_simulation(
             default backend. ``"numpy"`` remains available temporarily for
             compatibility but is deprecated and will be removed in a future
             version.
+        solver: Electromagnetic solver. ``"rcwa"`` (default) eigen-decomposes
+            each layer; ``"neviere"`` integrates the coupled first-order system
+            in ``z`` with the Nevière differential method. Both use the same
+            Fourier operators and the same efficiency extraction, so they are
+            directly comparable.
+        neviere_options: Integration settings for ``solver="neviere"``, as a
+            :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by
+            the RCWA solver.
 
     Returns:
-        Single-case RCWA result.
+        Single-case simulation result.
     """
 
     if not isinstance(grating, BaseGrating):
@@ -289,10 +333,13 @@ def run_simulation(
         raise ValueError("polarization must be 's' or 'p'.")
     if _memory_mode not in {"legacy_dense", "low_memory"}:
         raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
+    _validate_solver(solver)
+    resolved_neviere_options = coerce_neviere_options(neviere_options)
     _warn_if_numpy_backend_requested(backend, stacklevel=2)
 
     logger.info(
-        "Running simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s, memory_mode=%s",
+        "Running %s simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s, memory_mode=%s",
+        solver,
         energy_ev,
         grazing_angle_deg,
         fourier_orders,
@@ -345,6 +392,8 @@ def run_simulation(
                     _memory_mode=_memory_mode,
                     _profiler=_profiler,
                     backend=backend,
+                    solver=solver,
+                    neviere_options=resolved_neviere_options,
                 )
                 if orders is None:
                     orders = realization_orders
@@ -366,6 +415,8 @@ def run_simulation(
                 _memory_mode=_memory_mode,
                 _profiler=_profiler,
                 backend=backend,
+                solver=solver,
+                neviere_options=resolved_neviere_options,
             )
 
         order_index = np.where(np.isclose(orders, -float(diffraction_order)))[0]
@@ -402,6 +453,7 @@ def run_simulation(
             num_supercells=num_supercells,
             num_realizations=num_realizations,
             polarization=polarization,
+            solver=solver,
         )
 
     _log_simulation_memory_usage(
@@ -639,9 +691,12 @@ class RCWASimulation:
         max_total_reflected_efficiency: float = 1.05,
         roughness_sigma_nm: float | None = None,
         backend: str = "numba",
+        solver: Literal["rcwa", "neviere"] = "rcwa",
+        neviere_options: NeviereOptions | dict[str, object] | None = None,
     ) -> None:
         """Initialize a compatibility simulation object."""
 
+        _validate_solver(solver)
         _warn_if_numpy_backend_requested(backend, stacklevel=2)
         self.grating = grating
         self.diffraction_order = diffraction_order
@@ -655,6 +710,8 @@ class RCWASimulation:
         self.max_total_reflected_efficiency = max_total_reflected_efficiency
         self.roughness_sigma_nm = roughness_sigma_nm
         self.backend = backend
+        self.solver = solver
+        self.neviere_options = neviere_options
         self._live_comparison_figure = None
         self._live_comparison_axis = None
 
@@ -674,6 +731,8 @@ class RCWASimulation:
             min_efficiency=self.min_efficiency,
             max_total_reflected_efficiency=self.max_total_reflected_efficiency,
             backend=self.backend,
+            solver=self.solver,
+            neviere_options=self.neviere_options,
         )
         return {
             "orders": result.orders,
@@ -702,6 +761,8 @@ class RCWASimulation:
                 min_efficiency=self.min_efficiency,
                 max_total_reflected_efficiency=self.max_total_reflected_efficiency,
                 backend=self.backend,
+                solver=self.solver,
+                neviere_options=self.neviere_options,
             )
             for energy in energies
         ]
