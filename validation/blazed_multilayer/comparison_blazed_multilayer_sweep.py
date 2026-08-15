@@ -2,14 +2,58 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from _solver_comparison import load_grax_curves  # noqa: E402
+
+# Both solvers' results are plotted when present. A fresh run writes
+# ``*_rcwa.csv`` / ``*_neviere.csv``; the unsuffixed CSV is the older checked-in
+# artifact and is only used as a fallback, because it predates several solver
+# changes and pairing it against a fresh run would show that drift as though it
+# were a difference between the two methods.
+SOLVER_LABELS = {"rcwa": "graxpy (RCWA)", "neviere": "graxpy (Nevière DM)"}
+# The two solvers agree to ~1e-11, so without a dashed overlay the second curve
+# hides the first completely and the plot looks as though one is missing.
+SOLVER_STYLES = {"rcwa": {"linestyle": "-"}, "neviere": {"linestyle": (0, (6, 4))}}
+
+
+def load_solver_curves(base_csv, order):
+    """Return (label, energy, efficiency, style) for each solver that has been run.
+
+    Args:
+        base_csv: Historical unsuffixed all-orders CSV path for this case.
+        order: Signed diffraction order to extract (reflected orders are negative).
+
+    Returns:
+        List of plottable curves, skipping solvers with no results yet.
+    """
+
+    curves = []
+    for solver in ("rcwa", "neviere"):
+        candidates = [base_csv.with_name(f"{base_csv.stem}_{solver}{base_csv.suffix}")]
+        if solver == "rcwa":
+            candidates.append(base_csv)
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            print(f"  note: no {solver} results yet, skipping that curve")
+            continue
+        frame = pd.read_csv(path)
+        selected = frame[frame["order"] == order].sort_values("energy_ev")
+        if selected.empty:
+            print(f"  note: {path.name} has no order {order}, skipping that curve")
+            continue
+        print(f"  {SOLVER_LABELS[solver]:<22} <- {path.name}  ({len(selected)} points)")
+        curves.append(
+            (
+                SOLVER_LABELS[solver],
+                selected["energy_ev"],
+                selected["efficiency"],
+                dict(SOLVER_STYLES[solver]),
+            )
+        )
+    return curves
 
 
 
@@ -18,7 +62,7 @@ project_root = base_path.parent.parent
 theta_search_results_path = project_root / "examples" / "simulation" / "multilayer_theta_search" / "results"
 
 print("graxpy curves:")
-grax_curves = load_grax_curves(
+grax_curves = load_solver_curves(
     base_path / "results" / "blazed_multilayer_all_orders.csv",
     order=-2,
 )
@@ -38,15 +82,15 @@ diffmod_results = diffmod_results[["Energy", "Efficiency(GR)"]].copy()
 diffmod_results = diffmod_results.apply(pd.to_numeric, errors="coerce").dropna()
 
 plt.figure(figsize=(10, 6))
-for curve in grax_curves:
+for curve_label, curve_energy, curve_efficiency, curve_style in grax_curves:
     plt.plot(
-        curve.energy_ev,
-        curve.efficiency,
-        label=f"{curve.label} energy-angle",
+        curve_energy,
+        curve_efficiency,
+        label=f"{curve_label} energy-angle",
         linewidth=1.0,
         marker=".",
         markersize=3,
-        **curve.style,
+        **curve_style,
     )
 plt.plot(
     theta_search_order["energy_ev"],
@@ -76,15 +120,15 @@ plt.savefig(output_path, dpi=150, bbox_inches="tight")
 print(f"Plot saved to: {output_path}")
 
 plt.figure(figsize=(10, 6))
-for curve in grax_curves:
+for curve_label, curve_energy, curve_efficiency, curve_style in grax_curves:
     plt.plot(
-        curve.energy_ev,
-        curve.efficiency,
-        label=f"{curve.label} energy-angle",
+        curve_energy,
+        curve_efficiency,
+        label=f"{curve_label} energy-angle",
         linewidth=1.0,
         marker=".",
         markersize=4,
-        **curve.style,
+        **curve_style,
     )
 plt.plot(
     theta_search_order["energy_ev"],

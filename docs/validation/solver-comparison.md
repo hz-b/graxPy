@@ -13,21 +13,23 @@ between them is integration error rather than a modelling difference.
 
 ## Reproducing
 
-Run each sweep with both solvers, then the comparison script:
+Each validation case has a `grating_definition.py` holding the grating and the
+sweep grid, and one runner per solver that imports it:
 
 ```bash
-python validation/laminar/fixed_angle_sweep.py --solver rcwa --tag rerun
-python validation/laminar/fixed_angle_sweep.py --solver neviere
-python validation/compare_solvers.py --case laminar
+python validation/laminar/run_rcwa.py
+python validation/laminar/run_neviere.py
+python validation/laminar/comparison.py
 ```
 
-`--tag rerun` writes the RCWA baseline alongside the checked-in artifacts rather
-than over them. Both sides must come from the same revision; the last section on
-this page explains why the checked-in RCWA artifacts are not usable as one side.
+Both runners read the same definition, so they cannot drift apart in geometry,
+energy grid or truncation. They write `*_rcwa.csv` and `*_neviere.csv` side by
+side, and `comparison.py` overlays both against the external reference codes.
 
-The comparison script writes `*_solver_comparison.csv` (per-order maximum, mean
-and RMS deviation) and `*_solver_comparison.png` (efficiencies overlaid, with a
-log-scale difference panel) into each case's `results/` directory.
+Both sides must come from the same revision; the last section on this page
+explains why the checked-in RCWA artifacts are not usable as one side. The
+per-order deviation figures quoted below come from a developer cross-check tool
+under `tools/`, which is not part of the validation workflow.
 
 ## Results
 
@@ -117,9 +119,8 @@ Nothing in these cases stresses either solver, but the places to watch are:
 
 The RCWA CSVs committed under each `results/` directory predate several changes
 to the solver and its inputs, so they no longer reproduce from the current code.
-The comparison above therefore uses a fresh RCWA run (`--tag rerun`) rather than
-the committed files, and `validation/compare_solvers.py` prints the drift between
-the two for reference:
+The comparison above therefore uses a fresh RCWA run (`run_rcwa.py`, written to
+`*_rcwa.csv`) rather than the committed files. The drift between the two is:
 
 | case | order 1 max drift | order 1 relative |
 | --- | ---: | ---: |

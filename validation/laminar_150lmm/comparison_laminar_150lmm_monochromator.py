@@ -2,14 +2,58 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from _solver_comparison import load_grax_curves  # noqa: E402
+
+# Both solvers' results are plotted when present. A fresh run writes
+# ``*_rcwa.csv`` / ``*_neviere.csv``; the unsuffixed CSV is the older checked-in
+# artifact and is only used as a fallback, because it predates several solver
+# changes and pairing it against a fresh run would show that drift as though it
+# were a difference between the two methods.
+SOLVER_LABELS = {"rcwa": "graxpy (RCWA)", "neviere": "graxpy (Nevière DM)"}
+# The two solvers agree to ~1e-11, so without a dashed overlay the second curve
+# hides the first completely and the plot looks as though one is missing.
+SOLVER_STYLES = {"rcwa": {"linestyle": "-"}, "neviere": {"linestyle": (0, (6, 4))}}
+
+
+def load_solver_curves(base_csv, order):
+    """Return (label, energy, efficiency, style) for each solver that has been run.
+
+    Args:
+        base_csv: Historical unsuffixed all-orders CSV path for this case.
+        order: Signed diffraction order to extract (reflected orders are negative).
+
+    Returns:
+        List of plottable curves, skipping solvers with no results yet.
+    """
+
+    curves = []
+    for solver in ("rcwa", "neviere"):
+        candidates = [base_csv.with_name(f"{base_csv.stem}_{solver}{base_csv.suffix}")]
+        if solver == "rcwa":
+            candidates.append(base_csv)
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            print(f"  note: no {solver} results yet, skipping that curve")
+            continue
+        frame = pd.read_csv(path)
+        selected = frame[frame["order"] == order].sort_values("energy_ev")
+        if selected.empty:
+            print(f"  note: {path.name} has no order {order}, skipping that curve")
+            continue
+        print(f"  {SOLVER_LABELS[solver]:<22} <- {path.name}  ({len(selected)} points)")
+        curves.append(
+            (
+                SOLVER_LABELS[solver],
+                selected["energy_ev"],
+                selected["efficiency"],
+                dict(SOLVER_STYLES[solver]),
+            )
+        )
+    return curves
 
 
 example_root = Path(__file__).resolve().parent
@@ -73,20 +117,20 @@ def _load_external_table(path: Path) -> tuple[pd.Series, list[tuple[str, pd.Seri
 
 
 print("graxpy curves:")
-grax_curves = load_grax_curves(results_file, order=-1)
+grax_curves = load_solver_curves(results_file, order=-1)
 
 external_files = sorted([path for path in simulation_dir.iterdir() if path.is_file()])
 if not external_files:
     raise FileNotFoundError(f"No external files found in {simulation_dir}")
 
 figure, axis = plt.subplots(figsize=(12, 8))
-for curve in grax_curves:
+for curve_label, curve_energy, curve_efficiency, curve_style in grax_curves:
     axis.plot(
-        curve.energy_ev,
-        curve.efficiency,
-        label=f"{curve.label}, order -1 -> +1",
+        curve_energy,
+        curve_efficiency,
+        label=f"{curve_label}, order -1 -> +1",
         linewidth=2.2,
-        **curve.style,
+        **curve_style,
     )
 
 for external_path in external_files:

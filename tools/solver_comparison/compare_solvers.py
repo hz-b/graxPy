@@ -1,16 +1,20 @@
-"""Compare RCWA and Nevière differential-method results for the validation cases.
+"""Internal cross-check of the two solvers on the validation cases.
 
-Run each sweep with both solvers first, then this script. It writes a per-order
-deviation table and a side-by-side plot with a difference panel for every case
-that has results from both solvers.
+Developer tool, not part of the documented validation workflow. It quantifies
+how far the RCWA and Nevière differential-method results drift apart, which is
+useful when changing either solver but is not something a user needs to run.
 
-    python validation/laminar/fixed_angle_sweep.py --solver rcwa --tag rerun
-    python validation/laminar/fixed_angle_sweep.py --solver neviere
-    python validation/compare_solvers.py
+Run each sweep with both solvers first, then this script:
 
-Both sides must come from the same code revision. The checked-in RCWA artifacts
-predate several solver changes, so ``--tag rerun`` is used to produce a current
-RCWA baseline alongside them rather than comparing against a stale one.
+    python validation/laminar/run_rcwa.py
+    python validation/laminar/run_neviere.py
+    python tools/solver_comparison/compare_solvers.py --case laminar
+
+It writes a per-order deviation table and a side-by-side plot with a difference
+panel into each case's ``results/`` directory. Both sides must come from the same
+code revision, so it reads the ``*_rcwa.csv`` written by ``run_rcwa.py`` rather
+than the older checked-in artifact, and separately reports how far that artifact
+has drifted.
 """
 
 from __future__ import annotations
@@ -21,12 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _solver_comparison import (  # noqa: E402
+from _helpers import (  # noqa: E402
     print_solver_comparison,
     write_solver_comparison,
 )
 
-VALIDATION_ROOT = Path(__file__).resolve().parent
+VALIDATION_ROOT = Path(__file__).resolve().parents[2] / "validation"
 
 
 @dataclass(frozen=True)
@@ -39,7 +43,6 @@ class ValidationCase:
         results_dir: Directory holding the sweep's result artifacts.
         stem: Base filename of the all-orders CSV, without suffix or extension.
         orders: Positive diffraction orders to compare.
-        rcwa_tag: Tag used when the current RCWA baseline was produced.
     """
 
     name: str
@@ -47,13 +50,12 @@ class ValidationCase:
     results_dir: Path
     stem: str
     orders: tuple[int, ...]
-    rcwa_tag: str = "rerun"
 
     @property
     def rcwa_csv(self) -> Path:
         """Return the path of the current-code RCWA all-orders CSV."""
 
-        return self.results_dir / f"{self.stem}_{self.rcwa_tag}.csv"
+        return self.results_dir / f"{self.stem}_rcwa.csv"
 
     @property
     def neviere_csv(self) -> Path:
@@ -135,7 +137,7 @@ def main() -> int:
         print_solver_comparison(summary, title=case.title)
 
         if case.committed_rcwa_csv.exists():
-            from _solver_comparison import compare_all_orders
+            from _helpers import compare_all_orders
 
             drift = compare_all_orders(
                 case.committed_rcwa_csv,
@@ -151,7 +153,7 @@ def main() -> int:
         print("\nSkipped:")
         for line in missing:
             print(f"  {line}")
-        print("Run each sweep with --solver rcwa --tag rerun and --solver neviere first.")
+        print("Run each sweep with --solver rcwa  and --solver neviere first.")
     return 0
 
 

@@ -1,11 +1,55 @@
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from _solver_comparison import load_grax_curves  # noqa: E402
+
+# Both solvers' results are plotted when present. A fresh run writes
+# ``*_rcwa.csv`` / ``*_neviere.csv``; the unsuffixed CSV is the older checked-in
+# artifact and is only used as a fallback, because it predates several solver
+# changes and pairing it against a fresh run would show that drift as though it
+# were a difference between the two methods.
+SOLVER_LABELS = {"rcwa": "graxpy (RCWA)", "neviere": "graxpy (Nevière DM)"}
+# The two solvers agree to ~1e-11, so without a dashed overlay the second curve
+# hides the first completely and the plot looks as though one is missing.
+SOLVER_STYLES = {"rcwa": {"linestyle": "-"}, "neviere": {"linestyle": (0, (6, 4))}}
+
+
+def load_solver_curves(base_csv, order):
+    """Return (label, energy, efficiency, style) for each solver that has been run.
+
+    Args:
+        base_csv: Historical unsuffixed all-orders CSV path for this case.
+        order: Signed diffraction order to extract (reflected orders are negative).
+
+    Returns:
+        List of plottable curves, skipping solvers with no results yet.
+    """
+
+    curves = []
+    for solver in ("rcwa", "neviere"):
+        candidates = [base_csv.with_name(f"{base_csv.stem}_{solver}{base_csv.suffix}")]
+        if solver == "rcwa":
+            candidates.append(base_csv)
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            print(f"  note: no {solver} results yet, skipping that curve")
+            continue
+        frame = pd.read_csv(path)
+        selected = frame[frame["order"] == order].sort_values("energy_ev")
+        if selected.empty:
+            print(f"  note: {path.name} has no order {order}, skipping that curve")
+            continue
+        print(f"  {SOLVER_LABELS[solver]:<22} <- {path.name}  ({len(selected)} points)")
+        curves.append(
+            (
+                SOLVER_LABELS[solver],
+                selected["energy_ev"],
+                selected["efficiency"],
+                dict(SOLVER_STYLES[solver]),
+            )
+        )
+    return curves
 
 # =========================
 # PLOT CONFIGURATION - Easy to adjust
@@ -44,7 +88,7 @@ df_meas = pd.read_csv(
 # graxpy simulations (-1 order), one curve per solver that has been run
 # =========================
 print("graxpy curves:")
-grax_curves = load_grax_curves(sim_file, order=-1)
+grax_curves = load_solver_curves(sim_file, order=-1)
 
 # =========================
 # RETICOLO simulation
@@ -85,9 +129,9 @@ plt.figure(figsize=(19.2, 14.4))
 
 plt.plot(df_meas["Energy_eV"], df_meas["Intensity"],
          label="Measured data", linewidth=LINE_WIDTH)
-for curve in grax_curves:
-    plt.plot(curve.energy_ev, curve.efficiency,
-             label=curve.label, linewidth=LINE_WIDTH, **curve.style)
+for curve_label, curve_energy, curve_efficiency, curve_style in grax_curves:
+    plt.plot(curve_energy, curve_efficiency,
+             label=curve_label, linewidth=LINE_WIDTH, **curve_style)
 plt.plot(df_slag["PhotonEnergy_eV"], df_slag["DiffractionEfficiency"],
          label="Reticolo", linewidth=LINE_WIDTH)
 plt.plot(df_f3["Energy"], df_f3["efficiency_4deg"],
