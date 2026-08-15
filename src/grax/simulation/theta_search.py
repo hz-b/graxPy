@@ -165,11 +165,11 @@ def _run_theta_scan(
     roughness_sigma_nm: float | None,
     validate_physical_results: bool,
     max_reflected_efficiency: float,
-    min_efficiency: float,
+    min_reflected_efficiency: float,
     max_total_reflected_efficiency: float,
     backend: str,
     solver: str,
-    neviere_options: object | None,
+    solver_options: object | None,
 ) -> tuple[np.ndarray, list[SingleSimulationResult]]:
     """Run one theta scan and return selected efficiencies plus full results."""
 
@@ -183,11 +183,11 @@ def _run_theta_scan(
             roughness_sigma_nm=roughness_sigma_nm,
             validate_physical_results=validate_physical_results,
             max_reflected_efficiency=max_reflected_efficiency,
-            min_efficiency=min_efficiency,
+            min_reflected_efficiency=min_reflected_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
             backend=backend,
             solver=solver,
-            neviere_options=neviere_options,
+            solver_options=solver_options,
         )
         for theta_deg in theta_grid_deg
     ]
@@ -322,12 +322,12 @@ def run_multilayer_theta_search(
     roughness_sigma_nm: float | None = None,
     validate_physical_results: bool = True,
     max_reflected_efficiency: float = 1.05,
-    min_efficiency: float = -1e-8,
+    min_reflected_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
     precise_peak_selection_mode: PeakSelectionMode = "max",
     backend: str = "numba",
     solver: str = "rcwa",
-    neviere_options: object | None = None,
+    solver_options: object | None = None,
     diagnostic_callback: Callable[[ThetaSearchDiagnostics, float], None] | None = None,
 ) -> SingleSimulationResult:
     """Run one energy point with an internal rough/precise grazing-angle search.
@@ -381,7 +381,7 @@ def run_multilayer_theta_search(
             reflected efficiency, and maximum total propagating reflected efficiency.
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency
             during validation.
-        min_efficiency: Minimum allowed efficiency (slightly negative values allowed
+        min_reflected_efficiency: Minimum allowed efficiency (slightly negative values allowed
             for numerical noise).
         max_total_reflected_efficiency: Maximum allowed sum of propagating reflected
             efficiencies.
@@ -391,7 +391,7 @@ def run_multilayer_theta_search(
         solver: Electromagnetic solver used for every stage of the search.
             ``"rcwa"`` (default) or ``"neviere"``. All three stages use the same
             solver so the selected angle and the final efficiency are consistent.
-        neviere_options: Integration settings for ``solver="neviere"``, as a
+        solver_options: Integration settings for ``solver="neviere"``, as a
             :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
             RCWA solver.
         backend: Fourier coefficient backend selector. ``"numba"`` is the
@@ -476,11 +476,11 @@ def run_multilayer_theta_search(
             roughness_sigma_nm=roughness_sigma_nm,
             validate_physical_results=validate_physical_results,
             max_reflected_efficiency=max_reflected_efficiency,
-            min_efficiency=min_efficiency,
+            min_reflected_efficiency=min_reflected_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
             backend=backend,
             solver=solver,
-            neviere_options=neviere_options,
+            solver_options=solver_options,
         )
         rough_peak_index = int(np.nanargmax(rough_efficiencies))
         rough_peak_angle_deg = float(rough_grazing_angles_deg[rough_peak_index])
@@ -533,11 +533,11 @@ def run_multilayer_theta_search(
             roughness_sigma_nm=roughness_sigma_nm,
             validate_physical_results=validate_physical_results,
             max_reflected_efficiency=max_reflected_efficiency,
-            min_efficiency=min_efficiency,
+            min_reflected_efficiency=min_reflected_efficiency,
             max_total_reflected_efficiency=max_total_reflected_efficiency,
             backend=backend,
             solver=solver,
-            neviere_options=neviere_options,
+            solver_options=solver_options,
         )
         precise_peak_index = int(np.nanargmax(precise_efficiencies))
         precise_ok, precise_status = _peak_capture_status(precise_efficiencies, precise_peak_index, edge_margin=2)
@@ -583,11 +583,11 @@ def run_multilayer_theta_search(
         roughness_sigma_nm=roughness_sigma_nm,
         validate_physical_results=validate_physical_results,
         max_reflected_efficiency=max_reflected_efficiency,
-        min_efficiency=min_efficiency,
+        min_reflected_efficiency=min_reflected_efficiency,
         max_total_reflected_efficiency=max_total_reflected_efficiency,
         backend=backend,
         solver=solver,
-        neviere_options=neviere_options,
+        solver_options=solver_options,
     )
     logger.info(
         "[theta-search][final-scan] done energy=%.6f eV selected_theta=%.6f selected_eff=%.6e",

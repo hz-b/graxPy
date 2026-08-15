@@ -128,7 +128,7 @@ def run_parameter_study(
     save_csv: bool = True,
     show_progress: bool = True,
     solver: str = "rcwa",
-    neviere_options: object | None = None,
+    solver_options: object | None = None,
     backend: str = "numba",
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
@@ -161,9 +161,9 @@ def run_parameter_study(
         show_progress: Whether to display progress bars during execution.
         solver: Electromagnetic solver used for every point of the study.
             ``"rcwa"`` (default) or ``"neviere"``.
-        neviere_options: Integration settings for ``solver="neviere"``, as a
+        solver_options: Integration settings for ``solver="neviere"``, as a
             :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
-            RCWA solver.
+            selected solver.
         backend: Fourier coefficient backend selector. ``"numba"`` is the
             default. Previously fixed internally; exposing it here makes a
             convergence study reproducible against the backend it ran on.
@@ -224,7 +224,7 @@ def run_parameter_study(
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
                 solver=solver,
-                neviere_options=neviere_options,
+                solver_options=solver_options,
                 backend=backend,
             ),
             "x_resolution_nm": _run_single_parameter_sweep(
@@ -238,7 +238,7 @@ def run_parameter_study(
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
                 solver=solver,
-                neviere_options=neviere_options,
+                solver_options=solver_options,
                 backend=backend,
             ),
             "z_resolution_nm": _run_single_parameter_sweep(
@@ -252,7 +252,7 @@ def run_parameter_study(
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
                 solver=solver,
-                neviere_options=neviere_options,
+                solver_options=solver_options,
                 backend=backend,
             ),
         }
@@ -415,12 +415,12 @@ def _run_single_parameter_sweep(
     max_retries: int,
     fixed_fourier_orders: int,
     solver: str,
-    neviere_options: object | None,
+    solver_options: object | None,
     backend: str,
 ) -> ParameterSweepSeries:
     """Run one parameter sweep for one energy.
 
-    Executes a sequence of RCWA simulations varying one discretization parameter
+    Executes a sequence of simulations varying one discretization parameter
     while holding all others fixed. Implements retry logic for failed points with
     exponential backoff behavior (same parameters retried up to max_retries).
 
@@ -470,7 +470,7 @@ def _run_single_parameter_sweep(
                     polarization=polarization,
                     backend=backend,
                     solver=solver,
-                    neviere_options=neviere_options,
+                    solver_options=solver_options,
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True

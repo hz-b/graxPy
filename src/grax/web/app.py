@@ -1097,9 +1097,9 @@ def _execute_run_job(
             fourier_orders=fourier_orders,
         )
         runner = simulation.BatchSimulationRunner(
-            default_diffraction_order=diffraction_order,
-            default_fourier_orders=fourier_orders,
-            default_solver=_normalized_solver(form_data.get("solver", "rcwa")),
+            diffraction_order=diffraction_order,
+            fourier_orders=fourier_orders,
+            solver=_normalized_solver(form_data.get("solver", "rcwa")),
             max_workers=effective_max_workers,
             show_progress=False,
             on_error="continue",

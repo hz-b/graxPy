@@ -176,7 +176,7 @@ class MeasurementFitConfig:
             ``"rcwa"`` (default) or ``"neviere"``. Unlike ``backend`` there is no
             ``"auto"`` mode: the two solvers are different methods, not
             interchangeable implementations of one.
-        neviere_options: Integration settings for ``solver="neviere"``, as a
+        solver_options: Integration settings for ``solver="neviere"``, as a
             mapping matching :class:`grax.NeviereOptions`.
         evaluation_energies_ev: Discrete energies used for objective evaluation.
         evaluation_grazing_angles_deg: Optional grazing angles (deg) used for
@@ -214,7 +214,7 @@ class MeasurementFitConfig:
     save_loss_plot: bool = True
     backend: str = "auto"
     solver: str = "rcwa"
-    neviere_options: dict[str, object] | None = None
+    solver_options: dict[str, object] | None = None
     evaluation_energies_ev: list[float] = field(default_factory=list)
     evaluation_grazing_angles_deg: list[float] = field(default_factory=list)
     max_workers: int | str | None = None
@@ -354,7 +354,7 @@ class MeasurementFitConfig:
             save_loss_plot=config.pop("save_loss_plot", True),
             backend=config.pop("backend", "auto"),
             solver=config.pop("solver", "rcwa"),
-            neviere_options=config.pop("neviere_options", None),
+            solver_options=config.pop("solver_options", None),
             evaluation_energies_ev=list(config.pop("evaluation_energies_ev", [])),
             evaluation_grazing_angles_deg=list(
                 config.pop("evaluation_grazing_angles_deg", [])
@@ -557,7 +557,7 @@ def _write_measurement_fit_result_json(
         "backend_requested": backend_requested,
         "backend_effective": backend_effective,
         "solver": str(getattr(config, "solver", "rcwa")),
-        "neviere_options": getattr(config, "neviere_options", None),
+        "solver_options": getattr(config, "solver_options", None),
         "optimizer_execution_strategy": "trial_batch_runner",
         "optimizer_requested_max_workers": optimizer_requested_max_workers,
         "optimizer_resolved_max_workers": int(optimizer_resolved_max_workers),

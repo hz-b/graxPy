@@ -49,8 +49,8 @@ def main() -> None:
     reference = case.build_reference_grid(quick=args.quick, stride=args.stride)
 
     runner = grax.BatchSimulationRunner(
-        default_diffraction_order=case.DIFFRACTION_ORDER,
-        default_fourier_orders=case.QUICK_FOURIER_ORDERS if args.quick else case.FOURIER_ORDERS,
+        diffraction_order=case.DIFFRACTION_ORDER,
+        fourier_orders=case.QUICK_FOURIER_ORDERS if args.quick else case.FOURIER_ORDERS,
         show_progress=True,
         live_plot=args.live_plot,
         live_plot_x_key="energy_ev",
@@ -61,7 +61,7 @@ def main() -> None:
         checkpoint_dir=paths["checkpoint_dir"],
         resume=False,
         backend="numba",
-        default_solver=SOLVER,
+        solver=SOLVER,
     )
 
     results = list(runner.run_cases(case.build_cases(quick=args.quick, stride=args.stride)))

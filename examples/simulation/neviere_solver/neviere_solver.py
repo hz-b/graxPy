@@ -63,7 +63,7 @@ print(f"  result.solver reports: {rcwa_single.solver!r} and {neviere_single.solv
 tight = grax.run_simulation(
     **single_common,
     solver="neviere",
-    neviere_options=grax.NeviereOptions(step_phase=0.005),
+    solver_options=grax.NeviereOptions(step_phase=0.005),
 )
 print(
     "  difference with step_phase=0.005: "
@@ -77,7 +77,7 @@ print(
 continuous = grax.run_simulation(
     **single_common,
     solver="neviere",
-    neviere_options=grax.NeviereOptions(z_sampling="continuous"),
+    solver_options=grax.NeviereOptions(z_sampling="continuous"),
 )
 fine_staircase = grax.run_simulation(
     **{**single_common, "grating": dataclasses.replace(grating, z_resolution_nm=0.01)},
@@ -96,9 +96,9 @@ print(
 efficiencies: dict[str, np.ndarray] = {}
 for solver in ("rcwa", "neviere"):
     runner = grax.BatchSimulationRunner(
-        default_diffraction_order=diffraction_order,
-        default_fourier_orders=fourier_orders,
-        default_solver=solver,
+        diffraction_order=diffraction_order,
+        fourier_orders=fourier_orders,
+        solver=solver,
         on_error="fail_fast",
     )
     cases = grax.fixed_angle_cases(

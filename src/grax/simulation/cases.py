@@ -34,7 +34,7 @@ def fixed_angle_cases(
         energies_ev: Iterable of photon energies in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
         polarization: Incident polarization, ``"s"`` or ``"p"``. When ``None``
-            the runner's ``default_polarization`` is used.
+            the runner's ``polarization`` is used.
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.

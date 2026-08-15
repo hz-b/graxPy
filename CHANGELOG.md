@@ -3,7 +3,23 @@
 ## Unreleased
 
 ### Breaking changes
-- Renamed `grax.simulation.RCWASimulation` to `GratingSimulation`, with no alias. The class drives whichever solver `solver=` selects, so the old name described only one of the two things it can do. Replace `RCWASimulation(...)` with `GratingSimulation(...)`; the arguments and behaviour are unchanged.
+
+Renames only — no behaviour changed. Migration:
+
+| old | new |
+| --- | --- |
+| `RCWASimulation` | `GratingSimulation` |
+| `BatchSimulationRunner(default_diffraction_order=)` | `diffraction_order=` |
+| `BatchSimulationRunner(default_fourier_orders=)` | `fourier_orders=` |
+| `BatchSimulationRunner(default_polarization=)` | `polarization=` |
+| `BatchSimulationRunner(default_solver=)` | `solver=` |
+| `neviere_options=` (all entrypoints) | `solver_options=` |
+| `run_simulation(min_efficiency=)` | `min_reflected_efficiency=` |
+
+- Renamed `grax.simulation.RCWASimulation` to `GratingSimulation`. The class drives whichever solver `solver=` selects, so the old name described only one of the two things it can do.
+- Dropped the `default_` prefix from the `BatchSimulationRunner` settings. The prefix was accurate — each of these is the value a case inherits when it omits its own key — but it made `default_fourier_orders: int = 25` read as the default of a default, and the runner's arguments now mirror `run_simulation`'s exactly. The per-case override relationship is documented on each argument instead.
+- Renamed the `neviere_options` argument to `solver_options` everywhere, matching the `solver_options` field already present on results. One name in both directions, and the generic runner no longer names a specific solver in its API. The `NeviereOptions` class keeps its name.
+- Renamed `min_efficiency` to `min_reflected_efficiency` on `run_simulation`, `GratingSimulation` and `run_multilayer_theta_search`. It was half of a min/max pair whose other half was already `max_reflected_efficiency`, and the batch runner had to translate between the two spellings.
 
 - Added a second electromagnetic solver, the Nevière differential method, selectable with `grax.run_simulation(..., solver="neviere")` and `BatchSimulationRunner(default_solver=...)` (per-case `"solver"` also works). It expands the fields in the same truncated Fourier basis as RCWA and applies the same Li/fast-Fourier-factorization rules for TM, but integrates the coupled first-order system in `z` with fourth-order Runge-Kutta instead of eigen-decomposing each layer. Every default stays `"rcwa"`, so existing code, checkpoints and artifacts are unaffected. References: Nevière, Vincent & Petit, *Nouv. Rev. Optique* **5**, 65 (1974); Nevière, *JOSA A* **11**, 1835 (1994); Nevière & Popov, *Light Propagation in Periodic Media* (CRC, 2003).
 - `grax.NeviereOptions` controls the differential method's integration. Step and sub-block sizes are given in optical phase rather than nanometers, so one setting behaves consistently across photon energies, grazing angles and truncation orders. The Fourier truncation order remains the existing `fourier_orders` argument.
@@ -11,6 +27,7 @@
 - The differential method is numerically more robust on deep gratings. The modal solver evaluates `q / sinh(q d)` across a whole layer and overflows above roughly seven wavelengths of depth for a high-contrast lamellar grating; the differential method caps the optical thickness of anything it forms explicitly and still conserves energy to `1e-9` at 167 wavelengths.
 - `SingleSimulationResult` and `CaseExecutionResult` gained a `solver` field, round-tripped through checkpoints so a resumed sweep keeps that provenance.
 - Split the 1D solver into a `grax.solvers` package: `solvers/common.py` holds the shared types, `res0`/`res1`, the Fourier machinery, the layer field operators, the interface cascade and the efficiency extraction; `solvers/rcwa.py` holds the modal layer solve and `res2`; `solvers/neviere.py` holds the differential method. `grax.rcwa_1d` remains as a re-export shim, and the RCWA numerics are unchanged (verified bit-identical across laminar, blazed, multilayer and sinusoidal cases in both polarizations).
+- The batch progress bar now names the solver actually running (`neviere batch`) instead of always printing `RCWA batch`, and the solver-agnostic docstrings on `SingleSimulationResult`, `BatchSimulationRunner`, `gratings.py` and `run_parameter_study` no longer describe themselves as RCWA-specific.
 - Solver selection now reaches every workflow. `run_multilayer_theta_search`, `run_multilayer_theta_search_sweep`, `run_parameter_study`, the `grax_opt` measurement fits and the web UI run form all accept a solver, alongside the existing `run_simulation` and `BatchSimulationRunner` support. Every default stays `"rcwa"`.
 - Fixed the multilayer theta-search workflow silently ignoring `solver=`. `BatchSimulationRunner(default_solver="neviere")` computed those cases with RCWA, with no error or warning, because the workflow's payload carried `backend` but not `solver`. Both runner-settings mappings now come from one place so a new setting cannot reach one execution path and miss the other.
 - `run_parameter_study` gained `backend`, which it previously hardcoded to `"numba"` internally.

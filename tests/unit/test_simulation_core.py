@@ -734,7 +734,7 @@ def test_batch_runner_executes_generator_cases_in_order(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
     grating = build_test_grating()
-    runner = BatchSimulationRunner(default_fourier_orders=5)
+    runner = BatchSimulationRunner(fourier_orders=5)
 
     def case_generator() -> Iterator[dict[str, object]]:
         yield {
@@ -1133,7 +1133,7 @@ def test_batch_runner_rejects_unsupported_material_input_in_fail_fast_mode() -> 
         top_cap_thickness_nm=0.7,
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=5,
+        fourier_orders=5,
         on_error="fail_fast",
     )
 
@@ -1302,7 +1302,7 @@ def test_batch_runner_infers_progress_total_for_generator_cases(monkeypatch: pyt
 def test_batch_runner_parallel_executes_cases_and_writes_checkpoint(tmp_path: Path) -> None:
     grating = build_test_grating()
     runner = BatchSimulationRunner(
-        default_fourier_orders=1,
+        fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         on_error="continue",
@@ -1347,7 +1347,7 @@ def test_batch_runner_parallel_resume_skips_completed_cases(tmp_path: Path) -> N
         encoding="utf-8",
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=1,
+        fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         resume=True,

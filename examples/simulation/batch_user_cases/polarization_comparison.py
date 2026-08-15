@@ -50,8 +50,8 @@ for depth_nm in depths_nm:
     cases_p.append({**base, "case_id": f"pol-p-depth-{int(depth_nm):03d}", "polarization": "p"})
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=diffraction_order,
-    default_fourier_orders=25,
+    diffraction_order=diffraction_order,
+    fourier_orders=25,
     show_progress=True,
     live_plot=False,
     on_error="continue",

@@ -43,8 +43,8 @@ def main() -> None:
     experimental = grax.load_experimental_csv(case.MEASUREMENT_FILE)
 
     runner = grax.BatchSimulationRunner(
-        default_diffraction_order=case.DIFFRACTION_ORDER,
-        default_fourier_orders=case.QUICK_FOURIER_ORDERS if args.quick else case.FOURIER_ORDERS,
+        diffraction_order=case.DIFFRACTION_ORDER,
+        fourier_orders=case.QUICK_FOURIER_ORDERS if args.quick else case.FOURIER_ORDERS,
         show_progress=True,
         live_plot=args.live_plot,
         live_plot_x_key="energy_ev",
@@ -53,7 +53,7 @@ def main() -> None:
         on_error="fail_fast",
         resume=False,
         max_workers="auto",
-        default_solver=SOLVER,
+        solver=SOLVER,
     )
 
     case.build_grating(quick=args.quick).plot_profile(paths["profile_plot"])

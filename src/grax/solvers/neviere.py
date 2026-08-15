@@ -208,7 +208,7 @@ def coerce_neviere_options(options: NeviereOptions | dict[str, object] | None) -
         return options
     if isinstance(options, dict):
         return NeviereOptions(**options)  # type: ignore[arg-type]
-    raise TypeError("neviere_options must be a NeviereOptions, a mapping, or None.")
+    raise TypeError("solver_options must be a NeviereOptions, a mapping, or None.")
 
 
 def res2_dm(

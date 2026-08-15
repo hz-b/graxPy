@@ -191,8 +191,8 @@ def main() -> None:
 
         fourier_orders = FOURIER_ORDERS if num_supercells == 1 else SUPERCELL_FOURIER_ORDERS
         runner = grax.BatchSimulationRunner(
-            default_diffraction_order=DIFFRACTION_ORDER,
-            default_fourier_orders=fourier_orders,
+            diffraction_order=DIFFRACTION_ORDER,
+            fourier_orders=fourier_orders,
             show_progress=True,
             live_plot=True,
             live_plot_x_key="energy_ev",

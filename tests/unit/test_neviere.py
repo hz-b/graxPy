@@ -444,7 +444,7 @@ def test_continuous_sampling_is_independent_of_z_resolution() -> None:
         continuous = run_simulation(
             **common,
             solver="neviere",
-            neviere_options=NeviereOptions(z_sampling="continuous", sample_phase=0.05),
+            solver_options=NeviereOptions(z_sampling="continuous", sample_phase=0.05),
         )
         staircase = run_simulation(**common, solver="rcwa")
         results.append(np.asarray(continuous.efficiency_all, dtype=float))
@@ -478,7 +478,7 @@ def test_continuous_sampling_matches_a_finely_sliced_staircase() -> None:
         fourier_orders=8,
         polarization="p",
         solver="neviere",
-        neviere_options=NeviereOptions(z_sampling="continuous", sample_phase=0.01),
+        solver_options=NeviereOptions(z_sampling="continuous", sample_phase=0.01),
         validate_physical_results=False,
     )
 
@@ -618,8 +618,8 @@ def test_batch_runner_records_and_overrides_the_solver(tmp_path: Path) -> None:
     )
     checkpoint_dir = tmp_path / "checkpoints"
     runner = BatchSimulationRunner(
-        default_fourier_orders=6,
-        default_solver="neviere",
+        fourier_orders=6,
+        solver="neviere",
         checkpoint_dir=checkpoint_dir,
         on_error="fail_fast",
     )
@@ -636,16 +636,16 @@ def test_batch_runner_records_and_overrides_the_solver(tmp_path: Path) -> None:
     assert [result.solver for result in restored] == ["neviere", "neviere"]
 
     mixed = [dict(cases[0], solver="rcwa"), dict(cases[1], solver="neviere")]
-    mixed_runner = BatchSimulationRunner(default_fourier_orders=6, on_error="fail_fast")
+    mixed_runner = BatchSimulationRunner(fourier_orders=6, on_error="fail_fast")
     assert [result.solver for result in mixed_runner.run_cases(mixed)] == ["rcwa", "neviere"]
 
 
 @pytest.mark.unit
-def test_batch_runner_rejects_an_unknown_default_solver() -> None:
+def test_batch_runner_rejects_an_unknown_solver() -> None:
     """Verify the runner validates its default solver at construction time."""
 
     with pytest.raises(ValueError, match="solver must be one of"):
-        BatchSimulationRunner(default_solver="dm")
+        BatchSimulationRunner(solver="dm")
 
 
 @pytest.mark.unit
@@ -721,8 +721,8 @@ def test_multilayer_theta_search_honours_the_requested_solver() -> None:
         )
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=3,
-        default_solver="neviere",
+        fourier_orders=3,
+        solver="neviere",
         on_error="fail_fast",
     )
 
@@ -782,9 +782,9 @@ def test_solver_options_round_trip_through_a_checkpoint(tmp_path: Path) -> None:
     options = NeviereOptions(step_phase=0.01, block_phase=1.5)
     checkpoint_dir = tmp_path / "checkpoints"
     runner = BatchSimulationRunner(
-        default_fourier_orders=5,
-        default_solver="neviere",
-        default_neviere_options=options,
+        fourier_orders=5,
+        solver="neviere",
+        solver_options=options,
         checkpoint_dir=checkpoint_dir,
         on_error="fail_fast",
     )

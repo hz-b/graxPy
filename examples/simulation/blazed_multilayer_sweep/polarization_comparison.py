@@ -34,8 +34,8 @@ energies_ev = np.arange(500.0, 4000.0, 10.0)
 diffraction_orders = [1, 2, 3]
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=20,
+    diffraction_order=1,
+    fourier_orders=20,
     show_progress=True,
     live_plot=False,
     backend="numba",

@@ -224,7 +224,7 @@ def run_multilayer_theta_search_sweep(
     save_stack_plot: bool = True,
     backend: str = "numba",
     solver: str = "rcwa",
-    neviere_options: object | None = None,
+    solver_options: object | None = None,
 ) -> MultilayerThetaSearchSweepResult:
     """Run a multilayer theta-search sweep and persist standard output artifacts.
 
@@ -280,9 +280,9 @@ def run_multilayer_theta_search_sweep(
         save_stack_plot: Whether to save the resolved stack schematic when available.
         solver: Electromagnetic solver used for every energy point.
             ``"rcwa"`` (default) or ``"neviere"``.
-        neviere_options: Integration settings for ``solver="neviere"``, as a
+        solver_options: Integration settings for ``solver="neviere"``, as a
             :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
-            RCWA solver.
+            selected solver.
         backend: Fourier coefficient backend selector. ``"numba"`` is the
             default backend. ``"numpy"`` remains available temporarily for
             compatibility but is deprecated and will be removed in a future
@@ -417,22 +417,22 @@ def run_multilayer_theta_search_sweep(
         if resumed_case.status == "ok" and diagnostics is not None and diagnostics.precise_fwhm_deg is not None:
             completed_fwhm_by_energy[float(resumed_case.energy_ev)] = float(diagnostics.precise_fwhm_deg)
     progress_bar = (
-        simulation_api.tqdm(total=len(energy_list), desc="RCWA batch", unit="point")
+        simulation_api.tqdm(total=len(energy_list), desc=f"{solver} batch", unit="point")
         if show_progress
         else None
     )
     live_figure: plt.Figure | None = None
     live_axis: plt.Axes | None = None
     settings = _runner_settings(
-        default_diffraction_order=diffraction_order,
-        default_fourier_orders=final_fourier_orders,
+        diffraction_order=diffraction_order,
+        fourier_orders=final_fourier_orders,
         max_fourier_orders=max(rough_fourier_orders, fine_fourier_orders, final_fourier_orders),
         validate_physical_results=True,
         max_reflected_efficiency=1.05,
         min_reflected_efficiency=-1e-8,
         backend=backend,
-        default_solver=solver,
-        default_neviere_options=neviere_options,
+        solver=solver,
+        solver_options=solver_options,
     )
     retry_jitter_values = _THETA_RETRY_JITTER_DEG[: max(0, int(max_zero_efficiency_retries))]
     theta_continuity_tolerance_deg = 0.02

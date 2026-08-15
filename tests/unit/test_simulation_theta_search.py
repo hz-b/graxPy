@@ -208,7 +208,7 @@ def test_batch_runner_passes_min_reflected_efficiency_to_payload(monkeypatch: py
     )
 
     assert len(payloads) == 1
-    assert payloads[0]["min_efficiency"] == pytest.approx(-0.125)
+    assert payloads[0]["min_reflected_efficiency"] == pytest.approx(-0.125)
     assert payloads[0]["max_total_reflected_efficiency"] == pytest.approx(1.05)
 
 

@@ -52,7 +52,7 @@ cases = [
 
 runner = grax.BatchSimulationRunner(
     show_progress=True,
-    default_fourier_orders=20,
+    fourier_orders=20,
     max_workers="auto",
     backend="numba",
 )

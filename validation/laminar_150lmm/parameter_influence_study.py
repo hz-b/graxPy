@@ -59,8 +59,8 @@ grating = grax.LaminarGrating(
 )
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=DIFFRACTION_ORDER,
-    default_fourier_orders=5,
+    diffraction_order=DIFFRACTION_ORDER,
+    fourier_orders=5,
     show_progress=True,
     on_error="continue",
     resume=False,

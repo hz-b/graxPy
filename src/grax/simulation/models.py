@@ -70,7 +70,7 @@ class ThetaSearchDiagnostics:
 
 @dataclass
 class SingleSimulationResult:
-    """Result for one RCWA simulation case.
+    """Result for one grating simulation case.
 
     Attributes:
         energy_ev: Photon energy in electronvolts.

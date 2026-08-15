@@ -72,8 +72,8 @@ cases = grax.monochromator_cases(
 )
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=diffraction_order,
-    default_fourier_orders=fourier_orders,
+    diffraction_order=diffraction_order,
+    fourier_orders=fourier_orders,
     max_workers="auto",
     show_progress=True,
     live_plot=False,

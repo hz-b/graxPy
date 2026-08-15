@@ -29,7 +29,7 @@ cases = grax.monochromator_cases(
 )
 
 runner = grax.BatchSimulationRunner(
-    default_fourier_orders=25,
+    fourier_orders=25,
     show_progress=True,
     live_plot=True,
     live_plot_x_key="energy_ev",

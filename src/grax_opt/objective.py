@@ -135,7 +135,7 @@ def simulate_efficiency_curve_with_metadata(
 
     Note:
         The electromagnetic solver comes from ``config.solver`` (and
-        ``config.neviere_options``), alongside ``diffraction_order`` and
+        ``config.solver_options``), alongside ``diffraction_order`` and
         ``fourier_orders``, rather than from a separate argument. ``backend``
         stays an argument because it is resolved from ``"auto"`` by the caller.
     """
@@ -168,13 +168,13 @@ def simulate_efficiency_curve_with_metadata(
         )
 
     runner = BatchSimulationRunner(
-        default_diffraction_order=int(config.diffraction_order),
-        default_fourier_orders=int(config.fourier_orders),
+        diffraction_order=int(config.diffraction_order),
+        fourier_orders=int(config.fourier_orders),
         max_workers=getattr(config, "max_workers", None),
         validate_physical_results=bool(config.validate_physical_results),
         backend=backend,
-        default_solver=str(getattr(config, "solver", "rcwa")),
-        default_neviere_options=getattr(config, "neviere_options", None),
+        solver=str(getattr(config, "solver", "rcwa")),
+        solver_options=getattr(config, "solver_options", None),
     )
     trial_results = list(runner.run_cases(cases))
     efficiencies = np.empty(len(cases), dtype=float)

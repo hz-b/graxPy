@@ -80,8 +80,8 @@ cases = grax.monochromator_cases(
 )
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=int(payload.get("diffraction_order", baseline_diffraction_order)),
-    default_fourier_orders=int(payload.get("fourier_orders", baseline_fourier_orders)),
+    diffraction_order=int(payload.get("diffraction_order", baseline_diffraction_order)),
+    fourier_orders=int(payload.get("fourier_orders", baseline_fourier_orders)),
     max_workers="auto",
     show_progress=True,
     live_plot=False,

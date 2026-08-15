@@ -302,7 +302,7 @@ def test_afm_grating_runs_in_batch_case_path() -> None:
         x_resolution_nm=4.0,
         z_resolution_nm=2.0,
     )
-    runner = BatchSimulationRunner(default_fourier_orders=3, show_progress=False)
+    runner = BatchSimulationRunner(fourier_orders=3, show_progress=False)
     cases = [{"grating": grating, "energy_ev": 500.0, "grazing_angle_deg": 4.0}]
     results = list(runner.run_cases(cases))
     assert len(results) == 1

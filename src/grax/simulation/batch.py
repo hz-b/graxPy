@@ -91,16 +91,16 @@ def runner_settings(**overrides: object) -> dict[str, object]:
     """
 
     settings: dict[str, object] = {
-        "default_diffraction_order": 1,
-        "default_fourier_orders": 25,
+        "diffraction_order": 1,
+        "fourier_orders": 25,
         "max_fourier_orders": 100,
         "validate_physical_results": True,
         "max_reflected_efficiency": 1.05,
         "min_reflected_efficiency": -1e-8,
         "backend": "numba",
-        "default_polarization": "s",
-        "default_solver": "rcwa",
-        "default_neviere_options": None,
+        "polarization": "s",
+        "solver": "rcwa",
+        "solver_options": None,
     }
     unknown = sorted(set(overrides) - set(settings))
     if unknown:
@@ -115,7 +115,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
     grating = case["grating"]
     if not isinstance(grating, BaseGrating):
         raise TypeError("Each case must provide a 'grating' derived from BaseGrating.")
-    fourier_orders = int(case.get("fourier_orders", runner_settings["default_fourier_orders"]))
+    fourier_orders = int(case.get("fourier_orders", runner_settings["fourier_orders"]))
     max_fourier_orders = int(runner_settings["max_fourier_orders"])
     if fourier_orders > max_fourier_orders:
         logger.warning(
@@ -158,7 +158,7 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "workflow": "multilayer_theta_search",
             "grating": grating,
             "energy_ev": float(case["energy_ev"]),
-            "diffraction_order": int(case.get("diffraction_order", runner_settings["default_diffraction_order"])),
+            "diffraction_order": int(case.get("diffraction_order", runner_settings["diffraction_order"])),
             "initial_grazing_angle_deg": case.get("initial_grazing_angle_deg"),
             "multilayer_bragg_order": int(case.get("multilayer_bragg_order", 1)),
             "rough_scan_half_width_deg": float(case.get("rough_scan_half_width_deg", 0.5)),
@@ -179,15 +179,15 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "roughness_sigma_nm": case.get("roughness_sigma_nm"),
             "validate_physical_results": bool(runner_settings["validate_physical_results"]),
             "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
-            "min_efficiency": float(runner_settings["min_reflected_efficiency"]),
+            "min_reflected_efficiency": float(runner_settings["min_reflected_efficiency"]),
             "max_total_reflected_efficiency": _BATCH_MAX_TOTAL_REFLECTED_EFFICIENCY,
             "precise_peak_selection_mode": str(case.get("precise_peak_selection_mode", "max")),
             "backend": runner_settings["backend"],
             "solver": _validate_solver(
-                str(case.get("solver", runner_settings["default_solver"]))
+                str(case.get("solver", runner_settings["solver"]))
             ),
-            "neviere_options": case.get(
-                "neviere_options", runner_settings["default_neviere_options"]
+            "solver_options": case.get(
+                "solver_options", runner_settings["solver_options"]
             ),
         }
 
@@ -199,17 +199,17 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         ),
         "energy_ev": float(case["energy_ev"]),
         "grazing_angle_deg": float(case["grazing_angle_deg"]),
-        "diffraction_order": int(case.get("diffraction_order", runner_settings["default_diffraction_order"])),
+        "diffraction_order": int(case.get("diffraction_order", runner_settings["diffraction_order"])),
         "fourier_orders": fourier_orders,
         "_memory_mode": _case_memory_mode(case),
         "profile_memory": bool(case.get("profile_memory", False)),
         "roughness_sigma_nm": case.get("roughness_sigma_nm"),
-        "polarization": str(case.get("polarization", runner_settings["default_polarization"])),
-        "solver": _validate_solver(str(case.get("solver", runner_settings["default_solver"]))),
-        "neviere_options": case.get("neviere_options", runner_settings["default_neviere_options"]),
+        "polarization": str(case.get("polarization", runner_settings["polarization"])),
+        "solver": _validate_solver(str(case.get("solver", runner_settings["solver"]))),
+        "solver_options": case.get("solver_options", runner_settings["solver_options"]),
         "validate_physical_results": bool(runner_settings["validate_physical_results"]),
         "max_reflected_efficiency": float(runner_settings["max_reflected_efficiency"]),
-        "min_efficiency": float(runner_settings["min_reflected_efficiency"]),
+        "min_reflected_efficiency": float(runner_settings["min_reflected_efficiency"]),
         "max_total_reflected_efficiency": _BATCH_MAX_TOTAL_REFLECTED_EFFICIENCY,
         "backend": runner_settings["backend"],
     }
@@ -632,11 +632,16 @@ def _load_checkpoint_case_results(checkpoint_path: Path) -> dict[str, CaseExecut
 
 
 class BatchSimulationRunner:
-    """Stream RCWA simulations for arbitrary case iterables.
+    """Stream grating simulations for arbitrary case iterables.
+
+    Every case inherits the runner's ``diffraction_order``, ``fourier_orders``,
+    ``polarization``, ``solver`` and ``solver_options`` unless it carries its own
+    key of the same name. These mirror the arguments of
+    :func:`grax.run_simulation`.
 
     Args:
-        default_diffraction_order: Default selected diffraction order.
-        default_fourier_orders: Default Fourier truncation order.
+        diffraction_order: Selected diffraction order for cases without their own.
+        fourier_orders: Fourier truncation order for cases without their own.
         max_fourier_orders: Maximum allowed Fourier orders.
         backend: Fourier coefficient backend selector. ``"numba"`` is the
             default backend. ``"numpy"`` remains available temporarily for
@@ -681,8 +686,8 @@ class BatchSimulationRunner:
     def __init__(
         self,
         *,
-        default_diffraction_order: int = 1,
-        default_fourier_orders: int = 25,
+        diffraction_order: int = 1,
+        fourier_orders: int = 25,
         execution_mode: ExecutionMode = "inline",
         max_workers: MaxWorkers = None,
         timeout: float = 3600,
@@ -705,20 +710,20 @@ class BatchSimulationRunner:
         retry_selected_efficiency_threshold: float = 1e-4,
         max_zero_efficiency_retries: int = 3,
         backend: str = "numba",
-        default_polarization: str = "s",
-        default_solver: str = "rcwa",
-        default_neviere_options: object | None = None,
+        polarization: str = "s",
+        solver: str = "rcwa",
+        solver_options: object | None = None,
     ) -> None:
         """Initialize a streaming batch simulation runner.
 
-        Configures batch execution parameters for RCWA simulations. Supports inline
+        Configures batch execution parameters. Supports inline
         single-threaded execution and multiprocessing via subprocess workers with
         automatic memory calibration.
 
         Args:
-            default_diffraction_order: Default diffraction order for efficiency selection
+            diffraction_order: Default diffraction order for efficiency selection
                 when case does not specify. Must be positive integer.
-            default_fourier_orders: Default Fourier truncation orders when case does
+            fourier_orders: Default Fourier truncation orders when case does
                 not specify. Higher values improve accuracy but increase computation.
             execution_mode: Execution strategy. ``inline`` runs in current process,
                 ``subprocess`` spawns separate worker processes.
@@ -762,18 +767,19 @@ class BatchSimulationRunner:
                 default backend. ``"numpy"`` remains available temporarily for
                 compatibility but is deprecated and will be removed in a future
                 version.
-            default_polarization: Default polarization used when a case omits the
-                value. Must be ``"s"`` or ``"p"``.
-            default_solver: Default electromagnetic solver used when a case omits
-                ``"solver"``. ``"rcwa"`` (default) or ``"neviere"``.
-            default_neviere_options: Default :class:`grax.NeviereOptions` (or
-                equivalent mapping) used when a case omits ``"neviere_options"``.
-                Ignored by the RCWA solver.
+            polarization: Incident polarization for every case that does not
+                carry its own ``"polarization"`` key. Must be ``"s"`` or ``"p"``.
+            solver: Electromagnetic solver for every case that does not carry its
+                own ``"solver"`` key. ``"rcwa"`` (default) or ``"neviere"``.
+            solver_options: Solver settings for every case that does not carry
+                its own ``"solver_options"`` key, as a
+                :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by
+                the RCWA solver.
 
         Example:
             >>> runner = BatchSimulationRunner(
-            ...     default_diffraction_order=1,
-            ...     default_fourier_orders=25,
+            ...     diffraction_order=1,
+            ...     fourier_orders=25,
             ...     max_workers="auto",
             ...     checkpoint_dir="results",
             ...     resume=True
@@ -797,8 +803,8 @@ class BatchSimulationRunner:
                 "resume=True requires checkpoint_dir to be specified. "
                 "Please provide a checkpoint_dir path to enable resumption from checkpoint."
             )
-        self.default_diffraction_order = default_diffraction_order
-        self.default_fourier_orders = default_fourier_orders
+        self.diffraction_order = diffraction_order
+        self.fourier_orders = fourier_orders
         self.execution_mode = execution_mode
         self.max_workers = max_workers
         self.resolved_max_workers = resolved_max_workers
@@ -822,11 +828,11 @@ class BatchSimulationRunner:
         self.retry_selected_efficiency_threshold = float(retry_selected_efficiency_threshold)
         self.max_zero_efficiency_retries = max(0, int(max_zero_efficiency_retries))
         self.backend = backend
-        self.default_polarization = default_polarization
-        if self.default_polarization not in {"s", "p"}:
-            raise ValueError("default_polarization must be 's' or 'p'.")
-        self.default_solver = _validate_solver(default_solver)
-        self.default_neviere_options = default_neviere_options
+        self.polarization = polarization
+        if self.polarization not in {"s", "p"}:
+            raise ValueError("polarization must be 's' or 'p'.")
+        self.solver = _validate_solver(solver)
+        self.solver_options = solver_options
         self._live_figure: plt.Figure | None = None
         self._live_axis: plt.Axes | None = None
         self._live_x_values: list[float] = []
@@ -854,7 +860,7 @@ class BatchSimulationRunner:
     ) -> Iterator[CaseExecutionResult]:
         """Yield simulation results for an arbitrary iterable of cases.
 
-        Executes RCWA simulations for all provided cases with support for
+        Executes simulations for all provided cases with support for
         single-threaded inline execution or multiprocessing via subprocess workers,
         real-time progress bars and live plotting, checkpoint persistence and
         resume capability, automatic worker calibration for memory-efficient
@@ -910,7 +916,11 @@ class BatchSimulationRunner:
             pending_cases = self._prepare_pending_cases(iterable, completed_ids)
             effective_total_cases = len(completed_ids) + len(pending_cases) if self.resume else len(pending_cases)
             if self.show_progress:
-                progress = _simulation_api().tqdm(total=effective_total_cases, desc="RCWA batch", unit="case")
+                progress = _simulation_api().tqdm(
+                    total=effective_total_cases,
+                    desc=f"{self.solver} batch",
+                    unit="case",
+                )
                 if self.resume and completed_ids:
                     progress.update(len(completed_ids))
             calibrated_result = None
@@ -966,23 +976,23 @@ class BatchSimulationRunner:
         and validation.
 
         Returns:
-            Dictionary with settings for: default_diffraction_order,
-            default_fourier_orders, max_fourier_orders, validate_physical_results,
+            Dictionary with settings for: diffraction_order,
+            fourier_orders, max_fourier_orders, validate_physical_results,
             max_reflected_efficiency, min_reflected_efficiency,
             backend.
         """
 
         return runner_settings(
-            default_diffraction_order=self.default_diffraction_order,
-            default_fourier_orders=self.default_fourier_orders,
+            diffraction_order=self.diffraction_order,
+            fourier_orders=self.fourier_orders,
             max_fourier_orders=self.max_fourier_orders,
             validate_physical_results=self.validate_physical_results,
             max_reflected_efficiency=self.max_reflected_efficiency,
             min_reflected_efficiency=self.min_reflected_efficiency,
             backend=self.backend,
-            default_polarization=self.default_polarization,
-            default_solver=self.default_solver,
-            default_neviere_options=self.default_neviere_options,
+            polarization=self.polarization,
+            solver=self.solver,
+            solver_options=self.solver_options,
         )
 
     def _prepare_pending_cases(
@@ -1169,8 +1179,8 @@ class BatchSimulationRunner:
                                 status="error",
                                 error_message=str(message["error"]),
                                 case_data=case_data,
-                                polarization=str(case.get("polarization", self.default_polarization)),
-                                solver=str(case.get("solver", self.default_solver)),
+                                polarization=str(case.get("polarization", self.polarization)),
+                                solver=str(case.get("solver", self.solver)),
                                 peak_memory_bytes=None,
                                 wall_seconds=None,
                             )
@@ -1325,8 +1335,8 @@ class BatchSimulationRunner:
                 status="error",
                 error_message=str(error),
                 case_data=case_data,
-                polarization=str(case.get("polarization", self.default_polarization)),
-                solver=str(case.get("solver", self.default_solver)),
+                polarization=str(case.get("polarization", self.polarization)),
+                solver=str(case.get("solver", self.solver)),
                 peak_memory_bytes=None,
                 wall_seconds=None,
             )
@@ -1382,8 +1392,8 @@ class BatchSimulationRunner:
                 "execution_mode": self.execution_mode,
                 "max_workers": self.max_workers,
                 "resolved_max_workers": self.resolved_max_workers,
-                "default_diffraction_order": self.default_diffraction_order,
-                "default_fourier_orders": self.default_fourier_orders,
+                "diffraction_order": self.diffraction_order,
+                "fourier_orders": self.fourier_orders,
             }
         )
         with (self.checkpoint_dir / "metadata.json").open("w", encoding="utf-8") as handle:

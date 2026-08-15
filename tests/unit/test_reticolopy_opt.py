@@ -563,15 +563,15 @@ def test_measurement_fit_config_accepts_and_validates_the_solver(tmp_path: Path)
 
     default_config = _build_measurement_fit_config(tmp_path)
     assert default_config.solver == "rcwa"
-    assert default_config.neviere_options is None
+    assert default_config.solver_options is None
 
     neviere_config = dataclasses.replace(
         default_config,
         solver="neviere",
-        neviere_options={"step_phase": 0.01},
+        solver_options={"step_phase": 0.01},
     )
     assert neviere_config.solver == "neviere"
-    assert neviere_config.neviere_options == {"step_phase": 0.01}
+    assert neviere_config.solver_options == {"step_phase": 0.01}
 
     with pytest.raises(ValueError, match="solver must be one of"):
         dataclasses.replace(default_config, solver="differential")
@@ -604,7 +604,7 @@ def test_measurement_fit_trial_runner_uses_the_configured_solver(
     config = dataclasses.replace(
         _build_measurement_fit_config(tmp_path),
         solver="neviere",
-        neviere_options={"step_phase": 0.01},
+        solver_options={"step_phase": 0.01},
     )
     measurement = load_measurement_data(config.measurement_path)
 
@@ -618,8 +618,8 @@ def test_measurement_fit_trial_runner_uses_the_configured_solver(
             resolve_solver_parameters_fn=lambda parameters: {"roughness_sigma_nm": None},
         )
 
-    assert captured["default_solver"] == "neviere"
-    assert captured["default_neviere_options"] == {"step_phase": 0.01}
+    assert captured["solver"] == "neviere"
+    assert captured["solver_options"] == {"step_phase": 0.01}
 
 
 class _FakeGrating:

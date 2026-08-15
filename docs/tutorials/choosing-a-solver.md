@@ -69,8 +69,8 @@ The batch runner takes a default and each case can override it:
 
 ```python
 runner = grax.BatchSimulationRunner(
-    default_fourier_orders=30,
-    default_solver="neviere",
+    fourier_orders=30,
+    solver="neviere",
 )
 
 cases = grax.fixed_angle_cases(
@@ -97,7 +97,7 @@ should rarely need to change them.
 result = grax.run_simulation(
     **common,
     solver="neviere",
-    neviere_options=grax.NeviereOptions(step_phase=0.005),
+    solver_options=grax.NeviereOptions(step_phase=0.005),
 )
 ```
 
@@ -116,7 +116,7 @@ A mapping works anywhere an options object does, which is convenient in case
 dictionaries:
 
 ```python
-case = dict(case, solver="neviere", neviere_options={"step_phase": 0.005})
+case = dict(case, solver="neviere", solver_options={"step_phase": 0.005})
 ```
 
 ## Continuous permittivity sampling
@@ -132,7 +132,7 @@ The differential method can skip it:
 result = grax.run_simulation(
     **common,
     solver="neviere",
-    neviere_options=grax.NeviereOptions(z_sampling="continuous"),
+    solver_options=grax.NeviereOptions(z_sampling="continuous"),
 )
 ```
 
@@ -152,13 +152,13 @@ Solver selection reaches every workflow, not just one-point solves:
 
 | entrypoint | how to select |
 | --- | --- |
-| {func}`grax.run_simulation` | `solver=`, `neviere_options=` |
-| {class}`grax.GratingSimulation` | `solver=`, `neviere_options=` |
-| {class}`grax.BatchSimulationRunner` | `default_solver=`, `default_neviere_options=`, or a per-case `"solver"` key |
+| {func}`grax.run_simulation` | `solver=`, `solver_options=` |
+| {class}`grax.GratingSimulation` | `solver=`, `solver_options=` |
+| {class}`grax.BatchSimulationRunner` | `solver=`, `solver_options=`, or a per-case `"solver"` key |
 | {func}`grax.run_multilayer_theta_search` | `solver=` — used for all three scan stages |
 | {func}`grax.run_multilayer_theta_search_sweep` | `solver=` |
 | {func}`grax.run_parameter_study` | `solver=` |
-| `grax_opt` measurement fits | `solver` / `neviere_options` on the config |
+| `grax_opt` measurement fits | `solver` / `solver_options` on the config |
 | Web UI | Solver dropdown in the run form |
 
 Every default is `"rcwa"`, so existing code is unaffected.

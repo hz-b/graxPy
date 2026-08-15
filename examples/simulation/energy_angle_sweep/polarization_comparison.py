@@ -46,8 +46,8 @@ grating = grax.BlazedGrating(
 )
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=2,
-    default_fourier_orders=5,
+    diffraction_order=2,
+    fourier_orders=5,
     show_progress=True,
     live_plot=False,
     on_error="fail_fast",
