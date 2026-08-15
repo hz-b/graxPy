@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from .gratings import LaminarGrating
-from .simulation import RCWASimulation
+from .simulation import GratingSimulation
 
 
 @dataclass
@@ -61,7 +61,7 @@ def _build_legacy_grating(config: SlagConfig) -> LaminarGrating:
 def simulate_single_energy(config: SlagConfig, photon_energy_ev: float) -> dict[str, float]:
     """Run the legacy SLAG flow for one energy."""
 
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=_build_legacy_grating(config),
         diffraction_order=config.diffraction_order,
         fourier_orders=config.fourier_orders,
@@ -77,7 +77,7 @@ def run_example_slag(
     """Run the legacy SLAG energy sweep helper."""
 
     config = config or default_example_slag_config()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=_build_legacy_grating(config),
         diffraction_order=config.diffraction_order,
         fourier_orders=config.fourier_orders,

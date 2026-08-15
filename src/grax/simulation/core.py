@@ -676,8 +676,13 @@ def plot_order_subset(
     plt.close(figure)
 
 
-class RCWASimulation:
-    """Compatibility wrapper around :func:`run_simulation` for internal tests."""
+class GratingSimulation:
+    """Object-style wrapper around :func:`run_simulation`.
+
+    Drives whichever solver ``solver=`` selects. Named ``RCWASimulation``
+    until a second solver existed, at which point the old name described only
+    one of the two things it can do.
+    """
 
     def __init__(
         self,

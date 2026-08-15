@@ -14,7 +14,7 @@ from matplotlib.ticker import FuncFormatter
 from tqdm import tqdm
 
 from .gratings import BaseGrating
-from .simulation import RCWASimulation
+from .simulation import GratingSimulation
 
 __all__ = [
     "ParameterStudyEnergyResult",
@@ -462,7 +462,7 @@ def _run_single_parameter_sweep(
                     case_grating = _clone_grating_with_override(grating, parameter, float(value))
                     fourier_orders = fixed_fourier_orders
 
-                result = RCWASimulation(
+                result = GratingSimulation(
                     grating=case_grating,
                     diffraction_order=diffraction_order,
                     fourier_orders=fourier_orders,

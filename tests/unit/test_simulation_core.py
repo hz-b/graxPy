@@ -25,7 +25,7 @@ from grax.simulation import (
     BatchSimulationRunner,
     CaseExecutionResult,
     MultilayerThetaSearchSweepResult,
-    RCWASimulation,
+    GratingSimulation,
     SingleSimulationResult,
     efficiency_for_order,
     energy_angle_cases,
@@ -168,7 +168,7 @@ def test_debye_waller_without_per_layer_overrides_keeps_single_sigma() -> None:
 
 def test_rcwa_simulation_runs_for_multiple_energies() -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=25,
@@ -187,7 +187,7 @@ def test_rcwa_simulation_runs_for_multiple_energies() -> None:
 
 def test_rcwa_simulation_runs_laminar_grating_end_to_end() -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=5,
@@ -203,7 +203,7 @@ def test_rcwa_simulation_runs_laminar_grating_end_to_end() -> None:
 
 def test_rcwa_simulation_loads_experimental_data_and_plots_comparison(tmp_path: Path) -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=25,
@@ -1380,7 +1380,7 @@ def test_parallel_worker_is_top_level_and_spawn_compatible() -> None:
 
 
 def test_rcwa_simulation_raises_for_non_physical_efficiency() -> None:
-    simulation = RCWASimulation(grating=build_test_grating())
+    simulation = GratingSimulation(grating=build_test_grating())
 
     with pytest.raises(ValueError, match="Non-physical reflected diffraction efficiency"):
         simulation._validate_reflected_efficiencies(

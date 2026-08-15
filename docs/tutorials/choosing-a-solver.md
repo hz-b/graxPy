@@ -146,6 +146,31 @@ Use `"textures"` (the default) when you are comparing against RCWA, since it
 guarantees both solvers see identical geometry. Use `"continuous"` when you want
 the profile itself resolved rather than its staircase approximation.
 
+## Where the solver argument works
+
+Solver selection reaches every workflow, not just one-point solves:
+
+| entrypoint | how to select |
+| --- | --- |
+| {func}`grax.run_simulation` | `solver=`, `neviere_options=` |
+| {class}`grax.GratingSimulation` | `solver=`, `neviere_options=` |
+| {class}`grax.BatchSimulationRunner` | `default_solver=`, `default_neviere_options=`, or a per-case `"solver"` key |
+| {func}`grax.run_multilayer_theta_search` | `solver=` — used for all three scan stages |
+| {func}`grax.run_multilayer_theta_search_sweep` | `solver=` |
+| {func}`grax.run_parameter_study` | `solver=` |
+| `grax_opt` measurement fits | `solver` / `neviere_options` on the config |
+| Web UI | Solver dropdown in the run form |
+
+Every default is `"rcwa"`, so existing code is unaffected.
+
+Each result records the solver that produced it, and — for the differential
+method — the integration settings, so a checkpoint or saved run is reproducible:
+
+```python
+result.solver          # "neviere"
+result.solver_options  # {"z_sampling": "textures", "step_phase": 0.02, ...}
+```
+
 See `examples/simulation/neviere_solver/neviere_solver.py` for a runnable script
 covering all of the above, and
 [Nevière differential method](../developer/neviere-theory.md) for the underlying

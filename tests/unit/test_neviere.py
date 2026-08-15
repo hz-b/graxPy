@@ -823,3 +823,37 @@ def test_rcwa_results_record_no_solver_options() -> None:
 
     assert result.solver == "rcwa"
     assert result.solver_options is None
+
+
+@pytest.mark.unit
+def test_grating_simulation_replaces_the_rcwa_specific_name() -> None:
+    """Verify the renamed wrapper is the only spelling and drives both solvers.
+
+    ``RCWASimulation`` described only one of the two solvers it can now run.
+    This is a deliberate breaking rename with no alias.
+    """
+
+    assert not hasattr(grax.simulation, "RCWASimulation")
+    assert "RCWASimulation" not in dir(grax.simulation)
+
+    grating = _laminar_grating()
+    rcwa = grax.simulation.GratingSimulation(
+        grating=grating,
+        fourier_orders=5,
+        polarization="p",
+        validate_physical_results=False,
+    ).run_single(300.0)
+    neviere = grax.simulation.GratingSimulation(
+        grating=grating,
+        fourier_orders=5,
+        polarization="p",
+        solver="neviere",
+        validate_physical_results=False,
+    ).run_single(300.0)
+
+    assert np.allclose(
+        rcwa["efficiency_all"],
+        neviere["efficiency_all"],
+        atol=SOLVER_PARITY_ATOL,
+        rtol=SOLVER_PARITY_RTOL,
+    )
