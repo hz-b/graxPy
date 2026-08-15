@@ -1,7 +1,7 @@
 """Backward-compatible aliases for the 1D solver internals.
 
-The solver implementation moved to the :mod:`grax.solvers` package so a second
-solver can share its numerics:
+The solver implementation moved to the :mod:`grax.solvers` package when a second
+solver (the Nevière differential method) was added:
 
 - shared types, ``res0``/``res1``, the Fourier machinery, the layer field
   operators, the interface cascade and the efficiency extraction now live in
@@ -60,6 +60,7 @@ from .solvers.common import (  # noqa: F401
     res1,
     safe_linalg_solve,
 )
+from .solvers.neviere import NeviereOptions, res2_dm  # noqa: F401
 from .solvers.rcwa import (  # noqa: F401
     _layer_boundary_block,
     _modal_function_matrices,
@@ -79,6 +80,7 @@ __all__ = [
     "FourierBackend",
     "FourierBackendName",
     "LayerFieldOperators",
+    "NeviereOptions",
     "Parameters",
     "Res1Parameters",
     "Res1Result",
@@ -92,5 +94,6 @@ __all__ = [
     "res0",
     "res1",
     "res2",
+    "res2_dm",
     "safe_linalg_solve",
 ]

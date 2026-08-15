@@ -21,7 +21,7 @@ from .parameter_sweep import (
     plot_parameter_study,
     run_parameter_study,
 )
-from .solvers import res0, res1, res2
+from .solvers import NeviereOptions, res0, res1, res2, res2_dm
 from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,
@@ -69,6 +69,7 @@ __all__ = [
     "LaminarGrating",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
+    "NeviereOptions",
     "ParameterStudyEnergyResult",
     "ParameterStudyResult",
     "ParameterSweepSeries",
@@ -99,6 +100,7 @@ __all__ = [
     "res0",
     "res1",
     "res2",
+    "res2_dm",
     "run_example_slag",
     "run_parameter_study",
     "run_multilayer_theta_search",
