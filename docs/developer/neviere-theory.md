@@ -166,5 +166,4 @@ through `NeviereOptions.energy_balance_tolerance`.
 ```{autofunction} grax.solvers.common.propagating_energy_balance
 ```
 
-```{bibliography}
-```
+The full bibliography is rendered on the [RCWA theory](rcwa-theory.md) page.
