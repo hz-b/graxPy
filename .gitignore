@@ -110,3 +110,6 @@ __pycache__/
 *.pyc
 .pytes*t_cache/
 .ruff_cache
+
+# Partial checkpoints from interrupted solver-comparison sweeps
+validation/*/results/checkpoints_neviere/

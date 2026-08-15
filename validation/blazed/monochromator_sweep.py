@@ -1,10 +1,24 @@
+import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-from pathlib import Path
-import grax
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _solver_comparison import (  # noqa: E402
+    add_solver_arguments,
+    apply_stride,
+    solver_output_path,
+)
 
-grax.setup_logging(level='INFO', run_id='blazed_sweep')
+import grax  # noqa: E402
+
+args = add_solver_arguments(
+    argparse.ArgumentParser(description="Blazed 600 l/mm monochromator sweep")
+).parse_args()
+
+grax.setup_logging(level='INFO', run_id=f'blazed_sweep_{args.solver}')
 
 
 example_root = Path(__file__).resolve().parent
@@ -12,8 +26,12 @@ repo_root = Path(__file__).resolve().parents[2]
 optical_constants_dir = example_root / "optical_constants"
 results_dir = Path(__file__).resolve().parent / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
-csv_path = results_dir / "blazed_comparison_monochromator_orders_1_3.csv"
-plot_path = results_dir / "blazed_comparison_monochromator_orders_1_3.png"
+csv_path = solver_output_path(
+    results_dir / "blazed_comparison_monochromator_orders_1_3.csv", args.solver, args.tag
+)
+plot_path = solver_output_path(
+    results_dir / "blazed_comparison_monochromator_orders_1_3.png", args.solver, args.tag
+)
 profile_plot_path = results_dir / "blazed_comparison_profile.png"
 
 # Import Optical Constants
@@ -53,7 +71,7 @@ grating = grax.BlazedGrating(
 )
 
 # Energy range
-energies_ev = np.arange(50.0, 2000.0, 10.0)
+energies_ev = apply_stride(np.arange(50.0, 2000.0, 10.0), args.stride)
 
 # Use monochromator_cases helper
 cases = grax.monochromator_cases(
@@ -72,36 +90,43 @@ runner = grax.BatchSimulationRunner(
     live_plot=True,
     live_plot_x_key="energy_ev",
     live_plot_order_count=3,
-    checkpoint_dir=results_dir / "checkpoints",
+    checkpoint_dir=solver_output_path(results_dir / "checkpoints", args.solver, args.tag),
     resume=False,  # Set to False to force restart from beginning
     backend="numba",
+    default_solver=args.solver,
 )
 
-grating.plot_profile(profile_plot_path)
-batch_result = list(runner.run_cases(
-    cases,
-    metadata={
-        "grating_type": "BlazedGrating",
-        "period_lpermm": period_lpermm,
-        "blaze_angle_deg": blaze_angle_deg,
-        "anti_blaze_angle_deg": anti_blaze_angle_deg,
-        "substrate_material": "Si",
-        "layer_material": "Au",
-        "layer_thickness_nm": 30.0,
-        "fourier_orders": 20,
-        "backend": "numba",
-        "description": "Blazed grating monochromator sweep",
-    }
-))
-grax.write_all_orders_csv(batch_result, csv_path)
-grax.plot_order_subset(
-    batch_result,
-    plot_path,
-    diffraction_orders=[1, 2, 3],
-    title="Blazed Grating Monochromator Sweep (600 l/mm, BA=0.729 deg): Orders 1-3",
-)
+# Guard the executable part: on macOS the batch runner spawns workers, and a
+# spawned worker re-imports this file by path. Without the guard the worker
+# re-runs the whole sweep and recursively spawns more workers, which fails with
+# BrokenProcessPool before any case completes.
+if __name__ == "__main__":
+    grating.plot_profile(profile_plot_path)
+    batch_result = list(runner.run_cases(
+        cases,
+        metadata={
+            "grating_type": "BlazedGrating",
+            "period_lpermm": period_lpermm,
+            "blaze_angle_deg": blaze_angle_deg,
+            "anti_blaze_angle_deg": anti_blaze_angle_deg,
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": 30.0,
+            "fourier_orders": 20,
+            "backend": "numba",
+            "solver": args.solver,
+            "description": "Blazed grating monochromator sweep",
+        }
+    ))
+    grax.write_all_orders_csv(batch_result, csv_path)
+    grax.plot_order_subset(
+        batch_result,
+        plot_path,
+        diffraction_orders=[1, 2, 3],
+        title="Blazed Grating Monochromator Sweep (600 l/mm, BA=0.729 deg): Orders 1-3",
+    )
 
-print(f"Computed {sum(case.status == 'ok' for case in batch_result)} monochromator points.")
-print(f"Profile plot saved to: {profile_plot_path}")
-print(f"Monochromator sweep CSV saved to: {csv_path}")
-print(f"Monochromator orders plot saved to: {plot_path}")
+    print(f"Computed {sum(case.status == 'ok' for case in batch_result)} monochromator points.")
+    print(f"Profile plot saved to: {profile_plot_path}")
+    print(f"Monochromator sweep CSV saved to: {csv_path}")
+    print(f"Monochromator orders plot saved to: {plot_path}")

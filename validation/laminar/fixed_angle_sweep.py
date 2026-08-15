@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
-quick_mode = "--quick" in sys.argv
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _solver_comparison import (  # noqa: E402
+    add_solver_arguments,
+    apply_stride,
+    solver_output_path,
+)
+
+parser = add_solver_arguments(
+    argparse.ArgumentParser(description="Laminar 400 l/mm fixed-angle sweep")
+)
+parser.add_argument("--quick", action="store_true", help="Run a few coarse energy points")
+args = parser.parse_args()
+
+quick_mode = args.quick
 LIVE_PLOT = False if quick_mode else True
 if LIVE_PLOT:
     os.environ.setdefault("MPLBACKEND", "TkAgg")
@@ -13,7 +28,7 @@ else:
     os.environ.setdefault("MPLBACKEND", "Agg")
 
 import numpy as np  # noqa: E402
-import pandas as pd
+import pandas as pd  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 import grax  # noqa: E402
@@ -23,9 +38,9 @@ example_root = Path(__file__).resolve().parent
 optical_constants_dir = example_root / "optical_constants"
 results_dir = Path(__file__).resolve().parent / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
-plot_path = results_dir / "laminar_fixed_angle_comparison.png"
+plot_path = solver_output_path(results_dir / "laminar_fixed_angle_comparison.png", args.solver, args.tag)
 grating_plot_path = results_dir / "laminar_fixed_angle_profile.png"
-csv_path = results_dir / "laminar_fixed_angle_all_orders.csv"
+csv_path = solver_output_path(results_dir / "laminar_fixed_angle_all_orders.csv", args.solver, args.tag)
 roughness_sigma_nm = 0.5
 silicon = pd.read_csv(
     optical_constants_dir / "OC_Si_SSTR.dat",
@@ -66,6 +81,7 @@ energies = (
     if quick_mode
     else np.arange(50.0, 650.1, 1.0)
 )
+energies = apply_stride(energies, args.stride)
 cases = grax.fixed_angle_cases(
     grating=grating,
     energies_ev=energies,
@@ -90,42 +106,53 @@ runner = grax.BatchSimulationRunner(
     on_error="fail_fast",
     resume=False,
     max_workers="auto",
+    default_solver=args.solver,
 )
-grating.plot_profile(grating_plot_path)
-batch_result = list(runner.run_cases(cases))
 
-experimental = grax.load_experimental_csv(
-    Path(__file__).resolve().parent / "measured_alpha4deg_order1.csv"
-)
-figure, axis = plt.subplots(figsize=(10, 7))
-successful_cases = [case for case in batch_result if case.status == "ok"]
-axis.plot(
-    [case.energy_ev for case in successful_cases],
-    [case.selected_efficiency for case in successful_cases],
-    "b-o",
-    linewidth=0.8,
-    markersize=2.0,
-    label="simulation",
-)
-axis.plot(
-    experimental[:, 0],
-    experimental[:, 1],
-    "r-s",
-    linewidth=0.8,
-    markersize=2.0,
-    label="measurement",
-)
-axis.set_xlabel("Photon Energy (eV)")
-axis.set_ylabel("Diffraction Efficiency")
-axis.set_title("RCWA Simulation vs Experimental Data")
-axis.grid(True, alpha=0.3)
-axis.legend(loc="best")
-figure.tight_layout()
-figure.savefig(plot_path, dpi=150, bbox_inches="tight")
-plt.close(figure)
-grax.write_all_orders_csv(batch_result, csv_path)
+# Guard the executable part: on macOS the batch runner spawns workers, and a
+# spawned worker re-imports this file by path. Without the guard the worker
+# re-runs the whole sweep and recursively spawns more workers, which fails with
+# BrokenProcessPool before any case completes.
+if __name__ == "__main__":
+    grating.plot_profile(grating_plot_path)
+    batch_result = list(runner.run_cases(cases))
 
-print(f"Computed {sum(case.status == 'ok' for case in batch_result)} energy points.")
-print(f"Comparison plot saved to: {plot_path}")
-print(f"Grating-period plot saved to: {grating_plot_path}")
-print(f"Simulation CSV saved to: {csv_path}")
+    experimental = grax.load_experimental_csv(
+        Path(__file__).resolve().parent / "measured_alpha4deg_order1.csv"
+    )
+    figure, axis = plt.subplots(figsize=(10, 7))
+    successful_cases = [case for case in batch_result if case.status == "ok"]
+    axis.plot(
+        [case.energy_ev for case in successful_cases],
+        [case.selected_efficiency for case in successful_cases],
+        "b-o",
+        linewidth=0.8,
+        markersize=2.0,
+        label="simulation",
+    )
+    axis.plot(
+        experimental[:, 0],
+        experimental[:, 1],
+        "r-s",
+        linewidth=0.8,
+        markersize=2.0,
+        label="measurement",
+    )
+    axis.set_xlabel("Photon Energy (eV)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title(
+        "RCWA Simulation vs Experimental Data"
+        if args.solver == "rcwa"
+        else "Nevière Differential-Method Simulation vs Experimental Data"
+    )
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+    grax.write_all_orders_csv(batch_result, csv_path)
+
+    print(f"Computed {sum(case.status == 'ok' for case in batch_result)} energy points.")
+    print(f"Comparison plot saved to: {plot_path}")
+    print(f"Grating-period plot saved to: {grating_plot_path}")
+    print(f"Simulation CSV saved to: {csv_path}")
