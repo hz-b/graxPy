@@ -75,9 +75,30 @@ logger = logging.getLogger(__name__)
 
 ZSampling = Literal["textures", "continuous"]
 
-#: Callable mapping a depth below the top of the stack (in nanometers) to the
-#: Fourier-space permittivity at that depth.
-EpsilonSampler = Callable[[float], Texture1D]
+
+@dataclass(frozen=True)
+class EpsilonSampler:
+    """Continuous permittivity along ``z`` for one grating at one photon energy.
+
+    Calling the sampler with a depth below the top of the modelled stack returns
+    the Fourier-space permittivity of the grating cut at that depth. Unlike the
+    z-sliced textures, a sampler can be evaluated between solver rows, which is
+    what lets the differential method integrate the true profile.
+
+    Attributes:
+        total_depth_nm: Depth of the modelled stack in nanometers. Taken from the
+            grating geometry rather than from a z-sliced profile, so it does not
+            depend on ``z_resolution_nm``.
+        sample: Maps a depth in nanometers to the permittivity there.
+    """
+
+    total_depth_nm: float
+    sample: Callable[[float], Texture1D]
+
+    def __call__(self, depth_nm: float) -> Texture1D:
+        """Return the Fourier-space permittivity at one depth."""
+
+        return self.sample(depth_nm)
 
 
 @dataclass(frozen=True)
@@ -99,9 +120,12 @@ class NeviereOptions:
             differential method and does not inherit the staircase
             approximation. ``"continuous"`` requires a grating and is selected
             through ``run_simulation``.
-        step_phase: Target ``|q| * h`` for one Runge-Kutta step. The local
-            truncation error of RK4 scales as ``(|q| h)^5 / 120``, so the
-            default keeps it near ``3e-9`` per step.
+        step_phase: Target ``|q| * h`` for one Runge-Kutta step. Accuracy
+            improves as the fourth power of this value while cost grows far more
+            slowly, because most of the per-layer work is the interface-response
+            conversion and cascade rather than the Runge-Kutta stages: on a
+            lossless dielectric grating, tightening ``0.05 -> 0.02`` improved the
+            energy balance from ``1e-7`` to ``1e-9`` for 30% more runtime.
         block_phase: Maximum ``|q| * d`` accumulated before a sub-block is
             converted to an interface-response block and cascaded. Bounds the
             dynamic range of any transfer matrix that is explicitly formed.
@@ -118,7 +142,7 @@ class NeviereOptions:
     """
 
     z_sampling: ZSampling = "textures"
-    step_phase: float = 0.05
+    step_phase: float = 0.02
     block_phase: float = 2.0
     max_step_nm: float | None = None
     max_steps_per_layer: int = 4096
@@ -296,40 +320,43 @@ def _resample_layers_continuously(
     epsilon_sampler: EpsilonSampler,
     options: NeviereOptions,
 ) -> list[tuple[float, Texture1D]]:
-    """Return layers re-sampled from the continuous profile.
+    """Return slabs sampled from the continuous profile instead of the staircase.
 
-    The z-sliced layer list only fixes the total stack thickness and the depth
-    axis; the permittivity of each returned layer is taken from the true profile
-    at that depth rather than from the staircase texture. Sub-block splitting and
-    Runge-Kutta stepping then happen inside each returned layer as usual.
+    The staircase layers are discarded entirely: both the integration depth and
+    the permittivity come from the grating geometry, so the result does not
+    depend on ``z_resolution_nm``. Each slab carries the permittivity at its
+    midpoint, which makes the depth quadrature second-order accurate. Sub-block
+    splitting and Runge-Kutta stepping then happen inside each slab as usual.
 
     Args:
-        layers: Compressed staircase layers, top to bottom.
-        epsilon_sampler: Maps depth below the top of the stack to permittivity.
+        layers: Compressed staircase layers, used only to bound the slab count
+            and as a fallback scale.
+        epsilon_sampler: Continuous permittivity for the grating.
         options: Integration settings.
 
     Returns:
-        Layers of equal total thickness carrying continuously sampled textures.
+        Slabs spanning the stack, carrying continuously sampled permittivities.
     """
 
-    total_thickness_nm = float(sum(thickness for thickness, _ in layers))
-    if total_thickness_nm <= 0.0:
+    total_depth_nm = float(epsilon_sampler.total_depth_nm)
+    if total_depth_nm <= 0.0:
         return layers
 
-    reference_texture = layers[0][1]
-    scale = _spectral_scale_from_texture(reference_texture)
-    target_nm = options.block_phase / scale if scale > 0.0 else total_thickness_nm
+    scale = max(
+        (_spectral_scale_from_texture(texture) for _, texture in layers),
+        default=1.0,
+    )
+    target_nm = options.block_phase / scale if scale > 0.0 else total_depth_nm
     if options.max_step_nm is not None:
         target_nm = min(target_nm, options.max_step_nm)
-    step_count = max(1, int(math.ceil(total_thickness_nm / max(target_nm, 1e-12))))
-    step_count = min(step_count, options.max_steps_per_layer * max(len(layers), 1))
-    slab_nm = total_thickness_nm / step_count
+    slab_count = max(1, int(math.ceil(total_depth_nm / max(target_nm, 1e-12))))
+    slab_count = min(slab_count, options.max_steps_per_layer * max(len(layers), 1))
+    slab_nm = total_depth_nm / slab_count
 
-    resampled: list[tuple[float, Texture1D]] = []
-    for index in range(step_count):
-        depth_nm = (index + 0.5) * slab_nm
-        resampled.append((slab_nm, epsilon_sampler(depth_nm)))
-    return resampled
+    return [
+        (slab_nm, epsilon_sampler((index + 0.5) * slab_nm))
+        for index in range(slab_count)
+    ]
 
 
 def build_grating_epsilon_sampler(
@@ -357,7 +384,7 @@ def build_grating_epsilon_sampler(
         fourier_backend: Fourier coefficient backend selector.
 
     Returns:
-        Callable mapping a depth below the top of the finite stack, in
+        Sampler mapping a depth below the top of the modelled stack, in
         nanometers, to a Fourier-space texture.
     """
 
@@ -397,7 +424,10 @@ def build_grating_epsilon_sampler(
         cache[key] = texture
         return texture
 
-    return sampler
+    # The solver z grid runs from the top of the modelled stack down to zero, so
+    # its first entry is the stack depth. Reading it here rather than summing a
+    # z-sliced profile keeps the continuous mode independent of z_resolution_nm.
+    return EpsilonSampler(total_depth_nm=z_top_nm, sample=sampler)
 
 
 def _spectral_scale_from_texture(texture: Texture1D) -> float:
