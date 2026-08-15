@@ -82,6 +82,13 @@
     <li>Open a saved grating from the home page.</li>
     <li>Pick a workflow: fixed angle, monochromator, multilayer theta search, or parameter study.</li>
     <li>Enter the energy range, diffraction order, Fourier orders, polarization, and any workflow-specific values.</li>
+    <li>
+      Pick the solver. <strong>RCWA</strong> is the default modal solver.
+      <strong>Nevi&egrave;re</strong> is the differential method: it agrees with RCWA
+      to about 1 part in 10<sup>10</sup> and is usually faster, and it stays stable
+      on gratings far deeper than RCWA can handle. The saved run records which one
+      produced it.
+    </li>
     <li>Add an optional run comment if you want the saved run to carry a note or experiment tag.</li>
     <li>Choose the worker mode if you want auto or manual multiprocessing.</li>
     <li>Run the sweep and follow the progress page while the simulation writes results.</li>

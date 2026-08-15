@@ -886,6 +886,7 @@ def _queue_run(
     diffraction_order = int(float(form.get("diffraction_order", 1)))
     fourier_orders = int(float(form.get("fourier_orders", 5)))
     polarization = _normalized_polarization(form.get("polarization", "s"))
+    solver = _normalized_solver(form.get("solver", "rcwa"))
     worker_mode, max_workers_setting, requested_workers = _worker_settings_from_form(form)
     manifest: dict[str, Any] = {
         "id": run_id,
@@ -897,6 +898,7 @@ def _queue_run(
         "display_name": f"{grating_name} · {workflow}",
         "comment": str(form.get("comment", "")).strip(),
         "polarization": polarization,
+        "solver": solver,
         "status": "queued",
         "artifacts": [],
         "worker_mode": worker_mode,
@@ -1058,6 +1060,7 @@ def _execute_run_job(
                 grazing_angle_deg=float(form_data["grazing_angle_deg"]),
                 diffraction_order=diffraction_order,
                 polarization=_normalized_polarization(form_data.get("polarization", "s")),
+                solver=_normalized_solver(form_data.get("solver", "rcwa")),
                 fourier_orders_values=[fourier_orders],
                 x_resolution_values=[run_x_resolution_nm],
                 z_resolution_values=[run_z_resolution_nm],
@@ -1096,6 +1099,7 @@ def _execute_run_job(
         runner = simulation.BatchSimulationRunner(
             default_diffraction_order=diffraction_order,
             default_fourier_orders=fourier_orders,
+            default_solver=_normalized_solver(form_data.get("solver", "rcwa")),
             max_workers=effective_max_workers,
             show_progress=False,
             on_error="continue",
@@ -1240,6 +1244,7 @@ def _run_input_from_form(form: Any) -> dict[str, Any]:
         values = form.getlist(key)
         input_data[key] = values if len(values) > 1 else form.get(key)
     input_data["polarization"] = _normalized_polarization(input_data.get("polarization", "s"))
+    input_data["solver"] = _normalized_solver(input_data.get("solver", "rcwa"))
     return input_data
 
 
@@ -1250,6 +1255,15 @@ def _normalized_polarization(value: Any) -> str:
     if polarization not in {"s", "p"}:
         raise ValueError("polarization must be 's' or 'p'.")
     return polarization
+
+
+def _normalized_solver(value: Any) -> str:
+    """Return a validated electromagnetic solver name for Web UI run inputs."""
+
+    solver = str(value or "rcwa").strip().lower()
+    if solver not in {"rcwa", "neviere"}:
+        raise ValueError("solver must be 'rcwa' or 'neviere'.")
+    return solver
 
 
 def _request_run_abort(app: Any, data_dir: Path, run_id: str, *, delete_after_abort: bool) -> bool:
@@ -1521,6 +1535,7 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     payload.setdefault("id", run_id)
     payload.setdefault("display_name", f"{payload.get('grating_name', 'Run')} · {payload.get('workflow', 'run')}")
     payload.setdefault("polarization", _normalized_polarization(payload.get("run_input", {}).get("polarization", "s")))
+    payload.setdefault("solver", _normalized_solver(payload.get("run_input", {}).get("solver", "rcwa")))
     if isinstance(payload.get("run_input"), dict):
         payload["run_input"].setdefault("polarization", payload["polarization"])
     return payload
