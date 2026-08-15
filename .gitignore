@@ -111,5 +111,8 @@ __pycache__/
 .pytes*t_cache/
 .ruff_cache
 
-# Partial checkpoints from interrupted solver-comparison sweeps
+# Per-solver checkpoint directories from solver-comparison sweeps. The baseline
+# checkpoints/ directories stay tracked; these are scratch for reruns.
 validation/*/results/checkpoints_neviere/
+validation/*/results/checkpoints_rerun/
+validation/*/results/checkpoints_neviere_*/
