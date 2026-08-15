@@ -124,7 +124,7 @@ def simulate_efficiency_curve_with_metadata(
         config: Optimization configuration describing the simulation setup.
         trial_parameters: Ax trial parameters for the current candidate.
         measurement: Energy grid and target efficiencies used for evaluation.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Optional hook that builds a grating from the trial
             parameter mapping.
         resolve_solver_parameters_fn: Optional hook that resolves solver
@@ -132,6 +132,12 @@ def simulate_efficiency_curve_with_metadata(
 
     Returns:
         Simulated efficiency values on the measurement grid.
+
+    Note:
+        The electromagnetic solver comes from ``config.solver`` (and
+        ``config.neviere_options``), alongside ``diffraction_order`` and
+        ``fourier_orders``, rather than from a separate argument. ``backend``
+        stays an argument because it is resolved from ``"auto"`` by the caller.
     """
 
     if build_grating_fn is None:
@@ -167,6 +173,8 @@ def simulate_efficiency_curve_with_metadata(
         max_workers=getattr(config, "max_workers", None),
         validate_physical_results=bool(config.validate_physical_results),
         backend=backend,
+        default_solver=str(getattr(config, "solver", "rcwa")),
+        default_neviere_options=getattr(config, "neviere_options", None),
     )
     trial_results = list(runner.run_cases(cases))
     efficiencies = np.empty(len(cases), dtype=float)
