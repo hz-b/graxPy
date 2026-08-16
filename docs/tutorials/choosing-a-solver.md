@@ -175,3 +175,9 @@ See `examples/simulation/neviere_solver/neviere_solver.py` for a runnable script
 covering all of the above, and
 [Nevière differential method](../developer/neviere-theory.md) for the underlying
 formulation.
+
+## Seeing the difference
+
+The three examples in {doc}`solver-difference-examples` cover the cases where the
+choice actually changes something: depth range, staircase versus continuous
+z-sampling, and runtime.

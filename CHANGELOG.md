@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Every example that solves now accepts `--solver rcwa|neviere`, defaulting to `rcwa`. Solver-dependent example outputs are suffixed (`*_rcwa.*`, `*_neviere.*`) so the two runs sit side by side; geometry artifacts such as `*_profile.png` stay unsuffixed because they do not depend on the solver.
+- Added three examples covering the cases where the two solvers genuinely differ, rather than duplicating existing examples whose curves would be indistinguishable: `deep_grating_limits` (the modal solver stops at 8.4 wavelengths of depth where the differential method reaches 167), `continuous_vs_staircase` (continuous z-sampling is bit-identical across every `z_resolution_nm`, while a staircase run carries 2.7e-3 of discretization error at 2 nm), and `solver_runtime` (2.4x to 3.0x faster at production resolution, with the solvers still agreeing to ~1e-11).
+- Fixed `multilayer_theta_search` and `blazed_multilayer_memory_comparison` failing with `BrokenProcessPool` on macOS. Both use `max_workers`, and a spawned worker re-imports the script by path; without a `__main__` guard each worker re-ran the whole example and recursively spawned more.
+
 ### Breaking changes
 
 Renames only — no behaviour changed. Migration:
