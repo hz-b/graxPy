@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -56,7 +57,18 @@ for depth_nm in depths_nm:
         }
     )
 
+parser = argparse.ArgumentParser(description="Batch runner over user-defined cases")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 runner = grax.BatchSimulationRunner(
+    solver=args.solver,
     diffraction_order=diffraction_order,
     fourier_orders=25,
     show_progress=True,
@@ -70,10 +82,10 @@ runner = grax.BatchSimulationRunner(
 
 results = list(runner.run_cases(user_cases))
 
-csv_path = output_dir / "batch_user_cases_all_orders.csv"
+csv_path = output_dir / f"batch_user_cases_all_orders_{args.solver}.csv"
 grax.write_all_orders_csv(results, csv_path)
 
-orders_plot_path = output_dir / "batch_user_cases_orders_1_3_vs_depth.png"
+orders_plot_path = output_dir / f"batch_user_cases_orders_1_3_vs_depth_{args.solver}.png"
 depth_values = np.asarray([float(result.case_data["depth_nm"]) for result in results], dtype=float)
 figure, axis = plt.subplots(figsize=(10, 6))
 markers = ["o", "s", "^"]

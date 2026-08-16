@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -25,7 +26,18 @@ output_dir.mkdir(parents=True, exist_ok=True)
 energies_ev = np.arange(50.0, 2000.1, 10)
 diffraction_orders = [1, 2, 3]
 
+parser = argparse.ArgumentParser(description="Polarization comparison (s vs p)")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 runner = grax.BatchSimulationRunner(
+    solver=args.solver,
     fourier_orders=20,
     show_progress=True,
     live_plot=False,
@@ -61,7 +73,7 @@ collected_s = sorted_ok(results_s)
 collected_p = sorted_ok(results_p)
 energies = np.asarray([r.energy_ev for r in collected_s], dtype=float)
 
-comparison_plot_path = output_dir / "monochromator_pol_comparison.png"
+comparison_plot_path = output_dir / f"monochromator_pol_comparison_{args.solver}.png"
 colors = ["tab:blue", "tab:orange", "tab:green"]
 
 figure, axis = plt.subplots(figsize=(10, 6))

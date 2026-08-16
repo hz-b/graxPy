@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import grax
@@ -26,7 +27,18 @@ fourier_orders_values = list(range(5, 26, 2))
 x_resolution_values = grax.get_default_parameter_study_ranges()[1]
 z_resolution_values = grax.get_default_parameter_study_ranges()[2]
 
+parser = argparse.ArgumentParser(description="Convergence parameter study")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 study = grax.run_parameter_study(
+    solver=args.solver,
     grating=grating,
     energies_ev=energies_ev,
     grazing_angle_deg=grazing_angle_deg,
@@ -40,7 +52,7 @@ study = grax.run_parameter_study(
     show_progress=True,
 )
 
-plot_path = output_dir / "parameter_study_grid.png"
+plot_path = output_dir / f"parameter_study_grid_{args.solver}.png"
 grax.plot_parameter_study(
     study,
     output_filename=plot_path,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -49,7 +50,18 @@ for depth_nm in depths_nm:
     cases_s.append({**base, "case_id": f"pol-s-depth-{int(depth_nm):03d}", "polarization": "s"})
     cases_p.append({**base, "case_id": f"pol-p-depth-{int(depth_nm):03d}", "polarization": "p"})
 
+parser = argparse.ArgumentParser(description="Polarization comparison (s vs p)")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 runner = grax.BatchSimulationRunner(
+    solver=args.solver,
     diffraction_order=diffraction_order,
     fourier_orders=25,
     show_progress=True,
@@ -68,7 +80,7 @@ diffraction_orders = [1, 2, 3]
 colors = ["tab:blue", "tab:orange", "tab:green"]
 markers = ["o", "s", "^"]
 
-comparison_plot_path = output_dir / "batch_user_cases_pol_comparison.png"
+comparison_plot_path = output_dir / f"batch_user_cases_pol_comparison_{args.solver}.png"
 figure, axis = plt.subplots(figsize=(10, 6))
 for index, order in enumerate(diffraction_orders):
     eff_s = np.asarray(

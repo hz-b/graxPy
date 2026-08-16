@@ -37,10 +37,10 @@ runner = grax.BatchSimulationRunner(
 )
 
 results = list(runner.run_cases(cases))
-grax.write_all_orders_csv(results, "examples/simulation/monochromator_sweep/results/monochromator_all_orders.csv")
+grax.write_all_orders_csv(results, "examples/simulation/monochromator_sweep/results/monochromator_all_orders_rcwa.csv")
 grax.plot_order_subset(
     results,
-    "examples/simulation/monochromator_sweep/results/monochromator_orders_1_3.png",
+    "examples/simulation/monochromator_sweep/results/monochromator_orders_1_3_rcwa.png",
     diffraction_orders=[1, 2, 3],
     title="Monochromator Sweep: Orders 1-3 Efficiency vs Energy",
 )

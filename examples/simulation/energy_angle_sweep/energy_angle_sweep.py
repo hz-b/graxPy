@@ -6,6 +6,7 @@ coarse RCWA settings for short runtime.
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -55,7 +56,18 @@ cases = grax.energy_angle_cases(
     polarization="p",
 )
 
+parser = argparse.ArgumentParser(description="Energy-angle pair sweep")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 runner = grax.BatchSimulationRunner(
+    solver=args.solver,
     diffraction_order=2,
     fourier_orders=5,
     show_progress=True,
@@ -66,8 +78,8 @@ runner = grax.BatchSimulationRunner(
 
 results = list(runner.run_cases(cases))
 
-csv_path = output_dir / "energy_angle_multilayer_all_orders.csv"
-plot_path = output_dir / "energy_angle_multilayer_fast.png"
+csv_path = output_dir / f"energy_angle_multilayer_all_orders_{args.solver}.csv"
+plot_path = output_dir / f"energy_angle_multilayer_fast_{args.solver}.png"
 profile_path = output_dir / "energy_angle_multilayer_profile.png"
 
 grax.write_all_orders_csv(results, csv_path)

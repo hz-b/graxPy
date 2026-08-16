@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -33,7 +34,18 @@ cases = grax.fixed_angle_cases(
     polarization="p",
 )
 
+parser = argparse.ArgumentParser(description="Fixed-angle energy sweep")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 runner = grax.BatchSimulationRunner(
+    solver=args.solver,
     diffraction_order=1,
     fourier_orders=20,
     show_progress=True,
@@ -45,10 +57,10 @@ runner = grax.BatchSimulationRunner(
 
 results = list(runner.run_cases(cases))
 
-csv_path = output_dir / "fixed_angle_all_orders.csv"
+csv_path = output_dir / f"fixed_angle_all_orders_{args.solver}.csv"
 grax.write_all_orders_csv(results, csv_path)
 
-orders_plot_path = output_dir / "fixed_angle_orders_1_3.png"
+orders_plot_path = output_dir / f"fixed_angle_orders_1_3_{args.solver}.png"
 grax.plot_order_subset(
     results,
     orders_plot_path,

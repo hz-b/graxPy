@@ -54,7 +54,7 @@ grating.plot_profile("examples/simulation/single_simulation/results/single_simul
 Export helpers accept the typed single result directly:
 
 ```python
-grax.write_all_orders_csv(result, "examples/simulation/single_simulation/results/single_simulation.csv")
+grax.write_all_orders_csv(result, "examples/simulation/single_simulation/results/single_simulation_rcwa.csv")
 ```
 
 See `examples/simulation/single_simulation/single_simulation.py` for the complete script.

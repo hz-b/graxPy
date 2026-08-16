@@ -161,6 +161,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Run the roughness-kind comparison example.")
     parser.add_argument(
+        "--solver",
+        choices=("rcwa", "neviere"),
+        default="rcwa",
+        help="Electromagnetic solver to run.",
+    )
+    parser.add_argument(
         "--geometry-only",
         action="store_true",
         help="Only build the gratings and save whole-grating geometry PDFs; do not run simulations.",
@@ -198,6 +204,7 @@ def main() -> None:
 
         fourier_orders = FOURIER_ORDERS if num_supercells == 1 else SUPERCELL_FOURIER_ORDERS
         runner = grax.BatchSimulationRunner(
+            solver=args.solver,
             diffraction_order=DIFFRACTION_ORDER,
             fourier_orders=fourier_orders,
             show_progress=True,

@@ -251,8 +251,10 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
     assert '"memory_mode"' not in source
     assert '"_memory_mode"' not in source
     assert 'profile_memory": True' in source
-    assert "blazed_multilayer_memory_comparison.csv" in source
-    assert "blazed_multilayer_memory_comparison.png" in source
+    # Outputs are solver-suffixed so an rcwa and a neviere run sit side by side.
+    assert 'blazed_multilayer_memory_comparison_{args.solver}.csv' in source
+    assert 'blazed_multilayer_memory_comparison_{args.solver}.png' in source
+    assert '"--solver"' in source
     assert "blazed_multilayer_profile.png" in source
     assert "multilayer_stack_schematic.png" in source
 

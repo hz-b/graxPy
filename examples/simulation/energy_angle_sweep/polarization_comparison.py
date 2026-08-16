@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -45,7 +46,18 @@ grating = grax.BlazedGrating(
     z_resolution_nm=1.0,
 )
 
+parser = argparse.ArgumentParser(description="Polarization comparison (s vs p)")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 runner = grax.BatchSimulationRunner(
+    solver=args.solver,
     diffraction_order=2,
     fourier_orders=5,
     show_progress=True,
@@ -64,7 +76,7 @@ results_p = list(runner.run_cases(
 ok_s = [r for r in results_s if r.status == "ok"]
 ok_p = [r for r in results_p if r.status == "ok"]
 
-comparison_plot_path = output_dir / "energy_angle_pol_comparison.png"
+comparison_plot_path = output_dir / f"energy_angle_pol_comparison_{args.solver}.png"
 figure, axis = plt.subplots(figsize=(10, 6))
 axis.plot(
     [r.energy_ev for r in ok_s],
