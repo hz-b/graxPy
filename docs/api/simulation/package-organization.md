@@ -5,7 +5,7 @@ The `grax.simulation` module is implemented as a package to separate concerns by
 ## Module structure
 
 - `models.py`: Typed result dataclasses (`SingleSimulationResult`, `BatchSimulationResult`, `CaseExecutionResult`, etc.) and small compatibility containers.
-- `core.py`: One-point RCWA execution (`run_simulation`, `RCWASimulation`) and legacy plotting/comparison helpers.
+- `core.py`: One-point solver execution (`run_simulation`, `GratingSimulation`) and legacy plotting/comparison helpers.
 - `batch.py`: Generic batch execution (`BatchSimulationRunner`), checkpointing, subprocess execution, and worker calibration helpers.
 - `cases.py`: Lazy case-generation helpers (`energy_angle_cases`, `fixed_angle_cases`, `monochromator_cases`) and monochromator angle generation.
 - `theta_search.py`: Single-energy multilayer theta-search logic (`run_multilayer_theta_search`) and scan helpers.

@@ -1,97 +1,76 @@
 # Roughness
 
-Use `examples/simulation/fixed_angle_roughness/fixed_angle_roughness.py` to
-compare Debye-Waller and random-interface roughness models across several
-roughness levels in a fixed-angle laminar sweep.
+GraxPy supports two roughness models that enter a simulation at different
+stages:
 
-This example reuses the fixed-angle simulation pattern, but reruns the same
-energy sweep for `debye-waller` and `random-interface` roughness at:
+- `debye-waller` preserves the discretized grating geometry and applies a
+  scalar Debye-Waller damping factor to the resulting efficiencies.
+- `random-interface` perturbs each material interface before textures are
+  built, so the solver sees the perturbed geometry directly.
 
-- `sigma=0.0 nm`
-- `sigma=0.5 nm`
-- `sigma=1.0 nm`
-- `sigma=2.0 nm`
-
-Roughness is selected when the grating is built:
+Configure either model on the grating:
 
 ```python
-roughness=grax.RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
-roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=0)
-```
-
-During execution, each roughness sweep uses the batch runner with:
-
-- `live_plot=True`
-- `live_plot_x_key="energy_ev"`
-- `live_plot_order_count=1`
-- `max_workers="auto"`
-
-That means the first-order efficiency is plotted live while the cases are
-running, and the example also uses multiprocessing through the maintained batch
-execution path.
-
-After the runs finish, the workflow writes one all-orders CSV per roughness
-kind and level, plus a combined comparison plot for diffraction order `1`.
-
-## Explanation
-
-Grax supports two roughness implementations that enter the simulation at
-different stages.
-
-`debye-waller` roughness keeps the grating geometry unchanged. The RCWA solve
-uses the original discretized structure, and the solver then applies a
-Debye-Waller-style damping factor to the diffraction efficiencies. Use this mode
-when you want the existing scalar roughness correction:
-
-```python
-roughness=grax.RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
-```
-
-`random-interface` roughness changes the grating geometry before the RCWA
-textures are built. During texture generation, each material interface receives
-a deterministic random height modulation controlled by `seed`. Because the
-roughness is already represented in the geometry, Debye-Waller damping is not
-applied for this mode:
-
-```python
-roughness=grax.RoughnessSpec(kind="random-interface", sigma_nm=0.5, seed=0)
-```
-
-### Correlation length
-
-The random interface is a **Gaussian random field with a Gaussian
-autocorrelation**, `C(τ) = σ²·exp(−τ²/2ξ²)`, rather than uncorrelated white
-noise. The lateral autocorrelation length `ξ` is set by `correlation_length_nm`:
-
-```python
-roughness=grax.RoughnessSpec(
-    kind="random-interface", sigma_nm=0.5, seed=0, correlation_length_nm=250.0
+roughness = grax.RoughnessSpec(kind="debye-waller", sigma_nm=1.0)
+roughness = grax.RoughnessSpec(
+    kind="random-interface",
+    sigma_nm=1.0,
+    seed=0,
+    correlation_length_nm=10.0,
 )
 ```
 
-- **`None` (default)** — the correlation length defaults to one tenth of the
-  grating period, which keeps a visible, physical per-period undulation at any
-  pitch.
-- **`0.0`** — reproduces the legacy uncorrelated (per-sample white-noise)
-  interface.
-- **`> 0`** — an explicit correlation length in nanometers.
+## Compare roughness models
 
-Real metrology (e.g. an interferometer surface slice after Zernike removal)
-shows correlation lengths of order **~10 µm**. On fine-pitch gratings (period
-≈ 2.5 µm) such long correlations wash out geometrically — a roughness whose
-correlation length exceeds the grating period reduces to a near-constant height
-offset in single-period RCWA — so that long-scale regime is better represented
-by the `debye-waller` kind.
+Run the maintained kind-comparison example:
+
+```bash
+python examples/simulation/fixed_angle_roughness/roughness_kind_comparison.py
+```
+
+By default it compares a no-roughness baseline, 1 nm Debye-Waller roughness,
+and 1 nm random-interface roughness. The random-interface case uses a
+10-supercell correlated field. It writes all-orders CSVs under
+`examples/simulation/fixed_angle_roughness/results_roughness_kind_comparison/`
+and comparison plots under
+`examples/simulation/fixed_angle_roughness/plots_roughness_kind_comparison/`.
+Pass `--solver neviere` to run the same study with the Nevière path, or
+`--family` to run only one model family.
+
+```{figure} images/simulation/fixed_angle_roughness_order1_comparison.png
+:alt: First-order fixed-angle roughness comparison for the baseline, Debye-Waller, and random-interface models.
+:align: center
+:width: 80%
+
+The checked-in comparison plot shows the selected-order spectrum for the
+configured baseline and roughness-model cases.
+```
+
+## Correlation length and supercells
+
+Random-interface roughness is a Gaussian random field with Gaussian
+autocorrelation, `C(τ) = σ² exp(−τ² / 2ξ²)`. Use the correlation study to
+compare lateral correlation lengths and the effect of modelling several
+periods as one supercell:
+
+```bash
+python examples/simulation/fixed_angle_roughness/roughness_correlation.py
+```
+
+The default study compares the baseline and Debye-Waller cases with
+random-interface roughness at correlation lengths from 0 to 100 nm, both for
+one period and for a five-supercell field. Its outputs use the corresponding
+`results_roughness_correlation` and `plots_roughness_correlation` directories.
+
+Use `correlation_length_nm=None` to choose one tenth of the grating period,
+`0.0` for the legacy uncorrelated per-sample field, or a positive value in
+nanometers for an explicit correlation length.
 
 ## Per-layer roughness
 
-Both roughness models can be configured **per layer** instead of using a single
-grating-wide sigma. The value attached to a layer is the roughness of that
-layer's *top* interface; the substrate boundary and any layer without an
-explicit value fall back to the grating-level `RoughnessSpec.sigma_nm`. The
-`kind`, `seed`, and `resolution_factor` stay grating-global.
-
-For a `CustomStack`, set `roughness_sigma_nm` on each `LayerSpec`:
+Both models support per-layer interface roughness. For a `CustomStack`, set
+`roughness_sigma_nm` on each `LayerSpec`; layers without an explicit value use
+the grating-level sigma.
 
 ```python
 from grax.stacks import LayerSpec, assemble_custom_stack
@@ -110,30 +89,9 @@ grating = grax.LaminarGrating(
 )
 ```
 
-The built-in stacks expose equivalent per-layer arguments:
-`SingleLayerStack` accepts `layer_roughness_sigma_nm` /
-`top_cap_roughness_sigma_nm`, and `MultilayerStack` accepts
-`material_a_roughness_sigma_nm`, `material_b_roughness_sigma_nm`, and
-`top_cap_roughness_sigma_nm`.
+For `random-interface`, each interface receives its own perturbation. For
+`debye-waller`, uncorrelated per-interface sigmas combine in quadrature before
+the scalar damping is applied.
 
-For `random-interface`, each interface is perturbed by its own sigma. For
-`debye-waller`, uncorrelated interfaces add in quadrature, so the per-layer
-sigmas reduce to an effective scalar
-`sigma_eff = sqrt(sum(sigma_i**2))` before damping is applied.
-
-The example plot below compares the no-roughness baseline with both roughness
-implementations at the configured sigma values.
-
-```{image} images/simulation/fixed_angle_roughness_order1_comparison.png
-:alt: First-order fixed-angle roughness comparison for Debye-Waller and random-interface roughness
-:align: center
-:width: 80%
-```
-
-See these files for the complete workflow:
-
-- `examples/simulation/fixed_angle_roughness/fixed_angle_roughness.py`
-- `examples/simulation/fixed_angle_roughness/comparison_fixed_angle_roughness.py`
-
-For the baseline fixed-angle workflow without the roughness sweep wrapper, see
+For the baseline fixed-angle workflow without roughness, see
 {doc}`fixed-angle-sweep`.

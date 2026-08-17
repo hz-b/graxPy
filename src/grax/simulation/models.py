@@ -70,7 +70,7 @@ class ThetaSearchDiagnostics:
 
 @dataclass
 class SingleSimulationResult:
-    """Result for one RCWA simulation case.
+    """Result for one grating simulation case.
 
     Attributes:
         energy_ev: Photon energy in electronvolts.
@@ -92,6 +92,12 @@ class SingleSimulationResult:
             realizations averaged into this result (mirrors
             ``RoughnessSpec.num_realizations``); ``1`` when no averaging was
             in effect (including all Debye-Waller and no-roughness runs).
+        solver: Electromagnetic solver that produced this result, ``"rcwa"`` or
+            ``"neviere"``.
+        solver_options: Solver settings that produced this result, or ``None``
+            when the solver takes none. Recorded so a checkpointed differential-
+            method run is reproducible: the solver name alone does not pin the
+            integration settings.
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
         retry_attempts: Number of additional retry attempts after the first run.
@@ -122,6 +128,8 @@ class SingleSimulationResult:
     num_supercells: int = 1
     num_realizations: int = 1
     polarization: str = "s"
+    solver: str = "rcwa"
+    solver_options: dict[str, object] | None = None
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
     retry_attempts: int = 0
@@ -171,6 +179,10 @@ class CaseExecutionResult:
         peak_memory_bytes: Peak tracked memory during execution, when profiling is enabled.
         wall_seconds: Total wall time during execution, when profiling is enabled.
         case_data: Original serializable case metadata without the grating object.
+        solver: Electromagnetic solver that produced this result, ``"rcwa"`` or
+            ``"neviere"``.
+        solver_options: Solver settings that produced this result, or ``None``
+            when the solver takes none.
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
         retry_attempts: Number of additional retry attempts after the first run.
@@ -204,6 +216,8 @@ class CaseExecutionResult:
     wall_seconds: float | None = None
     case_data: dict[str, object] = field(default_factory=dict)
     polarization: str = "s"
+    solver: str = "rcwa"
+    solver_options: dict[str, object] | None = None
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
     retry_attempts: int = 0

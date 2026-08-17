@@ -14,7 +14,8 @@ from matplotlib.ticker import FuncFormatter
 from tqdm import tqdm
 
 from .gratings import BaseGrating
-from .simulation import RCWASimulation
+from .simulation import GratingSimulation
+from .simulation.core import normalize_polarization
 
 __all__ = [
     "ParameterStudyEnergyResult",
@@ -127,6 +128,9 @@ def run_parameter_study(
     output_dir: str | Path | None = None,
     save_csv: bool = True,
     show_progress: bool = True,
+    solver: str = "rcwa",
+    solver_options: object | None = None,
+    backend: str = "numba",
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
 
@@ -156,6 +160,14 @@ def run_parameter_study(
         output_dir: Optional directory for CSV exports. Creates subdirectory if needed.
         save_csv: Whether to export per-energy sweep CSV files to output_dir.
         show_progress: Whether to display progress bars during execution.
+        solver: Electromagnetic solver used for every point of the study.
+            ``"rcwa"`` (default) or ``"neviere"``.
+        solver_options: Integration settings for ``solver="neviere"``, as a
+            :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by the
+            selected solver.
+        backend: Fourier coefficient backend selector. ``"numba"`` is the
+            default. Previously fixed internally; exposing it here makes a
+            convergence study reproducible against the backend it ran on.
 
     Returns:
         Structured parameter-study result containing all sweep data and metadata.
@@ -172,6 +184,7 @@ def run_parameter_study(
         >>> plot_parameter_study(result)
     """
 
+    polarization = normalize_polarization(polarization)
     default_fourier, default_x, default_z = get_default_parameter_study_ranges()
     fourier_values = np.asarray(
         default_fourier if fourier_orders_values is None else fourier_orders_values,
@@ -212,6 +225,9 @@ def run_parameter_study(
                 polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
+                solver=solver,
+                solver_options=solver_options,
+                backend=backend,
             ),
             "x_resolution_nm": _run_single_parameter_sweep(
                 grating=grating,
@@ -223,6 +239,9 @@ def run_parameter_study(
                 polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
+                solver=solver,
+                solver_options=solver_options,
+                backend=backend,
             ),
             "z_resolution_nm": _run_single_parameter_sweep(
                 grating=grating,
@@ -234,6 +253,9 @@ def run_parameter_study(
                 polarization=polarization,
                 max_retries=max_retries,
                 fixed_fourier_orders=fixed_fourier_orders,
+                solver=solver,
+                solver_options=solver_options,
+                backend=backend,
             ),
         }
         results.append(
@@ -394,10 +416,13 @@ def _run_single_parameter_sweep(
     polarization: str,
     max_retries: int,
     fixed_fourier_orders: int,
+    solver: str,
+    solver_options: object | None,
+    backend: str,
 ) -> ParameterSweepSeries:
     """Run one parameter sweep for one energy.
 
-    Executes a sequence of RCWA simulations varying one discretization parameter
+    Executes a sequence of simulations varying one discretization parameter
     while holding all others fixed. Implements retry logic for failed points with
     exponential backoff behavior (same parameters retried up to max_retries).
 
@@ -439,13 +464,15 @@ def _run_single_parameter_sweep(
                     case_grating = _clone_grating_with_override(grating, parameter, float(value))
                     fourier_orders = fixed_fourier_orders
 
-                result = RCWASimulation(
+                result = GratingSimulation(
                     grating=case_grating,
                     diffraction_order=diffraction_order,
                     fourier_orders=fourier_orders,
                     grazing_angle_deg=grazing_angle_deg,
                     polarization=polarization,
-                    backend="numba",
+                    backend=backend,
+                    solver=solver,
+                    solver_options=solver_options,
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True

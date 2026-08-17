@@ -1,7 +1,7 @@
 # Multilayer theta search
 
 Use {func}`grax.run_multilayer_theta_search_sweep` when each energy point
-needs its own grazing-angle optimization before the final RCWA solve.
+needs its own grazing-angle optimization before the final selected-solver solve.
 
 The sweep internally performs, for each energy:
 
@@ -108,3 +108,11 @@ logger.info("Outputs written under: %s", output_dir)
 
 See `examples/simulation/multilayer_theta_search/multilayer_theta_search.py`
 for the full runnable script.
+
+## Polarization
+
+The search takes `polarization` (`s`/`TE` or `p`/`TM`, default `s`) and uses it
+for all three stages — rough scan, precise scan and final solve — so the selected
+angle and the reported efficiency come from the same polarization. Because the
+scan maximizes the selected order, `s` and `p` generally settle on slightly
+different angles.

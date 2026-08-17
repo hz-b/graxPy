@@ -41,7 +41,7 @@ The three curves in the comparison figure are obtained as follows:
 - `DiffraMod`: reference efficiencies from
   `validation/blazed_multilayer/simulation/DiffractMod_CrC_d4.8_N60.dat`
 - `grax energy-angle`: the grax sweep in
-  `validation/blazed_multilayer/blazed_multilayer_sweep.py`, where
+  `validation/blazed_multilayer/run_rcwa.py`, where
   each grax simulation uses the energy and grazing angle pair taken directly
   from the DiffraMod table
 - `grax theta-search`: the adaptive multilayer theta-search workflow, where

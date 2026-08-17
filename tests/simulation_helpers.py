@@ -32,6 +32,10 @@ EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_memory_comparison" / "blazed_multilayer_memory_comparison.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "neviere_solver" / "neviere_solver.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "deep_grating_limits" / "deep_grating_limits.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "continuous_vs_staircase" / "continuous_vs_staircase.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "solver_runtime" / "solver_runtime.py",
 ]
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"

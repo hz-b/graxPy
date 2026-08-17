@@ -539,7 +539,7 @@ def test_custom_stack_schematic_collapses_repeated_bilayers() -> None:
         top_cap_thickness_nm=2.0,
     )
 
-    layers_top_down, summary_lines = stack._schematic_layers_and_summary()
+    layers_top_down, summary_lines, repeat_unit = stack._schematic_layers_and_summary()
 
     assert [material_label(material) for material, _ in layers_top_down] == ["O", "C", "Cr", "Cr"]
     assert [thickness for _, thickness in layers_top_down] == pytest.approx([2.0, 3.6, 2.4, 2.0])
@@ -548,6 +548,11 @@ def test_custom_stack_schematic_collapses_repeated_bilayers() -> None:
         "3 bilayers",
         "Bilayer period: 6.000 nm",
     ]
+    assert repeat_unit is not None
+    assert repeat_unit.layer_start_index_top_down == 1
+    assert repeat_unit.bilayer_count == 3
+    assert repeat_unit.bilayer_period_nm == pytest.approx(6.0)
+    assert [material_label(material) for material in repeat_unit.materials_bottom_up] == ["Cr", "C"]
 
 
 def test_custom_stack_schematic_keeps_literal_nonrepeating_layers() -> None:
@@ -560,11 +565,38 @@ def test_custom_stack_schematic_keeps_literal_nonrepeating_layers() -> None:
         ],
     )
 
-    layers_top_down, summary_lines = stack._schematic_layers_and_summary()
+    layers_top_down, summary_lines, repeat_unit = stack._schematic_layers_and_summary()
 
     assert [material_label(material) for material, _ in layers_top_down] == ["Cr", "C", "Pt"]
     assert [thickness for _, thickness in layers_top_down] == pytest.approx([1.0, 2.0, 10.0])
     assert summary_lines == ["Total thickness: 13.000 nm"]
+    assert repeat_unit is None
+
+
+def test_multilayer_stack_schematic_marks_native_bilayer_repeat() -> None:
+    stack = MultilayerStack(
+        substrate_material=SI,
+        material_a=CR,
+        material_b=C,
+        d_period_nm=6.0,
+        gamma=0.4,
+        n_bilayers=50,
+        top_material=C,
+    )
+
+    layers_top_down, summary_lines, repeat_unit = stack._schematic_layers_and_summary()
+
+    assert [material_label(material) for material, _ in layers_top_down] == ["C", "Cr"]
+    assert summary_lines == [
+        "Total thickness: 300.000 nm",
+        "50 bilayers",
+        "Bilayer period: 6.000 nm",
+    ]
+    assert repeat_unit is not None
+    assert repeat_unit.layer_start_index_top_down == 0
+    assert repeat_unit.bilayer_count == 50
+    assert repeat_unit.bilayer_period_nm == pytest.approx(6.0)
+    assert [material_label(material) for material in repeat_unit.materials_bottom_up] == ["Cr", "C"]
 
 
 def test_stack_builder_helpers_match_existing_stack_types() -> None:

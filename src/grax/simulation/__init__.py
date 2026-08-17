@@ -22,7 +22,7 @@ from .cases import (
     multilayer_theta_search_cases,
 )
 from .core import (
-    RCWASimulation,
+    GratingSimulation,
     efficiency_for_order,
     load_experimental_csv,
     plot_order_subset,
@@ -111,7 +111,7 @@ __all__ = [
     "BatchSimulationResult",
     "CaseExecutionResult",
     "MultilayerThetaSearchSweepResult",
-    "RCWASimulation",
+    "GratingSimulation",
     "SimulationResult",
     "SingleSimulationResult",
     "ThetaSearchDiagnostics",

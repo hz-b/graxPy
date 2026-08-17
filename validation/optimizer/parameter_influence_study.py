@@ -79,8 +79,8 @@ sweeps_dir = results_dir / "sweeps"
 sweeps_dir.mkdir(parents=True, exist_ok=True)
 all_rows = []
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=15,
+    diffraction_order=1,
+    fourier_orders=15,
     show_progress=True,
     on_error="continue",
     resume=False,

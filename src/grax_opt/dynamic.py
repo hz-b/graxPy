@@ -172,6 +172,12 @@ class MeasurementFitConfig:
         save_best_fit_plot: Whether to write ``best_fit.png``.
         save_loss_plot: Whether to write ``optimization_loss_history.png``.
         backend: Requested compute backend.
+        solver: Electromagnetic solver used for every trial evaluation,
+            ``"rcwa"`` (default) or ``"neviere"``. Unlike ``backend`` there is no
+            ``"auto"`` mode: the two solvers are different methods, not
+            interchangeable implementations of one.
+        solver_options: Integration settings for ``solver="neviere"``, as a
+            mapping matching :class:`grax.NeviereOptions`.
         evaluation_energies_ev: Discrete energies used for objective evaluation.
         evaluation_grazing_angles_deg: Optional grazing angles (deg) used for
             explicit energy-angle evaluation pairs.
@@ -211,6 +217,8 @@ class MeasurementFitConfig:
     save_best_fit_plot: bool = True
     save_loss_plot: bool = True
     backend: str = "auto"
+    solver: str = "rcwa"
+    solver_options: dict[str, object] | None = None
     evaluation_energies_ev: list[float] = field(default_factory=list)
     evaluation_grazing_angles_deg: list[float] = field(default_factory=list)
     max_workers: int | str | None = None
@@ -280,6 +288,8 @@ class MeasurementFitConfig:
             raise ValueError("early_stopping_warmup_trials must be >= 0.")
         if self.backend not in {"auto", "numba", "numpy"}:
             raise ValueError("backend must be one of: auto, numba, numpy.")
+        if self.solver not in {"rcwa", "neviere"}:
+            raise ValueError("solver must be one of: rcwa, neviere.")
         selection = normalize_evaluation_selection(
             self.evaluation_energies_ev,
             self.evaluation_grazing_angles_deg,
@@ -354,6 +364,8 @@ class MeasurementFitConfig:
             save_best_fit_plot=config.pop("save_best_fit_plot", True),
             save_loss_plot=config.pop("save_loss_plot", True),
             backend=config.pop("backend", "auto"),
+            solver=config.pop("solver", "rcwa"),
+            solver_options=config.pop("solver_options", None),
             evaluation_energies_ev=list(config.pop("evaluation_energies_ev", [])),
             evaluation_grazing_angles_deg=list(
                 config.pop("evaluation_grazing_angles_deg", [])
@@ -558,6 +570,8 @@ def _write_measurement_fit_result_json(
         "early_stop_reason": early_stop_reason,
         "backend_requested": backend_requested,
         "backend_effective": backend_effective,
+        "solver": str(getattr(config, "solver", "rcwa")),
+        "solver_options": getattr(config, "solver_options", None),
         "optimizer_execution_strategy": "trial_batch_runner",
         "optimizer_requested_max_workers": optimizer_requested_max_workers,
         "optimizer_resolved_max_workers": int(optimizer_resolved_max_workers),

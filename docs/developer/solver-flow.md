@@ -3,6 +3,11 @@
 This page follows the execution path from public API calls to the numerical
 solver routines.
 
+Two solvers sit at the end of that path. They share every step except the one
+that turns a finite layer into an interface-response block, so the flow below is
+identical for both; only step 12 branches. See
+[Nevière differential method](neviere-theory.md) for what that branch does.
+
 ## Direct one-point workflow
 
 1. The user creates a grating, usually {class}`grax.LaminarGrating` or
@@ -24,9 +29,13 @@ solver routines.
 9. `run_simulation()` calls `res1(wavelength, period, textures, fourier_orders, k_parallel, parm)`.
 10. `res1()` normalizes diffraction orders and converts raw textures into
     `Texture1D` objects with Fourier coefficients.
-11. `run_simulation()` calls `res2(aa, profile, parm, roughness_sigma_nm=...)`.
-12. `res2()` validates the profile, compresses adjacent identical textures, and
-    solves the TE stack.
+11. `run_simulation()` calls `res2(aa, profile, parm, roughness_sigma_nm=...)`,
+    or `res2_dm(...)` when `solver="neviere"`.
+12. The chosen solver validates the profile, compresses adjacent identical
+    textures, builds one interface-response block per layer, and hands them to
+    the shared `solve_stack_from_layer_blocks()`. RCWA builds each block by
+    eigen-decomposing the layer operator; the differential method builds it by
+    integrating the equivalent first-order system in `z`.
 13. `res2()` optionally applies scalar Debye-Waller roughness damping for
     solver-level roughness.
 14. `run_simulation()` finds the requested reflected diffraction order, validates
@@ -78,6 +87,7 @@ Important runtime checks include:
 - `res2()` rejects invalid profile arrays.
 - The native Python path currently rejects unsupported dimensions and
   polarizations.
+- `run_simulation` rejects an unknown `solver` name before doing any work.
 
 ## Memory-mode policy
 
@@ -93,23 +103,28 @@ as a public performance option.
 
 These functions are developer-facing numerical entry points:
 
-```{autofunction} grax.rcwa_1d.res0
+```{autofunction} grax.solvers.common.res0
 ```
 
-```{autofunction} grax.rcwa_1d.res1
+```{autofunction} grax.solvers.common.res1
 ```
 
-```{autofunction} grax.rcwa_1d.res2
+```{autofunction} grax.solvers.rcwa.res2
 ```
 
-```{autoclass} grax.rcwa_1d.Res1Result
+```{autofunction} grax.solvers.neviere.res2_dm
+```
+
+```{autoclass} grax.solvers.common.Res1Result
 :members:
 ```
 
-```{autoclass} grax.rcwa_1d.Res2Result
+```{autoclass} grax.solvers.common.Res2Result
 :members:
 ```
 
-```{autoclass} grax.rcwa_1d.DiffractionResult
+```{autoclass} grax.solvers.common.DiffractionResult
 :members:
 ```
+
+The historical `grax.rcwa_1d` import path still resolves all of these names.

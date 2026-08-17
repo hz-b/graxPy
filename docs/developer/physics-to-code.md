@@ -13,14 +13,14 @@ orientation point when changing solver behavior.
 | Coating sequence | `SingleLayerStack`, `MultilayerStack` | `grax.stacks` | Defines material layers above the substrate surface |
 | Direct simulation | `run_simulation` | `grax.simulation` | Converts user settings into wavelength, wave vector, textures, and solver calls |
 | Batch orchestration | `BatchSimulationRunner` | `grax.simulation` | Streams case dictionaries through the single-case solver and yields `CaseExecutionResult` values |
-| Fourier texture conversion | `res1()` | `grax.rcwa_1d` | Converts material textures into Fourier-space texture data |
-| Stack solution | `res2()` | `grax.rcwa_1d` | Solves reflected and transmitted diffraction orders |
-| Diffraction outputs | `DiffractionResult`, `Res2Result` | `grax.rcwa_1d` | Carries orders, angles, amplitudes, and efficiencies back to `simulation.py` |
+| Fourier texture conversion | `res1()` | `grax.solvers` | Converts material textures into Fourier-space texture data |
+| Stack solution | `res2()` | `grax.solvers` | Solves reflected and transmitted diffraction orders |
+| Diffraction outputs | `DiffractionResult`, `Res2Result` | `grax.solvers` | Carries orders, angles, amplitudes, and efficiencies back to `simulation.py` |
 
 ## Public boundary
 
 The practical public boundary is `grax.__init__`. User-facing docs should
-prefer symbols exported there. The `grax.rcwa_1d` module remains important
+prefer symbols exported there. The `grax.solvers` module remains important
 for contributors, but it is not the first interface users should learn.
 
 ## Geometry and materials

@@ -6,9 +6,9 @@ All simulation entrypoints let you set `polarization` explicitly. The accepted
 values are `s` and `p`; the maintained runnable examples in this section set
 `polarization="p"` on purpose rather than relying on defaults.
 
-If you want to see how the current Debye-Waller roughness model changes a
-fixed-angle spectrum, see
-`examples/simulation/fixed_angle_roughness/fixed_angle_roughness.py`.
+For fixed-angle roughness studies, use
+`examples/simulation/fixed_angle_roughness/roughness_kind_comparison.py` or
+`examples/simulation/fixed_angle_roughness/roughness_correlation.py`.
 
 ```{toctree}
 :maxdepth: 1

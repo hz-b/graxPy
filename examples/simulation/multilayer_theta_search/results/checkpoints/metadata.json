@@ -2,12 +2,12 @@
   "created": "2026-05-13T13:58:21.386289",
   "workflow": "multilayer_theta_search",
   "requested_max_workers": "auto",
-  "resolved_max_workers": 30,
+  "resolved_max_workers": 8,
   "theta_tracking_mode": "auto",
   "max_tracking_energy_step_ev": null,
   "resume": true,
-  "current_run_started": "2026-05-13T14:02:32.736951",
-  "last_updated": "2026-05-13T14:43:23.300384",
-  "cumulative_elapsed_seconds": 2659.4856499920006,
-  "last_run_elapsed_seconds": 2450.5634263720003
+  "current_run_started": "2026-08-16T13:30:46.355398",
+  "last_updated": "2026-08-16T13:46:22.261145",
+  "cumulative_elapsed_seconds": 3620.233150117003,
+  "last_run_elapsed_seconds": 935.8722756250027
 }

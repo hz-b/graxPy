@@ -15,6 +15,7 @@ import grax
 from grax.gratings import BaseGrating, LaminarGrating
 from grax import rcwa_1d
 from grax.rcwa_1d import res0, res1
+from grax.solvers import common as solvers_common
 from grax.simulation import core as simulation_core_module
 from grax.simulation.batch import BatchSimulationRunner
 from grax.simulation import run_simulation
@@ -321,7 +322,7 @@ def test_run_simulation_skips_peak_ram_log_when_memory_unavailable(
             fourier_orders=15,
         )
 
-    assert "Running simulation at 500.00 eV" in caplog.text
+    assert "Running rcwa simulation at 500.00 eV" in caplog.text
     assert "peak_ram=" not in caplog.text
 
 
@@ -754,9 +755,12 @@ def test_blazed_multilayer_optimized_cascade_matches_legacy_cascade() -> None:
         _memory_mode="low_memory",
     )
 
-    original_cascade = rcwa_1d._cascade_boundary_pair
+    # Patch the defining module, not the ``grax.rcwa_1d`` alias: the solvers call
+    # the name they resolve in ``grax.solvers.common``, so rebinding the alias
+    # would silently leave the optimized cascade in place.
+    original_cascade = solvers_common._cascade_boundary_pair
     try:
-        rcwa_1d._cascade_boundary_pair = _legacy_cascade_boundary_pair
+        solvers_common._cascade_boundary_pair = _legacy_cascade_boundary_pair
         legacy = run_simulation(
             grating=grating,
             energy_ev=500.0,
@@ -766,7 +770,7 @@ def test_blazed_multilayer_optimized_cascade_matches_legacy_cascade() -> None:
             _memory_mode="low_memory",
         )
     finally:
-        rcwa_1d._cascade_boundary_pair = original_cascade
+        solvers_common._cascade_boundary_pair = original_cascade
 
     assert optimized.selected_efficiency == pytest.approx(
         legacy.selected_efficiency,

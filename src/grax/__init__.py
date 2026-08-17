@@ -13,6 +13,7 @@ from .materials import (
     material_density_g_cm3,
 )
 from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
+from .simulation.core import normalize_polarization
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
     ParameterStudyResult,
@@ -21,7 +22,7 @@ from .parameter_sweep import (
     plot_parameter_study,
     run_parameter_study,
 )
-from .rcwa_1d import res0, res1, res2
+from .solvers import NeviereOptions, res0, res1, res2, res2_dm
 from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,
@@ -69,6 +70,7 @@ __all__ = [
     "LaminarGrating",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
+    "NeviereOptions",
     "ParameterStudyEnergyResult",
     "ParameterStudyResult",
     "ParameterSweepSeries",
@@ -93,12 +95,14 @@ __all__ = [
     "material_density_g_cm3",
     "multilayer_theta_search_cases",
     "monochromator_cases",
+    "normalize_polarization",
     "monochromator_grazing_angles_deg",
     "plot_parameter_study",
     "plot_order_subset",
     "res0",
     "res1",
     "res2",
+    "res2_dm",
     "run_example_slag",
     "run_parameter_study",
     "run_multilayer_theta_search",

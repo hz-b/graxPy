@@ -19,7 +19,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from ..gratings import BaseGrating
-from ..rcwa_1d import res0, res1, res2
+from ..solvers import res0, res1, res2, res2_dm
+from ..solvers.neviere import NeviereOptions, build_grating_epsilon_sampler, coerce_neviere_options
 from ._memory import PeakMemorySampler, format_memory_mb
 from ._profiling import SolverProfiler
 from .models import (
@@ -35,6 +36,65 @@ logger = logging.getLogger(__name__)
 # warn the caller: RCWA solve cost grows worse than linearly with order
 # count, and the solver hard-caps at 100 orders (201 modes) regardless.
 _SUPERCELL_FOURIER_ORDER_WARNING_THRESHOLD = 40
+
+#: Electromagnetic solvers selectable through ``solver=``.
+SOLVER_NAMES = ("rcwa", "neviere")
+
+
+def _validate_solver(solver: str) -> str:
+    """Return the validated solver name."""
+
+    if solver not in SOLVER_NAMES:
+        raise ValueError(f"solver must be one of {SOLVER_NAMES}, got {solver!r}.")
+    return solver
+
+
+#: Accepted polarization spellings and the canonical value each maps to.
+#:
+#: ``"te"`` and ``"tm"`` are the names used throughout the grating-theory
+#: literature this solver follows, and by the solver internals themselves
+#: (``res0``, ``_solve_te_stack``); ``"s"`` and ``"p"`` are what the public API
+#: has always taken. They are the same two states.
+POLARIZATION_ALIASES = {"s": "s", "te": "s", "p": "p", "tm": "p"}
+
+#: Canonical polarization values. Everything downstream sees only these.
+POLARIZATION_NAMES = ("s", "p")
+
+
+def normalize_polarization(value: str) -> str:
+    """Return the canonical ``"s"`` or ``"p"`` for one polarization name.
+
+    Accepts ``"s"``, ``"p"``, ``"TE"`` and ``"TM"``, case-insensitively and
+    ignoring surrounding whitespace. The canonical value is always ``"s"`` or
+    ``"p"``, so passing ``"TE"`` gives back ``"s"``: results, CSV columns and
+    checkpoints only ever carry the two canonical spellings, and nothing
+    downstream has to know about the aliases.
+
+    Note:
+        ``s`` and ``TE`` name the same state only in **classical mounting**,
+        where the plane of incidence is perpendicular to the grooves. There, TE
+        has the electric field along the grooves, which is also the direction
+        perpendicular to the plane of incidence, so the two definitions coincide.
+        In a conical mounting they do not: ``s``/``p`` are defined against the
+        plane of incidence and ``TE``/``TM`` against the groove direction. This
+        solver is one-dimensional and classical only, so the alias is exact here
+        -- but it would stop being exact if conical mounting were ever added.
+
+    Args:
+        value: Polarization name in any accepted spelling.
+
+    Returns:
+        ``"s"`` or ``"p"``.
+
+    Raises:
+        ValueError: If the name is not one of the accepted spellings.
+    """
+
+    normalized = POLARIZATION_ALIASES.get(str(value).strip().lower())
+    if normalized is None:
+        accepted = ", ".join(repr(name) for name in POLARIZATION_ALIASES)
+        raise ValueError(f"polarization must be one of {accepted}, got {value!r}.")
+    return normalized
 
 
 def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
@@ -95,7 +155,7 @@ def _validate_reflected_efficiencies(
     period_nm: float,
     orders: np.ndarray,
     efficiency_all: np.ndarray,
-    min_efficiency: float,
+    min_reflected_efficiency: float,
     max_reflected_efficiency: float,
     max_total_reflected_efficiency: float,
 ) -> None:
@@ -107,14 +167,14 @@ def _validate_reflected_efficiencies(
         period_nm: Grating period in nanometers.
         orders: Calculated diffraction orders.
         efficiency_all: Reflected efficiency for all orders.
-        min_efficiency: Minimum accepted efficiency value.
+        min_reflected_efficiency: Minimum accepted efficiency value.
         max_reflected_efficiency: Maximum accepted single-order efficiency.
         max_total_reflected_efficiency: Maximum accepted propagating reflected sum.
     """
 
     minimum_efficiency = float(np.min(efficiency_all))
     maximum_efficiency = float(np.max(efficiency_all))
-    if minimum_efficiency < min_efficiency:
+    if minimum_efficiency < min_reflected_efficiency:
         raise ValueError(
             "Non-physical negative diffraction efficiency detected at "
             f"{photon_energy_ev:.6g} eV: min={minimum_efficiency:.6g}"
@@ -167,7 +227,7 @@ def _run_single_realization(
     *,
     energy_ev: float,
     grazing_angle_deg: float,
-    polarization: Literal["s", "p"],
+    polarization: str,
     effective_roughness_sigma_nm: float | None,
     num_supercells: int,
     effective_period_nm: float,
@@ -175,8 +235,10 @@ def _run_single_realization(
     _memory_mode: Literal["legacy_dense", "low_memory"],
     _profiler: SolverProfiler | None,
     backend: str,
+    solver: str,
+    solver_options: NeviereOptions,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Run one full RCWA solve and return raw (orders, efficiency_all, diffraction_angle_all).
+    """Run one full solve and return raw (orders, efficiency_all, diffraction_angle_all).
 
     One "realization" is one concrete roughness draw (or the single
     deterministic solve when there's no roughness/Debye-Waller roughness).
@@ -203,13 +265,33 @@ def _run_single_realization(
         _profiler=_profiler,
         _fourier_backend=backend,
     )
-    ef = res2(
-        aa,
-        profile,
-        parm,
-        roughness_sigma_nm=effective_roughness_sigma_nm,
-        _profiler=_profiler,
-    )
+    if solver == "neviere":
+        epsilon_sampler = None
+        if solver_options.z_sampling == "continuous":
+            epsilon_sampler = build_grating_epsilon_sampler(
+                grating,
+                photon_energy_ev=float(energy_ev),
+                period_nm=effective_period_nm,
+                orders=aa.orders,
+                fourier_backend=backend,
+            )
+        ef = res2_dm(
+            aa,
+            profile,
+            parm,
+            roughness_sigma_nm=effective_roughness_sigma_nm,
+            options=solver_options,
+            epsilon_sampler=epsilon_sampler,
+            _profiler=_profiler,
+        )
+    else:
+        ef = res2(
+            aa,
+            profile,
+            parm,
+            roughness_sigma_nm=effective_roughness_sigma_nm,
+            _profiler=_profiler,
+        )
 
     with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
         orders = np.asarray(ef.inc_top_reflected.order, dtype=float) / float(num_supercells)
@@ -229,16 +311,18 @@ def run_simulation(
     diffraction_order: int = 1,
     fourier_orders: int = 25,
     roughness_sigma_nm: float | None = None,
-    polarization: Literal["s", "p"] = "s",
+    polarization: str = "s",
     validate_physical_results: bool = True,
     max_reflected_efficiency: float = 1.05,
-    min_efficiency: float = -1e-8,
+    min_reflected_efficiency: float = -1e-8,
     max_total_reflected_efficiency: float = 1.05,
     _memory_mode: Literal["legacy_dense", "low_memory"] = "low_memory",
     _profiler: SolverProfiler | None = None,
     backend: str = "numba",
+    solver: Literal["rcwa", "neviere"] = "rcwa",
+    solver_options: NeviereOptions | dict[str, object] | None = None,
 ) -> SingleSimulationResult:
-    """Run one RCWA simulation case and return a typed result.
+    """Run one simulation case and return a typed result.
 
     Args:
         grating: Grating profile and material stack.
@@ -251,7 +335,7 @@ def run_simulation(
             ``"p"`` selects TM.
         validate_physical_results: Whether to validate reflected efficiencies.
         max_reflected_efficiency: Maximum allowed single-order reflected efficiency.
-        min_efficiency: Minimum allowed efficiency.
+        min_reflected_efficiency: Minimum allowed efficiency.
         max_total_reflected_efficiency: Maximum allowed sum of propagating reflected efficiencies.
         _memory_mode: Internal texture-generation mode. ``"low_memory"`` is the
             public path. ``"legacy_dense"`` keeps the older dense-grid path
@@ -260,9 +344,17 @@ def run_simulation(
             default backend. ``"numpy"`` remains available temporarily for
             compatibility but is deprecated and will be removed in a future
             version.
+        solver: Electromagnetic solver. ``"rcwa"`` (default) eigen-decomposes
+            each layer; ``"neviere"`` integrates the coupled first-order system
+            in ``z`` with the Nevière differential method. Both use the same
+            Fourier operators and the same efficiency extraction, so they are
+            directly comparable.
+        solver_options: Integration settings for ``solver="neviere"``, as a
+            :class:`grax.NeviereOptions` or an equivalent mapping. Ignored by
+            the RCWA solver.
 
     Returns:
-        Single-case RCWA result.
+        Single-case simulation result.
     """
 
     if not isinstance(grating, BaseGrating):
@@ -285,14 +377,16 @@ def run_simulation(
             )
         else:
             effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
-    if polarization not in {"s", "p"}:
-        raise ValueError("polarization must be 's' or 'p'.")
+    polarization = normalize_polarization(polarization)
     if _memory_mode not in {"legacy_dense", "low_memory"}:
         raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
+    _validate_solver(solver)
+    resolved_solver_options = coerce_neviere_options(solver_options)
     _warn_if_numpy_backend_requested(backend, stacklevel=2)
 
     logger.info(
-        "Running simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s, memory_mode=%s",
+        "Running %s simulation at %.2f eV, grazing=%.3f deg, fourier_orders=%s, memory_mode=%s",
+        solver,
         energy_ev,
         grazing_angle_deg,
         fourier_orders,
@@ -345,6 +439,8 @@ def run_simulation(
                     _memory_mode=_memory_mode,
                     _profiler=_profiler,
                     backend=backend,
+                    solver=solver,
+                    solver_options=resolved_solver_options,
                 )
                 if orders is None:
                     orders = realization_orders
@@ -366,6 +462,8 @@ def run_simulation(
                 _memory_mode=_memory_mode,
                 _profiler=_profiler,
                 backend=backend,
+                solver=solver,
+                solver_options=resolved_solver_options,
             )
 
         order_index = np.where(np.isclose(orders, -float(diffraction_order)))[0]
@@ -380,7 +478,7 @@ def run_simulation(
                 period_nm=grating.period_nm,
                 orders=orders,
                 efficiency_all=all_efficiency,
-                min_efficiency=min_efficiency,
+                min_reflected_efficiency=min_reflected_efficiency,
                 max_reflected_efficiency=max_reflected_efficiency,
                 max_total_reflected_efficiency=max_total_reflected_efficiency,
             )
@@ -402,6 +500,10 @@ def run_simulation(
             num_supercells=num_supercells,
             num_realizations=num_realizations,
             polarization=polarization,
+            solver=solver,
+            solver_options=(
+                resolved_solver_options.to_dict() if solver == "neviere" else None
+            ),
         )
 
     _log_simulation_memory_usage(
@@ -621,8 +723,13 @@ def plot_order_subset(
     plt.close(figure)
 
 
-class RCWASimulation:
-    """Compatibility wrapper around :func:`run_simulation` for internal tests."""
+class GratingSimulation:
+    """Object-style wrapper around :func:`run_simulation`.
+
+    Drives whichever solver ``solver=`` selects. Named ``RCWASimulation``
+    until a second solver existed, at which point the old name described only
+    one of the two things it can do.
+    """
 
     def __init__(
         self,
@@ -631,17 +738,20 @@ class RCWASimulation:
         diffraction_order: int = 1,
         fourier_orders: int = 25,
         grazing_angle_deg: float = 4.0,
-        polarization: Literal["s", "p"] = "s",
+        polarization: str = "s",
         live_plot: bool = False,
         validate_physical_results: bool = True,
         max_reflected_efficiency: float = 1.05,
-        min_efficiency: float = -1e-8,
+        min_reflected_efficiency: float = -1e-8,
         max_total_reflected_efficiency: float = 1.05,
         roughness_sigma_nm: float | None = None,
         backend: str = "numba",
+        solver: Literal["rcwa", "neviere"] = "rcwa",
+        solver_options: NeviereOptions | dict[str, object] | None = None,
     ) -> None:
         """Initialize a compatibility simulation object."""
 
+        _validate_solver(solver)
         _warn_if_numpy_backend_requested(backend, stacklevel=2)
         self.grating = grating
         self.diffraction_order = diffraction_order
@@ -651,10 +761,12 @@ class RCWASimulation:
         self.live_plot = live_plot
         self.validate_physical_results = validate_physical_results
         self.max_reflected_efficiency = max_reflected_efficiency
-        self.min_efficiency = min_efficiency
+        self.min_reflected_efficiency = min_reflected_efficiency
         self.max_total_reflected_efficiency = max_total_reflected_efficiency
         self.roughness_sigma_nm = roughness_sigma_nm
         self.backend = backend
+        self.solver = solver
+        self.solver_options = solver_options
         self._live_comparison_figure = None
         self._live_comparison_axis = None
 
@@ -671,9 +783,11 @@ class RCWASimulation:
             roughness_sigma_nm=self.roughness_sigma_nm,
             validate_physical_results=self.validate_physical_results,
             max_reflected_efficiency=self.max_reflected_efficiency,
-            min_efficiency=self.min_efficiency,
+            min_reflected_efficiency=self.min_reflected_efficiency,
             max_total_reflected_efficiency=self.max_total_reflected_efficiency,
             backend=self.backend,
+            solver=self.solver,
+            solver_options=self.solver_options,
         )
         return {
             "orders": result.orders,
@@ -699,9 +813,11 @@ class RCWASimulation:
                 roughness_sigma_nm=self.roughness_sigma_nm,
                 validate_physical_results=self.validate_physical_results,
                 max_reflected_efficiency=self.max_reflected_efficiency,
-                min_efficiency=self.min_efficiency,
+                min_reflected_efficiency=self.min_reflected_efficiency,
                 max_total_reflected_efficiency=self.max_total_reflected_efficiency,
                 backend=self.backend,
+                solver=self.solver,
+                solver_options=self.solver_options,
             )
             for energy in energies
         ]
@@ -737,7 +853,7 @@ class RCWASimulation:
             period_nm=self.grating.period_nm,
             orders=orders,
             efficiency_all=efficiency_all,
-            min_efficiency=self.min_efficiency,
+            min_reflected_efficiency=self.min_reflected_efficiency,
             max_reflected_efficiency=self.max_reflected_efficiency,
             max_total_reflected_efficiency=self.max_total_reflected_efficiency,
         )

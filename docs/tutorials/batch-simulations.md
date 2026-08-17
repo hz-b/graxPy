@@ -14,9 +14,9 @@ Minimal pattern:
 
 ```python
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=25,
-    default_polarization="p",
+    diffraction_order=1,
+    fourier_orders=25,
+    polarization="p",
     show_progress=True,
     on_error="continue",
 )
