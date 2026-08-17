@@ -15,7 +15,9 @@ from grax import rcwa_1d
 from grax.gratings import BlazedGrating, LaminarGrating, ProfileGrating
 from grax.simulation import (
     BatchSimulationRunner,
+    energy_angle_cases,
     fixed_angle_cases,
+    monochromator_cases,
     multilayer_theta_search_cases,
     run_multilayer_theta_search,
     run_simulation,
@@ -857,3 +859,288 @@ def test_grating_simulation_replaces_the_rcwa_specific_name() -> None:
         atol=SOLVER_PARITY_ATOL,
         rtol=SOLVER_PARITY_RTOL,
     )
+
+
+# --------------------------------------------------------------------------
+# Coverage for the entry points the examples use.
+#
+# Each of these is exercised by an example script, so each must be shown to
+# work with either solver. Without this section a reader could swap --solver on
+# an example and hit an untested path.
+# --------------------------------------------------------------------------
+
+
+def _selected_efficiencies(results) -> np.ndarray:
+    """Return the selected-order efficiency of every successful case."""
+
+    return np.asarray(
+        [result.selected_efficiency for result in results if result.status == "ok"],
+        dtype=float,
+    )
+
+
+def _run_cases_with(solver: str, cases, **runner_kwargs):
+    """Run one case iterable through the batch runner with one solver."""
+
+    runner = BatchSimulationRunner(
+        fourier_orders=6,
+        on_error="fail_fast",
+        solver=solver,
+        **runner_kwargs,
+    )
+    return list(runner.run_cases(cases))
+
+
+@pytest.mark.unit
+def test_monochromator_cases_agree_across_solvers() -> None:
+    """Verify the monochromator case builder works with either solver.
+
+    ``monochromator_cases`` is the case builder the examples use most, and its
+    grazing angle is solved per energy from the cff condition rather than given,
+    so it is worth confirming both solvers see the same geometry.
+    """
+
+    energies_ev = [200.0, 400.0, 600.0]
+
+    def build():
+        return monochromator_cases(
+            grating=_laminar_grating(),
+            energies_ev=energies_ev,
+            diffraction_order=1,
+            cff=2.25,
+            polarization="p",
+        )
+
+    rcwa_results = _run_cases_with("rcwa", build())
+    neviere_results = _run_cases_with("neviere", build())
+
+    assert [result.grazing_angle_deg for result in rcwa_results] == [
+        result.grazing_angle_deg for result in neviere_results
+    ]
+    assert np.allclose(
+        _selected_efficiencies(rcwa_results),
+        _selected_efficiencies(neviere_results),
+        atol=SOLVER_PARITY_ATOL,
+        rtol=SOLVER_PARITY_RTOL,
+    )
+    assert {result.solver for result in neviere_results} == {"neviere"}
+
+
+@pytest.mark.unit
+def test_energy_angle_cases_agree_across_solvers() -> None:
+    """Verify the explicit energy-angle case builder works with either solver."""
+
+    pairs = [(300.0, 4.0), (500.0, 3.0), (800.0, 2.0)]
+
+    def build():
+        return energy_angle_cases(
+            grating=_laminar_grating(),
+            energy_angle_pairs=pairs,
+            polarization="p",
+        )
+
+    rcwa_results = _run_cases_with("rcwa", build())
+    neviere_results = _run_cases_with("neviere", build())
+
+    assert np.allclose(
+        _selected_efficiencies(rcwa_results),
+        _selected_efficiencies(neviere_results),
+        atol=SOLVER_PARITY_ATOL,
+        rtol=SOLVER_PARITY_RTOL,
+    )
+
+
+@pytest.mark.unit
+def test_parameter_study_agrees_across_solvers() -> None:
+    """Verify the convergence parameter study runs on either solver.
+
+    ``run_parameter_study`` drives ``GratingSimulation`` rather than the batch
+    runner, so it is a separate path to the solver from every other entry point.
+    """
+
+    common = dict(
+        grating=_laminar_grating(),
+        energies_ev=[300.0],
+        grazing_angle_deg=4.0,
+        polarization="p",
+        fourier_orders_values=[4, 6],
+        x_resolution_values=[8.0, 4.0],
+        z_resolution_values=[2.0, 1.0],
+        save_csv=False,
+        show_progress=False,
+    )
+    rcwa_study = grax.run_parameter_study(**common, solver="rcwa")
+    neviere_study = grax.run_parameter_study(**common, solver="neviere")
+
+    for energy_result_rcwa, energy_result_neviere in zip(
+        rcwa_study.results, neviere_study.results
+    ):
+        for parameter in ("fourier_orders", "x_resolution_nm", "z_resolution_nm"):
+            assert np.allclose(
+                energy_result_rcwa.sweeps[parameter].efficiencies,
+                energy_result_neviere.sweeps[parameter].efficiencies,
+                atol=SOLVER_PARITY_ATOL,
+                rtol=SOLVER_PARITY_RTOL,
+            )
+
+
+@pytest.mark.unit
+def test_theta_search_sweep_agrees_across_solvers(tmp_path: Path) -> None:
+    """Verify the multi-energy theta-search sweep runs on either solver.
+
+    The sweep has its own runner-settings construction separate from
+    ``BatchSimulationRunner``; that is where ``solver`` was previously dropped.
+    """
+
+    common = dict(
+        grating=_multilayer_grating(),
+        energies_ev=[500.0],
+        diffraction_order=2,
+        rough_scan_half_width_deg=0.4,
+        rough_scan_points=5,
+        rough_fourier_orders=2,
+        rough_x_resolution_nm=4.0,
+        rough_z_resolution_nm=2.0,
+        fine_scan_half_width_deg=0.1,
+        fine_scan_points=5,
+        fine_fourier_orders=2,
+        fine_x_resolution_nm=4.0,
+        fine_z_resolution_nm=2.0,
+        final_fourier_orders=3,
+        final_x_resolution_nm=4.0,
+        final_z_resolution_nm=2.0,
+        show_progress=False,
+        save_profile_plot=False,
+        save_stack_plot=False,
+    )
+    rcwa_sweep = grax.run_multilayer_theta_search_sweep(
+        **common, output_dir=tmp_path / "rcwa", solver="rcwa"
+    )
+    neviere_sweep = grax.run_multilayer_theta_search_sweep(
+        **common, output_dir=tmp_path / "neviere", solver="neviere"
+    )
+
+    rcwa_case = rcwa_sweep.batch_result.cases[0]
+    neviere_case = neviere_sweep.batch_result.cases[0]
+    assert neviere_case.solver == "neviere"
+    assert rcwa_case.solver == "rcwa"
+    assert neviere_case.grazing_angle_deg == pytest.approx(
+        rcwa_case.grazing_angle_deg, abs=1e-9
+    )
+    assert neviere_case.selected_efficiency == pytest.approx(
+        rcwa_case.selected_efficiency,
+        abs=SOLVER_PARITY_ATOL,
+        rel=SOLVER_PARITY_RTOL,
+    )
+    # The sweep builds its own CaseExecutionResult rather than reusing the
+    # runner's, and used to copy only the diagnostics across. solver and
+    # solver_options fell back to their dataclass defaults, so a neviere sweep
+    # reported itself as an rcwa one while computing the right answer -- the two
+    # results above differ by ~5e-14, so the solve was correct and only the
+    # provenance was wrong.
+    assert neviere_case.solver_options is not None
+    assert rcwa_case.solver_options is None
+    # This workflow does not expose polarization, so it is always s.
+    assert neviere_case.polarization == "s"
+
+
+@pytest.mark.unit
+def test_custom_stack_agrees_across_solvers() -> None:
+    """Verify a hand-assembled layer stack works with either solver.
+
+    ``assemble_custom_stack`` produces a different stack class from
+    ``MultilayerStack``, and therefore a different texture-building path.
+    """
+
+    layers_bottom_up = [
+        grax.LayerSpec(material=PT, thickness_nm=3.0),
+        grax.LayerSpec(material=CR, thickness_nm=4.0),
+        grax.LayerSpec(material=C, thickness_nm=5.0),
+    ]
+    stack = grax.assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=layers_bottom_up,
+        top_cap_material=C,
+        top_cap_thickness_nm=1.0,
+    )
+    grating = BlazedGrating(
+        period_lpermm=1200,
+        blaze_angle_deg=1.2,
+        anti_blaze_angle_deg=4.0,
+        coating_stack=stack,
+        x_resolution_nm=4.0,
+        z_resolution_nm=1.0,
+    )
+
+    _assert_solvers_agree(
+        grating,
+        energy_ev=400.0,
+        grazing_angle_deg=3.0,
+        polarization="p",
+        fourier_orders=6,
+    )
+
+
+@pytest.mark.unit
+def test_afm_grating_agrees_across_solvers() -> None:
+    """Verify a grating built from AFM data works with either solver.
+
+    ``AFMGrating`` subclasses ``ProfileGrating``, so this covers the
+    construction path rather than a new solver path, but the examples build
+    gratings this way and the swap has to hold for them too.
+    """
+
+    period_nm = 1e6 / 600
+    x_points_nm = np.linspace(0.0, period_nm, 65)
+    z_points_nm = 8.0 * (x_points_nm / period_nm)
+    grating = grax.AFMGrating(
+        period_lpermm=600,
+        x_points_nm=x_points_nm,
+        z_points_nm=z_points_nm,
+        substrate_material=SI,
+        layer_material=AU,
+        layer_thickness_nm=20.0,
+        x_resolution_nm=4.0,
+        z_resolution_nm=1.0,
+    )
+
+    _assert_solvers_agree(
+        grating,
+        energy_ev=400.0,
+        grazing_angle_deg=3.0,
+        polarization="p",
+        fourier_orders=6,
+    )
+
+
+@pytest.mark.unit
+def test_output_helpers_accept_either_solver_result(tmp_path: Path) -> None:
+    """Verify the export and plotting helpers work on either solver's results.
+
+    These are solver-agnostic by design; the check is that a differential-method
+    result carries everything they need, since every example ends by calling them.
+    """
+
+    cases = list(
+        fixed_angle_cases(
+            grating=_laminar_grating(),
+            energies_ev=[300.0, 400.0],
+            grazing_angle_deg=4.0,
+            polarization="p",
+        )
+    )
+    for solver in ("rcwa", "neviere"):
+        results = _run_cases_with(solver, list(cases))
+
+        csv_path = tmp_path / f"all_orders_{solver}.csv"
+        grax.write_all_orders_csv(results, csv_path)
+        assert csv_path.read_text(encoding="utf-8").count("\n") > 2
+
+        plot_path = tmp_path / f"orders_{solver}.png"
+        grax.plot_order_subset(results, plot_path, diffraction_orders=[1, 2], title=solver)
+        assert plot_path.exists()
+
+        efficiency = grax.efficiency_for_order(
+            results[0].orders, results[0].efficiency_all, diffraction_order=1
+        )
+        assert np.isfinite(efficiency)

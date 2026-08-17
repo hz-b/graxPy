@@ -6,6 +6,9 @@
 - Added three examples covering the cases where the two solvers genuinely differ, rather than duplicating existing examples whose curves would be indistinguishable: `deep_grating_limits` (the modal solver stops at 8.4 wavelengths of depth where the differential method reaches 167), `continuous_vs_staircase` (continuous z-sampling is bit-identical across every `z_resolution_nm`, while a staircase run carries 2.7e-3 of discretization error at 2 nm), and `solver_runtime` (2.4x to 3.0x faster at production resolution, with the solvers still agreeing to ~1e-11).
 - Fixed `multilayer_theta_search` and `blazed_multilayer_memory_comparison` failing with `BrokenProcessPool` on macOS. Both use `max_workers`, and a spawned worker re-imports the script by path; without a `__main__` guard each worker re-ran the whole example and recursively spawned more.
 
+- Fixed `run_multilayer_theta_search_sweep` reporting `solver="rcwa"` on every case regardless of the solver requested. The sweep builds its own `CaseExecutionResult` and copied only the theta-search diagnostics from the underlying result, so `solver` and `solver_options` fell back to their dataclass defaults. The computation was correct throughout -- an rcwa and a neviere sweep differ by ~5e-14 -- but a saved sweep recorded the wrong provenance.
+- Extended the both-solver test coverage to every entry point the examples use: `monochromator_cases`, `energy_angle_cases`, `run_parameter_study`, `run_multilayer_theta_search_sweep`, `assemble_custom_stack`/`LayerSpec`, `AFMGrating`, and the `write_all_orders_csv`/`plot_order_subset`/`efficiency_for_order` output helpers. Swapping `--solver` on any example now exercises a tested path.
+
 ### Breaking changes
 
 Renames only — no behaviour changed. Migration:
