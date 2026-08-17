@@ -34,79 +34,65 @@ where ``tau`` is ``1`` in TE and ``eps_below / eps_above`` in TM, which is the
 only place the two polarizations differ. Multiple conformal interfaces extend
 this to one coupled block system; see :func:`_assemble_system`.
 
-Status: paused, not wired into ``run_simulation``
--------------------------------------------------
-This module is deliberately not reachable through ``solver=``. Nothing in
+Status: not yet wired into ``run_simulation``
+--------------------------------------------
+This module is not reachable through ``solver=``. Nothing in
 ``grax.simulation.core``, ``grax.solvers.__init__`` or ``grax.__init__`` refers
-to it, so it is inert for users and costs nothing at import time. It is kept in
-the tree because the parts that are finished are the hard parts and they are
-verified.
+to it, so it is inert for users and costs nothing at import time. What remains
+before wiring it in is runtime, not correctness.
 
-*What is done and checked*
+Discretization
+--------------
+Two schemes are available through ``IntegralOptions.discretization``, and they
+produce the same two operators with the same meaning, so they stay directly
+comparable on identical geometry.
 
-- :mod:`grax.solvers._green` -- the quasi-periodic Green function, by Ewald
-  summation with a plane-wave series as reference. Value and gradient agree with
-  a direct Hankel lattice sum to ~1e-10 in an absorbing medium, and the result is
-  independent of the Ewald splitting parameter to ~1e-9 even at zero vertical
-  separation, where the plane-wave series cannot be used as an oracle.
-- :mod:`grax.solvers._boundary` -- flat-panel discretization of the profile
-  polyline, with corner detection and grading. Vertical sidewalls and densely
-  sampled (AFM-like) profiles both work.
-- :mod:`grax.solvers._operators` -- single- and double-layer matrices. On a flat
-  interface the double layer is identically zero and the single layer converges
-  to ``i / 2 beta_0``, both of which are the analytic answers.
-- This module -- the coupled system and the Rayleigh projection. On a flat
-  interface it converges to the analytic Fresnel reflectance in both
-  polarizations, at ~1e-3 relative with 1024 panels (10 to 60 degrees grazing;
-  1.6e-2 relative at 256 panels for 30 degrees TE).
+``"panel"``
+    Flat panels with piecewise-constant densities. Converges as ``O(h^2)``.
+    Parametrized by arc length, so it is the only one of the two that handles a
+    profile which is not a graph -- a laminar grating with exactly vertical
+    sidewalls, for instance.
 
-  A caution for whoever picks this up: solving the system by hand and reading the
-  reflection coefficient off ``phi`` alone looks about three orders of magnitude
-  better than that, because ``phi`` is superconvergent, O(h^3), while ``psi`` is
-  only O(h^2). The Rayleigh projection needs both, so the returned efficiency
-  follows ``psi``. Do not use a ``phi``-only diagnostic to judge solver accuracy.
+``"nystrom"``
+    Trigonometric Nystrom with Martensen-Kussmaul product quadrature, graded at
+    corners. Converges at fourth order or better. Parametrized by ``x``, so it
+    requires a single-valued profile.
 
-*Why it stopped*
+The difference is large and was measured rather than assumed. Against RCWA on a
+shallow sinusoid, the unknown count needed for 1e-4 agreement::
 
-The discretization converges as ``N^-2`` while assembly costs ``N^2``, measured
-against RCWA on a shallow sinusoid:
+    d/lambda   panel   nystrom   reduction
+    25         3672    128       29x
+    50         6266    256       24x
+    100        ~12000  384       31x
 
-===========  ======  ==============  ==========
-``d/lambda``  ``N``  ``max |d eta|``  time/point
-===========  ======  ==============  ==========
-4.8            96     3.5e-4          1.7 s
-4.8           384     4.1e-5         27 s
-9.7            96     6.4e-4          2.5 s
-9.7           384     2.7e-5         43 s
-===========  ======  ==============  ==========
+On a flat interface, where the answer is analytic, 256 nodes give 5.9e-8
+relative for Nystrom against 8.7e-2 for panels, and Nystrom is also faster at
+equal N because it needs neither a quadrature multiplier nor near-panel
+refinement.
 
-Holding points-per-wavelength fixed means ``N`` grows with ``d / lambda``. The
-validation cases run at ``d / lambda`` between roughly 100 (laminar 400 l/mm at
-50 eV, the most favourable point in the whole suite) and 4800 (laminar 150 l/mm
-at 900 eV). Even the most favourable point needs ``N`` near 8000, which at
-``N^2`` scaling is hours for a single energy of a several-hundred-point sweep.
+Why the gap is that large is worth recording, because it is the whole reason the
+second scheme exists. The boundary densities are strongly band-limited: at
+``d/lambda = 50`` the field density carries 8 significant harmonics and its
+normal derivative 31, while the panel scheme needed 6266 unknowns. Panels were
+being spent resolving the oscillatory *kernel* rather than the unknowns, because
+a collocation scheme uses one grid for both. As ``d/lambda`` grows at fixed
+depth the density envelope gets *smoother* while the kernel oscillates *faster*;
+a single-grid scheme is dragged by the faster of the two, and a Nystrom scheme is
+not.
 
-This is not an optimisation gap. A higher-order basis would buy perhaps a factor
-of ten in panels, but the floor of several collocation points per wavelength
-remains, and the Ewald sum's own cost per matrix entry grows with ``d / lambda``
-because the balanced splitting parameter stops being usable once the period is
-many wavelengths. Reaching the X-ray cases needs the short-wave machinery --
-spectrally accurate Nystrom quadrature, accelerated lattice sums, and an
-iterative solver with fast matrix-vector products -- described in Goray &
-Schmidt, *Gratings: Theory and Numeric Applications*, ch. 12. That is a
-project in its own right, not a refinement of this code.
+What is left
+------------
+Runtime. At ``d/lambda = 100`` a converged solve is still seconds to minutes per
+energy point, against a target of about one second. The identified work is
+engineering rather than method development: the Ewald splitting default is a
+measured factor of two off its optimum, the kernel evaluation is numpy-bound at
+roughly 0.3 microseconds per term where a compiled kernel should reach tens of
+nanoseconds, and the conformal-interface structure means only one distinct block
+per vertical offset needs building rather than one per interface pair.
 
-*If work resumes*
-
-The agreed behaviour for geometries the solver cannot afford is an explicit
-error, not a warning: report the computed ``d / lambda``, the panel count that
-would be required and the estimated runtime, and point at ``solver="rcwa"`` or
-``solver="neviere"``, with the threshold raiseable through
-:class:`IntegralOptions` for anyone who wants to try anyway. That guard is not
-implemented yet, because nothing can reach this code path today.
-
-Scope, when it was being built
-------------------------------
+Scope
+-----
 Classical mounting only, matching the rest of the package. Debye-Waller
 roughness is supported through the shared damping factor; stochastic
 ``random-interface`` roughness is not. The boundary count is capped by
@@ -135,7 +121,13 @@ from ..materials import resolve_refractive_index
 from ..simulation._profiling import SolverProfiler
 from ._boundary import BoundaryPanels, build_panels
 from ._green import PeriodicGreen, default_ewald_splitting
-from ._nystrom import TrigBoundary, build_trig_boundary, nystrom_operators
+from ._nystrom import (
+    TrigBoundary,
+    build_graded_boundary,
+    build_trig_boundary,
+    has_corners,
+    nystrom_operators,
+)
 from ._operators import layer_operators
 from .common import (
     DiffractionResult,
@@ -377,12 +369,26 @@ def build_stack(
     )
     if options.discretization == "nystrom":
         # The Kress weights need an even node count.
-        base = build_trig_boundary(
-            positions,
-            heights,
-            period=float(grating.period_nm),
-            count=panel_count + (panel_count % 2),
-        )
+        even_count = panel_count + (panel_count % 2)
+        if has_corners(positions, heights):
+            # Corners break the analyticity the trigonometric grid relies on, so
+            # the parametrization is graded to vanish at each of them and the
+            # geometry is read straight off the polyline. Spectral
+            # differentiation would ring on a piecewise-linear profile.
+            base = build_graded_boundary(
+                positions,
+                heights,
+                period=float(grating.period_nm),
+                count=even_count,
+                grading=float(options.corner_grading),
+            )
+        else:
+            base = build_trig_boundary(
+                positions,
+                heights,
+                period=float(grating.period_nm),
+                count=even_count,
+            )
     else:
         base = build_panels(
             positions,

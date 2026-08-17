@@ -301,6 +301,19 @@ class PeriodicGreen:
         d_abs_dy = np.sum(common * 1j * beta * (upper - lower), axis=-1)
         return value, d_dx, d_abs_dy * np.sign(dy)
 
+    def spectral_reach(self) -> int:
+        """Return how many Ewald spectral orders are retained.
+
+        Callers use this to size memory blocks, since the spectral intermediate
+        is shaped (points, points, orders) and this factor is what makes it grow
+        with the period-to-wavelength ratio.
+
+        Returns:
+            Number of retained orders.
+        """
+
+        return int(self._ewald_spectral_orders().size)
+
     def _ewald_spectral_orders(self) -> np.ndarray:
         """Return the orders retained in the Ewald spectral sum.
 

@@ -41,12 +41,22 @@ The ``ln(4 sin^2)`` factor is integrated by the Martensen-Kussmaul weights, whic
 are exact for trigonometric polynomials up to the grid order, so the whole scheme
 inherits the spectral convergence of the trapezoidal rule on smooth boundaries.
 
+Corners
+-------
+A corner breaks the analyticity the spectral accuracy rests on, twice over: the
+parametrization loses its derivative, and the density develops an algebraic
+singularity. :func:`build_graded_boundary` reparametrizes so the Jacobian
+vanishes at every corner, which clusters nodes there and multiplies the singular
+density down. :func:`build_trig_boundary` stays the better choice for genuinely
+smooth profiles, because it reads the geometry spectrally rather than off the
+polyline; :func:`has_corners` picks between them.
+
 Scope
 -----
-Smooth (corner-free) boundaries, parametrized as graphs ``y = f(x)``. Profiles
-with corners -- laminar sidewalls, blazed apexes -- lose the analyticity the
-spectral accuracy rests on and need graded reparametrization on top of this;
-that is the second half of Stage 2 and is not implemented here.
+Profiles that are graphs ``y = f(x)``. A profile with exactly vertical walls is
+not a graph and is still out of reach here; the flat-panel scheme in
+:mod:`grax.solvers._operators` handles those through an arc-length
+parametrization.
 """
 
 from __future__ import annotations
@@ -58,7 +68,26 @@ from scipy.special import jv
 
 from ._green import PeriodicGreen
 
-__all__ = ["TrigBoundary", "kress_log_weights", "nystrom_operators"]
+__all__ = [
+    "TrigBoundary",
+    "build_graded_boundary",
+    "build_trig_boundary",
+    "has_corners",
+    "kress_log_weights",
+    "nystrom_operators",
+]
+
+#: Floor for the parametrization speed inside logarithms. Only reached when a
+#: node lands essentially on a corner of a graded parametrization.
+_MIN_SPEED = 1e-300
+#: A facet whose horizontal run is below this fraction of the period is treated
+#: as vertical, which this parametrization cannot represent.
+_VERTICAL_RUN_FRACTION = 1e-9
+#: Rough peak-memory budget for one block of the Ewald spectral intermediate.
+_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
+_COMPLEX_BYTES = 16
+#: The spectral half forms several arrays of the same shape at once.
+_EWALD_TEMPORARIES = 6
 
 
 @dataclass(frozen=True)
@@ -203,6 +232,324 @@ def build_trig_boundary(
     )
 
 
+def build_graded_boundary(
+    positions: np.ndarray,
+    heights: np.ndarray,
+    *,
+    period: float,
+    count: int,
+    grading: float = 3.0,
+    corner_angle_deg: float = 5.0,
+) -> TrigBoundary:
+    """Return a corner-graded boundary for a piecewise-linear profile.
+
+    Spectral accuracy rests on the integrand being analytic, and a corner breaks
+    that twice over: the parametrization loses its derivative, and the surface
+    densities themselves develop an algebraic singularity there. The classical
+    cure is to reparametrize, ``t = w(tau)``, with ``w'`` vanishing at every
+    corner. That does two jobs at once -- it clusters nodes where the solution is
+    hardest, and the vanishing Jacobian multiplies the singular density down to
+    something smooth.
+
+    The map used here is the multi-corner generalisation of Kress's single-corner
+    substitution::
+
+        w'(tau) proportional to prod_j |sin((tau - c_j) / 2)|^grading
+
+    which is periodic, non-negative, and vanishes to order ``grading`` at each
+    corner parameter ``c_j``. It is integrated numerically and normalised so that
+    ``w`` maps one period onto one period.
+
+    Geometry comes from the polyline directly rather than from FFT
+    differentiation: a piecewise-linear profile is not band-limited, so spectral
+    differentiation would ring at every corner. Within a facet the tangent is
+    exact and the curvature is zero.
+
+    Args:
+        positions: Profile x coordinates over one period, ascending from ``0``.
+        heights: Profile heights at ``positions``, periodic.
+        period: Grating period in nanometers.
+        count: Number of collocation nodes; must be even.
+        grading: Order to which ``w'`` vanishes at each corner. Higher clusters
+            more aggressively; ``0`` disables grading entirely.
+        corner_angle_deg: A polyline vertex turning by more than this counts as a
+            corner.
+
+    Returns:
+        The graded boundary, with ``nodes`` on the uniform ``tau`` grid the Kress
+        weights require and ``speed`` carrying the reparametrization Jacobian.
+
+    Raises:
+        ValueError: If the node count is not a positive even number or the
+            profile is not a usable periodic graph.
+    """
+
+    if count <= 0 or count % 2 != 0:
+        raise ValueError(f"count must be a positive even number, got {count}.")
+    positions = np.asarray(positions, dtype=float)
+    heights = np.asarray(heights, dtype=float)
+    if positions.ndim != 1 or heights.shape != positions.shape:
+        raise ValueError("positions and heights must be matching 1D arrays.")
+    if not np.all(np.diff(positions) >= 0.0):
+        raise ValueError("Profile positions must be non-decreasing.")
+    if not np.isclose(heights[0], heights[-1], rtol=0.0, atol=1e-9 * max(period, 1.0)):
+        raise ValueError("The profile must be periodic in height.")
+    _reject_vertical_facets(positions, heights, period)
+
+    corners = _corner_parameters(positions, heights, period, corner_angle_deg)
+    # Offset the grid by half a step. The grading Jacobian vanishes exactly at a
+    # corner, so a node landing on one produces an all-zero row and a singular
+    # system. Corners at x = 0 make that the default rather than a coincidence:
+    # a blazed profile has its reset edge exactly there. Shifting the whole grid
+    # is free for the Kress weights, which depend only on node differences.
+    nodes = 2.0 * np.pi * (np.arange(count, dtype=float) + 0.5) / count
+    parameter, jacobian = _grading_map(
+        nodes, corners=corners, grading=float(grading)
+    )
+
+    x = period * parameter / (2.0 * np.pi)
+    y = np.interp(x, positions, heights, period=period)
+    slope = _polyline_slope(positions, heights, x, period)
+
+    # dr/dtau = dr/dt * w'(tau), and x(t) is linear in t.
+    scale = period / (2.0 * np.pi)
+    dx_dtau = scale * jacobian
+    dy_dtau = scale * slope * jacobian
+
+    derivative = np.column_stack((dx_dtau, dy_dtau))
+    speed = np.hypot(dx_dtau, dy_dtau)
+    # The normal follows the facet direction and is unaffected by the
+    # reparametrization, so it is taken from the slope rather than from a
+    # derivative that vanishes at corners.
+    tangent_norm = np.hypot(1.0, slope)
+    normal = np.column_stack((-slope, np.ones_like(slope))) / tangent_norm[:, None]
+
+    return TrigBoundary(
+        position=np.column_stack((x, y)),
+        derivative=derivative,
+        speed=speed,
+        # Piecewise linear within every facet.
+        curvature=np.zeros(count),
+        normal=normal,
+        period=float(period),
+        nodes=nodes,
+    )
+
+
+def has_corners(
+    positions: np.ndarray,
+    heights: np.ndarray,
+    *,
+    corner_angle_deg: float = 5.0,
+) -> bool:
+    """Return whether the profile turns sharply anywhere.
+
+    Used to choose between the two boundary builders: a smooth profile is better
+    served by spectral differentiation, a corner profile by a graded
+    parametrization reading the polyline directly.
+
+    Args:
+        positions: Profile x coordinates over one period, ascending.
+        heights: Profile heights at ``positions``.
+        corner_angle_deg: Turn angle above which a vertex counts as a corner.
+
+    Returns:
+        Whether at least one corner was found.
+    """
+
+    positions = np.asarray(positions, dtype=float)
+    heights = np.asarray(heights, dtype=float)
+    if positions.size < 3:
+        return False
+    period = float(positions[-1] - positions[0])
+    if period <= 0.0:
+        return False
+    return _corner_parameters(positions, heights, period, corner_angle_deg).size > 0
+
+
+def _reject_vertical_facets(
+    positions: np.ndarray, heights: np.ndarray, period: float
+) -> None:
+    """Raise when the profile is not a graph of ``y = f(x)``.
+
+    This module parametrizes by ``x``, which a vertical facet makes impossible:
+    the slope is infinite and the profile is multi-valued there. A laminar
+    grating with exactly 90 degree sidewalls is the case that hits this. Left
+    unchecked the slope would silently come out as zero and the wall would be
+    modelled as flat, which is a wrong answer rather than a failure.
+
+    The flat-panel scheme in :mod:`grax.solvers._operators` parametrizes by arc
+    length and handles these profiles.
+
+    Args:
+        positions: Profile x coordinates over one period.
+        heights: Profile heights.
+        period: Grating period in nanometers.
+
+    Raises:
+        ValueError: If any facet is vertical or near-vertical.
+    """
+
+    run = np.diff(positions)
+    rise = np.diff(heights)
+    steep = (np.abs(run) <= _VERTICAL_RUN_FRACTION * period) & (np.abs(rise) > 0.0)
+    if not np.any(steep):
+        return
+    index = int(np.nonzero(steep)[0][0])
+    raise ValueError(
+        "The trigonometric Nystrom discretization parametrizes the profile by x, so it "
+        "needs a single-valued graph, but this profile has a vertical facet: the segment "
+        f"from x={positions[index]:.6g} to x={positions[index + 1]:.6g} nm rises "
+        f"{rise[index]:.6g} nm over a run of {run[index]:.6g} nm. A laminar grating with "
+        "90 degree sidewalls is the usual source. Use discretization='panel', which "
+        "parametrizes by arc length, or set the wall angles slightly below 90 degrees."
+    )
+
+
+def _corner_parameters(
+    positions: np.ndarray,
+    heights: np.ndarray,
+    period: float,
+    corner_angle_deg: float,
+) -> np.ndarray:
+    """Return the parameter values where the profile turns sharply.
+
+    The wrap-around vertex is tested with the tangent from the last facet against
+    the first, so a profile that is smooth across the period boundary is not
+    given a spurious corner there.
+
+    Args:
+        positions: Profile x coordinates over one period.
+        heights: Profile heights.
+        period: Grating period in nanometers.
+        corner_angle_deg: Turn angle above which a vertex counts as a corner.
+
+    Returns:
+        Corner parameters in ``[0, 2pi)``, ascending.
+    """
+
+    vertices = np.column_stack((positions, heights))
+    tangents = np.diff(vertices, axis=0)
+    length = np.hypot(tangents[:, 0], tangents[:, 1])
+    keep = length > 0.0
+    tangents = tangents[keep] / length[keep, None]
+    kept_positions = positions[:-1][keep]
+    if tangents.shape[0] < 2:
+        return np.zeros(0, dtype=float)
+
+    # Compare each facet with the previous one, wrapping the last onto the first.
+    previous = np.vstack((tangents[-1:], tangents[:-1]))
+    cosine = np.clip(np.sum(previous * tangents, axis=1), -1.0, 1.0)
+    turn = np.degrees(np.arccos(cosine))
+    corner_x = kept_positions[turn > corner_angle_deg]
+    return np.sort(2.0 * np.pi * np.mod(corner_x, period) / period)
+
+
+def _grading_map(
+    nodes: np.ndarray,
+    *,
+    corners: np.ndarray,
+    grading: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``t = w(tau)`` and ``w'(tau)`` for a corner-graded parametrization.
+
+    The corners split one period into segments. Each segment is given a share of
+    the uniform parameter range in proportion to its length, and within a segment
+    the map is Kress's sigmoid
+
+        v(s) = s^g / (s^g + (1 - s)^g),
+        v'(s) = g [s (1 - s)]^(g-1) / (s^g + (1 - s)^g)^2
+
+    which carries ``[0, 1]`` onto itself with derivative vanishing to order
+    ``g - 1`` at both ends. Composing it segment by segment gives a map whose
+    derivative vanishes at every corner and nowhere else.
+
+    Building it this way is self-consistent by construction: the corners are the
+    images of prescribed break points, so no nonlinear solve is needed to place
+    them. Integrating a density that vanishes at the corners would instead
+    require inverting the map to find where those corners land, and getting that
+    inversion wrong silently corrupts the Jacobian -- which shows up immediately
+    as a quadrature that no longer reproduces the boundary's arc length.
+
+    Args:
+        nodes: Uniform parameter grid over ``[0, 2pi)``.
+        corners: Corner parameters in ``[0, 2pi)``, ascending.
+        grading: Vanishing order at each corner; ``<= 1`` disables grading.
+
+    Returns:
+        The mapped parameters and the Jacobian at each node.
+    """
+
+    if corners.size == 0 or grading <= 1.0:
+        return nodes.copy(), np.ones_like(nodes)
+
+    # Segment boundaries in t, wrapping the last corner round the period.
+    breaks = np.concatenate((corners, [corners[0] + 2.0 * np.pi]))
+    spans = np.diff(breaks)
+    # Each segment gets a share of tau proportional to its share of t, so the
+    # node density stays even away from the corners.
+    shares = spans / spans.sum()
+    tau_breaks = corners[0] + 2.0 * np.pi * np.concatenate(([0.0], np.cumsum(shares)))
+
+    shifted = corners[0] + np.mod(nodes - corners[0], 2.0 * np.pi)
+    index = np.clip(np.searchsorted(tau_breaks, shifted, side="right") - 1, 0, spans.size - 1)
+
+    width = tau_breaks[index + 1] - tau_breaks[index]
+    local = (shifted - tau_breaks[index]) / width
+    value, slope = _kress_sigmoid(local, grading)
+
+    parameter = np.mod(breaks[index] + spans[index] * value, 2.0 * np.pi)
+    jacobian = spans[index] * slope / width
+    return parameter, jacobian
+
+
+def _kress_sigmoid(local: np.ndarray, grading: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return Kress's grading sigmoid and its derivative on ``[0, 1]``.
+
+    Args:
+        local: Positions within a segment, in ``[0, 1]``.
+        grading: Vanishing order at both ends.
+
+    Returns:
+        ``(v, v')`` at each position.
+    """
+
+    local = np.clip(local, 0.0, 1.0)
+    lower = local**grading
+    upper = (1.0 - local) ** grading
+    denominator = lower + upper
+    safe = np.where(denominator > 0.0, denominator, 1.0)
+    value = lower / safe
+    slope = (
+        grading
+        * (local * (1.0 - local)) ** (grading - 1.0)
+        / safe**2
+    )
+    return value, slope
+
+
+def _polyline_slope(
+    positions: np.ndarray, heights: np.ndarray, x: np.ndarray, period: float
+) -> np.ndarray:
+    """Return the exact facet slope of the polyline at each sample.
+
+    Args:
+        positions: Profile x coordinates over one period, ascending.
+        heights: Profile heights.
+        x: Sample positions.
+        period: Grating period in nanometers.
+
+    Returns:
+        ``dy/dx`` on the facet containing each sample.
+    """
+
+    wrapped = np.mod(x, period)
+    index = np.clip(np.searchsorted(positions, wrapped, side="right") - 1, 0, positions.size - 2)
+    run = positions[index + 1] - positions[index]
+    rise = heights[index + 1] - heights[index]
+    return np.where(run > 0.0, rise / np.where(run > 0.0, run, 1.0), 0.0)
+
+
 def _spectral_derivatives(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Return the first two derivatives of a periodic sequence with respect to ``t``.
 
@@ -286,12 +633,23 @@ def nystrom_operators(
 
     dx = target.position[:, None, 0] - source.position[None, :, 0]
     dy = target.position[:, None, 1] - source.position[None, :, 1]
-    value, grad_x, grad_y = green.value_and_gradient(dx, dy)
-    # The gradient is with respect to the field point, so the source-normal
-    # derivative flips sign.
-    normal_derivative = -(
-        grad_x * source.normal[None, :, 0] + grad_y * source.normal[None, :, 1]
-    )
+    # Evaluated in row blocks. The Ewald spectral sum broadcasts to
+    # (rows, count, orders), and the order count grows with d/lambda, so the
+    # whole matrix at once reaches gigabytes for the very cases this scheme
+    # exists to make affordable -- at N = 512 and d/lambda = 100 it is 5.9 GB per
+    # array, which thrashes long before it runs out.
+    value = np.empty((count, count), dtype=complex)
+    normal_derivative = np.empty((count, count), dtype=complex)
+    rows = _chunk_rows(count=count, orders=green.spectral_reach())
+    for begin in range(0, count, rows):
+        end = min(begin + rows, count)
+        block, grad_x, grad_y = green.value_and_gradient(dx[begin:end], dy[begin:end])
+        value[begin:end] = block
+        # The gradient is with respect to the field point, so the source-normal
+        # derivative flips sign.
+        normal_derivative[begin:end] = -(
+            grad_x * source.normal[None, :, 0] + grad_y * source.normal[None, :, 1]
+        )
 
     if not same_boundary:
         # Distinct boundaries never touch, so the kernel is smooth and plain
@@ -340,10 +698,13 @@ def nystrom_operators(
     ) / (2.0 * np.pi)
 
     m1_single[diagonal, diagonal] = -1.0 / (4.0 * np.pi)
+    # A corner-graded parametrization drives the speed to zero at the corners, so
+    # the diagonal's log diverges there. The final weighting multiplies by the
+    # same speed, and s log(s) tends to zero, so the entry is well behaved -- but
+    # it has to be formed without ever evaluating log(0).
+    safe_speed = np.maximum(source.speed, _MIN_SPEED)
     m2_single[diagonal, diagonal] = (
-        free_regular
-        + regular_value
-        - np.log(source.speed) / (2.0 * np.pi)
+        free_regular + regular_value - np.log(safe_speed) / (2.0 * np.pi)
     )
     m1_double[diagonal, diagonal] = 0.0
     # The free-space double layer tends to curvature / 4pi on the diagonal; the
@@ -360,6 +721,25 @@ def nystrom_operators(
     single = (kress * m1_single + trapezoid * m2_single) * speed
     double = (kress * m1_double + trapezoid * m2_double) * speed
     return single, double
+
+
+def _chunk_rows(*, count: int, orders: int) -> int:
+    """Return how many matrix rows to evaluate per pass.
+
+    Sized so one block of the Ewald spectral intermediate stays within a memory
+    budget. Purely a memory-versus-call-overhead trade; the result is identical
+    either way.
+
+    Args:
+        count: Number of source nodes.
+        orders: Number of Ewald spectral orders retained.
+
+    Returns:
+        Row count, at least one.
+    """
+
+    per_row = max(count * max(orders, 1) * _COMPLEX_BYTES * _EWALD_TEMPORARIES, 1)
+    return int(max(1, min(count, _MEMORY_BUDGET_BYTES // per_row)))
 
 
 def _log_sine_factor(separation: np.ndarray) -> np.ndarray:
