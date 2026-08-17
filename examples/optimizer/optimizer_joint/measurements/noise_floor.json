@@ -1,0 +1,5 @@
+{
+  "noise_relative": 0.01,
+  "noise_seed": 11,
+  "expected_pooled_loss_floor": 1.546850408941609e-06
+}

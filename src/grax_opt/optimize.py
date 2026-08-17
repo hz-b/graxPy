@@ -5,10 +5,12 @@ from __future__ import annotations
 import concurrent.futures
 import csv
 import inspect
+import io
 import os
 import platform
+import tempfile
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,7 @@ import numpy as np
 from grax.materials import material_label
 
 from .data import MeasurementData
-from .objective import evaluate_trial_with_metadata
+from .objective import evaluate_trial_curve_with_metadata
 
 
 def _is_cuda_usable() -> bool:
@@ -179,8 +181,21 @@ def _evaluate_candidate_worker(
     backend_effective: str,
     build_grating_fn=None,
     resolve_solver_parameters_fn=None,
-) -> tuple[int, dict[str, float], float, int]:
-    """Evaluate one optimizer candidate and return trial index, params, and loss."""
+) -> tuple[int, dict[str, float], float, int, Any]:
+    """Evaluate one optimizer candidate.
+
+    Args:
+        candidate: Candidate ``(trial_index, parameters)`` pair.
+        config: Optimization configuration describing the simulation setup.
+        measurement: Measurement data used for evaluation.
+        backend_effective: Fourier coefficient backend to use for the simulation.
+        build_grating_fn: Optional grating-build hook.
+        resolve_solver_parameters_fn: Optional solver-parameter hook.
+
+    Returns:
+        The trial index, parameters, loss, resolved worker count, and the
+        simulated curve for the candidate.
+    """
 
     trial_index, parameters = candidate
     evaluate_kwargs: dict[str, object] = {
@@ -190,13 +205,19 @@ def _evaluate_candidate_worker(
         evaluate_kwargs["build_grating_fn"] = build_grating_fn
     if resolve_solver_parameters_fn is not None:
         evaluate_kwargs["resolve_solver_parameters_fn"] = resolve_solver_parameters_fn
-    loss, resolved_max_workers = evaluate_trial_with_metadata(
+    loss, resolved_max_workers, simulated_efficiency = evaluate_trial_curve_with_metadata(
         config,
         parameters,
         measurement,
         **evaluate_kwargs,
     )
-    return int(trial_index), dict(parameters), float(loss), int(resolved_max_workers)
+    return (
+        int(trial_index),
+        dict(parameters),
+        float(loss),
+        int(resolved_max_workers),
+        simulated_efficiency,
+    )
 
 
 def _evaluate_candidate_batch(
@@ -207,7 +228,7 @@ def _evaluate_candidate_batch(
     backend_effective: str,
     build_grating_fn=None,
     resolve_solver_parameters_fn=None,
-) -> list[tuple[int, dict[str, float], float, int]]:
+) -> list[tuple[int, dict[str, float], float, int, Any]]:
     """Evaluate a candidate batch, optionally in parallel."""
 
     if len(candidates) <= 1:
@@ -247,11 +268,19 @@ def _evaluate_candidate_batch(
 
 @dataclass(frozen=True)
 class TrialRecord:
-    """Summary of one completed Ax trial."""
+    """Summary of one completed Ax trial.
+
+    Attributes:
+        trial_index: Ax trial index for the completed trial.
+        loss: Objective value observed for the trial.
+        parameters: Free parameter values evaluated for the trial.
+        extras: Optional scalar diagnostics such as per-measurement losses.
+    """
 
     trial_index: int
     loss: float
     parameters: dict[str, float]
+    extras: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -333,11 +362,46 @@ def _import_data_required_exception():
     return DataRequiredError
 
 
+def _atomic_write_text(output_path: Path, text: str) -> None:
+    """Write text to a path atomically so a crash cannot truncate the file.
+
+    Args:
+        output_path: Destination path to replace.
+        text: File contents to write.
+    """
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        newline="",
+        dir=str(output_path.parent),
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temporary_path = Path(handle.name)
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
 def _write_trial_history_csv(
     trial_records: list[TrialRecord],
     output_path: Path,
 ) -> None:
-    """Write per-trial optimization history to CSV."""
+    """Write per-trial optimization history to CSV.
+
+    Args:
+        trial_records: Completed trial records to serialize.
+        output_path: Destination CSV path.
+    """
 
     parameter_names: list[str] = []
     for record in trial_records:
@@ -345,17 +409,25 @@ def _write_trial_history_csv(
             if name not in parameter_names:
                 parameter_names.append(name)
 
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["trial_index", "loss", *parameter_names])
-        for record in trial_records:
-            writer.writerow(
-                [
-                    record.trial_index,
-                    record.loss,
-                    *[record.parameters.get(name, "") for name in parameter_names],
-                ]
-            )
+    extra_names: list[str] = []
+    for record in trial_records:
+        for name in record.extras:
+            if name not in extra_names:
+                extra_names.append(name)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["trial_index", "loss", *parameter_names, *extra_names])
+    for record in trial_records:
+        writer.writerow(
+            [
+                record.trial_index,
+                record.loss,
+                *[record.parameters.get(name, "") for name in parameter_names],
+                *[record.extras.get(name, "") for name in extra_names],
+            ]
+        )
+    _atomic_write_text(output_path, buffer.getvalue())
 
 
 def json_safe_grating_parameters(parameters: dict[str, object]) -> dict[str, object]:

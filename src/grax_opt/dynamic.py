@@ -10,21 +10,22 @@ from pathlib import Path
 from typing import Callable, Dict, Mapping, Optional
 
 import numpy as np
+from grax import normalize_polarization
 from grax.simulation import _resolve_max_workers as _resolve_simulation_max_workers
 
 from .config import ParameterBounds
 from .evaluation import normalize_evaluation_selection
 from .data import MeasurementData, load_measurement_data
 from .objective import build_evaluation_measurement, simulate_efficiency_curve
+from .checkpoint import OptimizerCheckpointSession
+from .loop import TrialEvaluation, TrialLoopState, run_ax_trial_loop
 from .optimize import (
     OptimizationResult,
     TrialRecord,
-    _complete_ax_trial,
+    _atomic_write_text,
     _describe_optimizer_compute_context,
     _evaluate_candidate_batch,
     _import_ax_client as _import_ax_client_from_optimize,
-    _import_data_required_exception,
-    _import_max_parallelism_exception,
     _import_objective_properties,
     _patch_torch_fork_rng_for_cpu_only,
     _resolve_optimizer_backend,
@@ -178,6 +179,8 @@ class MeasurementFitConfig:
             interchangeable implementations of one.
         solver_options: Integration settings for ``solver="neviere"``, as a
             mapping matching :class:`grax.NeviereOptions`.
+        polarization: Polarization every trial is evaluated in, as ``s``/``p``
+            or the equivalent ``TE``/``TM``. Canonicalizes to ``s`` or ``p``.
         evaluation_energies_ev: Discrete energies used for objective evaluation.
         evaluation_grazing_angles_deg: Optional grazing angles (deg) used for
             explicit energy-angle evaluation pairs.
@@ -185,6 +188,10 @@ class MeasurementFitConfig:
             objective evaluation through ``BatchSimulationRunner``.
         solver_parameter_resolver: Optional callable that resolves solver
             parameters from the fully expanded parameter dictionary.
+        resume: Whether to continue a previous run from its checkpoint.
+            ``total_trials`` is cumulative, so raising it extends the run.
+        checkpoint_dir: Checkpoint directory. Defaults to ``output_dir/checkpoint``.
+        checkpoint_interval: Number of trials between checkpoint flushes.
     """
 
     build_grating: BuildGratingFunction
@@ -215,16 +222,22 @@ class MeasurementFitConfig:
     backend: str = "auto"
     solver: str = "rcwa"
     solver_options: dict[str, object] | None = None
+    polarization: str = "s"
     evaluation_energies_ev: list[float] = field(default_factory=list)
     evaluation_grazing_angles_deg: list[float] = field(default_factory=list)
     max_workers: int | str | None = None
     solver_parameter_resolver: ResolveSolverParametersFunction | None = None
+    resume: bool = False
+    checkpoint_dir: Path | None = None
+    checkpoint_interval: int = 1
 
     def __post_init__(self) -> None:
         """Normalize paths, bounds, and validation settings."""
 
         object.__setattr__(self, "measurement_path", Path(self.measurement_path))
         object.__setattr__(self, "output_dir", Path(self.output_dir))
+        if self.checkpoint_dir is not None:
+            object.__setattr__(self, "checkpoint_dir", Path(self.checkpoint_dir))
         object.__setattr__(
             self,
             "parameter_bounds",
@@ -254,6 +267,8 @@ class MeasurementFitConfig:
             raise ValueError("total_trials must be > 0.")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be > 0.")
+        if self.checkpoint_interval <= 0:
+            raise ValueError("checkpoint_interval must be > 0.")
         resolved_max_workers = _resolve_simulation_max_workers(self.max_workers)
         if resolved_max_workers > 1 and self.batch_size > 1:
             raise ValueError(
@@ -279,6 +294,7 @@ class MeasurementFitConfig:
             raise ValueError("backend must be one of: auto, numba, numpy.")
         if self.solver not in {"rcwa", "neviere"}:
             raise ValueError("solver must be one of: rcwa, neviere.")
+        object.__setattr__(self, "polarization", normalize_polarization(self.polarization))
         selection = normalize_evaluation_selection(
             self.evaluation_energies_ev,
             self.evaluation_grazing_angles_deg,
@@ -355,12 +371,16 @@ class MeasurementFitConfig:
             backend=config.pop("backend", "auto"),
             solver=config.pop("solver", "rcwa"),
             solver_options=config.pop("solver_options", None),
+            polarization=str(config.pop("polarization", "s")),
             evaluation_energies_ev=list(config.pop("evaluation_energies_ev", [])),
             evaluation_grazing_angles_deg=list(
                 config.pop("evaluation_grazing_angles_deg", [])
             ),
             max_workers=config.pop("max_workers", None),
             solver_parameter_resolver=config.pop("solver_parameter_resolver", None),
+            resume=bool(config.pop("resume", False)),
+            checkpoint_dir=config.pop("checkpoint_dir", None),
+            checkpoint_interval=int(config.pop("checkpoint_interval", 1)),
         )
         if config:
             raise ValueError(f"Unexpected measurement-fit spec keys: {sorted(config)}")
@@ -569,7 +589,7 @@ def _write_measurement_fit_result_json(
         payload["grazing_angle_deg"] = float(config.grazing_angle_deg)
     else:
         payload["cff"] = float(config.cff)
-    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _atomic_write_text(output_path, json.dumps(payload, indent=2))
 
 
 def _persist_measurement_fit_optimizer_artifacts(
@@ -588,8 +608,34 @@ def _persist_measurement_fit_optimizer_artifacts(
     backend_effective: str,
     optimizer_requested_max_workers: int | str | None,
     optimizer_resolved_max_workers: int,
+    best_simulated_efficiency: np.ndarray | None = None,
+    write_heavy_artifacts: bool = True,
 ) -> tuple[Path, Path, Path | None, Path | None]:
-    """Persist measurement-fit optimizer artifacts and return their paths."""
+    """Persist measurement-fit optimizer artifacts and return their paths.
+
+    Args:
+        config: Measurement-fit configuration for the run.
+        evaluation_measurement: Measurement sampled onto the evaluation grid.
+        best_parameters: Best free parameters found so far.
+        best_grating_parameters: Best resolved grating parameters.
+        best_solver_parameters: Best resolved solver parameters.
+        best_loss: Best objective value found so far.
+        trial_records: Completed trial records.
+        stopped_early: Whether early stopping ended the run.
+        completed_trials: Number of trials successfully evaluated.
+        early_stop_reason: Human-readable early-stopping reason, or ``None``.
+        backend_requested: Backend requested by the caller.
+        backend_effective: Backend actually used.
+        optimizer_requested_max_workers: Worker count requested by the caller.
+        optimizer_resolved_max_workers: Worker count actually used.
+        best_simulated_efficiency: Cached best-fit curve. When ``None`` the
+            curve is re-simulated so the plot can still be written.
+        write_heavy_artifacts: Whether to rewrite the plots.
+
+    Returns:
+        Paths to the JSON summary, trial-history CSV, best-fit plot, and
+        loss-history plot. Optional paths are ``None`` when disabled.
+    """
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
     result_json_path = config.output_dir / "best_result.json"
@@ -618,26 +664,28 @@ def _persist_measurement_fit_optimizer_artifacts(
         output_path=result_json_path,
     )
     _write_trial_history_csv(trial_records, trial_history_csv_path)
-    if best_fit_plot_path is not None:
-        simulated_efficiency = simulate_efficiency_curve(
-            config,
-            best_parameters,
-            evaluation_measurement,
-            backend=backend_effective,
-            build_grating_fn=lambda trial_parameters: config.build_grating(
-                resolve_measurement_fit_trial_parameters(config, trial_parameters)
-            ),
-            resolve_solver_parameters_fn=lambda trial_parameters: _resolve_measurement_fit_solver_parameters(
+    if best_fit_plot_path is not None and write_heavy_artifacts and best_parameters:
+        simulated_efficiency = best_simulated_efficiency
+        if simulated_efficiency is None:
+            simulated_efficiency = simulate_efficiency_curve(
                 config,
-                resolve_measurement_fit_trial_parameters(config, trial_parameters),
-            ),
-        )
+                best_parameters,
+                evaluation_measurement,
+                backend=backend_effective,
+                build_grating_fn=lambda trial_parameters: config.build_grating(
+                    resolve_measurement_fit_trial_parameters(config, trial_parameters)
+                ),
+                resolve_solver_parameters_fn=lambda trial_parameters: _resolve_measurement_fit_solver_parameters(
+                    config,
+                    resolve_measurement_fit_trial_parameters(config, trial_parameters),
+                ),
+            )
         _save_best_fit_plot(
             measurement=evaluation_measurement,
             simulated_efficiency=simulated_efficiency,
             output_path=best_fit_plot_path,
         )
-    if loss_history_plot_path is not None:
+    if loss_history_plot_path is not None and write_heavy_artifacts and trial_records:
         _save_loss_history_plot(
             trial_records=trial_records,
             output_path=loss_history_plot_path,
@@ -682,21 +730,25 @@ def optimize_to_measurements(
     backend_effective = _resolve_optimizer_backend(config.backend)
     measurement = load_measurement_data(config.measurement_path)
     evaluation_measurement = build_evaluation_measurement(config, measurement)
-    ax_client = _create_ax_client_for_measurement_fit_config(config)
-    max_parallelism_exception = _import_max_parallelism_exception()
-    data_required_exception = _import_data_required_exception()
+    state = TrialLoopState()
+    state.resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
 
-    trial_records: list[TrialRecord] = []
-    best_loss = float("inf")
-    best_parameters: dict[str, float] = {}
-    best_grating_parameters: dict[str, object] = {}
-    best_solver_parameters: dict[str, float | None] = {}
-    early_stop_reason: str | None = None
-    stopped_early = False
-    completed_trials = 0
-    trial_index_cursor = 0
-    no_improvement_trials = 0
-    optimizer_resolved_max_workers = _resolve_simulation_max_workers(config.max_workers)
+    checkpoint = OptimizerCheckpointSession(
+        config=config,
+        backend_requested=config.backend,
+        backend_effective=backend_effective,
+    )
+    ax_client = checkpoint.restore_or_create_ax_client(
+        lambda run_config: _create_ax_client_for_measurement_fit_config(run_config),
+        state,
+    )
+    if checkpoint.resumed and state.best_parameters:
+        state.best_grating_parameters = dict(
+            resolve_measurement_fit_trial_parameters(config, state.best_parameters)
+        )
+        state.best_solver_parameters = dict(
+            _resolve_measurement_fit_solver_parameters(config, state.best_grating_parameters)
+        )
 
     build_grating_fn = lambda trial_parameters: config.build_grating(
         resolve_measurement_fit_trial_parameters(config, trial_parameters)
@@ -706,135 +758,141 @@ def optimize_to_measurements(
         resolve_measurement_fit_trial_parameters(config, trial_parameters),
     )
 
-    while trial_index_cursor < config.total_trials:
-        candidates: list[tuple[int, dict[str, float]]] = []
-        while len(candidates) < config.batch_size and trial_index_cursor < config.total_trials:
-            try:
-                raw_parameters, trial_index = ax_client.get_next_trial()
-            except Exception as error:
-                if max_parallelism_exception is not None and isinstance(error, max_parallelism_exception):
-                    break
-                if data_required_exception is not None and isinstance(error, data_required_exception):
-                    break
-                raise
-            parameters = {name: float(value) for name, value in raw_parameters.items()}
-            candidates.append((int(trial_index), parameters))
-            trial_index_cursor += 1
+    def evaluate_candidates(candidates) -> list[TrialEvaluation]:
+        """Evaluate one batch of measurement-fit candidates.
 
-        if not candidates:
-            break
+        Args:
+            candidates: Candidate ``(trial_index, parameters)`` pairs.
 
-        evaluated_candidates = _evaluate_candidate_batch(
-            candidates,
+        Returns:
+            One evaluation per candidate, ordered by trial index.
+        """
+
+        evaluated = _evaluate_candidate_batch(
+            list(candidates),
             config=config,
             measurement=measurement,
             backend_effective=backend_effective,
             build_grating_fn=build_grating_fn,
             resolve_solver_parameters_fn=resolve_solver_parameters_fn,
         )
-        for trial_index, parameters, loss, trial_resolved_max_workers in evaluated_candidates:
-            optimizer_resolved_max_workers = int(trial_resolved_max_workers)
-            _complete_ax_trial(
-                ax_client=ax_client,
-                config=config,
-                trial_index=trial_index,
+        return [
+            TrialEvaluation(
+                trial_index=int(trial_index),
+                parameters=dict(parameters),
                 loss=float(loss),
+                resolved_max_workers=int(trial_resolved_max_workers),
+                extras=(
+                    {}
+                    if simulated_efficiency is None
+                    else {"simulated_efficiency": simulated_efficiency}
+                ),
             )
-            trial_records.append(
-                TrialRecord(
-                    trial_index=int(trial_index),
-                    loss=float(loss),
-                    parameters=dict(parameters),
+            for (
+                trial_index,
+                parameters,
+                loss,
+                trial_resolved_max_workers,
+                simulated_efficiency,
+            ) in evaluated
+        ]
+
+    def on_trial_completed(*, evaluation: TrialEvaluation, state: TrialLoopState, improved: bool) -> None:
+        """Refresh derived best-fit state and rewrite optimizer artifacts.
+
+        Args:
+            evaluation: Evaluation for the trial that just completed.
+            state: Mutable loop state to update.
+            improved: Whether this trial produced a new best loss.
+        """
+
+        if improved:
+            state.best_grating_parameters = dict(
+                resolve_measurement_fit_trial_parameters(config, evaluation.parameters)
+            )
+            state.best_solver_parameters = dict(
+                _resolve_measurement_fit_solver_parameters(
+                    config,
+                    state.best_grating_parameters,
                 )
             )
-            completed_trials += 1
-            current_grating_parameters = resolve_measurement_fit_trial_parameters(config, parameters)
-            current_solver_parameters = _resolve_measurement_fit_solver_parameters(
-                config,
-                current_grating_parameters,
-            )
-            if loss < best_loss:
-                best_loss = float(loss)
-                best_parameters = dict(parameters)
-                best_grating_parameters = dict(current_grating_parameters)
-                best_solver_parameters = dict(current_solver_parameters)
-                no_improvement_trials = 0
-            else:
-                no_improvement_trials += 1
+        _persist_measurement_fit_optimizer_artifacts(
+            config=config,
+            evaluation_measurement=evaluation_measurement,
+            best_parameters=state.best_parameters,
+            best_grating_parameters=state.best_grating_parameters,
+            best_solver_parameters=state.best_solver_parameters,
+            best_loss=state.best_loss,
+            trial_records=state.trial_records,
+            stopped_early=state.stopped_early,
+            completed_trials=state.completed_trials,
+            early_stop_reason=state.early_stop_reason,
+            backend_requested=config.backend,
+            backend_effective=backend_effective,
+            optimizer_requested_max_workers=config.max_workers,
+            optimizer_resolved_max_workers=state.resolved_max_workers,
+            best_simulated_efficiency=state.best_extras.get("simulated_efficiency"),
+            write_heavy_artifacts=improved,
+        )
+        checkpoint.record_trial(state=state, ax_client=ax_client)
 
-            _persist_measurement_fit_optimizer_artifacts(
-                config=config,
-                evaluation_measurement=evaluation_measurement,
-                best_parameters=best_parameters,
-                best_grating_parameters=best_grating_parameters,
-                best_solver_parameters=best_solver_parameters,
-                best_loss=best_loss,
-                trial_records=trial_records,
-                stopped_early=stopped_early,
-                completed_trials=completed_trials,
-                early_stop_reason=early_stop_reason,
-                backend_requested=config.backend,
-                backend_effective=backend_effective,
-                optimizer_requested_max_workers=config.max_workers,
-                optimizer_resolved_max_workers=optimizer_resolved_max_workers,
-            )
+    with checkpoint:
+        run_ax_trial_loop(
+            ax_client=ax_client,
+            config=config,
+            state=state,
+            evaluate_candidates=evaluate_candidates,
+            on_trial_completed=on_trial_completed,
+        )
+        checkpoint.persist(state=state, ax_client=ax_client)
 
-            if (
-                config.enable_early_stopping
-                and completed_trials >= config.early_stopping_warmup_trials
-                and no_improvement_trials >= config.early_stopping_patience
-            ):
-                stopped_early = True
-                early_stop_reason = (
-                    "Early stopping triggered after "
-                    f"{no_improvement_trials} non-improving trials."
-                )
-                break
-        if stopped_early:
-            break
-
-    if not trial_records:
+    if not state.trial_records:
         raise RuntimeError("Optimization produced no completed trials.")
 
-    if not best_parameters:
-        best_parameters = dict(trial_records[-1].parameters)
-        best_grating_parameters = resolve_measurement_fit_trial_parameters(config, best_parameters)
-        best_solver_parameters = _resolve_measurement_fit_solver_parameters(
+    if not state.best_parameters:
+        state.best_parameters = dict(state.trial_records[-1].parameters)
+        state.best_grating_parameters = resolve_measurement_fit_trial_parameters(
             config,
-            best_grating_parameters,
+            state.best_parameters,
         )
-        best_loss = float(trial_records[-1].loss)
+        state.best_solver_parameters = _resolve_measurement_fit_solver_parameters(
+            config,
+            state.best_grating_parameters,
+        )
+        state.best_loss = float(state.trial_records[-1].loss)
 
     result_paths = _persist_measurement_fit_optimizer_artifacts(
         config=config,
         evaluation_measurement=evaluation_measurement,
-        best_parameters=best_parameters,
-        best_grating_parameters=best_grating_parameters,
-        best_solver_parameters=best_solver_parameters,
-        best_loss=best_loss,
-        trial_records=trial_records,
-        stopped_early=stopped_early,
-        completed_trials=completed_trials,
-        early_stop_reason=early_stop_reason,
+        best_parameters=state.best_parameters,
+        best_grating_parameters=state.best_grating_parameters,
+        best_solver_parameters=state.best_solver_parameters,
+        best_loss=state.best_loss,
+        trial_records=state.trial_records,
+        stopped_early=state.stopped_early,
+        completed_trials=state.completed_trials,
+        early_stop_reason=state.early_stop_reason,
         backend_requested=config.backend,
         backend_effective=backend_effective,
         optimizer_requested_max_workers=config.max_workers,
-        optimizer_resolved_max_workers=optimizer_resolved_max_workers,
+        optimizer_resolved_max_workers=state.resolved_max_workers,
+        best_simulated_efficiency=state.best_extras.get("simulated_efficiency"),
+        write_heavy_artifacts=True,
     )
 
     return OptimizationResult(
-        best_parameters=best_parameters,
-        best_grating_parameters=best_grating_parameters,
-        best_loss=best_loss,
+        best_parameters=state.best_parameters,
+        best_grating_parameters=state.best_grating_parameters,
+        best_loss=state.best_loss,
         measurement_path=config.measurement_path,
         result_json_path=result_paths[0],
         trial_history_csv_path=result_paths[1],
         best_fit_plot_path=result_paths[2],
         loss_history_plot_path=result_paths[3],
-        trial_records=trial_records,
-        stopped_early=stopped_early,
-        completed_trials=completed_trials,
-        early_stop_reason=early_stop_reason,
+        trial_records=state.trial_records,
+        stopped_early=state.stopped_early,
+        completed_trials=state.completed_trials,
+        early_stop_reason=state.early_stop_reason,
     )
 
 
