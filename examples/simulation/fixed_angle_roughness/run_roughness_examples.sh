@@ -71,7 +71,9 @@ case "$MODE" in
         ;;
 esac
 
-if [[ -x "$SCRIPT_DIR/../../../.venv/bin/python" ]]; then
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+    PYTHON="${PYTHON_BIN}"
+elif [[ -x "$SCRIPT_DIR/../../../.venv/bin/python" ]]; then
     PYTHON="$SCRIPT_DIR/../../../.venv/bin/python"
 else
     PYTHON="python3"

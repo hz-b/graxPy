@@ -67,7 +67,7 @@ Change `roughness.py` when roughness model math or diagnostics change.
 
 ## Reading order for new maintainers
 
-1. `examples/manual_single_simulation_example/manual_single_simulation.py`
+1. `examples/simulation/single_simulation/single_simulation.py`
 2. `examples/simulation/fixed_angle_sweep/fixed_angle_sweep.py`
 3. `src/grax/simulation/` (package overview in docs/api/simulation/package-organization.md)
 4. `src/grax/gratings.py`

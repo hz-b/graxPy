@@ -1,4 +1,4 @@
-# grax
+# GraxPy
 
 `graxpy` is an independent Python package for one-dimensional X-ray
 diffraction-grating simulations. Its public Python import is `grax`.
@@ -14,10 +14,11 @@ fields through a layer.
 
 ## Documentation
 
-Full user and API documentation is published online.
+Full user and API documentation is available at
+[graxpy.readthedocs.io](https://graxpy.readthedocs.io/).
 
-- User guide and tutorials: see the project documentation site
-- API reference: see the API section in the documentation site
+- User guide and tutorials: <https://graxpy.readthedocs.io/>
+- API reference: <https://graxpy.readthedocs.io/en/latest/api/index.html>
 
 For local docs builds from this repository, use:
 
@@ -55,15 +56,31 @@ choose the Nevière differential method instead:
 ```python
 import grax
 
-# Uses the default modal RCWA path.
-rcwa_result = grax.run_simulation(..., solver="rcwa")
+grating = grax.LaminarGrating(
+    period_lpermm=400,
+    width_to_period_ratio=0.67,
+    depth_nm=14.9,
+    substrate_material="Si",
+    layer_material="Pt",
+    layer_thickness_nm=28.77,
+)
 
-# Uses the Nevière differential-method path.
-neviere_result = grax.run_simulation(..., solver="neviere")
+common = dict(
+    grating=grating,
+    energy_ev=300.0,
+    grazing_angle_deg=4.0,
+    fourier_orders=30,
+    polarization="p",
+)
+
+rcwa_result = grax.run_simulation(**common, solver="rcwa")
+neviere_result = grax.run_simulation(**common, solver="neviere")
 ```
 
 See the documentation's [Choosing a solver](docs/tutorials/choosing-a-solver.md)
-tutorial for guidance and integration options.
+tutorial and the runnable
+`examples/simulation/neviere_solver/neviere_solver.py` for guidance and
+integration options.
 
 ## Local web app
 

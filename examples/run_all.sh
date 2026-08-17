@@ -1,16 +1,15 @@
-#!/bin/bash
-# Curated examples runner only.
-# This script does not copy assets into docs; docs-sync ownership is:
-# docs/tutorials/assets/gratings/scripts/run_all.sh
+#!/usr/bin/env bash
+# Curated profile and optimizer workflows. Tutorial-image synchronization is
+# handled by tools/build_docs.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 echo "Running grating examples..."
-bash "$SCRIPT_DIR/grating/run_all.sh"
+PYTHON_BIN="${PYTHON_BIN}" bash "$SCRIPT_DIR/grating/run_all.sh"
 
 echo "Running optimizer examples..."
-bash "$SCRIPT_DIR/optimizer/run_all.sh"
+PYTHON_BIN="${PYTHON_BIN}" bash "$SCRIPT_DIR/optimizer/run_all.sh"
 
 echo "All curated examples completed."

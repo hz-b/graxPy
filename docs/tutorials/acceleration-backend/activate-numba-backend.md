@@ -6,8 +6,10 @@ Install `graxpy` normally. The numba backend is part of the standard package:
 python -m pip install graxpy
 ```
 
-Most user-facing solver calls already default to `backend="numba"`. You can
-still pass it explicitly when you want the choice to be visible in a script:
+Most user-facing solver calls already default to `backend="numba"`. It
+accelerates the Fourier-coefficient calculation shared by RCWA and Nevière,
+before either path propagates fields through the grating. You can still pass it
+explicitly when you want the choice to be visible in a script:
 
 ```python
 import grax
