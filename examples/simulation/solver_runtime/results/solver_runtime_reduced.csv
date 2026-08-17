@@ -1,4 +1,4 @@
 case,rcwa_seconds_per_point,neviere_seconds_per_point,speedup,max_abs_deviation
-laminar 400 l/mm,0.038119,0.026004,1.4659,5.182639e-11
-blazed 600 l/mm,0.044322,0.031612,1.4021,2.685445e-11
-blazed 2400 l/mm multilayer,0.051822,0.043701,1.1858,1.364908e-12
+laminar 400 l/mm,0.036166,0.024659,1.4667,5.182639e-11
+blazed 600 l/mm,0.043208,0.029887,1.4457,2.685445e-11
+blazed 2400 l/mm multilayer,0.049152,0.041899,1.1731,1.364908e-12
