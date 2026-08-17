@@ -170,7 +170,7 @@ def test_single_simulation_example_parity_quick_configuration(tmp_path: Path) ->
 def test_fixed_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
     grating = build_laminar_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
     cases = fixed_angle_cases(grating=grating, energies_ev=[200.0], grazing_angle_deg=4.0)
-    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=1, fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "fixed_angle_all_orders.csv"
     orders_plot_path = tmp_path / "fixed_angle_orders_1_3.png"
@@ -187,7 +187,7 @@ def test_fixed_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
 def test_monochromator_example_parity_quick_configuration(tmp_path: Path) -> None:
     grating = build_monochromator_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
     cases = monochromator_cases(grating=grating, energies_ev=[200.0], diffraction_order=1, cff=2.25)
-    runner = BatchSimulationRunner(default_fourier_orders=3)
+    runner = BatchSimulationRunner(fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "monochromator_all_orders.csv"
     orders_plot_path = tmp_path / "monochromator_orders_1_3.png"
@@ -219,7 +219,7 @@ def test_blazed_multilayer_sweep_example_parity_quick_configuration(tmp_path: Pa
         z_resolution_nm=1.0,
     )
     cases = monochromator_cases(grating=grating, energies_ev=[500.0], diffraction_order=1, cff=2.25)
-    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=1, fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "blazed_multilayer_all_orders.csv"
 
@@ -251,8 +251,10 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
     assert '"memory_mode"' not in source
     assert '"_memory_mode"' not in source
     assert 'profile_memory": True' in source
-    assert "blazed_multilayer_memory_comparison.csv" in source
-    assert "blazed_multilayer_memory_comparison.png" in source
+    # Outputs are solver-suffixed so an rcwa and a neviere run sit side by side.
+    assert 'blazed_multilayer_memory_comparison_{args.solver}.csv' in source
+    assert 'blazed_multilayer_memory_comparison_{args.solver}.png' in source
+    assert '"--solver"' in source
     assert "blazed_multilayer_profile.png" in source
     assert "multilayer_stack_schematic.png" in source
 
@@ -260,7 +262,7 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
 def test_energy_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
     grating = build_blazed_multilayer_angle_parity_grating()
     cases = energy_angle_cases(grating=grating, energy_angle_pairs=[(1800.0, 8.0)])
-    runner = BatchSimulationRunner(default_diffraction_order=2, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=2, fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "energy_angle_all_orders.csv"
 
@@ -331,7 +333,7 @@ def test_batch_user_cases_example_parity_quick_configuration(tmp_path: Path) -> 
             "depth_nm": 14.9,
         }
     ]
-    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=1, fourier_orders=3)
     results = list(runner.run_cases(user_cases))
     csv_path = tmp_path / "batch_user_cases_all_orders.csv"
 

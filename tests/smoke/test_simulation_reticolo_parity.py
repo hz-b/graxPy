@@ -33,7 +33,7 @@ from grax.simulation import (
     BatchSimulationRunner,
     CaseExecutionResult,
     MultilayerThetaSearchSweepResult,
-    RCWASimulation,
+    GratingSimulation,
     SingleSimulationResult,
     energy_angle_cases,
     estimate_multilayer_bragg_angle_deg,
@@ -118,7 +118,7 @@ def test_laminar_multilayer_material_map_matches_octave_reference(tmp_path: Path
 def test_laminar_multilayer_solver_matches_octave_reference(tmp_path: Path) -> None:
     octave_reference = run_octave_laminar_multilayer_reference(tmp_path)
     grating = build_multilayer_parity_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=5,
@@ -149,7 +149,7 @@ def test_laminar_multilayer_solver_stays_physical_for_full_example(tmp_path: Pat
         fourier_orders=5,
     )
     grating = build_multilayer_solver_regression_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=5,
@@ -178,7 +178,7 @@ def test_blazed_multilayer_angle_sweep_matches_reticolo_v9_reference(tmp_path: P
     expected_reticolo_orders = np.arange(-5, 2, dtype=int)
 
     for grazing_angle_deg in np.arange(75, 82, dtype=float) / 10.0:
-        simulation = RCWASimulation(
+        simulation = GratingSimulation(
             grating=grating,
             diffraction_order=1,
             fourier_orders=5,
@@ -218,7 +218,7 @@ def test_blazed_single_layer_200ev_matches_reticolo_reference_more_closely() -> 
             cff=2.25,
         )[0]
     )
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=20,

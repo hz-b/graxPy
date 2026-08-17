@@ -57,9 +57,12 @@ python -m pip install -e ".[opt]"
 ```
 
 ```{note}
-The numba backend provides **3.7x speedup** with identical numerical results.
-You can still explicitly specify `backend="numpy"` for parity checks or
-transition-time comparisons, but that path is deprecated.
+Numba accelerates the shared Fourier-coefficient calculation used by both
+electromagnetic solver paths. The resulting speedup depends on the grating,
+Fourier order, and machine; the checked-in benchmarks provide representative
+measurements. It does not JIT the RCWA modal solve or the Nevière differential
+propagation. You can still explicitly specify `backend="numpy"` for parity
+checks or transition-time comparisons, but that path is deprecated.
 ```
 
 The main documentation focuses on the `grax` simulation package. The

@@ -25,7 +25,7 @@ from grax.simulation import (
     BatchSimulationRunner,
     CaseExecutionResult,
     MultilayerThetaSearchSweepResult,
-    RCWASimulation,
+    GratingSimulation,
     SingleSimulationResult,
     efficiency_for_order,
     energy_angle_cases,
@@ -168,7 +168,7 @@ def test_debye_waller_without_per_layer_overrides_keeps_single_sigma() -> None:
 
 def test_rcwa_simulation_runs_for_multiple_energies() -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=25,
@@ -187,7 +187,7 @@ def test_rcwa_simulation_runs_for_multiple_energies() -> None:
 
 def test_rcwa_simulation_runs_laminar_grating_end_to_end() -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=5,
@@ -203,7 +203,7 @@ def test_rcwa_simulation_runs_laminar_grating_end_to_end() -> None:
 
 def test_rcwa_simulation_loads_experimental_data_and_plots_comparison(tmp_path: Path) -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=25,
@@ -734,7 +734,7 @@ def test_batch_runner_executes_generator_cases_in_order(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
     grating = build_test_grating()
-    runner = BatchSimulationRunner(default_fourier_orders=5)
+    runner = BatchSimulationRunner(fourier_orders=5)
 
     def case_generator() -> Iterator[dict[str, object]]:
         yield {
@@ -1133,7 +1133,7 @@ def test_batch_runner_rejects_unsupported_material_input_in_fail_fast_mode() -> 
         top_cap_thickness_nm=0.7,
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=5,
+        fourier_orders=5,
         on_error="fail_fast",
     )
 
@@ -1302,7 +1302,7 @@ def test_batch_runner_infers_progress_total_for_generator_cases(monkeypatch: pyt
 def test_batch_runner_parallel_executes_cases_and_writes_checkpoint(tmp_path: Path) -> None:
     grating = build_test_grating()
     runner = BatchSimulationRunner(
-        default_fourier_orders=1,
+        fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         on_error="continue",
@@ -1347,7 +1347,7 @@ def test_batch_runner_parallel_resume_skips_completed_cases(tmp_path: Path) -> N
         encoding="utf-8",
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=1,
+        fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         resume=True,
@@ -1380,7 +1380,7 @@ def test_parallel_worker_is_top_level_and_spawn_compatible() -> None:
 
 
 def test_rcwa_simulation_raises_for_non_physical_efficiency() -> None:
-    simulation = RCWASimulation(grating=build_test_grating())
+    simulation = GratingSimulation(grating=build_test_grating())
 
     with pytest.raises(ValueError, match="Non-physical reflected diffraction efficiency"):
         simulation._validate_reflected_efficiencies(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import json
 import runpy
 from pathlib import Path
@@ -554,3 +556,73 @@ def test_example_configs_split_optimizer_and_simulation_backends() -> None:
     assert laminar_config["simulation_backend"] == "numba"
     assert "optimizer_max_workers" in laminar_config
     assert blazed_config["simulation_backend"] == laminar_config["simulation_backend"]
+
+
+def test_measurement_fit_config_accepts_and_validates_the_solver(tmp_path: Path) -> None:
+    """Verify the optimizer can be pointed at either solver."""
+
+    default_config = _build_measurement_fit_config(tmp_path)
+    assert default_config.solver == "rcwa"
+    assert default_config.solver_options is None
+
+    neviere_config = dataclasses.replace(
+        default_config,
+        solver="neviere",
+        solver_options={"step_phase": 0.01},
+    )
+    assert neviere_config.solver == "neviere"
+    assert neviere_config.solver_options == {"step_phase": 0.01}
+
+    with pytest.raises(ValueError, match="solver must be one of"):
+        dataclasses.replace(default_config, solver="differential")
+
+
+def test_measurement_fit_trial_runner_uses_the_configured_solver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a trial evaluation builds its batch runner with the config's solver.
+
+    The optimizer reads the solver off the config rather than taking it as an
+    argument, the same way it reads ``diffraction_order`` and ``fourier_orders``.
+    This pins that it actually reaches the runner.
+    """
+
+    captured: dict[str, object] = {}
+
+    class _RecordingRunner:
+        resolved_max_workers = 1
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def run_cases(self, cases):
+            raise RuntimeError("stop after construction")
+
+    monkeypatch.setattr(objective_module, "BatchSimulationRunner", _RecordingRunner)
+
+    config = dataclasses.replace(
+        _build_measurement_fit_config(tmp_path),
+        solver="neviere",
+        solver_options={"step_phase": 0.01},
+    )
+    measurement = load_measurement_data(config.measurement_path)
+
+    with pytest.raises(RuntimeError, match="stop after construction"):
+        objective_module.simulate_efficiency_curve_with_metadata(
+            config,
+            {"period_lpermm": 400.0},
+            measurement,
+            backend="numba",
+            build_grating_fn=lambda parameters: _FakeGrating(),
+            resolve_solver_parameters_fn=lambda parameters: {"roughness_sigma_nm": None},
+        )
+
+    assert captured["solver"] == "neviere"
+    assert captured["solver_options"] == {"step_phase": 0.01}
+
+
+class _FakeGrating:
+    """Minimal grating stand-in for the runner-construction test."""
+
+    period_lpermm = 400.0

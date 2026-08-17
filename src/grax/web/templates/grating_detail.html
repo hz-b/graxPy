@@ -64,8 +64,14 @@
     <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
     <label>Polarization
       <select name="polarization">
-        <option value="s" selected>s</option>
-        <option value="p">p</option>
+        <option value="s" selected>s (TE)</option>
+        <option value="p">p (TM)</option>
+      </select>
+    </label>
+    <label>Solver
+      <select name="solver">
+        <option value="rcwa" selected>RCWA (modal)</option>
+        <option value="neviere">Nevi&egrave;re (differential)</option>
       </select>
     </label>
     <label>Roughness

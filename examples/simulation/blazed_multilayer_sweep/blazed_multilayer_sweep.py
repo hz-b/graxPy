@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -38,32 +39,45 @@ cases = grax.monochromator_cases(
     polarization="p",
 )
 
-runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=20,
-    show_progress=True,
-    live_plot=True,
-    live_plot_x_key="energy_ev",
-    backend="numba",
+parser = argparse.ArgumentParser(description="Blazed multilayer energy sweep")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
 )
+args = parser.parse_args()
 
-csv_path = output_dir / "blazed_multilayer_all_orders.csv"
-orders_plot_path = output_dir / "blazed_multilayer_orders_1_3.png"
-profile_plot_path = output_dir / "blazed_multilayer_profile.png"
-stack_plot_path = output_dir / "multilayer_stack_schematic.png"
+if __name__ == "__main__":
+    runner = grax.BatchSimulationRunner(
+        solver=args.solver,
+        diffraction_order=1,
+        fourier_orders=20,
+        show_progress=True,
+        live_plot=True,
+        live_plot_x_key="energy_ev",
+        max_workers="auto",
+        backend="numba",
+    )
 
-results = list(runner.run_cases(cases))
-grax.write_all_orders_csv(results, csv_path)
-grax.plot_order_subset(
-    results,
-    orders_plot_path,
-    diffraction_orders=[1, 2, 3],
-    title="Blazed Multilayer Monochromator Sweep: Orders 1-3",
-)
-grating.plot_profile(profile_plot_path)
-multilayer_stack.plot_schematic(stack_plot_path)
+    csv_path = output_dir / f"blazed_multilayer_all_orders_{args.solver}.csv"
+    orders_plot_path = output_dir / f"blazed_multilayer_orders_1_3_{args.solver}.png"
+    profile_plot_path = output_dir / "blazed_multilayer_profile.png"
+    stack_plot_path = output_dir / "multilayer_stack_schematic.png"
 
-print(f"Results saved to: {csv_path}")
-print(f"Orders 1-3 plot saved to: {orders_plot_path}")
-print(f"Profile plot saved to: {profile_plot_path}")
-print(f"Stack schematic saved to: {stack_plot_path}")
+    results = list(runner.run_cases(cases))
+    grax.write_all_orders_csv(results, csv_path)
+    grax.plot_order_subset(
+        results,
+        orders_plot_path,
+        diffraction_orders=[1, 2, 3],
+        title="Blazed Multilayer Monochromator Sweep: Orders 1-3",
+    )
+    grating.plot_profile(profile_plot_path)
+    multilayer_stack.plot_schematic(stack_plot_path)
+
+    print(f"Results saved to: {csv_path}")
+    print(f"Orders 1-3 plot saved to: {orders_plot_path}")
+    print(f"Profile plot saved to: {profile_plot_path}")
+    print(f"Stack schematic saved to: {stack_plot_path}")

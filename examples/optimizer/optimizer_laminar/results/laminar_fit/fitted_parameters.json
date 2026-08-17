@@ -2,7 +2,7 @@
   "optimization_mode": "measurement_fit",
   "experiment_name": "laminar_fit",
   "objective_name": "loss",
-  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
+  "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
   "evaluation_mode": "energy_only",
   "evaluation_case_mode": "energy_only",
   "evaluation_energies_ev": [
@@ -72,20 +72,20 @@
     ]
   },
   "equality_constraints": {},
-  "best_loss": 5.266607734459274e-05,
+  "best_loss": 3.073717011236386e-06,
   "best_parameters": {
-    "width_to_period_ratio": 0.705950661777188,
-    "depth_nm": 14.150756203706413,
-    "left_wall_angle_deg": 13.222220727353854,
+    "width_to_period_ratio": 0.7251252862466292,
+    "depth_nm": 14.725038447795153,
+    "left_wall_angle_deg": 10.99163847647662,
     "right_wall_angle_deg": 20.0,
-    "top_cap_thickness_nm": 0.3
+    "top_cap_thickness_nm": 0.8572725775652538
   },
   "best_grating_parameters": {
-    "width_to_period_ratio": 0.705950661777188,
-    "depth_nm": 14.150756203706413,
-    "left_wall_angle_deg": 13.222220727353854,
+    "width_to_period_ratio": 0.7251252862466292,
+    "depth_nm": 14.725038447795153,
+    "left_wall_angle_deg": 10.99163847647662,
     "right_wall_angle_deg": 20.0,
-    "top_cap_thickness_nm": 0.3
+    "top_cap_thickness_nm": 0.8572725775652538
   },
   "best_solver_parameters": {
     "roughness_sigma_nm": null
@@ -95,12 +95,17 @@
   "early_stop_reason": null,
   "backend_requested": "auto",
   "backend_effective": "numba",
+  "solver": "rcwa",
+  "solver_options": null,
+  "optimizer_execution_strategy": "trial_batch_runner",
+  "optimizer_requested_max_workers": "auto",
+  "optimizer_resolved_max_workers": 8,
   "diffraction_order": 1,
   "fourier_orders": 15,
   "angle_mode": "fixed",
   "grazing_angle_deg": 4.0,
-  "result_json_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/best_result.json",
-  "trial_history_csv_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/trial_history.csv",
-  "best_fit_plot_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/best_fit.png",
-  "loss_history_plot_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/optimization_loss_history.png"
+  "result_json_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/best_result.json",
+  "trial_history_csv_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/trial_history.csv",
+  "best_fit_plot_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/best_fit.png",
+  "loss_history_plot_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_laminar/results/laminar_fit/optimization_loss_history.png"
 }

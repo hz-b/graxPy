@@ -43,10 +43,10 @@ RANDOM_INTERFACE_CORRELATION_LENGTHS_NM = [0.0, 1.0, 10.0, 50.0, 100.0]
 # reproducible run to run); set an explicit int to reproduce one specific
 # ensemble for debugging.
 ROUGHNESS_SEED: int | None = None
-# Number of independent roughness realizations averaged per simulated point
-# (see ``RoughnessSpec.num_realizations``). The library default (8) is
-# usually fine as-is; exposed here for visibility/override.
-ROUGHNESS_NUM_REALIZATIONS = 8
+# Number of independent roughness realizations averaged per simulated point.
+# Two retains ensemble averaging while keeping the supercell study usable as
+# a runnable demonstration.
+ROUGHNESS_NUM_REALIZATIONS = 2
 
 # In addition to the single-period random-interface sweep above, also run the
 # same correlation-length sweep with the roughness spanning several grating
@@ -60,7 +60,7 @@ GRAZING_ANGLE_DEG = 1.0
 ENERGIES_EV = np.arange(50.0, 2200.0, 50.0)
 POLARIZATION = "p"
 DIFFRACTION_ORDER = 1
-FOURIER_ORDERS = 20
+FOURIER_ORDERS = 15
 # Fourier orders used for the supercell runs. Solver cost scales with
 # fourier_orders * num_supercells, so this is set low enough that the
 # effective order count (here 4 * 5 = 20) matches the single-period runs
@@ -78,6 +78,9 @@ PERIOD_LPERMM = 400
 WIDTH_TO_PERIOD_RATIO = 0.67
 DEPTH_NM = 14.9
 WALL_ANGLE_DEG = 15.0
+# 1 nm random-interface roughness needs sub-0.25 nm sampling for its
+# generated interface field; this intentionally exceeds the normal example
+# resolution floor.
 X_RESOLUTION_NM = 0.1
 Z_RESOLUTION_NM = 0.1
 
@@ -154,6 +157,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Run the roughness correlation-length comparison example.")
     parser.add_argument(
+        "--solver",
+        choices=("rcwa", "neviere"),
+        default="rcwa",
+        help="Electromagnetic solver to run.",
+    )
+    parser.add_argument(
         "--geometry-only",
         action="store_true",
         help="Only build the gratings and save whole-grating geometry PDFs; do not run simulations.",
@@ -191,8 +200,9 @@ def main() -> None:
 
         fourier_orders = FOURIER_ORDERS if num_supercells == 1 else SUPERCELL_FOURIER_ORDERS
         runner = grax.BatchSimulationRunner(
-            default_diffraction_order=DIFFRACTION_ORDER,
-            default_fourier_orders=fourier_orders,
+            solver=args.solver,
+            diffraction_order=DIFFRACTION_ORDER,
+            fourier_orders=fourier_orders,
             show_progress=True,
             live_plot=True,
             live_plot_x_key="energy_ev",

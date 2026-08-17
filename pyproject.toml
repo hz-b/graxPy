@@ -14,7 +14,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3 :: Only",
 ]
-license = { text = "MIT" }
+license = { text = "EUPL-1.2" }
 authors = [
   { name = "Simone Vadilonga", email = "simone.vadilonga@helmholtz-berlin.de" }
 ]

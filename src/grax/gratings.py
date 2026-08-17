@@ -1,4 +1,4 @@
-"""Grating profile objects used by RCWA simulations."""
+"""Grating profile objects shared by both electromagnetic solvers."""
 
 from __future__ import annotations
 
@@ -429,7 +429,7 @@ class BaseGrating(ABC):
         n_inc: complex,
         n_sub: complex,
     ) -> object:
-        """Return one RCWA texture descriptor for a single solver row."""
+        """Return one texture descriptor for a single solver row."""
 
         row_values = self._refractive_index_row(
             z_value=z_value,

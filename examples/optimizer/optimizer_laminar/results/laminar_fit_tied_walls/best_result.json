@@ -2,7 +2,7 @@
   "optimization_mode": "measurement_fit",
   "experiment_name": "laminar_fit_tied_walls",
   "objective_name": "loss",
-  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
+  "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_laminar/measured_alpha4deg_order1.csv",
   "evaluation_mode": "energy_only",
   "evaluation_case_mode": "energy_only",
   "evaluation_energies_ev": [
@@ -74,19 +74,19 @@
   "equality_constraints": {
     "right_wall_angle_deg": "left_wall_angle_deg"
   },
-  "best_loss": 4.210862085164015e-06,
+  "best_loss": 3.037882457503803e-05,
   "best_parameters": {
-    "width_to_period_ratio": 0.7399114631988724,
-    "depth_nm": 14.689456819086626,
-    "left_wall_angle_deg": 5.0,
-    "top_cap_thickness_nm": 0.3
+    "width_to_period_ratio": 0.716518444026963,
+    "depth_nm": 14.101266065245971,
+    "left_wall_angle_deg": 11.750359887995446,
+    "top_cap_thickness_nm": 0.9791163034504053
   },
   "best_grating_parameters": {
-    "width_to_period_ratio": 0.7399114631988724,
-    "depth_nm": 14.689456819086626,
-    "left_wall_angle_deg": 5.0,
-    "top_cap_thickness_nm": 0.3,
-    "right_wall_angle_deg": 5.0
+    "width_to_period_ratio": 0.716518444026963,
+    "depth_nm": 14.101266065245971,
+    "left_wall_angle_deg": 11.750359887995446,
+    "top_cap_thickness_nm": 0.9791163034504053,
+    "right_wall_angle_deg": 11.750359887995446
   },
   "best_solver_parameters": {
     "roughness_sigma_nm": null
@@ -96,6 +96,11 @@
   "early_stop_reason": null,
   "backend_requested": "auto",
   "backend_effective": "numba",
+  "solver": "rcwa",
+  "solver_options": null,
+  "optimizer_execution_strategy": "trial_batch_runner",
+  "optimizer_requested_max_workers": "auto",
+  "optimizer_resolved_max_workers": 8,
   "diffraction_order": 1,
   "fourier_orders": 15,
   "angle_mode": "fixed",

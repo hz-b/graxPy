@@ -2292,3 +2292,95 @@ def test_flask_app_plots_selected_orders_across_runs(
     saved_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
     assert saved_manifest["figure_json"]
     assert saved_manifest["plot_config"]["series_styles"]
+
+
+def test_parameter_study_run_uses_selected_solver(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify the run form's solver choice reaches the parameter-study call."""
+
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    captured: dict[str, object] = {}
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_text("plot", encoding="utf-8")
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Solver grating",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+            "polarization": "p",
+            "solver": "neviere",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+
+    deadline = time.monotonic() + 2.0
+    manifest: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        if captured:
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("status") == "completed":
+                break
+        time.sleep(0.02)
+
+    assert captured["solver"] == "neviere"
+    assert manifest.get("solver") == "neviere"
+    assert manifest.get("run_input", {}).get("solver") == "neviere"
+
+
+def test_run_form_rejects_an_unknown_solver(tmp_path: Path) -> None:
+    """Verify an invalid solver name is refused rather than silently defaulted."""
+
+    pytest.importorskip("flask")
+
+    from grax.web.app import _normalized_solver
+
+    assert _normalized_solver("neviere") == "neviere"
+    assert _normalized_solver(None) == "rcwa"
+    assert _normalized_solver("  RCWA  ") == "rcwa"
+    with pytest.raises(ValueError, match="solver must be"):
+        _normalized_solver("differential")

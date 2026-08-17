@@ -17,7 +17,7 @@ import grax
 # results can come from run_simulation(), runner.run_cases(), or a single case
 grax.write_all_orders_csv(
     results,
-    "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders.csv",
+    "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders_rcwa.csv",
 )
 ```
 
@@ -49,7 +49,7 @@ import grax
 
 grax.plot_order_subset(
     results,
-    "examples/simulation/fixed_angle_sweep/results/fixed_angle_orders_1_3.png",
+    "examples/simulation/fixed_angle_sweep/results/fixed_angle_orders_1_3_rcwa.png",
     diffraction_orders=[1, 2, 3],
     title="Fixed-Angle Sweep: Orders 1-3 Efficiency vs Energy",
 )
@@ -63,7 +63,7 @@ You can post-process exported CSV files directly:
 import pandas as pd
 
 data = pd.read_csv(
-    "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders.csv"
+    "examples/simulation/fixed_angle_sweep/results/fixed_angle_all_orders_rcwa.csv"
 )
 
 # Keep first diffraction order

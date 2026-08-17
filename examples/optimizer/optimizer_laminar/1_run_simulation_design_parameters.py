@@ -27,80 +27,87 @@ from example_config import (
     z_resolution_nm,
 )
 
-results_dir.mkdir(parents=True, exist_ok=True)
 
-silicon = pd.read_csv(
-    optical_constants_dir / "n_Si_cxro.txt",
-    skiprows=1,
-    sep=r"\s*,\s*|\s+",
-    engine="python",
-)
-silicon.attrs["name"] = "Si"
+def main() -> None:
 
-platinum = pd.read_csv(
-    optical_constants_dir / "n_Pt_cxro.txt",
-    skiprows=1,
-    sep=r"\s*,\s*|\s+",
-    engine="python",
-)
-platinum.attrs["name"] = "Pt"
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-carbon = pd.read_csv(
-    optical_constants_dir / "n_C_cxro.txt",
-    skiprows=1,
-    sep=r"\s*,\s*|\s+",
-    engine="python",
-)
-carbon.attrs["name"] = "C"
+    silicon = pd.read_csv(
+        optical_constants_dir / "n_Si_cxro.txt",
+        skiprows=1,
+        sep=r"\s*,\s*|\s+",
+        engine="python",
+    )
+    silicon.attrs["name"] = "Si"
 
-measurement = pd.read_csv(
-    measurement_path,
-    sep=";",
-    skiprows=3,
-    decimal=",",
-    names=["energy_ev", "efficiency"],
-).dropna()
-energies = np.asarray(measurement["energy_ev"], dtype=float)
+    platinum = pd.read_csv(
+        optical_constants_dir / "n_Pt_cxro.txt",
+        skiprows=1,
+        sep=r"\s*,\s*|\s+",
+        engine="python",
+    )
+    platinum.attrs["name"] = "Pt"
 
-design_grating = grax.LaminarGrating(
-    period_lpermm=period_lpermm,
-    width_to_period_ratio=width_to_period_ratio,
-    depth_nm=depth_nm,
-    left_wall_angle_deg=left_wall_angle_deg,
-    right_wall_angle_deg=right_wall_angle_deg,
-    substrate_material=silicon,
-    layer_material=platinum,
-    layer_thickness_nm=layer_thickness_nm,
-    top_cap_material=carbon,
-    top_cap_thickness_nm=top_cap_thickness_nm,
-    z_resolution_nm=z_resolution_nm,
-    x_resolution_nm=x_resolution_nm,
-)
+    carbon = pd.read_csv(
+        optical_constants_dir / "n_C_cxro.txt",
+        skiprows=1,
+        sep=r"\s*,\s*|\s+",
+        engine="python",
+    )
+    carbon.attrs["name"] = "C"
 
-cases = grax.fixed_angle_cases(
-    grating=design_grating,
-    energies_ev=energies,
-    grazing_angle_deg=grazing_angle_deg,
-    polarization="p",
-)
+    measurement = pd.read_csv(
+        measurement_path,
+        sep=";",
+        skiprows=3,
+        decimal=",",
+        names=["energy_ev", "efficiency"],
+    ).dropna()
+    energies = np.asarray(measurement["energy_ev"], dtype=float)
 
-runner = grax.BatchSimulationRunner(
-    default_diffraction_order=diffraction_order,
-    default_fourier_orders=fourier_orders,
-    max_workers="auto",
-    show_progress=True,
-    live_plot=False,
-    on_error="fail_fast",
-    backend="numba",
-)
-results = list(runner.run_cases(cases))
+    design_grating = grax.LaminarGrating(
+        period_lpermm=period_lpermm,
+        width_to_period_ratio=width_to_period_ratio,
+        depth_nm=depth_nm,
+        left_wall_angle_deg=left_wall_angle_deg,
+        right_wall_angle_deg=right_wall_angle_deg,
+        substrate_material=silicon,
+        layer_material=platinum,
+        layer_thickness_nm=layer_thickness_nm,
+        top_cap_material=carbon,
+        top_cap_thickness_nm=top_cap_thickness_nm,
+        z_resolution_nm=z_resolution_nm,
+        x_resolution_nm=x_resolution_nm,
+    )
 
-output_csv_path = results_dir / "simulated_curve_initial.csv"
-grax.write_all_orders_csv(results, output_csv_path)
+    cases = grax.fixed_angle_cases(
+        grating=design_grating,
+        energies_ev=energies,
+        grazing_angle_deg=grazing_angle_deg,
+        polarization="p",
+    )
 
-print(f"Initial-parameter simulation CSV: {output_csv_path}")
-print(
-    "Initial simulation settings: "
-    f"grazing_angle_deg={grazing_angle_deg}, "
-    f"fourier_orders={fourier_orders}, simulation_backend=numba"
-)
+    runner = grax.BatchSimulationRunner(
+        diffraction_order=diffraction_order,
+        fourier_orders=fourier_orders,
+        max_workers="auto",
+        show_progress=True,
+        live_plot=True,
+        on_error="fail_fast",
+        backend="numba",
+    )
+    results = list(runner.run_cases(cases))
+
+    output_csv_path = results_dir / "simulated_curve_initial.csv"
+    grax.write_all_orders_csv(results, output_csv_path)
+
+    print(f"Initial-parameter simulation CSV: {output_csv_path}")
+    print(
+        "Initial simulation settings: "
+        f"grazing_angle_deg={grazing_angle_deg}, "
+        f"fourier_orders={fourier_orders}, simulation_backend=numba"
+    )
+
+
+if __name__ == "__main__":
+    main()
