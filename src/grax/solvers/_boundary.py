@@ -80,6 +80,18 @@ class BoundaryPanels:
 
         return float(np.sum(self.length))
 
+    @property
+    def collocation(self) -> np.ndarray:
+        """Return the collocation points, shape ``(n_panels, 2)``."""
+
+        return self.midpoint
+
+    @property
+    def weight(self) -> np.ndarray:
+        """Return the arc-length quadrature weight of each node."""
+
+        return self.length
+
     def shifted(self, offset: float) -> BoundaryPanels:
         """Return the same panels translated vertically.
 

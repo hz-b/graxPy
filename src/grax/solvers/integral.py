@@ -135,6 +135,7 @@ from ..materials import resolve_refractive_index
 from ..simulation._profiling import SolverProfiler
 from ._boundary import BoundaryPanels, build_panels
 from ._green import PeriodicGreen, default_ewald_splitting
+from ._nystrom import TrigBoundary, build_trig_boundary, nystrom_operators
 from ._operators import layer_operators
 from .common import (
     DiffractionResult,
@@ -152,6 +153,7 @@ __all__ = [
 ]
 
 GreenMethod = Literal["ewald", "spectral"]
+Discretization = Literal["panel", "nystrom"]
 
 
 @dataclass(frozen=True)
@@ -192,6 +194,7 @@ class IntegralOptions:
     """
 
     boundary_points: int | Literal["auto"] = "auto"
+    discretization: Discretization = "panel"
     corner_grading: float = 2.0
     quadrature_order: int = 8
     green_function: GreenMethod = "ewald"
@@ -211,6 +214,8 @@ class IntegralOptions:
                 raise ValueError("boundary_points must be an integer or 'auto'.")
             if int(self.boundary_points) < 8:
                 raise ValueError("boundary_points must be at least 8 when given.")
+        if self.discretization not in ("panel", "nystrom"):
+            raise ValueError("discretization must be 'panel' or 'nystrom'.")
         if self.corner_grading < 1.0:
             raise ValueError("corner_grading must be >= 1.")
         if self.quadrature_order < 2:
@@ -229,6 +234,7 @@ class IntegralOptions:
 
         return {
             "boundary_points": self.boundary_points,
+            "discretization": self.discretization,
             "corner_grading": self.corner_grading,
             "quadrature_order": self.quadrature_order,
             "green_function": self.green_function,
@@ -369,13 +375,22 @@ def build_stack(
         wavelength_nm=float(wavelength_nm),
         orders=int(orders),
     )
-    base = build_panels(
-        positions,
-        heights,
-        period=float(grating.period_nm),
-        panel_count=panel_count,
-        corner_grading=float(options.corner_grading),
-    )
+    if options.discretization == "nystrom":
+        # The Kress weights need an even node count.
+        base = build_trig_boundary(
+            positions,
+            heights,
+            period=float(grating.period_nm),
+            count=panel_count + (panel_count % 2),
+        )
+    else:
+        base = build_panels(
+            positions,
+            heights,
+            period=float(grating.period_nm),
+            panel_count=panel_count,
+            corner_grading=float(options.corner_grading),
+        )
 
     indices: list[complex] = [
         complex(resolve_refractive_index(coating_stack.substrate_material, photon_energy_ev))
@@ -607,12 +622,12 @@ def _assemble_system(
         operators: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
         for observed in pieces:
             for sourced in pieces:
-                operators[(observed, sourced)] = layer_operators(
+                operators[(observed, sourced)] = _interface_operators(
                     green,
                     target=stack.interfaces[observed],
                     source=stack.interfaces[sourced],
                     same_interface=observed == sourced,
-                    quadrature_order=options.quadrature_order,
+                    options=options,
                 )
 
         if lower is not None:
@@ -646,6 +661,48 @@ def _assemble_system(
     return matrix, rhs
 
 
+def _interface_operators(
+    green: PeriodicGreen,
+    *,
+    target: BoundaryPanels | TrigBoundary,
+    source: BoundaryPanels | TrigBoundary,
+    same_interface: bool,
+    options: IntegralOptions,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the single- and double-layer blocks for one pair of interfaces.
+
+    Dispatches on the requested discretization. Both schemes produce the same two
+    matrices with the same meaning, which is what lets the coupled system and the
+    Rayleigh projection above stay unchanged between them -- and what makes the
+    two directly comparable on identical geometry.
+
+    Args:
+        green: Green function of the medium bounded by these interfaces.
+        target: Interface carrying the collocation points.
+        source: Interface carrying the densities.
+        same_interface: Whether the two are the same interface.
+        options: Discretization settings.
+
+    Returns:
+        ``(S, D)``.
+    """
+
+    if options.discretization == "nystrom":
+        return nystrom_operators(
+            green,
+            target=target,
+            source=source,
+            same_boundary=same_interface,
+        )
+    return layer_operators(
+        green,
+        target=target,
+        source=source,
+        same_interface=same_interface,
+        quadrature_order=options.quadrature_order,
+    )
+
+
 def _incident_field(
     panels: BoundaryPanels,
     *,
@@ -670,8 +727,8 @@ def _incident_field(
     """
 
     beta0 = complex(green.beta(np.asarray([0.0]))[0])
-    x = panels.midpoint[:, 0]
-    y = panels.midpoint[:, 1]
+    x = panels.collocation[:, 0]
+    y = panels.collocation[:, 1]
     return np.exp(1j * alpha0 * x - 1j * beta0 * y)
 
 
@@ -803,11 +860,11 @@ def _rayleigh_amplitudes(
     """
 
     sign = -1.0 if upward else 1.0
-    x = panels.midpoint[:, 0]
-    y = panels.midpoint[:, 1]
+    x = panels.collocation[:, 0]
+    y = panels.collocation[:, 1]
     normal_x = panels.normal[:, 0]
     normal_y = panels.normal[:, 1]
-    weight = panels.length
+    weight = panels.weight
 
     phase = np.exp(
         -1j * alpha[:, None] * x[None, :] + 1j * sign * beta[:, None] * y[None, :]

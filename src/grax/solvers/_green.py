@@ -78,6 +78,8 @@ _MAX_LATTICE_CELLS = 64
 # Past this the lattice series has stopped being a practical accelerator and the
 # splitting parameter is the thing to fix, so it raises rather than grinding.
 _MAX_LATTICE_TERMS = 200
+#: Relative to |k|. Below this an order is treated as sitting on the pole.
+_RAYLEIGH_ANOMALY_TOLERANCE = 1e-9
 _TINY = 1e-300
 
 
@@ -163,6 +165,7 @@ class PeriodicGreen:
             spectral_orders = int(4 * self.period * abs(self.wavenumber) / (2 * np.pi)) + 40
         self.spectral_orders = int(spectral_orders)
         self._lattice_terms = _lattice_expansion_terms(self.wavenumber, self.splitting)
+        self._reject_rayleigh_anomaly()
 
     # -- shared spectral bookkeeping ---------------------------------------
 
@@ -330,6 +333,99 @@ class PeriodicGreen:
         d_dx = np.sum(prefactor * series_derivative * 2.0 * rx, axis=-1)
         d_dy = np.sum(prefactor * series_derivative * 2.0 * ry, axis=-1)
         return value, d_dx, d_dy
+
+    def _reject_rayleigh_anomaly(self) -> None:
+        """Raise when a diffraction order sits exactly at grazing emergence.
+
+        Every form of the quasi-periodic Green function carries ``1 / beta_n``,
+        so an order with ``beta_n = 0`` -- one emerging exactly along the surface,
+        a Rayleigh or Wood anomaly -- is a genuine pole of the kernel and not a
+        numerical artefact. Left unchecked it silently produces ``NaN``, which
+        then propagates into the assembled system and the efficiencies.
+
+        Absorbing media give ``beta_n`` a nonzero imaginary part and never
+        trigger this. It is reachable only for a lossless medium at an exact
+        coincidence, so nudging the photon energy or the incidence angle by a
+        fraction of a percent moves off it.
+
+        Raises:
+            ValueError: If any retained order is within tolerance of ``beta = 0``.
+        """
+
+        orders = np.arange(-self.spectral_orders, self.spectral_orders + 1, dtype=float)
+        beta = self.beta(orders)
+        scale = abs(self.wavenumber)
+        if scale <= 0.0:
+            return
+        offending = np.nonzero(np.abs(beta) < _RAYLEIGH_ANOMALY_TOLERANCE * scale)[0]
+        if offending.size == 0:
+            return
+        names = ", ".join(str(int(orders[index])) for index in offending[:5])
+        raise ValueError(
+            "A diffraction order lies exactly at grazing emergence (a Rayleigh anomaly), "
+            f"where the quasi-periodic Green function has a pole: order(s) {names} have "
+            f"|beta| < {_RAYLEIGH_ANOMALY_TOLERANCE:g} |k| for period={self.period:.6g} nm, "
+            f"k={self.wavenumber:.6g} /nm, alpha0={self.alpha0:.6g} /nm. This is a property "
+            "of the geometry, not of the discretization. Shift the photon energy or the "
+            "incidence angle slightly to move off the anomaly."
+        )
+
+    def regular_at_zero(self) -> tuple[complex, complex, complex]:
+        """Return ``G - G_free`` and its gradient at zero separation.
+
+        The periodic Green function and the free-space one share exactly the same
+        logarithmic singularity, so their difference is analytic through the
+        origin. A Nystrom scheme needs its value there for the diagonal entry,
+        and evaluating it at a small but nonzero separation would lose digits to
+        the cancellation of two diverging terms.
+
+        The singular piece lives entirely in the ``m = 0`` lattice image, through
+        ``E_1(z) ~ -gamma - ln z`` as ``z -> 0``. Removing it analytically leaves
+
+            (1/4pi) [ -gamma - 2 ln E + sum_{p>=1} c_p / p ]
+
+        since ``E_{p+1}(0) = 1/p``. The rest -- the spectral half and every
+        ``m != 0`` image -- is smooth and evaluated directly. Subtracting the
+        free-space regular part ``A(0) = i/4 - (ln(k/2) + gamma) / 2pi`` finishes
+        it.
+
+        The gradient of the ``m = 0`` remainder vanishes: it is an even analytic
+        function of ``R`` once the logarithm is removed. Likewise ``dG/dY`` is
+        zero on ``Y = 0`` because ``G`` depends on ``|Y|``.
+
+        Returns:
+            ``(value, d/dx, d/dy)`` of the regular part at zero separation.
+        """
+
+        zero = np.zeros((), dtype=float)
+        spectral, spectral_dx, spectral_dy = self._ewald_spectral_part(zero, zero)
+
+        # Every lattice image except m = 0, which is the singular one.
+        cells = self._ewald_lattice_cells()
+        shift = (cells[cells != 0.0]) * self.period
+        lattice = 0.0 + 0.0j
+        lattice_dx = 0.0 + 0.0j
+        lattice_dy = 0.0 + 0.0j
+        if shift.size:
+            r_squared = shift * shift
+            series, series_derivative = self._lattice_series(r_squared)
+            prefactor = np.exp(1j * self.alpha0 * shift) / (4.0 * np.pi)
+            lattice = complex(np.sum(prefactor * series))
+            lattice_dx = complex(np.sum(prefactor * series_derivative * (-2.0) * shift))
+            # Every image sits on Y = 0, so the y derivative of each is zero.
+
+        ratio = (self.wavenumber**2) / (4.0 * self.splitting**2)
+        coefficient = 1.0 + 0.0j
+        tail = 0.0 + 0.0j
+        for p in range(1, self._lattice_terms):
+            coefficient = coefficient * ratio / p
+            tail += coefficient / p
+        regularized = (-np.euler_gamma - 2.0 * np.log(self.splitting) + tail) / (4.0 * np.pi)
+
+        free_regular = 0.25j - (np.log(self.wavenumber / 2.0) + np.euler_gamma) / (2.0 * np.pi)
+
+        value = complex(spectral) + lattice + regularized - free_regular
+        return value, complex(spectral_dx) + lattice_dx, complex(spectral_dy) + lattice_dy
 
     def _ewald_lattice_cells(self) -> np.ndarray:
         """Return the lattice cell offsets retained in the spatial sum."""
