@@ -20,12 +20,15 @@ class _FakeRunner:
     resolved_max_workers = 1
 
     call_count = 0
+    interrupt_at: int | None = None
 
     def __init__(self, **_kwargs: object) -> None:
         pass
 
     def run_cases(self, cases, metadata=None):
         type(self).call_count += 1
+        if type(self).interrupt_at is not None and type(self).call_count == type(self).interrupt_at:
+            raise KeyboardInterrupt("interrupted mid-run")
         for index, case in enumerate(cases):
             yield SimpleNamespace(
                 index=index,
@@ -61,6 +64,7 @@ class _FakeAxClient:
 
 def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     _FakeRunner.call_count = 0
+    _FakeRunner.interrupt_at = None
     monkeypatch.setattr(objective_module, "BatchSimulationRunner", _FakeRunner)
     monkeypatch.setattr(
         dynamic_module,
@@ -390,3 +394,115 @@ def test_optimize_to_joint_measurements_resumes_and_extends(
 
     assert result.completed_trials == 10
     assert _FakeRunner.call_count - calls_after_first_run == 6
+
+
+def test_interrupted_run_with_checkpoint_interval_does_not_over_run_the_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resume must not replay trials the Ax snapshot never recorded.
+
+    The trial-record log is appended every trial but the snapshot and run state
+    are only rewritten every ``checkpoint_interval`` trials, so an interruption
+    leaves the log ahead of the snapshot. Those extra records describe trials Ax
+    will generate again; keeping them double-counted the trials and pushed the
+    resumed run past ``total_trials``.
+    """
+
+    _install_fakes(monkeypatch)
+    checkpoint_dir = tmp_path / "out" / "checkpoint"
+
+    _FakeRunner.interrupt_at = 5
+    with pytest.raises(KeyboardInterrupt):
+        dynamic_module.optimize_to_measurements(
+            _spec(tmp_path, total_trials=6, checkpoint_interval=3)
+        )
+
+    recorded_before_resume = [
+        line for line in (checkpoint_dir / "trial_records.jsonl").read_text().splitlines() if line
+    ]
+    persisted_cursor = json.loads((checkpoint_dir / "optimizer_state.json").read_text())[
+        "trial_index_cursor"
+    ]
+    assert len(recorded_before_resume) > persisted_cursor
+
+    _FakeRunner.interrupt_at = None
+    result = dynamic_module.optimize_to_measurements(
+        _spec(tmp_path, total_trials=6, checkpoint_interval=3, resume=True)
+    )
+
+    assert result.completed_trials == 6
+    trial_indices = [
+        json.loads(line)["trial_index"]
+        for line in (checkpoint_dir / "trial_records.jsonl").read_text().splitlines()
+        if line
+    ]
+    assert trial_indices == list(range(6))
+
+
+def test_measurement_fingerprint_refuses_an_unreadable_file(tmp_path: Path) -> None:
+    """The content hash must not degrade to a shared sentinel.
+
+    Both optimizer entry points load their measurements before building the
+    fingerprint, so an unreadable file normally fails earlier with a load error
+    and this guard is not reached. It matters if that ordering ever changes: a
+    sentinel digest makes two different unreadable files compare equal, which
+    would let a resume pass its data-integrity check against measurements that
+    are no longer on disk.
+    """
+
+    with pytest.raises(ValueError, match="Cannot fingerprint the measurement file"):
+        checkpoint_module._file_content_hash(tmp_path / "absent.dat")
+
+
+def test_resume_is_refused_when_the_solver_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The solver is part of the problem, not a performance knob.
+
+    ``total_trials`` and ``max_workers`` may change between runs, but swapping
+    the electromagnetic solver changes the physics the surrogate model was fitted
+    against, so it must block the resume rather than silently continue.
+    """
+
+    _install_fakes(monkeypatch)
+    dynamic_module.optimize_to_measurements(_spec(tmp_path, total_trials=3))
+
+    with pytest.raises(ValueError, match="changed: .*solver"):
+        dynamic_module.optimize_to_measurements(
+            _spec(tmp_path, total_trials=6, solver="neviere", resume=True)
+        )
+
+
+def test_resume_is_refused_when_a_measurement_condition_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    first_path = _write_measurement(tmp_path / "m1.dat", [(100.0, 0.2), (200.0, 0.3)])
+    second_path = _write_measurement(tmp_path / "m2.dat", [(100.0, 0.4), (200.0, 0.5)])
+
+    def joint_spec(polarization: str, resume: bool) -> dict[str, object]:
+        return {
+            "build_grating": lambda _parameters: SimpleNamespace(period_lpermm=2000.0),
+            "parameter_bounds": {"depth_nm": (1.0, 20.0)},
+            "output_dir": tmp_path / "out",
+            "measurements": [
+                {"grazing_angle_deg": 1.0, "measurement_path": first_path},
+                {
+                    "grazing_angle_deg": 2.0,
+                    "measurement_path": second_path,
+                    "polarization": polarization,
+                },
+            ],
+            "total_trials": 3,
+            "resume": resume,
+            "save_best_fit_plot": False,
+            "save_loss_plot": False,
+        }
+
+    optimize_to_joint_measurements(joint_spec("s", False))
+
+    with pytest.raises(ValueError, match="changed: measurements"):
+        optimize_to_joint_measurements(joint_spec("p", True))

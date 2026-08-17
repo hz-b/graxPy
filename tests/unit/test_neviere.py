@@ -1144,3 +1144,58 @@ def test_output_helpers_accept_either_solver_result(tmp_path: Path) -> None:
             results[0].orders, results[0].efficiency_all, diffraction_order=1
         )
         assert np.isfinite(efficiency)
+
+
+@pytest.mark.unit
+def test_joint_measurement_fit_agrees_across_solvers(tmp_path: Path) -> None:
+    """Verify the joint optimizer entry point works with either solver.
+
+    ``optimize_to_joint_measurements`` builds its own flat batch of cases, one
+    per measurement and energy, rather than going through the shared case
+    builders. It also lets each measurement carry its own angle mode,
+    diffraction order and polarization, so this runs a genuinely mixed set of
+    conditions through both solvers and compares the losses.
+    """
+
+    # grax_opt imports without Ax -- every Ax import in it is function-local -- so skipping
+    # on grax_opt alone would not skip. This runs a real Ax client, so gate on ax itself.
+    pytest.importorskip("ax", reason="Ax is only installed with the 'opt' extra.")
+    grax_opt = pytest.importorskip("grax_opt", reason="grax_opt needs the 'opt' extra.")
+
+    first_path = tmp_path / "fixed_s.dat"
+    first_path.write_text("300.0 0.10\n400.0 0.12\n", encoding="utf-8")
+    second_path = tmp_path / "cff_p.dat"
+    second_path.write_text("300.0 0.08\n400.0 0.09\n", encoding="utf-8")
+
+    def joint_spec(solver: str) -> dict[str, object]:
+        return {
+            "build_grating": lambda _parameters: _laminar_grating(),
+            "parameter_bounds": {"depth_nm": (14.8, 15.0)},
+            "output_dir": tmp_path / f"out_{solver}",
+            "measurements": [
+                {"measurement_path": first_path, "grazing_angle_deg": 4.0},
+                {
+                    "measurement_path": second_path,
+                    "angle_mode": "cff",
+                    "cff": 2.25,
+                    "diffraction_order": 1,
+                    "polarization": "p",
+                },
+            ],
+            "fourier_orders": 6,
+            "total_trials": 1,
+            "random_seed": 3,
+            "solver": solver,
+            "save_best_fit_plot": False,
+            "save_loss_plot": False,
+            "save_comparison_csv": False,
+        }
+
+    rcwa = grax_opt.optimize_to_joint_measurements(joint_spec("rcwa"))
+    neviere = grax_opt.optimize_to_joint_measurements(joint_spec("neviere"))
+
+    assert set(rcwa.per_measurement_best_losses) == {"alpha4deg", "cff2p25_order1_p"}
+    for label, rcwa_loss in rcwa.per_measurement_best_losses.items():
+        assert neviere.per_measurement_best_losses[label] == pytest.approx(
+            rcwa_loss, abs=SOLVER_PARITY_ATOL, rel=SOLVER_PARITY_RTOL
+        )

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Dict, Mapping, Optional
 
 import numpy as np
+from grax import normalize_polarization
 from grax.simulation import _resolve_max_workers as _resolve_simulation_max_workers
 
 from .config import ParameterBounds
@@ -178,6 +179,8 @@ class MeasurementFitConfig:
             interchangeable implementations of one.
         solver_options: Integration settings for ``solver="neviere"``, as a
             mapping matching :class:`grax.NeviereOptions`.
+        polarization: Polarization every trial is evaluated in, as ``s``/``p``
+            or the equivalent ``TE``/``TM``. Canonicalizes to ``s`` or ``p``.
         evaluation_energies_ev: Discrete energies used for objective evaluation.
         evaluation_grazing_angles_deg: Optional grazing angles (deg) used for
             explicit energy-angle evaluation pairs.
@@ -219,6 +222,7 @@ class MeasurementFitConfig:
     backend: str = "auto"
     solver: str = "rcwa"
     solver_options: dict[str, object] | None = None
+    polarization: str = "s"
     evaluation_energies_ev: list[float] = field(default_factory=list)
     evaluation_grazing_angles_deg: list[float] = field(default_factory=list)
     max_workers: int | str | None = None
@@ -290,6 +294,7 @@ class MeasurementFitConfig:
             raise ValueError("backend must be one of: auto, numba, numpy.")
         if self.solver not in {"rcwa", "neviere"}:
             raise ValueError("solver must be one of: rcwa, neviere.")
+        object.__setattr__(self, "polarization", normalize_polarization(self.polarization))
         selection = normalize_evaluation_selection(
             self.evaluation_energies_ev,
             self.evaluation_grazing_angles_deg,
@@ -366,6 +371,7 @@ class MeasurementFitConfig:
             backend=config.pop("backend", "auto"),
             solver=config.pop("solver", "rcwa"),
             solver_options=config.pop("solver_options", None),
+            polarization=str(config.pop("polarization", "s")),
             evaluation_energies_ev=list(config.pop("evaluation_energies_ev", [])),
             evaluation_grazing_angles_deg=list(
                 config.pop("evaluation_grazing_angles_deg", [])

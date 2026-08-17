@@ -66,7 +66,14 @@ that would make old trials incomparable to new ones blocks the resume:
 | `max_workers`, `backend` | `diffraction_order`, `fourier_orders`, `roughness_sigma_nm` |
 | `save_best_fit_plot`, `save_loss_plot` | the measurement files' **contents** or paths |
 | early-stopping settings | evaluation energies and angles, `objective_name` |
-| `checkpoint_interval`, `output_dir` | `joint_loss_reduction` and per-angle weights |
+| `checkpoint_interval`, `output_dir` | `solver` and `solver_options`, `polarization` |
+| | `joint_loss_reduction`, per-measurement conditions and weights |
+
+`backend` may change because it only selects how Fourier coefficients are
+computed; `solver` may not, because the two solvers are different methods and a
+surrogate model fitted against one does not describe the other. The same reason
+puts each measurement's resolved conditions -- angle mode, angle, `cff`,
+diffraction order, polarization -- on the blocking side.
 
 Measurements are identified by content hash, so editing a `.dat` file blocks the
 resume even when the path is unchanged. When something does differ, the error
@@ -80,6 +87,24 @@ checkpoint_dir or set resume=False to start a new run.
 
 `random_seed` is recorded but does not block a resume; changing it only affects
 trials that have not been generated yet.
+
+## A worked resume
+
+`examples/optimizer/optimizer_joint/` runs a short fit and then extends it:
+
+```bash
+./examples/optimizer/optimizer_joint/run_all.sh
+```
+
+Step 1 fits to a low trial budget and stops; step 2 raises `total_trials`,
+resumes, and reports how many trials were actually new along with the
+checkpoint's `run_count` and accumulated wall time.
+
+Note that {doc}`checkpoints-and-resume` covers a different mechanism: that page
+is about `BatchSimulationRunner` checkpointing a sweep of independent cases,
+which resumes by skipping cases already computed. This page is about the
+optimizer, which additionally has to restore the Ax surrogate model so the
+search continues rather than restarts.
 
 ## Failure handling
 

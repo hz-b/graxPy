@@ -9,9 +9,10 @@ from .dynamic import (
     resolve_measurement_fit_trial_parameters,
 )
 from .joint import (
-    AngleMeasurementSpec,
+    JointMeasurement,
     JointMeasurementFitConfig,
     JointOptimizationResult,
+    MeasurementSpec,
     optimize_to_joint_measurements as _optimize_to_joint_measurements,
 )
 from .objective import build_evaluation_measurement, evaluate_trial, reduce_joint_losses
@@ -47,9 +48,10 @@ def optimize_to_joint_measurements(config):
 
 
 __all__ = [
-    "AngleMeasurementSpec",
+    "JointMeasurement",
     "JointMeasurementFitConfig",
     "JointOptimizationResult",
+    "MeasurementSpec",
     "MeasurementFitConfig",
     "MeasurementData",
     "OptimizationResult",

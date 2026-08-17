@@ -56,6 +56,34 @@ def _evaluation_schedule(
     return evaluation_energies_ev, grazing_angles
 
 
+def _joint_measurement_grazing_angles(
+    joint_measurement: Any,
+    energies_ev: np.ndarray,
+    *,
+    grating_period_lpermm: float,
+) -> np.ndarray:
+    """Return the grazing angle for every evaluation energy of one measurement.
+
+    Args:
+        joint_measurement: Resolved measurement carrying its own angle mode.
+        energies_ev: Evaluation energies for the measurement.
+        grating_period_lpermm: Grating period, needed by the ``"cff"`` mode.
+
+    Returns:
+        One grazing angle per energy: constant under ``angle_mode="fixed"``, and
+        the monochromator relation under ``angle_mode="cff"``.
+    """
+
+    if str(joint_measurement.angle_mode) == "cff":
+        return monochromator_grazing_angles_deg(
+            energies_ev,
+            period_lpermm=grating_period_lpermm,
+            diffraction_order=int(joint_measurement.diffraction_order),
+            cff=float(joint_measurement.cff),
+        )
+    return np.full(energies_ev.shape, float(joint_measurement.grazing_angle_deg), dtype=float)
+
+
 def _trial_max_workers(config: Any) -> int:
     """Return the effective trial-level worker count for optimizer evaluation."""
 
@@ -166,6 +194,7 @@ def simulate_efficiency_curve_with_metadata(
                 "energy_ev": float(energy_ev),
                 "grazing_angle_deg": float(grazing_angle_deg),
                 "diffraction_order": int(config.diffraction_order),
+                "polarization": str(getattr(config, "polarization", "s")),
                 "fourier_orders": int(config.fourier_orders),
                 "roughness_sigma_nm": solver_parameters["roughness_sigma_nm"],
             }
@@ -180,12 +209,21 @@ def simulate_efficiency_curve_with_metadata(
         solver=str(getattr(config, "solver", "rcwa")),
         solver_options=getattr(config, "solver_options", None),
     )
-    trial_results = list(runner.run_cases(cases))
-    efficiencies = np.empty(len(cases), dtype=float)
-    for result in trial_results:
+    efficiencies = np.full(len(cases), np.nan, dtype=float)
+    filled = np.zeros(len(cases), dtype=bool)
+    for result in runner.run_cases(cases):
         if result.status != "ok":
             raise _BatchCaseFailure(result.case_id, result.status, int(runner.resolved_max_workers))
         efficiencies[int(result.index)] = float(result.selected_efficiency)
+        filled[int(result.index)] = True
+
+    if not bool(filled.all()):
+        missing_index = int(np.argmin(filled))
+        raise _BatchCaseFailure(
+            str(cases[missing_index]["case_id"]),
+            "missing",
+            int(runner.resolved_max_workers),
+        )
 
     return efficiencies, int(runner.resolved_max_workers)
 
@@ -288,7 +326,7 @@ def simulate_joint_efficiency_curves_with_metadata(
         config: Joint optimization configuration describing the simulation setup.
         trial_parameters: Ax trial parameters for the current candidate.
         joint_measurements: Prepared per-angle measurements to evaluate.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Hook that builds a grating from the trial parameters.
         resolve_solver_parameters_fn: Hook that resolves solver parameters.
 
@@ -314,14 +352,21 @@ def simulate_joint_efficiency_curves_with_metadata(
     case_slots: list[tuple[str, int]] = []
     for joint_measurement in joint_measurements:
         label = str(joint_measurement.label)
-        for point_index, energy_ev in enumerate(joint_measurement.evaluation_energies_ev):
+        energies = np.asarray(joint_measurement.evaluation_energies_ev, dtype=float)
+        grazing_angles = _joint_measurement_grazing_angles(
+            joint_measurement,
+            energies,
+            grating_period_lpermm=float(grating.period_lpermm),
+        )
+        for point_index, (energy_ev, grazing_angle_deg) in enumerate(zip(energies, grazing_angles)):
             cases.append(
                 {
                     "case_id": f"trial_eval_{label}_{point_index}",
                     "grating": grating,
                     "energy_ev": float(energy_ev),
-                    "grazing_angle_deg": float(joint_measurement.grazing_angle_deg),
-                    "diffraction_order": int(config.diffraction_order),
+                    "grazing_angle_deg": float(grazing_angle_deg),
+                    "diffraction_order": int(joint_measurement.diffraction_order),
+                    "polarization": str(joint_measurement.polarization),
                     "fourier_orders": int(config.fourier_orders),
                     "roughness_sigma_nm": solver_parameters["roughness_sigma_nm"],
                 }
@@ -383,7 +428,7 @@ def evaluate_joint_trial_with_metadata(
         trial_parameters: Ax trial parameters for the current candidate.
         joint_measurements: Prepared per-angle measurements to evaluate.
         loss_function: Optional custom per-measurement loss function.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Hook that builds a grating from the trial parameters.
         resolve_solver_parameters_fn: Hook that resolves solver parameters.
 
@@ -467,7 +512,7 @@ def evaluate_trial(
         trial_parameters: Ax trial parameters for the current candidate.
         measurement: Energy grid and target efficiencies used for evaluation.
         loss_function: Optional custom loss function.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Optional hook that builds a grating from the trial
             parameter mapping.
         resolve_solver_parameters_fn: Optional hook that resolves solver
@@ -519,7 +564,7 @@ def evaluate_trial_curve_with_metadata(
         trial_parameters: Ax trial parameters for the current candidate.
         measurement: Energy grid and target efficiencies used for evaluation.
         loss_function: Optional custom loss function.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Hook that builds a grating from the trial parameters.
         resolve_solver_parameters_fn: Hook that resolves solver parameters.
 
@@ -578,7 +623,7 @@ def evaluate_trial_with_metadata(
         trial_parameters: Ax trial parameters for the current candidate.
         measurement: Energy grid and target efficiencies used for evaluation.
         loss_function: Optional custom loss function.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Hook that builds a grating from the trial parameters.
         resolve_solver_parameters_fn: Hook that resolves solver parameters.
 

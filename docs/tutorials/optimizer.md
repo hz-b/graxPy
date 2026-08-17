@@ -180,12 +180,13 @@ Written files in `output_dir`:
 `best_result.json` also records optimizer worker metadata, including the
 requested and resolved `max_workers` values.
 
-## Joint multi-angle fits
+## Joint measurement fits
 
-To fit one parameter set against several measured curves taken at different
-grazing angles, use `grax_opt.optimize_to_joint_measurements` instead. Each
-angle keeps its own measurement file and energy grid, and the per-angle losses
-are combined into a single objective. See {doc}`optimizer-joint-angles`.
+To fit one parameter set against several measured curves at once, use
+`grax_opt.optimize_to_joint_measurements` instead. Each measurement keeps its own
+file, energy grid and conditions -- grazing angle, angle mode, diffraction order
+and polarization -- and the per-measurement losses are combined into a single
+objective. See {doc}`optimizer-joint-fit`.
 
 ## Resume a run
 
@@ -204,6 +205,6 @@ finished run can be extended by raising `total_trials` and setting
 
 optimizer-laminar-fit
 optimizer-blazed-fit
-optimizer-joint-angles
+optimizer-joint-fit
 optimizer-resume
 ```

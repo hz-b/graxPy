@@ -1,0 +1,186 @@
+{
+  "optimization_mode": "joint_measurement_fit",
+  "experiment_name": "joint_fit",
+  "objective_name": "joint_loss",
+  "joint_loss_reduction": "pooled",
+  "measurements": [
+    {
+      "label": "alpha4deg_order1",
+      "angle_mode": "fixed",
+      "grazing_angle_deg": 4.0,
+      "cff": null,
+      "diffraction_order": 1,
+      "polarization": "s",
+      "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_joint/measurements/measured_alpha4deg_order1.csv",
+      "evaluation_energies_ev": [
+        120.0,
+        144.0,
+        168.0,
+        192.0,
+        216.0,
+        240.0,
+        264.0,
+        288.0,
+        312.0,
+        336.0,
+        360.0,
+        384.0,
+        408.0,
+        432.0,
+        456.0,
+        480.0
+      ],
+      "point_count": 16,
+      "weight": 1.0
+    },
+    {
+      "label": "alpha2deg_order1",
+      "angle_mode": "fixed",
+      "grazing_angle_deg": 2.0,
+      "cff": null,
+      "diffraction_order": 1,
+      "polarization": "s",
+      "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_joint/measurements/measured_alpha2deg_order1.csv",
+      "evaluation_energies_ev": [
+        120.0,
+        144.0,
+        168.0,
+        192.0,
+        216.0,
+        240.0,
+        264.0,
+        288.0,
+        312.0,
+        336.0,
+        360.0,
+        384.0,
+        408.0,
+        432.0,
+        456.0,
+        480.0
+      ],
+      "point_count": 16,
+      "weight": 1.0
+    },
+    {
+      "label": "alpha4deg_order2",
+      "angle_mode": "fixed",
+      "grazing_angle_deg": 4.0,
+      "cff": null,
+      "diffraction_order": 2,
+      "polarization": "s",
+      "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_joint/measurements/measured_alpha4deg_order2.csv",
+      "evaluation_energies_ev": [
+        120.0,
+        144.0,
+        168.0,
+        192.0,
+        216.0,
+        240.0,
+        264.0,
+        288.0,
+        312.0,
+        336.0,
+        360.0,
+        384.0,
+        408.0,
+        432.0,
+        456.0,
+        480.0
+      ],
+      "point_count": 16,
+      "weight": 1.0
+    },
+    {
+      "label": "cff2p25_order1_p",
+      "angle_mode": "cff",
+      "grazing_angle_deg": null,
+      "cff": 2.25,
+      "diffraction_order": 1,
+      "polarization": "p",
+      "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_joint/measurements/measured_cff2p25_order1_p.csv",
+      "evaluation_energies_ev": [
+        120.0,
+        144.0,
+        168.0,
+        192.0,
+        216.0,
+        240.0,
+        264.0,
+        288.0,
+        312.0,
+        336.0,
+        360.0,
+        384.0,
+        408.0,
+        432.0,
+        456.0,
+        480.0
+      ],
+      "point_count": 16,
+      "weight": 1.0
+    }
+  ],
+  "parameter_bounds": {
+    "width_to_period_ratio": [
+      0.55,
+      0.75
+    ],
+    "depth_nm": [
+      13.9,
+      15.9
+    ],
+    "left_wall_angle_deg": [
+      8.0,
+      18.0
+    ],
+    "right_wall_angle_deg": [
+      8.0,
+      18.0
+    ],
+    "top_cap_thickness_nm": [
+      0.3,
+      2.0
+    ]
+  },
+  "equality_constraints": {
+    "right_wall_angle_deg": "left_wall_angle_deg"
+  },
+  "best_loss": 1.275779462117633e-06,
+  "per_measurement_best_losses": {
+    "alpha4deg_order1": 1.5051864247402988e-06,
+    "alpha2deg_order1": 2.1218523527574803e-06,
+    "alpha4deg_order2": 1.0207884168971692e-07,
+    "cff2p25_order1_p": 1.3740002292830358e-06
+  },
+  "best_parameters": {
+    "width_to_period_ratio": 0.6426822269702104,
+    "depth_nm": 14.613563507503734,
+    "left_wall_angle_deg": 10.758624756262979,
+    "top_cap_thickness_nm": 0.8005476343743531
+  },
+  "best_grating_parameters": {
+    "width_to_period_ratio": 0.6426822269702104,
+    "depth_nm": 14.613563507503734,
+    "left_wall_angle_deg": 10.758624756262979,
+    "top_cap_thickness_nm": 0.8005476343743531,
+    "right_wall_angle_deg": 10.758624756262979
+  },
+  "best_solver_parameters": {
+    "roughness_sigma_nm": null
+  },
+  "stopped_early": false,
+  "completed_trials": 20,
+  "early_stop_reason": null,
+  "backend_requested": "auto",
+  "backend_effective": "numba",
+  "solver": "rcwa",
+  "solver_options": null,
+  "optimizer_execution_strategy": "trial_batch_runner",
+  "optimizer_requested_max_workers": "auto",
+  "optimizer_resolved_max_workers": 8,
+  "angle_mode": "fixed",
+  "polarization": "s",
+  "diffraction_order": 1,
+  "fourier_orders": 12
+}

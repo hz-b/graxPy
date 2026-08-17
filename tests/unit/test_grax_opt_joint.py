@@ -11,10 +11,11 @@ import pytest
 from grax_opt import joint as joint_module
 from grax_opt import objective as objective_module
 from grax_opt.joint import (
-    AngleMeasurementSpec,
-    JointAngleMeasurement,
+    JointMeasurement,
     JointMeasurementFitConfig,
+    MeasurementSpec,
     optimize_to_joint_measurements,
+    prepare_joint_measurements,
 )
 from grax_opt.objective import (
     evaluate_joint_trial_with_metadata,
@@ -31,12 +32,15 @@ class _FakeRunner:
     efficiencies: dict[int, float] | None = None
     status_by_index: dict[int, str] | None = None
     omit_indices: set[int] = set()
+    init_kwargs: dict[str, object] = {}
+    seen_cases: list[dict[str, object]] = []
 
-    def __init__(self, **_kwargs: object) -> None:
-        pass
+    def __init__(self, **kwargs: object) -> None:
+        type(self).init_kwargs = dict(kwargs)
 
     def run_cases(self, cases, metadata=None):
         type(self).batch_sizes.append(len(cases))
+        type(self).seen_cases = [dict(case) for case in cases]
         order = type(self).result_order or list(range(len(cases)))
         for index in order:
             if index in type(self).omit_indices:
@@ -77,6 +81,8 @@ def _reset_fake_runner() -> None:
     _FakeRunner.efficiencies = None
     _FakeRunner.status_by_index = None
     _FakeRunner.omit_indices = set()
+    _FakeRunner.init_kwargs = {}
+    _FakeRunner.seen_cases = []
 
 
 def _write_measurement(path: Path, rows: list[tuple[float, float]]) -> Path:
@@ -87,20 +93,28 @@ def _write_measurement(path: Path, rows: list[tuple[float, float]]) -> Path:
     return path
 
 
-def _joint_measurements() -> list[JointAngleMeasurement]:
+def _joint_measurements() -> list[JointMeasurement]:
     return [
-        JointAngleMeasurement(
+        JointMeasurement(
             label="a1",
-            grazing_angle_deg=1.0,
             measurement_path=Path("a1.dat"),
+            angle_mode="fixed",
+            grazing_angle_deg=1.0,
+            cff=None,
+            diffraction_order=1,
+            polarization="s",
             evaluation_energies_ev=np.array([100.0, 200.0]),
             evaluation_efficiency=np.array([0.1, 0.2]),
             weight=1.0,
         ),
-        JointAngleMeasurement(
+        JointMeasurement(
             label="a2",
-            grazing_angle_deg=2.0,
             measurement_path=Path("a2.dat"),
+            angle_mode="fixed",
+            grazing_angle_deg=2.0,
+            cff=None,
+            diffraction_order=1,
+            polarization="s",
             evaluation_energies_ev=np.array([300.0, 400.0]),
             evaluation_efficiency=np.array([0.3, 0.4]),
             weight=1.0,
@@ -137,20 +151,20 @@ def _joint_spec(tmp_path: Path, **overrides: object) -> dict[str, object]:
     return spec
 
 
-def test_angle_measurement_spec_rejects_non_positive_angle(tmp_path: Path) -> None:
+def test_measurement_spec_rejects_non_positive_angle(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="grazing_angle_deg must be > 0"):
-        AngleMeasurementSpec(grazing_angle_deg=0.0, measurement_path=tmp_path / "m.dat")
+        MeasurementSpec(measurement_path=tmp_path / "m.dat", grazing_angle_deg=0.0)
 
 
-def test_angle_measurement_spec_defaults_label_from_angle(tmp_path: Path) -> None:
-    spec = AngleMeasurementSpec(grazing_angle_deg=2.5, measurement_path=tmp_path / "m.dat")
+def test_measurement_spec_defaults_label_from_angle(tmp_path: Path) -> None:
+    spec = MeasurementSpec(measurement_path=tmp_path / "m.dat", grazing_angle_deg=2.5)
 
     assert spec.label == "alpha2.5deg"
 
 
-def test_angle_measurement_spec_rejects_mismatched_efficiency_length(tmp_path: Path) -> None:
+def test_measurement_spec_rejects_mismatched_efficiency_length(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="same length as evaluation_energies_ev"):
-        AngleMeasurementSpec(
+        MeasurementSpec(
             grazing_angle_deg=1.0,
             measurement_path=tmp_path / "m.dat",
             evaluation_energies_ev=[100.0, 200.0],
@@ -158,8 +172,8 @@ def test_angle_measurement_spec_rejects_mismatched_efficiency_length(tmp_path: P
         )
 
 
-def test_angle_measurement_spec_from_mapping_accepts_numpy_arrays(tmp_path: Path) -> None:
-    spec = AngleMeasurementSpec.from_mapping(
+def test_measurement_spec_from_mapping_accepts_numpy_arrays(tmp_path: Path) -> None:
+    spec = MeasurementSpec.from_mapping(
         {
             "grazing_angle_deg": 1.0,
             "measurement_path": tmp_path / "m.dat",
@@ -172,9 +186,9 @@ def test_angle_measurement_spec_from_mapping_accepts_numpy_arrays(tmp_path: Path
     assert spec.measurement_efficiency == [0.1, 0.2]
 
 
-def test_angle_measurement_spec_from_mapping_rejects_unexpected_keys(tmp_path: Path) -> None:
+def test_measurement_spec_from_mapping_rejects_unexpected_keys(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unexpected joint measurement keys"):
-        AngleMeasurementSpec.from_mapping(
+        MeasurementSpec.from_mapping(
             {
                 "grazing_angle_deg": 1.0,
                 "measurement_path": tmp_path / "m.dat",
@@ -435,3 +449,149 @@ def test_optimize_to_joint_measurements_uses_supplied_measurement_efficiency(
     )
 
     assert result.best_loss == pytest.approx(0.0)
+
+
+def test_measurement_spec_inherits_run_level_conditions(tmp_path: Path) -> None:
+    """A spec that sets no conditions takes all of them from the run."""
+
+    prepared = prepare_joint_measurements(
+        [MeasurementSpec(measurement_path=_write_measurement(tmp_path / "m.dat", [(100.0, 0.2)]))],
+        angle_mode="fixed",
+        grazing_angle_deg=4.0,
+        diffraction_order=2,
+        polarization="TM",
+    )
+
+    assert prepared[0].angle_mode == "fixed"
+    assert prepared[0].grazing_angle_deg == 4.0
+    assert prepared[0].diffraction_order == 2
+    assert prepared[0].polarization == "p"
+    assert prepared[0].label == "m"
+
+
+def test_measurement_spec_overrides_win_over_run_level_conditions(tmp_path: Path) -> None:
+    """Each condition is independently overridable per measurement."""
+
+    prepared = prepare_joint_measurements(
+        [
+            MeasurementSpec(
+                measurement_path=_write_measurement(tmp_path / "a.dat", [(100.0, 0.2)]),
+                grazing_angle_deg=2.0,
+            ),
+            MeasurementSpec(
+                measurement_path=_write_measurement(tmp_path / "b.dat", [(100.0, 0.3)]),
+                angle_mode="cff",
+                cff=2.25,
+                diffraction_order=3,
+                polarization="p",
+            ),
+        ],
+        angle_mode="fixed",
+        grazing_angle_deg=4.0,
+        diffraction_order=1,
+        polarization="s",
+    )
+
+    assert (prepared[0].angle_mode, prepared[0].grazing_angle_deg) == ("fixed", 2.0)
+    assert prepared[0].diffraction_order == 1
+    assert prepared[0].polarization == "s"
+    assert (prepared[1].angle_mode, prepared[1].cff) == ("cff", 2.25)
+    assert prepared[1].diffraction_order == 3
+    assert prepared[1].polarization == "p"
+
+
+def test_measurement_spec_requires_the_value_its_angle_mode_needs(tmp_path: Path) -> None:
+    measurement_path = _write_measurement(tmp_path / "m.dat", [(100.0, 0.2)])
+
+    with pytest.raises(ValueError, match="resolves to angle_mode='cff' but no cff"):
+        prepare_joint_measurements(
+            [MeasurementSpec(measurement_path=measurement_path, angle_mode="cff")],
+            angle_mode="fixed",
+            grazing_angle_deg=4.0,
+        )
+
+    with pytest.raises(ValueError, match="resolves to angle_mode='fixed' but no grazing_angle_deg"):
+        prepare_joint_measurements([MeasurementSpec(measurement_path=measurement_path)])
+
+
+def test_measurement_spec_labels_describe_the_conditions_they_set(tmp_path: Path) -> None:
+    measurement_path = tmp_path / "m.dat"
+
+    assert (
+        MeasurementSpec(
+            measurement_path=measurement_path, grazing_angle_deg=4.0, diffraction_order=2
+        ).label
+        == "alpha4deg_order2"
+    )
+    assert (
+        MeasurementSpec(measurement_path=measurement_path, cff=2.25, polarization="TM").label
+        == "cff2p25_p"
+    )
+
+
+def test_joint_cases_carry_each_measurement_own_conditions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-measurement order and polarization must reach the batch cases."""
+
+    _reset_fake_runner()
+    monkeypatch.setattr(objective_module, "BatchSimulationRunner", _FakeRunner)
+
+    measurements = [
+        JointMeasurement(
+            label="fixed_s",
+            measurement_path=Path("a.dat"),
+            angle_mode="fixed",
+            grazing_angle_deg=4.0,
+            cff=None,
+            diffraction_order=1,
+            polarization="s",
+            evaluation_energies_ev=np.array([100.0]),
+            evaluation_efficiency=np.array([0.2]),
+            weight=1.0,
+        ),
+        JointMeasurement(
+            label="cff_p",
+            measurement_path=Path("b.dat"),
+            angle_mode="cff",
+            grazing_angle_deg=None,
+            cff=2.25,
+            diffraction_order=2,
+            polarization="p",
+            evaluation_energies_ev=np.array([100.0]),
+            evaluation_efficiency=np.array([0.3]),
+            weight=1.0,
+        ),
+    ]
+
+    simulate_joint_efficiency_curves_with_metadata(
+        _joint_eval_config(),
+        {"depth_nm": 5.0},
+        measurements,
+        backend="numba",
+        build_grating_fn=lambda _parameters: SimpleNamespace(period_lpermm=2000.0),
+        resolve_solver_parameters_fn=lambda _parameters: {"roughness_sigma_nm": None},
+    )
+
+    first, second = _FakeRunner.seen_cases
+    assert (first["diffraction_order"], first["polarization"]) == (1, "s")
+    assert first["grazing_angle_deg"] == 4.0
+    assert (second["diffraction_order"], second["polarization"]) == (2, "p")
+    # The cff mode derives its angle from the monochromator relation, not a constant.
+    assert second["grazing_angle_deg"] != 4.0
+
+
+def test_joint_runner_uses_the_configured_solver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_fake_runner()
+    monkeypatch.setattr(objective_module, "BatchSimulationRunner", _FakeRunner)
+    monkeypatch.setattr(
+        joint_module, "_create_ax_client_for_joint_config", lambda _config: _FakeAxClient()
+    )
+
+    optimize_to_joint_measurements(
+        _joint_spec(tmp_path, solver="neviere", solver_options={"step_phase": 0.01})
+    )
+
+    assert _FakeRunner.init_kwargs["solver"] == "neviere"
+    assert _FakeRunner.init_kwargs["solver_options"] == {"step_phase": 0.01}

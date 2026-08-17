@@ -118,13 +118,22 @@ def _file_content_hash(path: Path) -> str:
         path: File to hash.
 
     Returns:
-        The hex digest, or a sentinel when the file is unreadable.
+        The hex digest of the file contents.
+
+    Raises:
+        ValueError: If the file cannot be read. An unreadable file used to hash
+            to a shared sentinel, which made two different unreadable files
+            compare equal and let a resume pass its data-integrity check against
+            measurements that were no longer there.
     """
 
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return "unreadable"
+    except OSError as error:
+        raise ValueError(
+            f"Cannot fingerprint the measurement file at {path} ({error}). The optimizer "
+            "needs to read it to verify that a resumed run continues the same problem."
+        ) from error
 
 
 def build_problem_fingerprint(config: Any) -> dict[str, Any]:
@@ -153,15 +162,25 @@ def build_problem_fingerprint(config: Any) -> dict[str, Any]:
         "fourier_orders": int(config.fourier_orders),
         "roughness_sigma_nm": config.roughness_sigma_nm,
         "failure_penalty": float(config.failure_penalty),
+        "solver": str(getattr(config, "solver", "rcwa")),
+        "solver_options": getattr(config, "solver_options", None),
+        "polarization": str(getattr(config, "polarization", "s")),
     }
 
     measurements = getattr(config, "measurements", None)
     if measurements is not None:
         fingerprint["joint_loss_reduction"] = str(config.joint_loss_reduction)
+        fingerprint["angle_mode"] = str(config.angle_mode)
+        fingerprint["grazing_angle_deg"] = config.grazing_angle_deg
+        fingerprint["cff"] = config.cff
         fingerprint["measurements"] = [
             {
                 "label": str(spec.label),
-                "grazing_angle_deg": float(spec.grazing_angle_deg),
+                "angle_mode": spec.angle_mode,
+                "grazing_angle_deg": spec.grazing_angle_deg,
+                "cff": spec.cff,
+                "diffraction_order": spec.diffraction_order,
+                "polarization": spec.polarization,
                 "measurement_path": str(Path(spec.measurement_path).resolve()),
                 "content_hash": _file_content_hash(Path(spec.measurement_path)),
                 "evaluation_energies_ev": [
@@ -311,6 +330,40 @@ def load_trial_records(trial_records_path: Path) -> list[TrialRecord]:
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 module_logger.warning("Ignoring malformed trial record during resume.")
     return records
+
+
+def rewrite_trial_records(trial_records_path: Path, records: Sequence[TrialRecord]) -> None:
+    """Rewrite the trial-record log to hold exactly the given records.
+
+    Used after a resume discards records for trials Ax will generate again, so
+    the log on disk matches the recovered history and the next resume does not
+    rediscover the stale entries.
+
+    Args:
+        trial_records_path: Path to the append-only trial-record log.
+        records: Records the log should contain, in order.
+    """
+
+    trial_records_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=str(trial_records_path.parent),
+        prefix=f".{trial_records_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temporary_path = Path(handle.name)
+    try:
+        with handle:
+            for record in records:
+                append_trial_record(handle, record)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, trial_records_path)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def load_checkpoint_state(state_path: Path) -> dict[str, Any]:
@@ -643,12 +696,15 @@ class OptimizerCheckpointSession:
             self.paths.ax_snapshot_path,
             recorded_ax_version=checkpoint_state.get("ax_version"),
         )
+        recovered_records = load_trial_records(self.paths.trial_records_path)
         restore_trial_loop_state(
             state=state,
             checkpoint_state=checkpoint_state,
-            trial_records=load_trial_records(self.paths.trial_records_path),
+            trial_records=recovered_records,
             ax_client=ax_client,
         )
+        if len(state.trial_records) != len(recovered_records):
+            rewrite_trial_records(self.paths.trial_records_path, state.trial_records)
         state.best_extras = restore_best_extras(checkpoint_state.get("best_extras", {}))
         self.resumed = True
         self.previous_state = checkpoint_state
@@ -762,6 +818,13 @@ def restore_trial_loop_state(
     Ax is authoritative for how many candidates have been issued, so the cursor
     is taken from the client and reconciled against the recovered trial records.
 
+    The trial-record log is appended on every trial but the Ax snapshot and run
+    state are only rewritten every ``checkpoint_interval`` trials, so an
+    interrupted run can leave the log ahead of the snapshot. Records at or beyond
+    the reconciled cursor describe trials Ax will re-issue, so they are discarded
+    rather than kept alongside the repeat: keeping them would double-count those
+    trials in the recovered history and over-run ``total_trials``.
+
     Args:
         state: Trial-loop state to populate in place.
         checkpoint_state: Decoded optimizer run state.
@@ -769,8 +832,6 @@ def restore_trial_loop_state(
         ax_client: Restored Ax client.
     """
 
-    state.trial_records = list(trial_records)
-    state.completed_trials = len(state.trial_records)
     state.best_loss = float(checkpoint_state.get("best_loss", float("inf")))
     state.best_parameters = dict(checkpoint_state.get("best_parameters", {}))
     state.no_improvement_trials = int(checkpoint_state.get("no_improvement_trials", 0))
@@ -778,16 +839,21 @@ def restore_trial_loop_state(
         checkpoint_state.get("optimizer_resolved_max_workers", state.resolved_max_workers)
     )
 
-    persisted_cursor = int(checkpoint_state.get("trial_index_cursor", state.completed_trials))
+    recovered = list(trial_records)
+    persisted_cursor = int(checkpoint_state.get("trial_index_cursor", len(recovered)))
     client_cursor = ax_trial_count(ax_client)
-    if client_cursor is None:
-        state.trial_index_cursor = persisted_cursor
-        return
-    if client_cursor != state.completed_trials:
+    cursor = persisted_cursor if client_cursor is None else max(client_cursor, persisted_cursor)
+
+    kept = [record for record in recovered if int(record.trial_index) < cursor]
+    if len(kept) != len(recovered):
         module_logger.warning(
-            "Checkpoint drift on resume: Ax reports %s issued trials but %s trial records "
-            "were recovered. Continuing from the larger count.",
-            client_cursor,
-            state.completed_trials,
+            "Checkpoint drift on resume: %s trial records were recovered but only %s trials "
+            "were checkpointed. Discarding %s record(s) for trials Ax will generate again.",
+            len(recovered),
+            cursor,
+            len(recovered) - len(kept),
         )
-    state.trial_index_cursor = max(client_cursor, persisted_cursor)
+
+    state.trial_records = kept
+    state.completed_trials = len(kept)
+    state.trial_index_cursor = cursor

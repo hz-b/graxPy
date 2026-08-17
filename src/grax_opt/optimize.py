@@ -188,7 +188,7 @@ def _evaluate_candidate_worker(
         candidate: Candidate ``(trial_index, parameters)`` pair.
         config: Optimization configuration describing the simulation setup.
         measurement: Measurement data used for evaluation.
-        backend_effective: RCWA backend to use for the simulation.
+        backend_effective: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Optional grating-build hook.
         resolve_solver_parameters_fn: Optional solver-parameter hook.
 

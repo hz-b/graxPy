@@ -40,6 +40,9 @@ EXAMPLE_SCRIPT_PATHS = [
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
 )
+JOINT_OPTIMIZER_EXAMPLE_ROOT = (
+    Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_joint"
+)
 
 
 def build_test_grating() -> LaminarGrating:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import inspect
 import py_compile
+import runpy
 from pathlib import Path
 
 from grax.gratings import BlazedGrating
@@ -22,6 +23,7 @@ from grax.stacks import MultilayerStack
 from tests.simulation_helpers import (
     CR,
     EXAMPLE_SCRIPT_PATHS,
+    JOINT_OPTIMIZER_EXAMPLE_ROOT,
     OPTIMIZER_EXAMPLE_ROOT,
     SI,
     C,
@@ -97,6 +99,57 @@ def test_optimizer_example_assets_exist() -> None:
     ]
     for path in expected_paths:
         assert path.exists(), f"Missing optimizer example asset: {path}"
+
+
+def test_joint_optimizer_example_assets_exist() -> None:
+    expected_paths = [
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "example_config.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "joint_fit.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "0_generate_measurements.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "1_fit_joint.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "2_resume_and_extend.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "3_plot_joint_fit_comparison.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "run_all.sh",
+    ]
+    for path in expected_paths:
+        assert path.exists(), f"Missing joint optimizer example asset: {path}"
+
+
+def test_joint_optimizer_example_covers_every_condition_axis() -> None:
+    """The example exists to show joint fitting is not limited to grazing angle.
+
+    If the conditions collapse back to one axis the example stops demonstrating
+    what it is there for, so pin the axes rather than the exact values.
+    """
+
+    example_config = runpy.run_path(str(JOINT_OPTIMIZER_EXAMPLE_ROOT / "example_config.py"))
+    conditions = example_config["measurement_conditions"]
+
+    assert len(conditions) >= 3
+    overridden_keys = {key for condition in conditions for key in condition}
+    for axis in ("grazing_angle_deg", "diffraction_order", "angle_mode", "polarization"):
+        assert axis in overridden_keys, f"No measurement varies {axis}."
+
+    labels = [condition["label"] for condition in conditions]
+    assert len(set(labels)) == len(labels), "Measurement labels must be unique."
+
+
+def test_joint_optimizer_example_generates_data_with_a_fixed_solver() -> None:
+    """The generated measurements are the fit target and must not follow --solver.
+
+    Fitting rcwa-generated data with either solver is the point of the example's
+    --solver flag; that only means something if the data itself is fixed.
+    """
+
+    generator_source = (
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "0_generate_measurements.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'solver="rcwa"' in generator_source
+    # The docstring mentions --solver to explain why the data is fixed, so check
+    # that no flag is actually wired up rather than that the string is absent.
+    assert "solver_argument_parser" not in generator_source
+    assert "add_argument" not in generator_source
 
 
 def test_optimizer_example_scripts_compile() -> None:
