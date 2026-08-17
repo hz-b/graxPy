@@ -8,7 +8,7 @@ This section compares `grax` with three external references:
 
 All simulation curves use the same optical constants, and measured data is included for comparison.
 
-`grax` also ships two independent solvers of its own, and
+`grax` also ships two selectable solver paths of its own, and
 [RCWA vs Nevière differential method](solver-comparison.md) runs the same
 validation cases through both. Note that REFLEC, one of the external references
 above, is itself a differential-method code.

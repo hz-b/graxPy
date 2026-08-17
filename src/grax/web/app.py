@@ -34,6 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime
     make_subplots = None
 
 from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
+from grax.simulation.core import normalize_polarization
 
 from .persistence import GratingStore, build_grating_from_spec
 from .runs import RunStore
@@ -1249,12 +1250,14 @@ def _run_input_from_form(form: Any) -> dict[str, Any]:
 
 
 def _normalized_polarization(value: Any) -> str:
-    """Return a validated polarization code for Web UI run inputs."""
+    """Return a canonical polarization code for Web UI run inputs.
 
-    polarization = str(value or "s").strip().lower()
-    if polarization not in {"s", "p"}:
-        raise ValueError("polarization must be 's' or 'p'.")
-    return polarization
+    Delegates to :func:`grax.normalize_polarization`, so the form accepts the
+    same ``TE``/``TM`` aliases the Python API does and stores the canonical
+    ``"s"``/``"p"``.
+    """
+
+    return normalize_polarization(value or "s")
 
 
 def _normalized_solver(value: Any) -> str:

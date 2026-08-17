@@ -1,79 +1,31 @@
 # Where the two solvers differ
 
-The RCWA and Nevière solvers agree to about 1e-11 on every validation case, so
-most comparisons between them show two indistinguishable curves. Three examples
-cover the cases where the choice actually matters.
-
-Each lives under `examples/simulation/` and writes a plot and a CSV into its own
-`results/` directory.
-
-## Depth range
+GraxPy's modal RCWA and Nevière differential-method paths solve the same
+one-dimensional grating problem through different layer-propagation methods.
+The `neviere_solver.py` example sweeps energy for a representative grating and
+compares the selected diffraction-order efficiency from both paths.
 
 ```bash
-python examples/simulation/deep_grating_limits/deep_grating_limits.py
+python examples/simulation/neviere_solver/neviere_solver.py
 ```
 
-The modal solver treats each layer as z-invariant and evaluates `q / sinh(q d)`
-across the whole layer. For a deep, high-contrast grating the evanescent orders
-make `q d` large, `sinh` overflows, and the solve raises. The differential method
-never forms that quantity: it caps the optical thickness of any transfer matrix
-it builds and combines the pieces with an R-matrix cascade.
+The example writes the comparison plot and one CSV per solver to
+`examples/simulation/neviere_solver/results/`.
 
-On the published RETICOLO `exemple1_1D` lamellar grating, sweeping groove depth:
+```{figure} images/simulation/neviere_solver_comparison.png
+:alt: Energy sweep comparing RCWA and Nevière diffraction efficiencies, with their absolute difference below.
+:width: 100%
 
-| | deepest solve |
-| --- | --- |
-| RCWA (modal) | 8.4 wavelengths |
-| Nevière (differential) | 167 wavelengths |
-
-Where both work they agree to 3.3e-12, and the differential method's energy
-balance stays within 4e-11 of one throughout.
-
-None of the X-ray gratings in `validation/` come anywhere near this limit, so
-this is a capability difference rather than a correction.
-
-## Staircase versus continuous sampling
-
-```bash
-python examples/simulation/continuous_vs_staircase/continuous_vs_staircase.py
+The upper panel compares the selected-order efficiencies from RCWA and
+Nevière across the energy sweep. The lower panel shows their absolute
+difference.
 ```
 
-Both solvers normally see the profile as a staircase of z-slices, and that
-approximation is why a converged run needs a fine `z_resolution_nm`.
-`NeviereOptions(z_sampling="continuous")` re-expands the permittivity from the
-true profile as it integrates, so its answer does not depend on
-`z_resolution_nm` at all.
+For this example, the curves in the upper panel make the agreement directly
+visible, while the lower panel exposes differences that would otherwise be
+hidden by the efficiency scale. It is a useful first comparison when checking a
+new grating setup or deciding whether to cross-check a result with the other
+solver path.
 
-Sweeping a sinusoidal profile from 2 nm down to 0.05 nm slices:
-
-- continuous sampling varies by **exactly zero** across the whole sweep
-- the staircase carries 2.7e-3 of error at 2 nm, falling to 1.3e-5 at 0.05 nm
-- the two staircase curves (RCWA and Nevière in `"textures"` mode) track each
-  other to 6e-13, which is what makes the solvers comparable everywhere else
-
-The flat line is the converged answer, so the gap to a staircase curve reads
-directly as the discretization error that run is carrying.
-
-## Runtime
-
-```bash
-python examples/simulation/solver_runtime/solver_runtime.py --full
-```
-
-The differential method is the faster of the two, which is not what "integrate an
-ODE through every layer" suggests. The modal solver eigen-decomposes each
-distinct layer operator; the differential method never does, using only matrix
-products.
-
-| resolution | speedup |
-| --- | --- |
-| reduced | 1.2x to 1.4x |
-| production | 2.4x to 3.0x |
-
-Coarse runs have few distinct layers, so the eigensolve is not yet dominant and
-the two are close. The advantage appears in the regime where a sweep is
-expensive — which also means a quick coarse benchmark understates it.
-
-The example prints the maximum efficiency difference alongside every timing, so
-the speed number can be read against the accuracy it was obtained at. It stays
-around 1e-11.
+For guidance on when to use the default RCWA path or the Nevière path, see
+{doc}`choosing-a-solver`.

@@ -13,6 +13,7 @@ from .materials import (
     material_density_g_cm3,
 )
 from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
+from .simulation.core import normalize_polarization
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
     ParameterStudyResult,
@@ -94,6 +95,7 @@ __all__ = [
     "material_density_g_cm3",
     "multilayer_theta_search_cases",
     "monochromator_cases",
+    "normalize_polarization",
     "monochromator_grazing_angles_deg",
     "plot_parameter_study",
     "plot_order_subset",

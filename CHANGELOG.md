@@ -9,6 +9,10 @@
 - Fixed `run_multilayer_theta_search_sweep` reporting `solver="rcwa"` on every case regardless of the solver requested. The sweep builds its own `CaseExecutionResult` and copied only the theta-search diagnostics from the underlying result, so `solver` and `solver_options` fell back to their dataclass defaults. The computation was correct throughout -- an rcwa and a neviere sweep differ by ~5e-14 -- but a saved sweep recorded the wrong provenance.
 - Extended the both-solver test coverage to every entry point the examples use: `monochromator_cases`, `energy_angle_cases`, `run_parameter_study`, `run_multilayer_theta_search_sweep`, `assemble_custom_stack`/`LayerSpec`, `AFMGrating`, and the `write_all_orders_csv`/`plot_order_subset`/`efficiency_for_order` output helpers. Swapping `--solver` on any example now exercises a tested path.
 
+- Polarization arguments now accept `TE` and `TM` alongside `s` and `p`, case-insensitively, through a single shared `grax.normalize_polarization`. The library already spoke TE/TM internally (`res0`, `_solve_te_stack`) and in its theory docs while the public API took only s/p; these are the same two states. Values canonicalize to `s`/`p`, so results, CSVs and checkpoints are unchanged. Note the equivalence holds in classical mounting, which is the only mounting this solver supports.
+- The multilayer theta-search workflow now takes `polarization`. It previously had no such argument anywhere, so every theta search ran the `run_simulation` default of `s` -- awkward given all four validation cases run `p`. `run_multilayer_theta_search`, `run_multilayer_theta_search_sweep`, `multilayer_theta_search_cases` and the web form all accept it, and it reaches all three stages of the search. Default stays `s`.
+- `run_parameter_study` now validates `polarization` at the entry point instead of failing several frames deeper inside the simulation wrapper.
+
 ### Breaking changes
 
 Renames only — no behaviour changed. Migration:

@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from .gratings import BaseGrating
 from .simulation import GratingSimulation
+from .simulation.core import normalize_polarization
 
 __all__ = [
     "ParameterStudyEnergyResult",
@@ -183,6 +184,7 @@ def run_parameter_study(
         >>> plot_parameter_study(result)
     """
 
+    polarization = normalize_polarization(polarization)
     default_fourier, default_x, default_z = get_default_parameter_study_ranges()
     fourier_values = np.asarray(
         default_fourier if fourier_orders_values is None else fourier_orders_values,

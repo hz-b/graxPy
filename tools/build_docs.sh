@@ -246,10 +246,8 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
         fi
     done
 
-    if [[ -f "${PROJECT_ROOT}/examples/simulation/neviere_solver/results/neviere_solver_comparison.png" ]]; then
-        cp "${PROJECT_ROOT}/examples/simulation/neviere_solver/results/neviere_solver_comparison.png" \
-          "${SIM_IMAGE_DIR}/neviere_solver_comparison.png"
-    fi
+    cp "${PROJECT_ROOT}/examples/simulation/neviere_solver/results/neviere_solver_comparison.png" \
+      "${SIM_IMAGE_DIR}/neviere_solver_comparison.png"
     echo
 fi
 

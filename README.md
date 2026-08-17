@@ -1,8 +1,16 @@
 # grax
 
-`grax` is an independent Python package for diffraction-grating simulations in
-X-ray optics, inspired by RETICOLO v9 and extended with higher-level workflows
-for practical studies.
+`graxpy` is an independent Python package for one-dimensional X-ray
+diffraction-grating simulations. Its public Python import is `grax`.
+
+`grax` provides two selectable electromagnetic solver paths:
+
+- modal rigorous coupled-wave analysis (RCWA), inspired by RETICOLO v9;
+- the Nevière differential method.
+
+Both solvers support the same grating, material, and workflow APIs. They share
+the Fourier/discretization infrastructure and differ in how they propagate the
+fields through a layer.
 
 ## Documentation
 
@@ -31,13 +39,31 @@ names such as `"Si"` and `"Pt"`, with optional density overrides through
 and xrt-compatible material objects remain supported for now but emit a
 deprecation warning.
 
-PyPI project page: <https://pypi.org/project/graxpy/0.1.0/>
+PyPI project page: <https://pypi.org/project/graxpy/>
 
 For local editable installs:
 
 ```bash
 python -m pip install -e .
 ```
+
+## Select a solver
+
+RCWA is the default, so existing code continues to use it. Pass `solver` to
+choose the Nevière differential method instead:
+
+```python
+import grax
+
+# Uses the default modal RCWA path.
+rcwa_result = grax.run_simulation(..., solver="rcwa")
+
+# Uses the Nevière differential-method path.
+neviere_result = grax.run_simulation(..., solver="neviere")
+```
+
+See the documentation's [Choosing a solver](docs/tutorials/choosing-a-solver.md)
+tutorial for guidance and integration options.
 
 ## Local web app
 
@@ -107,9 +133,9 @@ overlay for each run. Use `Manage runs` to rename runs or bulk delete them.
 
 ## Attribution
 
-`grax` is inspired by RETICOLO v9. This project is an independent Python
-implementation and is not an official RETICOLO distribution. RETICOLO is not
-bundled as part of the public `graxpy` package distribution.
+The modal RCWA solver is inspired by RETICOLO v9. GraxPy is an independent
+implementation, not an official RETICOLO port or distribution; RETICOLO is not
+bundled with the public `graxpy` package.
 
 - RETICOLO DOI: <https://doi.org/10.5281/zenodo.14631950>
 - RETICOLO license (CC BY 4.0): <https://creativecommons.org/licenses/by/4.0/>

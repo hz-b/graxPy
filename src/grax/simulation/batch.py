@@ -24,6 +24,7 @@ from ..gratings import BaseGrating
 from .core import (
     _clone_grating_with_overrides,
     _validate_solver,
+    normalize_polarization,
     _refresh_interactive_figure,
     _warn_if_numpy_backend_requested,
     efficiency_for_order,
@@ -182,6 +183,9 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
             "min_reflected_efficiency": float(runner_settings["min_reflected_efficiency"]),
             "max_total_reflected_efficiency": _BATCH_MAX_TOTAL_REFLECTED_EFFICIENCY,
             "precise_peak_selection_mode": str(case.get("precise_peak_selection_mode", "max")),
+            "polarization": normalize_polarization(
+                case.get("polarization", runner_settings["polarization"])
+            ),
             "backend": runner_settings["backend"],
             "solver": _validate_solver(
                 str(case.get("solver", runner_settings["solver"]))
@@ -204,7 +208,9 @@ def _case_payload(case: dict[str, object], runner_settings: dict[str, object]) -
         "_memory_mode": _case_memory_mode(case),
         "profile_memory": bool(case.get("profile_memory", False)),
         "roughness_sigma_nm": case.get("roughness_sigma_nm"),
-        "polarization": str(case.get("polarization", runner_settings["polarization"])),
+        "polarization": normalize_polarization(
+            case.get("polarization", runner_settings["polarization"])
+        ),
         "solver": _validate_solver(str(case.get("solver", runner_settings["solver"]))),
         "solver_options": case.get("solver_options", runner_settings["solver_options"]),
         "validate_physical_results": bool(runner_settings["validate_physical_results"]),
@@ -828,9 +834,7 @@ class BatchSimulationRunner:
         self.retry_selected_efficiency_threshold = float(retry_selected_efficiency_threshold)
         self.max_zero_efficiency_retries = max(0, int(max_zero_efficiency_retries))
         self.backend = backend
-        self.polarization = polarization
-        if self.polarization not in {"s", "p"}:
-            raise ValueError("polarization must be 's' or 'p'.")
+        self.polarization = normalize_polarization(polarization)
         self.solver = _validate_solver(solver)
         self.solver_options = solver_options
         self._live_figure: plt.Figure | None = None

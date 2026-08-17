@@ -2,8 +2,9 @@
 
 Rigorous coupled-wave analysis models diffraction from periodic structures by
 expanding the electromagnetic fields and material permittivity in Fourier
-orders. In `grax`, the native solver path is currently a one-dimensional
-TE-style implementation for periodic grating profiles used in x-ray optics.
+orders. In `grax`, modal RCWA is one of two selectable electromagnetic solver
+paths; it is a one-dimensional implementation for periodic grating profiles
+used in X-ray optics and is inspired by RETICOLO.
 
 This page gives the minimum physical model needed to understand the code. It is
 not a replacement for RCWA references such as {cite}`moharam1995stable` and

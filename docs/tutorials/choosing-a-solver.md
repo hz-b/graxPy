@@ -1,8 +1,10 @@
 # Choosing a solver
 
-`grax` ships two independent electromagnetic solvers behind one interface. Every
-entry point takes a `solver` argument and defaults to `"rcwa"`, so existing code
-keeps its current behaviour.
+`grax` ships two selectable electromagnetic solver paths behind one interface:
+modal RCWA and the Nevière differential method. They share Fourier,
+discretization, and output machinery, but use different layer-propagation
+methods. Every entry point takes a `solver` argument and defaults to `"rcwa"`,
+so existing code keeps its current behaviour.
 
 ```python
 import grax

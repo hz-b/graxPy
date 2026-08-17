@@ -49,6 +49,54 @@ def _validate_solver(solver: str) -> str:
     return solver
 
 
+#: Accepted polarization spellings and the canonical value each maps to.
+#:
+#: ``"te"`` and ``"tm"`` are the names used throughout the grating-theory
+#: literature this solver follows, and by the solver internals themselves
+#: (``res0``, ``_solve_te_stack``); ``"s"`` and ``"p"`` are what the public API
+#: has always taken. They are the same two states.
+POLARIZATION_ALIASES = {"s": "s", "te": "s", "p": "p", "tm": "p"}
+
+#: Canonical polarization values. Everything downstream sees only these.
+POLARIZATION_NAMES = ("s", "p")
+
+
+def normalize_polarization(value: str) -> str:
+    """Return the canonical ``"s"`` or ``"p"`` for one polarization name.
+
+    Accepts ``"s"``, ``"p"``, ``"TE"`` and ``"TM"``, case-insensitively and
+    ignoring surrounding whitespace. The canonical value is always ``"s"`` or
+    ``"p"``, so passing ``"TE"`` gives back ``"s"``: results, CSV columns and
+    checkpoints only ever carry the two canonical spellings, and nothing
+    downstream has to know about the aliases.
+
+    Note:
+        ``s`` and ``TE`` name the same state only in **classical mounting**,
+        where the plane of incidence is perpendicular to the grooves. There, TE
+        has the electric field along the grooves, which is also the direction
+        perpendicular to the plane of incidence, so the two definitions coincide.
+        In a conical mounting they do not: ``s``/``p`` are defined against the
+        plane of incidence and ``TE``/``TM`` against the groove direction. This
+        solver is one-dimensional and classical only, so the alias is exact here
+        -- but it would stop being exact if conical mounting were ever added.
+
+    Args:
+        value: Polarization name in any accepted spelling.
+
+    Returns:
+        ``"s"`` or ``"p"``.
+
+    Raises:
+        ValueError: If the name is not one of the accepted spellings.
+    """
+
+    normalized = POLARIZATION_ALIASES.get(str(value).strip().lower())
+    if normalized is None:
+        accepted = ", ".join(repr(name) for name in POLARIZATION_ALIASES)
+        raise ValueError(f"polarization must be one of {accepted}, got {value!r}.")
+    return normalized
+
+
 def _warn_if_numpy_backend_requested(backend: str, *, stacklevel: int = 3) -> None:
     """Warn when callers explicitly request the deprecated NumPy backend."""
 
@@ -179,7 +227,7 @@ def _run_single_realization(
     *,
     energy_ev: float,
     grazing_angle_deg: float,
-    polarization: Literal["s", "p"],
+    polarization: str,
     effective_roughness_sigma_nm: float | None,
     num_supercells: int,
     effective_period_nm: float,
@@ -263,7 +311,7 @@ def run_simulation(
     diffraction_order: int = 1,
     fourier_orders: int = 25,
     roughness_sigma_nm: float | None = None,
-    polarization: Literal["s", "p"] = "s",
+    polarization: str = "s",
     validate_physical_results: bool = True,
     max_reflected_efficiency: float = 1.05,
     min_reflected_efficiency: float = -1e-8,
@@ -329,8 +377,7 @@ def run_simulation(
             )
         else:
             effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
-    if polarization not in {"s", "p"}:
-        raise ValueError("polarization must be 's' or 'p'.")
+    polarization = normalize_polarization(polarization)
     if _memory_mode not in {"legacy_dense", "low_memory"}:
         raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")
     _validate_solver(solver)
@@ -691,7 +738,7 @@ class GratingSimulation:
         diffraction_order: int = 1,
         fourier_orders: int = 25,
         grazing_angle_deg: float = 4.0,
-        polarization: Literal["s", "p"] = "s",
+        polarization: str = "s",
         live_plot: bool = False,
         validate_physical_results: bool = True,
         max_reflected_efficiency: float = 1.05,

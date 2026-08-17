@@ -225,6 +225,7 @@ def run_multilayer_theta_search_sweep(
     backend: str = "numba",
     solver: str = "rcwa",
     solver_options: object | None = None,
+    polarization: str = "s",
 ) -> MultilayerThetaSearchSweepResult:
     """Run a multilayer theta-search sweep and persist standard output artifacts.
 
@@ -278,6 +279,8 @@ def run_multilayer_theta_search_sweep(
             positive energy step in the requested sweep.
         save_profile_plot: Whether to save the grating profile plot.
         save_stack_plot: Whether to save the resolved stack schematic when available.
+        polarization: Incident polarization used for every energy point.
+            ``"s"``/``"TE"`` (default) or ``"p"``/``"TM"``.
         solver: Electromagnetic solver used for every energy point.
             ``"rcwa"`` (default) or ``"neviere"``.
         solver_options: Integration settings for ``solver="neviere"``, as a
@@ -433,6 +436,7 @@ def run_multilayer_theta_search_sweep(
         backend=backend,
         solver=solver,
         solver_options=solver_options,
+        polarization=polarization,
     )
     retry_jitter_values = _THETA_RETRY_JITTER_DEG[: max(0, int(max_zero_efficiency_retries))]
     theta_continuity_tolerance_deg = 0.02

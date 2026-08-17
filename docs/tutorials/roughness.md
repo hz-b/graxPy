@@ -38,8 +38,8 @@ kind and level, plus a combined comparison plot for diffraction order `1`.
 Grax supports two roughness implementations that enter the simulation at
 different stages.
 
-`debye-waller` roughness keeps the grating geometry unchanged. The RCWA solve
-uses the original discretized structure, and the solver then applies a
+`debye-waller` roughness keeps the grating geometry unchanged. The selected
+solver uses the original discretized structure, and then applies a
 Debye-Waller-style damping factor to the diffraction efficiencies. Use this mode
 when you want the existing scalar roughness correction:
 
@@ -47,8 +47,8 @@ when you want the existing scalar roughness correction:
 roughness=grax.RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
 ```
 
-`random-interface` roughness changes the grating geometry before the RCWA
-textures are built. During texture generation, each material interface receives
+`random-interface` roughness changes the grating geometry before solver textures
+are built. During texture generation, each material interface receives
 a deterministic random height modulation controlled by `seed`. Because the
 roughness is already represented in the geometry, Debye-Waller damping is not
 applied for this mode:
@@ -80,7 +80,7 @@ Real metrology (e.g. an interferometer surface slice after Zernike removal)
 shows correlation lengths of order **~10 µm**. On fine-pitch gratings (period
 ≈ 2.5 µm) such long correlations wash out geometrically — a roughness whose
 correlation length exceeds the grating period reduces to a near-constant height
-offset in single-period RCWA — so that long-scale regime is better represented
+offset in a single-period simulation — so that long-scale regime is better represented
 by the `debye-waller` kind.
 
 ## Per-layer roughness

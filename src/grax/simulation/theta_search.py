@@ -170,6 +170,7 @@ def _run_theta_scan(
     backend: str,
     solver: str,
     solver_options: object | None,
+    polarization: str,
 ) -> tuple[np.ndarray, list[SingleSimulationResult]]:
     """Run one theta scan and return selected efficiencies plus full results."""
 
@@ -188,6 +189,7 @@ def _run_theta_scan(
             backend=backend,
             solver=solver,
             solver_options=solver_options,
+            polarization=polarization,
         )
         for theta_deg in theta_grid_deg
     ]
@@ -328,6 +330,7 @@ def run_multilayer_theta_search(
     backend: str = "numba",
     solver: str = "rcwa",
     solver_options: object | None = None,
+    polarization: str = "s",
     diagnostic_callback: Callable[[ThetaSearchDiagnostics, float], None] | None = None,
 ) -> SingleSimulationResult:
     """Run one energy point with an internal rough/precise grazing-angle search.
@@ -388,6 +391,8 @@ def run_multilayer_theta_search(
         precise_peak_selection_mode: Mode used to select the final theta from the
             precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
             local Gaussian neighborhood, and ``"voigt"`` fits a local Voigt profile.
+        polarization: Incident polarization used for every stage of the search.
+            ``"s"``/``"TE"`` (default) or ``"p"``/``"TM"``.
         solver: Electromagnetic solver used for every stage of the search.
             ``"rcwa"`` (default) or ``"neviere"``. All three stages use the same
             solver so the selected angle and the final efficiency are consistent.
@@ -481,6 +486,7 @@ def run_multilayer_theta_search(
             backend=backend,
             solver=solver,
             solver_options=solver_options,
+            polarization=polarization,
         )
         rough_peak_index = int(np.nanargmax(rough_efficiencies))
         rough_peak_angle_deg = float(rough_grazing_angles_deg[rough_peak_index])
@@ -538,6 +544,7 @@ def run_multilayer_theta_search(
             backend=backend,
             solver=solver,
             solver_options=solver_options,
+            polarization=polarization,
         )
         precise_peak_index = int(np.nanargmax(precise_efficiencies))
         precise_ok, precise_status = _peak_capture_status(precise_efficiencies, precise_peak_index, edge_margin=2)
@@ -588,6 +595,7 @@ def run_multilayer_theta_search(
         backend=backend,
         solver=solver,
         solver_options=solver_options,
+        polarization=polarization,
     )
     logger.info(
         "[theta-search][final-scan] done energy=%.6f eV selected_theta=%.6f selected_eff=%.6e",

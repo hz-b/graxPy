@@ -14,7 +14,7 @@ This guide summarizes the source layout for contributors.
 - `stacks.py`: coating stack models above the substrate surface
 - `simulation/`: simulation workflows and orchestration (see package organization)
   - `models.py`: typed result dataclasses and small compatibility containers
-  - `core.py`: one-point RCWA execution and legacy plotting/comparison helpers
+  - `core.py`: one-point solver dispatch and legacy plotting/comparison helpers
   - `batch.py`: generic batch execution, checkpointing, subprocess execution, and worker calibration helpers
   - `cases.py`: lazy case-generation helpers and monochromator angle generation
   - `theta_search.py`: single-energy multilayer theta-search logic and scan helpers
@@ -72,4 +72,5 @@ Change `roughness.py` when roughness model math or diagnostics change.
 3. `src/grax/simulation/` (package overview in docs/api/simulation/package-organization.md)
 4. `src/grax/gratings.py`
 5. `src/grax/materials.py` and `src/grax/stacks.py`
-6. `src/grax/solvers/` (start with `common.py`, then `rcwa.py`)
+6. `src/grax/solvers/` (start with `common.py`, then read `rcwa.py` and
+   `neviere.py` as the two propagation implementations)

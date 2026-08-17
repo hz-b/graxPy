@@ -43,7 +43,13 @@ all_efficiencies = result.efficiency_all
 ```
 
 This maintained example sets `polarization="p"` explicitly so the script does
-not rely on the library default. Accepted values are `s` and `p`.
+not rely on the library default.
+
+Accepted values are `s` and `p`, plus the aliases `TE` and `TM` — `s` is TE and
+`p` is TM. The alias is resolved on the way in, so a result always reports the
+canonical `s` or `p` whichever spelling you passed. The two names coincide
+because this solver is one-dimensional and classical; see
+{func}`grax.normalize_polarization` for why that qualifier matters.
 
 To save a profile plot before or after running the simulation:
 
