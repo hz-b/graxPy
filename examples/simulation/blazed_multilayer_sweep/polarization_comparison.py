@@ -44,66 +44,69 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-runner = grax.BatchSimulationRunner(
-    solver=args.solver,
-    diffraction_order=1,
-    fourier_orders=20,
-    show_progress=True,
-    live_plot=False,
-    backend="numba",
-)
-
-results_s = list(runner.run_cases(
-    grax.monochromator_cases(
-        grating=grating,
-        energies_ev=energies_ev,
+if __name__ == "__main__":
+    runner = grax.BatchSimulationRunner(
+        solver=args.solver,
         diffraction_order=1,
-        cff=2.25,
-        polarization="s",
+        fourier_orders=20,
+        show_progress=True,
+        live_plot=True,
+        live_plot_x_key="energy_ev",
+        max_workers="auto",
+        backend="numba",
     )
-))
-results_p = list(runner.run_cases(
-    grax.monochromator_cases(
-        grating=grating,
-        energies_ev=energies_ev,
-        diffraction_order=1,
-        cff=2.25,
-        polarization="p",
-    )
-))
+
+    results_s = list(runner.run_cases(
+        grax.monochromator_cases(
+            grating=grating,
+            energies_ev=energies_ev,
+            diffraction_order=1,
+            cff=2.25,
+            polarization="s",
+        )
+    ))
+    results_p = list(runner.run_cases(
+        grax.monochromator_cases(
+            grating=grating,
+            energies_ev=energies_ev,
+            diffraction_order=1,
+            cff=2.25,
+            polarization="p",
+        )
+    ))
 
 
-def sorted_ok(results):
-    return sorted([r for r in results if r.status == "ok"], key=lambda r: float(r.energy_ev))
+    def sorted_ok(results):
+        return sorted([r for r in results if r.status == "ok"], key=lambda r: float(r.energy_ev))
 
 
-collected_s = sorted_ok(results_s)
-collected_p = sorted_ok(results_p)
-energies = np.asarray([r.energy_ev for r in collected_s], dtype=float)
+    collected_s = sorted_ok(results_s)
+    collected_p = sorted_ok(results_p)
+    energies = np.asarray([r.energy_ev for r in collected_s], dtype=float)
 
-comparison_plot_path = output_dir / f"blazed_multilayer_pol_comparison_{args.solver}.png"
-colors = ["tab:blue", "tab:orange", "tab:green"]
+    comparison_plot_path = output_dir / f"blazed_multilayer_pol_comparison_{args.solver}.png"
+    colors = ["tab:blue", "tab:orange", "tab:green"]
 
-figure, axis = plt.subplots(figsize=(10, 6))
-for index, order in enumerate(diffraction_orders):
-    eff_s = np.asarray(
-        [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in collected_s],
-        dtype=float,
-    )
-    eff_p = np.asarray(
-        [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in collected_p],
-        dtype=float,
-    )
-    axis.plot(energies, eff_s, "-", color=colors[index], linewidth=1.5, markersize=2, label=f"Order {order} (s)")
-    axis.plot(energies, eff_p, "--", color=colors[index], linewidth=1.5, markersize=2, label=f"Order {order} (p)")
+    figure, axis = plt.subplots(figsize=(10, 6))
+    for index, order in enumerate(diffraction_orders):
+        eff_s = np.asarray(
+            [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in collected_s],
+            dtype=float,
+        )
+        eff_p = np.asarray(
+            [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in collected_p],
+            dtype=float,
+        )
+        axis.plot(energies, eff_s, "-", color=colors[index], linewidth=1.5, markersize=2, label=f"Order {order} (s)")
+        axis.plot(energies, eff_p, "--", color=colors[index], linewidth=1.5, markersize=2, label=f"Order {order} (p)")
 
-axis.set_xlabel("Photon Energy (eV)")
-axis.set_ylabel("Diffraction Efficiency")
-axis.set_title("Blazed Multilayer Sweep: s vs p Polarization, Orders 1–3")
-axis.grid(True, alpha=0.3)
-axis.legend(loc="best")
-figure.tight_layout()
-figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
-plt.close(figure)
+    axis.set_xlabel("Photon Energy (eV)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title("Blazed Multilayer Sweep: s vs p Polarization, Orders 1–3")
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
 
-print(f"Polarization comparison plot saved to: {comparison_plot_path}")
+    print(f"Polarization comparison plot saved to: {comparison_plot_path}")

@@ -43,7 +43,7 @@ grating = SinusoidalGrating(
     top_cap_material=None,
     top_cap_thickness_nm=0.0,
     x_resolution_nm=1.0,
-    z_resolution_nm=0.1,
+    z_resolution_nm=0.5,
 )
 
 parser = argparse.ArgumentParser(description="Generate custom sinusoidal grating profile plot")

@@ -81,7 +81,7 @@ def main() -> None:
         fourier_orders=int(payload.get("fourier_orders", baseline_fourier_orders)),
         max_workers="auto",
         show_progress=True,
-        live_plot=False,
+        live_plot=True,
         on_error="fail_fast",
         backend="numba",
     )

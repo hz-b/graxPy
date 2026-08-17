@@ -47,16 +47,16 @@ CENTRAL_ENERGY_EV: float | None = None
 # a fixed sigma.
 DEBYE_SIGMA_NM = 1.0
 RANDOM_INTERFACE_SIGMA_NM = 1.0
-RANDOM_INTERFACE_NUM_SUPERCELLS = [10] # [1, 5, 10]
+RANDOM_INTERFACE_NUM_SUPERCELLS = [3]  # [1, 3, 5, 10]
 # Base seed for the random-interface roughness ensemble. ``None`` draws real
 # entropy (a genuinely random surface each run, so results are not
 # reproducible run to run); set an explicit int to reproduce one specific
 # ensemble for debugging.
 ROUGHNESS_SEED: int | None = None
-# Number of independent roughness realizations averaged per simulated point
-# (see ``RoughnessSpec.num_realizations``). The library default (8) is
-# usually fine as-is; exposed here for visibility/override.
-ROUGHNESS_NUM_REALIZATIONS = 8
+# Number of independent roughness realizations averaged per simulated point.
+# Two retains ensemble averaging while keeping the 3-supercell example usable
+# as a runnable demonstration.
+ROUGHNESS_NUM_REALIZATIONS = 2
 # Lateral autocorrelation length of the "random-interface" roughness, in nm.
 # ``None`` defaults to one tenth of the grating period; ``0.0`` gives an
 # uncorrelated (white-noise) interface.
@@ -67,12 +67,11 @@ GRAZING_ANGLE_DEG = 1.0
 ENERGIES_EV = np.arange(50.0, 2200.0, 50.0)
 POLARIZATION = "p"
 DIFFRACTION_ORDER = 1
-FOURIER_ORDERS = 20
+FOURIER_ORDERS = 15
 # Fourier orders used for the supercell runs (num_supercells > 1). Solver
-# cost scales with fourier_orders * num_supercells (and the solver hard-caps
-# around 100 effective orders), so this is set low enough that even the
-# largest supercell count here stays well within that limit.
-SUPERCELL_FOURIER_ORDERS = 20
+# cost scales with fourier_orders * num_supercells. The three-supercell
+# demonstration uses 24 effective orders, below the RCWA warning threshold.
+SUPERCELL_FOURIER_ORDERS = 8
 MAX_WORKERS = "auto"
 BACKEND = "numba"
 
@@ -85,6 +84,9 @@ PERIOD_LPERMM = 400
 WIDTH_TO_PERIOD_RATIO = 0.67
 DEPTH_NM = 14.9
 WALL_ANGLE_DEG = 15.0
+# 1 nm random-interface roughness needs sub-0.25 nm sampling for its
+# generated interface field; this intentionally exceeds the normal example
+# resolution floor.
 X_RESOLUTION_NM = 0.1
 Z_RESOLUTION_NM = 0.1
 
@@ -208,7 +210,7 @@ def main() -> None:
             diffraction_order=DIFFRACTION_ORDER,
             fourier_orders=fourier_orders,
             show_progress=True,
-            live_plot=False,
+            live_plot=True,
             on_error="continue",
             max_workers=MAX_WORKERS,
             backend=BACKEND,

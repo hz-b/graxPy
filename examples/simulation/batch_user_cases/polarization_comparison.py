@@ -18,7 +18,7 @@ base_grating_kwargs = dict(
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
     x_resolution_nm=0.5,
-    z_resolution_nm=0.1,
+    z_resolution_nm=0.5,
 )
 
 energy_ev = 1000.0
@@ -60,48 +60,50 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-runner = grax.BatchSimulationRunner(
-    solver=args.solver,
-    diffraction_order=diffraction_order,
-    fourier_orders=25,
-    show_progress=True,
-    live_plot=False,
-    on_error="continue",
-    backend="numba",
-)
-
-results_s_by_id = {r.case_id: r for r in runner.run_cases(cases_s)}
-results_p_by_id = {r.case_id: r for r in runner.run_cases(cases_p)}
-
-ordered_s = [results_s_by_id[f"pol-s-depth-{int(d):03d}"] for d in depths_nm]
-ordered_p = [results_p_by_id[f"pol-p-depth-{int(d):03d}"] for d in depths_nm]
-
-diffraction_orders = [1, 2, 3]
-colors = ["tab:blue", "tab:orange", "tab:green"]
-markers = ["o", "s", "^"]
-
-comparison_plot_path = output_dir / f"batch_user_cases_pol_comparison_{args.solver}.png"
-figure, axis = plt.subplots(figsize=(10, 6))
-for index, order in enumerate(diffraction_orders):
-    eff_s = np.asarray(
-        [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in ordered_s],
-        dtype=float,
+if __name__ == "__main__":
+    runner = grax.BatchSimulationRunner(
+        solver=args.solver,
+        diffraction_order=diffraction_order,
+        fourier_orders=15,
+        show_progress=True,
+        live_plot=True,
+        max_workers="auto",
+        on_error="continue",
+        backend="numba",
     )
-    eff_p = np.asarray(
-        [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in ordered_p],
-        dtype=float,
-    )
-    axis.plot(depths_nm, eff_s, f"{markers[index]}-", color=colors[index], linewidth=1.5, markersize=4, label=f"Order {order} (s)")
-    axis.plot(depths_nm, eff_p, f"{markers[index]}--", color=colors[index], linewidth=1.5, markersize=4, label=f"Order {order} (p)")
 
-axis.set_xlabel("Grating Depth (nm)")
-axis.set_ylabel("Diffraction Efficiency")
-axis.set_title(f"Depth Sweep: s vs p Polarization, Orders 1–3 at {energy_ev:.0f} eV")
-axis.grid(True, alpha=0.3)
-axis.legend(loc="best")
-figure.tight_layout()
-figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
-plt.close(figure)
+    results_s_by_id = {r.case_id: r for r in runner.run_cases(cases_s)}
+    results_p_by_id = {r.case_id: r for r in runner.run_cases(cases_p)}
 
-print(f"Polarization comparison plot saved to: {comparison_plot_path}")
-print(f"Energy: {energy_ev:.1f} eV, grazing angle (cff={cff}): {grazing_angle_deg:.6f} deg")
+    ordered_s = [results_s_by_id[f"pol-s-depth-{int(d):03d}"] for d in depths_nm]
+    ordered_p = [results_p_by_id[f"pol-p-depth-{int(d):03d}"] for d in depths_nm]
+
+    diffraction_orders = [1, 2, 3]
+    colors = ["tab:blue", "tab:orange", "tab:green"]
+    markers = ["o", "s", "^"]
+
+    comparison_plot_path = output_dir / f"batch_user_cases_pol_comparison_{args.solver}.png"
+    figure, axis = plt.subplots(figsize=(10, 6))
+    for index, order in enumerate(diffraction_orders):
+        eff_s = np.asarray(
+            [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in ordered_s],
+            dtype=float,
+        )
+        eff_p = np.asarray(
+            [grax.efficiency_for_order(r.orders, r.efficiency_all, diffraction_order=order) for r in ordered_p],
+            dtype=float,
+        )
+        axis.plot(depths_nm, eff_s, f"{markers[index]}-", color=colors[index], linewidth=1.5, markersize=4, label=f"Order {order} (s)")
+        axis.plot(depths_nm, eff_p, f"{markers[index]}--", color=colors[index], linewidth=1.5, markersize=4, label=f"Order {order} (p)")
+
+    axis.set_xlabel("Grating Depth (nm)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title(f"Depth Sweep: s vs p Polarization, Orders 1–3 at {energy_ev:.0f} eV")
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+
+    print(f"Polarization comparison plot saved to: {comparison_plot_path}")
+    print(f"Energy: {energy_ev:.1f} eV, grazing angle (cff={cff}): {grazing_angle_deg:.6f} deg")

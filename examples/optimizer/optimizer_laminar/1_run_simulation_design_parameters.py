@@ -92,7 +92,7 @@ def main() -> None:
         fourier_orders=fourier_orders,
         max_workers="auto",
         show_progress=True,
-        live_plot=False,
+        live_plot=True,
         on_error="fail_fast",
         backend="numba",
     )

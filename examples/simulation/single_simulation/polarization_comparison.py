@@ -19,7 +19,7 @@ grating = grax.LaminarGrating(
     layer_material="Pt",
     layer_thickness_nm=28.77,
     x_resolution_nm=1.0,
-    z_resolution_nm=0.1,
+    z_resolution_nm=0.5,
 )
 
 output_dir = Path(__file__).resolve().parent / "results"

@@ -66,43 +66,46 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-runner = grax.BatchSimulationRunner(
-    solver=args.solver,
-    diffraction_order=2,
-    fourier_orders=5,
-    show_progress=True,
-    live_plot=False,
-    on_error="fail_fast",
-    backend="numba",
-)
+if __name__ == "__main__":
+    runner = grax.BatchSimulationRunner(
+        solver=args.solver,
+        diffraction_order=2,
+        fourier_orders=5,
+        show_progress=True,
+        live_plot=True,
+        live_plot_x_key="energy_ev",
+        max_workers="auto",
+        on_error="fail_fast",
+        backend="numba",
+    )
 
-results = list(runner.run_cases(cases))
+    results = list(runner.run_cases(cases))
 
-csv_path = output_dir / f"energy_angle_multilayer_all_orders_{args.solver}.csv"
-plot_path = output_dir / f"energy_angle_multilayer_fast_{args.solver}.png"
-profile_path = output_dir / "energy_angle_multilayer_profile.png"
+    csv_path = output_dir / f"energy_angle_multilayer_all_orders_{args.solver}.csv"
+    plot_path = output_dir / f"energy_angle_multilayer_fast_{args.solver}.png"
+    profile_path = output_dir / "energy_angle_multilayer_profile.png"
 
-grax.write_all_orders_csv(results, csv_path)
-grating.plot_profile(profile_path)
+    grax.write_all_orders_csv(results, csv_path)
+    grating.plot_profile(profile_path)
 
-successful_results = [result for result in results if result.status == "ok"]
-figure, axis = plt.subplots(figsize=(10, 6))
-axis.plot(
-    [result.energy_ev for result in successful_results],
-    [result.selected_efficiency for result in successful_results],
-    "o-",
-    linewidth=1.0,
-    markersize=2.0,
-)
-axis.set_xlabel("Energy (eV)")
-axis.set_ylabel("Efficiency (2nd order)")
-axis.set_title("Fast Multilayer Energy-Angle Sweep (grax)")
-axis.grid(True, alpha=0.3)
-figure.tight_layout()
-figure.savefig(plot_path, dpi=150, bbox_inches="tight")
-plt.close(figure)
+    successful_results = [result for result in results if result.status == "ok"]
+    figure, axis = plt.subplots(figsize=(10, 6))
+    axis.plot(
+        [result.energy_ev for result in successful_results],
+        [result.selected_efficiency for result in successful_results],
+        "o-",
+        linewidth=1.0,
+        markersize=2.0,
+    )
+    axis.set_xlabel("Energy (eV)")
+    axis.set_ylabel("Efficiency (2nd order)")
+    axis.set_title("Fast Multilayer Energy-Angle Sweep (grax)")
+    axis.grid(True, alpha=0.3)
+    figure.tight_layout()
+    figure.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
 
-print(f"Sampled {len(energy_angle_pairs)} energy-angle pairs from: {input_path}")
-print(f"Results saved to: {csv_path}")
-print(f"Plot saved to: {plot_path}")
-print(f"Profile plot saved to: {profile_path}")
+    print(f"Sampled {len(energy_angle_pairs)} energy-angle pairs from: {input_path}")
+    print(f"Results saved to: {csv_path}")
+    print(f"Plot saved to: {plot_path}")
+    print(f"Profile plot saved to: {profile_path}")

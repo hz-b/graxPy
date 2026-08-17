@@ -72,6 +72,8 @@ if __name__ == "__main__":
         show_progress=True,
         fourier_orders=20,
         max_workers="auto",
+        live_plot=True,
+        live_plot_x_key="energy_ev",
         backend="numba",
     )
 

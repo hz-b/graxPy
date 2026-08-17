@@ -12,6 +12,16 @@ import matplotlib.pyplot as plt
 from .materials import material_label
 
 
+@dataclass(frozen=True)
+class _SchematicRepeatUnit:
+    """Metadata for one representative repeated bilayer in a schematic."""
+
+    layer_start_index_top_down: int
+    bilayer_count: int
+    bilayer_period_nm: float
+    materials_bottom_up: tuple[Any, Any]
+
+
 @dataclass
 class BaseStack(ABC):
     """Base class for coating stacks applied on top of a grating substrate."""
@@ -110,7 +120,7 @@ class BaseStack(ABC):
         self,
         *,
         max_layers: int | None = None,
-    ) -> tuple[list[tuple[Any, float]], list[str]]:
+    ) -> tuple[list[tuple[Any, float]], list[str], _SchematicRepeatUnit | None]:
         """Return schematic layers and summary lines for stack plotting.
 
         Args:
@@ -118,7 +128,8 @@ class BaseStack(ABC):
                 stack rendering.
 
         Returns:
-            A tuple containing top-down schematic layers and summary lines.
+            A tuple containing top-down schematic layers, summary lines, and
+            optional repeated-bilayer metadata.
         """
 
         sequence = self.layer_sequence_bottom_up()
@@ -140,12 +151,21 @@ class BaseStack(ABC):
             )
             summary_lines.append(f"{self.n_bilayers} bilayers")
             summary_lines.append(f"Bilayer period: {self.d_period_nm:.3f} nm")
-            return layers_top_down, summary_lines
+            return (
+                layers_top_down,
+                summary_lines,
+                _SchematicRepeatUnit(
+                    layer_start_index_top_down=len(layers_top_down) - 2,
+                    bilayer_count=self.n_bilayers,
+                    bilayer_period_nm=self.d_period_nm,
+                    materials_bottom_up=(bottom_material, top_material),
+                ),
+            )
 
         layers_top_down = list(reversed(sequence))
         if max_layers is not None and max_layers > 0:
             layers_top_down = layers_top_down[:max_layers]
-        return layers_top_down, summary_lines
+        return layers_top_down, summary_lines, None
 
     def plot_schematic(
         self,
@@ -161,7 +181,9 @@ class BaseStack(ABC):
                 the uppermost ``max_layers`` are shown.
         """
 
-        layers_top_down, summary_lines = self._schematic_layers_and_summary(max_layers=max_layers)
+        layers_top_down, summary_lines, repeat_unit = self._schematic_layers_and_summary(
+            max_layers=max_layers
+        )
 
         material_labels = self.plot_material_names()
         color_map = {
@@ -179,6 +201,7 @@ class BaseStack(ABC):
         figure, axis = plt.subplots(figsize=(7, figure_height))
 
         current_top_nm = 0.0
+        layer_boundaries_nm = [current_top_nm]
         for material, thickness_nm in layers_top_down:
             label = material_label(material)
             axis.barh(
@@ -199,6 +222,49 @@ class BaseStack(ABC):
                 fontsize=8,
             )
             current_top_nm += thickness_nm
+            layer_boundaries_nm.append(current_top_nm)
+
+        if repeat_unit is not None:
+            top_nm = layer_boundaries_nm[repeat_unit.layer_start_index_top_down]
+            bottom_nm = layer_boundaries_nm[repeat_unit.layer_start_index_top_down + 2]
+            bracket_x = 1.03
+            cap_start_x = 0.98
+            axis.plot(
+                [bracket_x, bracket_x],
+                [top_nm, bottom_nm],
+                color="black",
+                linewidth=1.1,
+                clip_on=False,
+            )
+            axis.plot(
+                [cap_start_x, bracket_x],
+                [top_nm, top_nm],
+                color="black",
+                linewidth=1.1,
+                clip_on=False,
+            )
+            axis.plot(
+                [cap_start_x, bracket_x],
+                [bottom_nm, bottom_nm],
+                color="black",
+                linewidth=1.1,
+                clip_on=False,
+            )
+            bottom_label, top_label = (
+                material_label(material) for material in repeat_unit.materials_bottom_up
+            )
+            axis.text(
+                1.07,
+                0.5 * (top_nm + bottom_nm),
+                (
+                    f"{bottom_label} / {top_label} repeat × {repeat_unit.bilayer_count}\n"
+                    f"Λ = {repeat_unit.bilayer_period_nm:.3f} nm"
+                ),
+                ha="left",
+                va="center",
+                fontsize=8,
+                clip_on=False,
+            )
 
         substrate_thickness_nm = max(10.0, 0.08 * max(current_top_nm, 1.0))
         axis.barh(
@@ -453,7 +519,7 @@ class CustomStack(BaseStack):
         self,
         *,
         max_layers: int | None = None,
-    ) -> tuple[list[tuple[Any, float]], list[str]]:
+    ) -> tuple[list[tuple[Any, float]], list[str], _SchematicRepeatUnit | None]:
         """Return schematic layers and summary lines for custom stacks.
 
         Multilayer-like repeated bilayer regions are collapsed to one
@@ -482,7 +548,16 @@ class CustomStack(BaseStack):
 
         summary_lines.append(f"{bilayer_count} bilayers")
         summary_lines.append(f"Bilayer period: {bilayer_period_nm:.3f} nm")
-        return layers_top_down, summary_lines
+        return (
+            layers_top_down,
+            summary_lines,
+            _SchematicRepeatUnit(
+                layer_start_index_top_down=len(explicit_layers_above),
+                bilayer_count=bilayer_count,
+                bilayer_period_nm=bilayer_period_nm,
+                materials_bottom_up=(repeated_layers[0][0], repeated_layers[1][0]),
+            ),
+        )
 
     @staticmethod
     def _detect_repeated_bilayer_block(
