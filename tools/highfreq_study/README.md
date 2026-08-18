@@ -55,13 +55,17 @@ formulations cannot drift apart on the physics; only the basis differs.
 
 `d = 2500 nm`, 2 degrees grazing, TM, tolerance 1e-4 absolute.
 
-| E (eV) | d/lambda | classical N | dev | hf dof/density | dev |
-| --- | --- | --- | --- | --- | --- |
-| 50 | 101 | 512 | 3.9e-08 | **1** | 3.9e-08 |
-| 100 | 202 | 1024 | 3.3e-08 | **1** | 3.3e-08 |
+| E (eV) | d/lambda | classical N | dev | secs | hf dof/density | dev | secs | Gram defect |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 50 | 101 | 512 | 3.9e-08 | 9.7 | **1** | 3.9e-08 | 9.8 | 1.5e-15 |
+| 100 | 202 | 1024 | 3.3e-08 | 152.4 | **1** | 3.3e-08 | 151.0 | 1.3e-15 |
+| 200 | 403 | 2048 | 2.1e-07 | 3029.5 | **1** | 2.1e-07 | 2886.9 | 4.5e-14 |
 
-One unknown per density at either energy, to the same digit as a classical solve
-with a thousand. A flat interface couples no orders, so its envelope is exactly
+One unknown per density at every energy, to the same digit as a classical solve
+with two thousand. The classical count doubles exactly with `d / lambda` across
+the whole 4x range -- 512, 1024, 2048 -- while the unknown count does not move.
+The runtimes being equal is the point restated: nothing has been made faster
+yet, the unknowns have simply stopped being the reason it is slow. A flat interface couples no orders, so its envelope is exactly
 constant and the mode count is energy-independent by construction.
 
 Sweeping the two requirements independently at fixed energy shows they are
@@ -96,11 +100,36 @@ is what an analytic envelope looks like:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | \|phi~_m\| | 1.0 | 2.3e-1 | 2.2e-2 | 1.3e-3 | 1.1e-4 | 7.8e-6 | 5.2e-7 | 3.5e-8 | 1.6e-9 |
 
+### Is the mode count geometric, or does it creep with energy?
+
+Same geometry at 200 eV, `d/lambda = 403`:
+
+| method | m=0 | m=1 | m=2 | max dev | unknowns | secs |
+| --- | --- | --- | --- | --- | --- | --- |
+| RCWA | 0.5207505 | 0.0982407 | 0.0168618 | — | — | 2.3 |
+| classical BIE, N=2048 | 0.5204689 | 0.0983115 | 0.0169500 | 2.8e-04 | 4096 | 3185.8 |
+| hf BIE, M=4 | 0.5204689 | 0.0983115 | 0.0169501 | 2.8e-04 | **18** | 2977.0 |
+
+Nine degrees of freedom per density at `d/lambda = 403`, the same nine that
+sufficed at 202, while the classical unknown count went from 2048 to 4096. The
+envelope spectra at the two energies are the same curve:
+
+| \|m\| | 0 | 1 | 2 | 3 | 4 |
+| --- | --- | --- | --- | --- | --- |
+| 100 eV (d/lambda 202) | 1.0 | 2.289e-1 | 2.154e-2 | 1.328e-3 | 1.062e-4 |
+| 200 eV (d/lambda 403) | 1.0 | 2.291e-1 | 1.463e-2 | 1.133e-3 | 1.449e-4 |
+
+The first harmonic agrees to three digits across a doubling of energy. The mode
+count is set by `h/d`, not by `d/lambda`, which is the claim the whole approach
+rests on and is now measured rather than argued from the flat case where it holds
+by symmetry.
+
 ## Where this leaves the two bottlenecks
 
-**A. Unknown count — removed.** 2048 unknowns become 10 at equal accuracy, and
+**A. Unknown count — removed.** 4096 unknowns become 18 at equal accuracy, and
 the count is set by how much the grating modulates the field, not by how many
-wavelengths fit in a period.
+wavelengths fit in a period. Confirmed over 4x in `d/lambda` on the flat case and
+2x on the sinusoid.
 
 **B. Kernel quadrature — untouched, and now the whole problem.** Runtime is
 unchanged (135 s against 161 s) because the projection is built *from* the nodal
