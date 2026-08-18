@@ -43,6 +43,28 @@ into a triangular mask, and a triangular mask against a separable summand is a
 prefix sum -- ``O(N_quad)`` per order rather than ``O(N_quad^2)``. This is exact:
 no hypothesis about the profile is used, only that it is a graph.
 
+Measured outcome: correct, not yet faster
+-----------------------------------------
+The splice is exact. ``near_band_operators`` reproduces the dense Kress entries
+bit for bit -- entry agreement 0.0 for both layers -- and the spliced projected
+block matches the full nodal projection to 3.6e-07.
+
+It does not currently save time, and the reason is worth recording rather than
+hiding. On a 512-node sinusoid at ``d/lambda = 101``, evaluating 19 percent of
+the pairs took 4.5 s against 4.3 s for all of them: the pair-list path is roughly
+five times less efficient *per pair* than the dense one. The Ewald kernel is
+fastest on contiguous two-dimensional blocks, where its order recurrence runs
+down a stride-one axis; a gathered pair list defeats that. The far-field series
+is the other half of the budget, and it lengthens as ``1/delta`` exactly as the
+near band shrinks, so trading one against the other moved the total from 7.4 s to
+7.1 s without ever reaching the 4.3 s dense baseline.
+
+So the arithmetic saving is real and the implementation does not yet realise it.
+Anyone picking this up should start at the kernel evaluation, not at the
+decomposition: the near band needs to be presented to the Ewald sum as dense
+tiles -- a banded or blocked layout in the height-sorted order -- rather than as
+a flat list of pairs.
+
 Cost, and what is still missing
 -------------------------------
 Per spectral order the work is ``O(M N_quad)`` for the prefix sums plus
@@ -68,6 +90,8 @@ import numpy as np
 __all__ = [
     "height_split_projection",
     "max_stable_reach",
+    "near_band_operators",
+    "projected_blocks",
     "near_band_mask",
     "projected_single_layer",
     "spectral_reach_for_separation",
@@ -205,8 +229,8 @@ def height_split_projection(
     # Strict ranks: how many sources sit strictly below, and strictly above,
     # each target height. Equal heights fall in neither and are dropped.
     gap = float(min_separation)
-    below = np.searchsorted(sorted_heights, heights - gap, side="left")
-    above = np.searchsorted(sorted_heights, heights + gap, side="right")
+    below = np.searchsorted(sorted_heights, heights - gap, side="left")[None, None, :]
+    above = np.searchsorted(sorted_heights, heights + gap, side="right")[None, None, :]
 
     span = float(sorted_heights[-1] - sorted_heights[0])
     if span > 0.0:
@@ -220,24 +244,41 @@ def height_split_projection(
                 "the cost of a wider near band."
             )
 
+    # Batched over spectral orders. The per-order work is small -- a cumulative
+    # sum and a small matmul -- so a Python loop over the tens of thousands of
+    # orders a narrow near band demands is pure interpreter overhead. Chunking
+    # keeps the (orders, modes, nodes) intermediates bounded.
     block = np.zeros((count, count), dtype=complex)
-    for index, spectral_order in enumerate(orders):
-        beta_n = beta[index]
-        carrier_t = np.exp(2j * np.pi * spectral_order * x / period)
-        carrier_s = np.exp(-2j * np.pi * spectral_order * x / period)
+    per_order = count * nodes * 16 * 8
+    step = max(1, (256 * 1024 * 1024) // max(per_order, 1))
+    for begin in range(0, orders.size, step):
+        end = min(begin + step, orders.size)
+        chunk = orders[begin:end].astype(float)
+        beta_chunk = beta[begin:end]
+
+        carrier_t = np.exp(2j * np.pi * chunk[:, None] * x[None, :] / period)
+        carrier_s = np.exp(-2j * np.pi * chunk[:, None] * x[None, :] / period)
 
         for sign, rank, take_prefix in ((1.0, below, True), (-1.0, above, False)):
-            target = harmonic_t * (carrier_t * np.exp(1j * sign * beta_n * heights))[None, :]
-            source = harmonic_s * (carrier_s * np.exp(-1j * sign * beta_n * heights))[None, :]
+            height_t = np.exp(1j * sign * beta_chunk[:, None] * heights[None, :])
+            height_s = np.exp(-1j * sign * beta_chunk[:, None] * heights[None, :])
+            target = harmonic_t[None, :, :] * (carrier_t * height_t)[:, None, :]
+            source = harmonic_s[None, :, :] * (carrier_s * height_s)[:, None, :]
 
-            ordered = source[:, order]
-            cumulative = np.zeros((count, nodes + 1), dtype=complex)
-            cumulative[:, 1:] = np.cumsum(ordered, axis=1)
+            ordered = source[:, :, order]
+            cumulative = np.zeros((chunk.size, count, nodes + 1), dtype=complex)
+            np.cumsum(ordered, axis=-1, out=cumulative[:, :, 1:])
             if take_prefix:
-                gathered = cumulative[:, rank]
+                gathered = np.take_along_axis(
+                    cumulative, np.broadcast_to(rank, (chunk.size, count, nodes)), axis=-1
+                )
             else:
-                gathered = cumulative[:, nodes][:, None] - cumulative[:, rank]
-            block += (target @ gathered.T) / beta_n
+                gathered = cumulative[:, :, nodes][:, :, None] - np.take_along_axis(
+                    cumulative, np.broadcast_to(rank, (chunk.size, count, nodes)), axis=-1
+                )
+            block += np.einsum(
+                "oan,obn,o->ab", target, gathered, 1.0 / beta_chunk, optimize=True
+            )
 
     return 0.5j / period * block
 
@@ -314,3 +355,188 @@ def projected_single_layer(
         min_separation=min_separation,
     )
     return near_part + far_part
+
+
+def _near_pair_indices(heights: np.ndarray, *, min_separation: float):
+    """Return the row and column indices of the near band.
+
+    Args:
+        heights: Profile height at each node.
+        min_separation: Height gap below which a pair is near.
+
+    Returns:
+        Pair of index arrays.
+    """
+
+    rows, columns = np.nonzero(near_band_mask(heights, min_separation=min_separation))
+    return rows, columns
+
+
+def near_band_operators(
+    green,
+    *,
+    boundary,
+    min_separation: float,
+    chunk_bytes: int = 256 * 1024 * 1024,
+):
+    """Return the classical Nystrom entries, evaluated only on the near band.
+
+    This is what turns the splice from a correctness harness into a saving. The
+    entries are the same ones :func:`grax.solvers._nystrom.nystrom_operators`
+    produces -- the Kress product quadrature, the absorption window, the analytic
+    diagonal -- but they are formed on the pair list rather than on the full
+    ``(N, N)`` grid, so the Ewald sum is evaluated ``nnz`` times instead of
+    ``N^2``. The far field is supplied separately by the plane-wave series, which
+    is what makes dropping the rest of the grid legitimate.
+
+    Args:
+        green: :class:`~grax.solvers._green.PeriodicGreen` for the medium.
+        boundary: Nodal boundary.
+        min_separation: Height gap separating near from far.
+        chunk_bytes: Rough cap on the Ewald spectral intermediate, which is
+            ``pairs x orders`` and would otherwise reach gigabytes.
+
+    Returns:
+        ``(rows, columns, single, double)``, the last two aligned with the first.
+    """
+
+    from scipy.special import jv
+
+    from ._nystrom import _absorption_window, _log_sine_factor, kress_log_weights
+
+    heights = boundary.position[:, 1]
+    rows, columns = _near_pair_indices(heights, min_separation=min_separation)
+    count = boundary.count
+    trapezoid = 2.0 * np.pi / count
+
+    x = boundary.position[:, 0]
+    dx = x[rows] - x[columns]
+    dy = heights[rows] - heights[columns]
+
+    value = np.empty(rows.size, dtype=complex)
+    normal_derivative = np.empty(rows.size, dtype=complex)
+    per_pair = max(int(green.spectral_reach()) * 16 * 6, 1)
+    step = max(1, chunk_bytes // per_pair)
+    for begin in range(0, rows.size, step):
+        end = min(begin + step, rows.size)
+        block, grad_x, grad_y = green.value_and_gradient(dx[begin:end], dy[begin:end])
+        value[begin:end] = block
+        normal_derivative[begin:end] = -(
+            grad_x * boundary.normal[columns[begin:end], 0]
+            + grad_y * boundary.normal[columns[begin:end], 1]
+        )
+
+    image = np.round(dx / boundary.period)
+    dx_image = dx - image * boundary.period
+    phase = np.exp(1j * green.alpha0 * image * boundary.period)
+    distance = np.hypot(dx_image, dy)
+    separation = boundary.nodes[rows] - boundary.nodes[columns]
+    log_factor = _log_sine_factor(separation)
+
+    window = _absorption_window(
+        separation, wavenumber=green.wavenumber, period=boundary.period
+    )
+    bessel0 = phase * jv(0, green.wavenumber * distance)
+    if window is not None:
+        bessel0 = bessel0 * window
+    m1_single = -bessel0 / (4.0 * np.pi)
+    m2_single = value + bessel0 * log_factor / (4.0 * np.pi)
+
+    q = (
+        dx_image * boundary.normal[columns, 0]
+        + dy * boundary.normal[columns, 1]
+    )
+    with np.errstate(invalid="ignore", divide="ignore"):
+        radial = np.where(
+            distance > 0.0,
+            jv(1, green.wavenumber * distance) * q / np.where(distance > 0.0, distance, 1.0),
+            0.0,
+        )
+    m1_double = -phase * green.wavenumber * radial / (4.0 * np.pi)
+    if window is not None:
+        m1_double = m1_double * window
+    m2_double = normal_derivative - m1_double * log_factor
+
+    diagonal = rows == columns
+    if np.any(diagonal):
+        regular_value, regular_dx, regular_dy = green.regular_at_zero()
+        free_regular = 0.25j - (
+            np.log(green.wavenumber / 2.0) + np.euler_gamma
+        ) / (2.0 * np.pi)
+        node = columns[diagonal]
+        safe_speed = np.maximum(boundary.speed[node], 1e-300)
+        m1_single[diagonal] = -1.0 / (4.0 * np.pi)
+        m2_single[diagonal] = (
+            free_regular + regular_value - np.log(safe_speed) / (2.0 * np.pi)
+        )
+        m1_double[diagonal] = 0.0
+        m2_double[diagonal] = boundary.curvature[node] / (4.0 * np.pi) - (
+            regular_dx * boundary.normal[node, 0] + regular_dy * boundary.normal[node, 1]
+        )
+
+    kress = kress_log_weights(count)[np.abs(rows - columns)]
+    speed = boundary.speed[columns]
+    single = (kress * m1_single + trapezoid * m2_single) * speed
+    double = (kress * m1_double + trapezoid * m2_double) * speed
+    return rows, columns, single, double
+
+
+def projected_blocks(
+    green,
+    *,
+    boundary,
+    basis,
+    min_separation: float,
+    decades: float = 14.0,
+):
+    """Return the projected single- and double-layer blocks without a dense assembly.
+
+    Splices the near band, evaluated pair by pair, onto the factorized far field.
+    The single layer takes both contributions; the double layer takes the near
+    band only, because its far field is the normal derivative of the same series
+    and is not yet factorized here -- see the module docstring for what that
+    leaves open.
+
+    Args:
+        green: Green function for the medium.
+        boundary: Nodal boundary.
+        basis: :class:`~grax.solvers._carrier.CarrierBasis` for this boundary.
+        min_separation: Height gap separating near from far.
+        decades: Requested decay for the far-field series reach.
+
+    Returns:
+        ``(single, double)``, each shaped ``(modes, modes)``.
+    """
+
+    rows, columns, single_values, double_values = near_band_operators(
+        green, boundary=boundary, min_separation=min_separation
+    )
+    analysis = basis.analysis[:, rows]
+    synthesis = basis.synthesis[columns, :]
+    near_single = (analysis * single_values[None, :]) @ synthesis
+    near_double = (analysis * double_values[None, :]) @ synthesis
+
+    heights = boundary.position[:, 1]
+    span = float(np.ptp(heights))
+    if span <= 0.0:
+        return near_single, near_double
+
+    reach = min(
+        spectral_reach_for_separation(
+            period=boundary.period, separation=min_separation, decades=decades
+        ),
+        max_stable_reach(period=boundary.period, height_range=span),
+    )
+    orders = np.arange(-reach, reach + 1)
+    beta = green.beta(orders.astype(float))
+    far_single = height_split_projection(
+        x=boundary.position[:, 0],
+        heights=heights,
+        jacobian=boundary.speed / (boundary.period / (2.0 * np.pi)),
+        modes=basis.orders,
+        beta=beta,
+        orders=orders,
+        period=boundary.period,
+        min_separation=min_separation,
+    )
+    return near_single + far_single, near_double

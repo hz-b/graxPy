@@ -163,3 +163,30 @@ rather than a rewrite of bookkeeping.
 
 That is the one optimization worth doing next. It is the only remaining lever
 that changes the exponent rather than the constant.
+
+## Near-band splice: exact, not yet faster
+
+`near_band_operators` evaluates the classical Kress entries only on the pairs the
+plane-wave series cannot cover, so the arithmetic is the near fraction of the
+dense assembly. Measured on a 512-node sinusoid at `d/lambda = 101`:
+
+| quantity | value |
+| --- | --- |
+| entry agreement, single layer | 0.0 |
+| entry agreement, double layer | 0.0 |
+| spliced block vs full projection | 3.6e-07 |
+| near band, delta = 1 nm | 10.9% of pairs |
+| near band, delta = 2 nm | 19.0% of pairs |
+| dense `nystrom_operators` | 4.33 s |
+| pair list at 19% of pairs | 4.49 s |
+| spliced projected block | 7.12 s |
+
+Correct, and slower. Evaluating a fifth of the pairs costs what all of them cost,
+because the Ewald kernel is fastest on contiguous 2-D blocks -- its order
+recurrence runs down a stride-one axis -- and a gathered pair list defeats that.
+The far-field series is the other half of the budget and grows as `1/delta`
+exactly as the near band shrinks, so the two cannot both be made small.
+
+The decomposition is not the problem; the memory layout is. The next attempt
+should present the near band to the Ewald sum as **dense tiles** in the
+height-sorted order rather than as a flat pair list.
