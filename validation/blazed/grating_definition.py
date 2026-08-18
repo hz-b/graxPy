@@ -155,17 +155,20 @@ def output_paths(solver: str) -> dict[str, Path]:
     """Return the output paths for one solver's run.
 
     The checked-in artifacts under ``results/`` keep their historical unsuffixed
-    names; every fresh run writes to a ``_rcwa`` or ``_neviere`` sibling.
+    names; every fresh run writes to a ``_rcwa``, ``_neviere`` or ``_integral``
+    sibling.
 
     Args:
-        solver: ``"rcwa"`` or ``"neviere"``.
+        solver: ``"rcwa"``, ``"neviere"`` or ``"integral"``.
 
     Returns:
         Mapping of output name to path.
     """
 
-    if solver not in ("rcwa", "neviere"):
-        raise ValueError(f"solver must be 'rcwa' or 'neviere', got {solver!r}.")
+    if solver not in ("rcwa", "neviere", "integral"):
+        raise ValueError(
+            f"solver must be 'rcwa', 'neviere' or 'integral', got {solver!r}."
+        )
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stem = "blazed_comparison_monochromator_orders_1_3"
     return {

@@ -12,10 +12,20 @@ import matplotlib.pyplot as plt
 # artifact and is only used as a fallback, because it predates several solver
 # changes and pairing it against a fresh run would show that drift as though it
 # were a difference between the two methods.
-SOLVER_LABELS = {"rcwa": "graxpy (RCWA)", "neviere": "graxpy (Nevière DM)"}
-# The two solvers agree to ~1e-11, so without a dashed overlay the second curve
-# hides the first completely and the plot looks as though one is missing.
-SOLVER_STYLES = {"rcwa": {"linestyle": "-"}, "neviere": {"linestyle": (0, (6, 4))}}
+SOLVER_LABELS = {
+    "rcwa": "graxpy (RCWA)",
+    "neviere": "graxpy (Nevière DM)",
+    "integral": "graxpy (boundary integral)",
+}
+# RCWA and Nevière agree to ~1e-11, so without a dashed overlay the second curve
+# hides the first completely and the plot looks as though one is missing. The
+# integral solver is an independent method rather than a second Fourier one, so
+# it is expected to sit slightly apart and gets its own dotted style.
+SOLVER_STYLES = {
+    "rcwa": {"linestyle": "-"},
+    "neviere": {"linestyle": (0, (6, 4))},
+    "integral": {"linestyle": (0, (1, 2))},
+}
 
 
 def load_solver_curves(base_csv, order):
@@ -30,7 +40,7 @@ def load_solver_curves(base_csv, order):
     """
 
     curves = []
-    for solver in ("rcwa", "neviere"):
+    for solver in ("rcwa", "neviere", "integral"):
         candidates = [base_csv.with_name(f"{base_csv.stem}_{solver}{base_csv.suffix}")]
         if solver == "rcwa":
             candidates.append(base_csv)
