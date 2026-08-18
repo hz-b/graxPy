@@ -67,8 +67,45 @@ import numpy as np
 
 __all__ = [
     "height_split_projection",
+    "max_stable_reach",
+    "near_band_mask",
+    "projected_single_layer",
     "spectral_reach_for_separation",
 ]
+
+
+def max_stable_reach(*, period: float, height_range: float) -> int:
+    """Return the largest spectral order the height split can carry stably.
+
+    The factorization ``exp(i beta_n (f_t - f_s)) = exp(i beta_n f_t)
+    exp(-i beta_n f_s)`` is exact, but only the *product* is bounded. For a deep
+    evanescent order ``beta_n`` is nearly imaginary, so one factor decays like
+    ``exp(-|beta_n| f)`` while the other grows like ``exp(+|beta_n| f)``, and the
+    individual factors reach ``exp(|beta_n| H)`` across a profile of height range
+    ``H`` however small the pair's own gap is.
+
+    This is the same failure that the Kress split hits in an absorbing medium: an
+    exact identity whose two halves leave the range float64 can carry. Here it
+    caps the reach rather than the material, and the cap is what ties the near
+    band threshold to the profile depth -- a deeper profile forces a wider band,
+    because the series covering that band cannot be summed far enough.
+
+    Args:
+        period: Grating period in nanometers.
+        height_range: Peak-to-trough height of the profile in nanometers.
+
+    Returns:
+        Half-width of the largest safely summable order range.
+
+    Raises:
+        ValueError: If the height range is not positive.
+    """
+
+    if height_range <= 0.0:
+        raise ValueError("height_range must be positive; a flat profile has no far field.")
+    # exp overflows past ~709 in float64; leave an order of magnitude of margin
+    # so the products, not just the factors, stay comfortably in range.
+    return max(1, int(650.0 * period / (2.0 * np.pi * height_range)))
 
 
 def spectral_reach_for_separation(
@@ -112,6 +149,7 @@ def height_split_projection(
     beta: np.ndarray,
     orders: np.ndarray,
     period: float,
+    min_separation: float = 0.0,
 ) -> np.ndarray:
     """Return the far-field part of one projected single-layer block.
 
@@ -121,10 +159,15 @@ def height_split_projection(
             exp(i 2 pi (n - m') x_t / d) exp(-i 2 pi (n - m) x_s / d)
             exp(i beta_n |f_t - f_s|) J_s dx_s dx_t
 
-    over the two open regions ``f_t > f_s`` and ``f_t < f_s``, where the modulus
-    resolves and the exponential separates. Pairs at exactly equal height carry
-    ``|Y| = 0``, where the series does not converge; they are excluded here and
-    belong to the near band, which the caller supplies from the Ewald kernel.
+    over the two regions ``f_t - f_s > delta`` and ``f_s - f_t > delta``, where
+    the modulus resolves and the exponential separates. Pairs closer than
+    ``delta`` in height are excluded: the series needs ``|beta_n| |Y|`` to grow to
+    converge, so they belong to the near band and the caller supplies them from
+    the Ewald kernel.
+
+    Excluding the band costs nothing. ``f_s < f_t - delta`` is still a *prefix*
+    in the height-sorted order, so the threshold only moves where the rank is
+    read, and the prefix-sum structure is untouched.
 
     The region constraint is applied by sorting on height and reading prefix sums
     at the strict rank of each target, so ties are excluded exactly rather than
@@ -139,6 +182,10 @@ def height_split_projection(
         beta: Out-of-plane wavenumber per spectral order, shape ``(reach,)``.
         orders: Spectral orders ``n`` aligned with ``beta``, shape ``(reach,)``.
         period: Grating period in nanometers.
+        min_separation: Height gap ``delta`` below which a pair is left to the
+            near band. ``0`` keeps every distinct-height pair, which is only
+            usable when the series is summed far enough for the smallest gap on
+            the grid.
 
     Returns:
         Complex block shaped ``(count, count)``, indexed ``[m', m]``.
@@ -157,8 +204,21 @@ def height_split_projection(
     sorted_heights = heights[order]
     # Strict ranks: how many sources sit strictly below, and strictly above,
     # each target height. Equal heights fall in neither and are dropped.
-    below = np.searchsorted(sorted_heights, heights, side="left")
-    above = np.searchsorted(sorted_heights, heights, side="right")
+    gap = float(min_separation)
+    below = np.searchsorted(sorted_heights, heights - gap, side="left")
+    above = np.searchsorted(sorted_heights, heights + gap, side="right")
+
+    span = float(sorted_heights[-1] - sorted_heights[0])
+    if span > 0.0:
+        limit = max_stable_reach(period=period, height_range=span)
+        if int(np.max(np.abs(orders))) > limit:
+            raise ValueError(
+                f"The height split was asked for order {int(np.max(np.abs(orders)))}, but a "
+                f"profile spanning {span:.3g} nm over a {period:.3g} nm period can only "
+                f"carry {limit} before the two halves of the factorization overflow. "
+                "Raise min_separation, which shortens the series the far field needs, at "
+                "the cost of a wider near band."
+            )
 
     block = np.zeros((count, count), dtype=complex)
     for index, spectral_order in enumerate(orders):
@@ -180,3 +240,77 @@ def height_split_projection(
             block += (target @ gathered.T) / beta_n
 
     return 0.5j / period * block
+
+
+def near_band_mask(heights: np.ndarray, *, min_separation: float) -> np.ndarray:
+    """Return the pairs the plane-wave series cannot resolve.
+
+    Exactly the complement of what :func:`height_split_projection` sums, so the
+    two partition the operator with no pair counted twice or dropped.
+
+    Args:
+        heights: Profile height at each node, shape ``(nodes,)``.
+        min_separation: Height gap below which a pair is near.
+
+    Returns:
+        Boolean ``(nodes, nodes)`` array, true where the pair is near.
+    """
+
+    return np.abs(np.subtract.outer(heights, heights)) <= float(min_separation)
+
+
+def projected_single_layer(
+    *,
+    nodal_block: np.ndarray,
+    basis,
+    x: np.ndarray,
+    heights: np.ndarray,
+    jacobian: np.ndarray,
+    beta: np.ndarray,
+    orders: np.ndarray,
+    period: float,
+    min_separation: float,
+) -> np.ndarray:
+    """Return one projected block as near band plus factorized far field.
+
+    The near band comes from ``nodal_block``, which is the classical Nystrom
+    operator and carries the Kress product quadrature that the logarithmic
+    singularity needs. The far field comes from the factorized spectral sum. The
+    two sets partition the node pairs, so the result is the same operator, built
+    the cheap way wherever the series converges.
+
+    This is the correctness harness for the splice, not yet the speedup: the near
+    band is read out of a full nodal block, so the assembly cost is unchanged
+    until the near evaluation is itself restricted to the band. Getting the
+    partition right has to come first, because a splice that quietly double
+    counts or drops a region produces a plausible wrong number rather than an
+    obvious failure.
+
+    Args:
+        nodal_block: Classical Nystrom single-layer block, ``(nodes, nodes)``.
+        basis: :class:`~grax.solvers._carrier.CarrierBasis` for this boundary.
+        x: Uniform quadrature abscissae over one period.
+        heights: Profile height at each abscissa.
+        jacobian: Arc-length Jacobian at each abscissa.
+        beta: Out-of-plane wavenumber per spectral order.
+        orders: Spectral orders aligned with ``beta``.
+        period: Grating period in nanometers.
+        min_separation: Height gap separating near from far.
+
+    Returns:
+        Projected block shaped ``(modes, modes)``.
+    """
+
+    near = near_band_mask(heights, min_separation=min_separation)
+    near_part = basis.analysis @ (nodal_block * near) @ basis.synthesis
+    far_part = height_split_projection(
+        x=x,
+        heights=heights,
+        jacobian=jacobian,
+        modes=basis.orders,
+        beta=beta,
+        orders=orders,
+        period=period,
+        min_separation=min_separation,
+    )
+    return near_part + far_part
