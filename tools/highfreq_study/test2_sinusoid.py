@@ -54,6 +54,14 @@ def main() -> None:
     parser.add_argument("--depth-nm", type=float, default=20.0)
     parser.add_argument("--nodes", type=int, default=1024)
     parser.add_argument("--fourier-orders", type=int, default=30)
+    parser.add_argument(
+        "--modes",
+        type=int,
+        nargs="*",
+        default=[0, 1, 2, 4, 8, 16],
+        help="Envelope mode half-widths to sweep. Narrow it at high energy, "
+        "where each solve costs minutes.",
+    )
     args = parser.parse_args()
 
     grating = sinusoid_grating(args.depth_nm)
@@ -112,7 +120,7 @@ def main() -> None:
     )
 
     envelopes = None
-    for modes in (0, 1, 2, 4, 8, 16):
+    for modes in args.modes:
         started = time.perf_counter()
         result, envelopes = res2_hf(
             **common,
