@@ -133,7 +133,6 @@ from .common import (
     DiffractionResult,
     Res2Result,
     apply_optional_roughness,
-    safe_linalg_solve,
 )
 
 logger = logging.getLogger(__name__)
@@ -497,7 +496,7 @@ def res2_im(
         )
 
     with _profiler.record("matrix_solves") if _profiler is not None else _nullcontext():
-        solution = safe_linalg_solve(matrix, rhs, context="integral method boundary system")
+        solution = _solve_boundary_system(matrix, rhs)
 
     panels_per_interface = stack.interfaces[0].count
     densities = solution.reshape(stack.interface_count, 2, panels_per_interface)
@@ -665,6 +664,49 @@ def _assemble_system(
                 matrix[row, unknown(lower, 1)] += cross_single
 
     return matrix, rhs
+
+
+def _solve_boundary_system(matrix: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    """Solve the dense boundary system.
+
+    Deliberately not ``grax.solvers.common.safe_linalg_solve``, which estimates
+    the condition number on every call. That estimate is an SVD, and for this
+    solver it costs about twenty times the solve it is guarding -- 0.24 s against
+    0.011 s at 800 unknowns -- because the system here is orders of magnitude
+    larger than the modal solvers' truncated Fourier basis it was written for.
+    The condition number is only computed when the solve actually produces
+    something unusable, where it earns its cost by explaining why.
+
+    Args:
+        matrix: Dense system matrix.
+        rhs: Right-hand side.
+
+    Returns:
+        The solution vector.
+
+    Raises:
+        np.linalg.LinAlgError: If the system cannot be solved, or the solution is
+            not finite.
+    """
+
+    try:
+        solution = np.linalg.solve(matrix, rhs)
+    except np.linalg.LinAlgError:
+        logger.error(
+            "The integral-method boundary system is singular (condition number %.3g). "
+            "A node landing exactly on a corner of a graded parametrization is the "
+            "usual cause.",
+            float(np.linalg.cond(matrix)),
+        )
+        raise
+    if not np.all(np.isfinite(solution)):
+        condition = float(np.linalg.cond(matrix))
+        raise np.linalg.LinAlgError(
+            "The integral-method boundary system produced a non-finite solution; its "
+            f"condition number is {condition:.3g}. Reduce boundary_points, or raise "
+            "ewald_splitting, which trades spectral cost for conditioning."
+        )
+    return solution
 
 
 def _interface_operators(

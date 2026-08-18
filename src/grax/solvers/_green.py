@@ -64,6 +64,13 @@ from __future__ import annotations
 import numpy as np
 from scipy.special import erfcx, exp1, hankel1
 
+from ._ewald_kernel import (
+    NUMBA_AVAILABLE,
+    lattice_terms,
+    spectral_terms,
+    weideman_coefficients,
+)
+
 __all__ = [
     "PeriodicGreen",
     "default_ewald_splitting",
@@ -78,8 +85,16 @@ _MAX_LATTICE_CELLS = 64
 # Past this the lattice series has stopped being a practical accelerator and the
 # splitting parameter is the thing to fix, so it raises rather than grinding.
 _MAX_LATTICE_TERMS = 200
+#: Upper bound on k^2 / 4E^2, which is the factor by which the two halves of the
+#: Ewald split cancel. Measured kernel error against the plane-wave series: 1e-5
+#: at ratio 1, 1.5e-3 at 2.8, and total loss at 8.
+_MAX_LATTICE_RATIO = 1.0
 #: Relative to |k|. Below this an order is treated as sitting on the pole.
 _RAYLEIGH_ANOMALY_TOLERANCE = 1e-9
+#: Splitting parameter as a multiple of |k|. See default_ewald_splitting.
+_SPLITTING_COEFFICIENT = 0.5
+#: Weideman scale and coefficients, computed once and shared by every instance.
+_WEIDEMAN = weideman_coefficients()
 _TINY = 1e-300
 
 
@@ -92,9 +107,23 @@ def default_ewald_splitting(period: float, wavenumber: complex) -> float:
     ``p`` beyond ``|k|^2 / 4 E^2`` terms before it starts to decay, so a soft
     X-ray period of several hundred wavelengths would need millions of terms.
 
-    Enforcing ``E >= |k| / 2`` caps that ratio at one, making the lattice series
-    converge immediately. The price is paid in the spectral sum, whose reach
-    grows like ``E d``, and that cost is linear rather than catastrophic.
+    Enforcing ``E >= |k| / 2`` caps ``r = k^2 / 4 E^2`` at one. That bound is set
+    by *conditioning*, not by convergence of the series. Both halves of the split
+    grow as ``E`` shrinks and then cancel against each other by roughly the peak
+    of the lattice coefficients, ``exp(r) / sqrt(r)``. Measured against the
+    plane-wave series at a near-field separation, the kernel error is 1e-5 at
+    ``r = 1``, 1.5e-3 at ``r = 2.8``, and at ``r = 8`` the two halves reach
+    magnitude 35 and cancel to a result of magnitude 0.14 -- the value is simply
+    wrong. :meth:`PeriodicGreen._reject_ill_conditioned_splitting` enforces it.
+
+    It is tempting to treat the coefficient as a free speed knob, since the
+    spectral reach grows like ``E d`` and the spectral half dominates the cost.
+    It is not. A sweep at the *solve* level appears to show the answer unchanged
+    to eight significant figures down to ``0.35 |k| / 2``, which is an artefact:
+    a solve whose discretization error dominates is insensitive to a kernel that
+    is badly wrong on its near-field entries. Validate this against the
+    plane-wave series directly, never against a solve, and never below a
+    converged node count.
 
     Args:
         period: Lattice pitch in nanometers.
@@ -105,7 +134,7 @@ def default_ewald_splitting(period: float, wavenumber: complex) -> float:
     """
 
     balanced = np.sqrt(np.pi) / float(period)
-    convergent = abs(complex(wavenumber)) / 2.0
+    convergent = _SPLITTING_COEFFICIENT * abs(complex(wavenumber))
     return float(max(balanced, convergent))
 
 
@@ -133,6 +162,7 @@ class PeriodicGreen:
         method: str = "ewald",
         splitting: float | None = None,
         spectral_orders: int | None = None,
+        force_reference_kernel: bool = False,
     ) -> None:
         """Bind the Green function to one medium and incidence.
 
@@ -144,6 +174,8 @@ class PeriodicGreen:
             splitting: Ewald splitting parameter. ``None`` picks a default.
             spectral_orders: Half-width of the ``"spectral"`` sum. ``None``
                 picks a value from the period-to-wavelength ratio.
+            force_reference_kernel: Use the NumPy spectral path even when the
+                compiled one is available. For tests that compare the two.
 
         Raises:
             ValueError: If ``method`` is not one of the two supported names.
@@ -165,6 +197,8 @@ class PeriodicGreen:
             spectral_orders = int(4 * self.period * abs(self.wavenumber) / (2 * np.pi)) + 40
         self.spectral_orders = int(spectral_orders)
         self._lattice_terms = _lattice_expansion_terms(self.wavenumber, self.splitting)
+        self.force_reference_kernel = bool(force_reference_kernel)
+        self._reject_ill_conditioned_splitting()
         self._reject_rayleigh_anomaly()
 
     # -- shared spectral bookkeeping ---------------------------------------
@@ -245,8 +279,12 @@ class PeriodicGreen:
         if self.method == "spectral":
             gradient = self._gradient_spectral(dx, dy)
             return self._value_spectral(dx, dy), gradient[0], gradient[1]
-        spectral, spectral_dx, spectral_dy = self._ewald_spectral_part(dx, dy)
-        lattice, lattice_dx, lattice_dy = self._ewald_lattice_part(dx, dy)
+        if NUMBA_AVAILABLE and not self.force_reference_kernel:
+            spectral, spectral_dx, spectral_dy = self._ewald_spectral_compiled(dx, dy)
+            lattice, lattice_dx, lattice_dy = self._ewald_lattice_compiled(dx, dy)
+        else:
+            spectral, spectral_dx, spectral_dy = self._ewald_spectral_part(dx, dy)
+            lattice, lattice_dx, lattice_dy = self._ewald_lattice_part(dx, dy)
         return (
             spectral + lattice,
             spectral_dx + lattice_dx,
@@ -279,6 +317,54 @@ class PeriodicGreen:
         return d_dx, d_dy
 
     # -- Ewald production path ----------------------------------------------
+
+    def _ewald_spectral_compiled(
+        self, dx: np.ndarray, dy: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return the spectral half through the fused compiled kernel.
+
+        Identical in exact arithmetic to :meth:`_ewald_spectral_part`; it exists
+        because that one materialises several ``(points, points, orders)``
+        arrays, which dominates both the memory traffic and the runtime.
+
+        Args:
+            dx: In-plane separations.
+            dy: Out-of-plane separations.
+
+        Returns:
+            ``(G, dG/dx, dG/dy)`` for the spectral half.
+        """
+
+        orders = self._ewald_spectral_orders()
+        alpha = self.alpha(orders)
+        beta = np.ascontiguousarray(self.beta(orders))
+        shape = np.broadcast(dx, dy).shape
+        flat_dx = np.ascontiguousarray(np.broadcast_to(dx, shape).reshape(-1, shape[-1]))
+        flat_dy = np.ascontiguousarray(np.broadcast_to(dy, shape).reshape(-1, shape[-1]))
+
+        value = np.empty(flat_dx.shape, dtype=complex)
+        derivative_x = np.empty(flat_dx.shape, dtype=complex)
+        derivative_y = np.empty(flat_dx.shape, dtype=complex)
+        scale, coefficients = _WEIDEMAN
+        spectral_terms(
+            flat_dx,
+            flat_dy,
+            float(alpha[0]),
+            float(alpha[1] - alpha[0]) if alpha.size > 1 else 0.0,
+            beta,
+            self.splitting,
+            self.period,
+            scale,
+            coefficients,
+            value,
+            derivative_x,
+            derivative_y,
+        )
+        return (
+            value.reshape(shape),
+            derivative_x.reshape(shape),
+            derivative_y.reshape(shape),
+        )
 
     def _ewald_spectral_part(
         self, dx: np.ndarray, dy: np.ndarray
@@ -325,6 +411,66 @@ class PeriodicGreen:
         count = min(int(np.ceil(reach)) + 8, _MAX_SPECTRAL_ORDERS)
         return np.arange(-count, count + 1, dtype=float)
 
+    def _ewald_lattice_compiled(
+        self, dx: np.ndarray, dy: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return the lattice half through the compiled recurrence.
+
+        ``E_1`` is still evaluated by SciPy, once per lattice image, because it
+        is the recurrence over terms and not the special function that costs.
+
+        Args:
+            dx: In-plane separations.
+            dy: Out-of-plane separations.
+
+        Returns:
+            ``(G, dG/dx, dG/dy)`` for the lattice half.
+        """
+
+        shift = self._ewald_lattice_cells() * self.period
+        shape = np.broadcast(dx, dy).shape
+        flat_dx = np.broadcast_to(dx, shape).reshape(-1, shape[-1])
+        flat_dy = np.broadcast_to(dy, shape).reshape(-1, shape[-1])
+
+        offsets_x = np.ascontiguousarray(flat_dx[..., None] - shift)
+        offsets_y = np.ascontiguousarray(
+            np.broadcast_to(flat_dy[..., None], offsets_x.shape)
+        )
+        argument = np.maximum(
+            (offsets_x**2 + offsets_y**2) * self.splitting**2, _TINY
+        )
+        first_integral = np.ascontiguousarray(exp1(argument))
+        decay = np.ascontiguousarray(np.exp(-argument))
+        phases = np.ascontiguousarray(np.exp(1j * self.alpha0 * shift))
+
+        ratio = (self.wavenumber**2) / (4.0 * self.splitting**2)
+        coefficients = np.empty(self._lattice_terms, dtype=complex)
+        coefficients[0] = 1.0
+        for term in range(1, self._lattice_terms):
+            coefficients[term] = coefficients[term - 1] * ratio / term
+
+        value = np.empty(flat_dx.shape, dtype=complex)
+        derivative_x = np.empty(flat_dx.shape, dtype=complex)
+        derivative_y = np.empty(flat_dx.shape, dtype=complex)
+        lattice_terms(
+            offsets_x,
+            offsets_y,
+            first_integral,
+            decay,
+            np.ascontiguousarray(argument),
+            phases,
+            coefficients,
+            self.splitting**2,
+            value,
+            derivative_x,
+            derivative_y,
+        )
+        return (
+            value.reshape(shape),
+            derivative_x.reshape(shape),
+            derivative_y.reshape(shape),
+        )
+
     def _ewald_lattice_part(
         self, dx: np.ndarray, dy: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -346,6 +492,39 @@ class PeriodicGreen:
         d_dx = np.sum(prefactor * series_derivative * 2.0 * rx, axis=-1)
         d_dy = np.sum(prefactor * series_derivative * 2.0 * ry, axis=-1)
         return value, d_dx, d_dy
+
+    def _reject_ill_conditioned_splitting(self) -> None:
+        """Raise when the splitting parameter makes the two halves cancel.
+
+        The Ewald split is exact for any positive splitting parameter, but only
+        in exact arithmetic. As it shrinks, the spectral and lattice halves both
+        grow and then cancel, and the lattice coefficients ``(k^2/4E^2)^p / p!``
+        peak at a magnitude that is the cancellation factor. Convergence of the
+        series is not the binding constraint and does not detect this.
+
+        Raises:
+            ValueError: If the splitting parameter is too small to be evaluated
+                in double precision.
+        """
+
+        ratio = abs(self.wavenumber**2) / (4.0 * self.splitting**2)
+        # The default sits exactly on the bound, so allow for rounding.
+        if ratio <= _MAX_LATTICE_RATIO * (1.0 + 1e-9):
+            return
+        peak = 1.0
+        coefficient = 1.0
+        for term in range(1, _MAX_LATTICE_TERMS):
+            coefficient = coefficient * ratio / term
+            peak = max(peak, coefficient)
+        raise ValueError(
+            f"The Ewald splitting parameter {self.splitting:.6g} is too small for this "
+            f"medium: k^2 / 4E^2 = {ratio:.4g} exceeds {_MAX_LATTICE_RATIO:g}, so the "
+            f"lattice coefficients peak at {peak:.4g} and the spectral and lattice halves "
+            "cancel against each other by that factor. The split stays exact in exact "
+            "arithmetic; in double precision the kernel is destroyed. Use at least "
+            f"ewald_splitting = {abs(self.wavenumber) / (2.0 * np.sqrt(_MAX_LATTICE_RATIO)):.6g}, "
+            "or leave it unset to take the default."
+        )
 
     def _reject_rayleigh_anomaly(self) -> None:
         """Raise when a diffraction order sits exactly at grazing emergence.
