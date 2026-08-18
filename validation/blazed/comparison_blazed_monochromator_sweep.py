@@ -21,10 +21,21 @@ SOLVER_LABELS = {
 # hides the first completely and the plot looks as though one is missing. The
 # integral solver is an independent method rather than a second Fourier one, so
 # it is expected to sit slightly apart and gets its own dotted style.
+#
+# It also gets large markers and the top of the z-order. Every other curve here
+# is a dense sweep, while the integral solver costs minutes per point and is run
+# at a handful of energies: at the shared marker size its points disappear under
+# whatever is drawn after it, which is the whole reason to plot it.
 SOLVER_STYLES = {
     "rcwa": {"linestyle": "-"},
     "neviere": {"linestyle": (0, (6, 4))},
-    "integral": {"linestyle": (0, (1, 2))},
+    "integral": {
+        "linestyle": (0, (1, 2)),
+        "markersize": 9,
+        "markerfacecolor": "none",
+        "markeredgewidth": 1.6,
+        "zorder": 10,
+    },
 }
 
 
@@ -117,8 +128,10 @@ plt.figure(figsize=(10, 6))
 marker_size = 1
 linewidth = 1
 for curve_label, curve_energy, curve_efficiency, curve_style in grax_curves:
+    style = dict(curve_style)
     plt.plot(curve_energy, curve_efficiency, marker='o', label=curve_label,
-             markersize=marker_size, linewidth=linewidth, **curve_style)
+             markersize=style.pop('markersize', marker_size),
+             linewidth=linewidth, **style)
 plt.plot(ret_mat_energy, ret_mat_eff, 'd-', label='reticolo (Matlab)', markersize=marker_size, linewidth=linewidth)
 plt.plot(reflec_energy, reflec_eff, 's-', label='REFLEC', markersize=marker_size, linewidth=linewidth)
 plt.plot(diffmod_energy, diffmod_eff, '^-', label='DiffMod', markersize=marker_size, linewidth=linewidth)

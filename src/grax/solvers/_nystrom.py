@@ -88,6 +88,12 @@ _MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
 _COMPLEX_BYTES = 16
 #: The spectral half forms several arrays of the same shape at once.
 _EWALD_TEMPORARIES = 6
+#: Largest ``ln`` amplification the Bessel factor of the Kress split is allowed
+#: to reach inside the window. See :func:`_absorption_window`.
+_WINDOW_LOG_BUDGET = 10.0
+#: Growth rate ``|Im k| d / 2pi`` below which the Bessel factor never gets large
+#: enough over one period to need a window at all.
+_WINDOW_OFF_BELOW = 1.0
 
 
 @dataclass(frozen=True)
@@ -674,8 +680,16 @@ def nystrom_operators(
     # The Bessel factors must carry the *complex* wavenumber. Using only its
     # real part leaves a residual logarithmic singularity in M2 of size
     # proportional to Im k, which caps convergence at roughly third order for
-    # absorbing materials instead of spectral.
+    # absorbing materials instead of spectral. The price is that they then grow
+    # exponentially away from the diagonal, which the window bounds; see
+    # _absorption_window for why an unwindowed split cannot be evaluated at all
+    # for an absorbing coating on an X-ray period.
+    window = _absorption_window(
+        separation, wavenumber=green.wavenumber, period=source.period
+    )
     bessel0 = phase * jv(0, green.wavenumber * distance)
+    if window is not None:
+        bessel0 = bessel0 * window
     m1_single = -bessel0 / (4.0 * np.pi)
     m2_single = value + bessel0 * log_factor / (4.0 * np.pi)
 
@@ -689,6 +703,8 @@ def nystrom_operators(
             0.0,
         )
     m1_double = -phase * green.wavenumber * radial / (4.0 * np.pi)
+    if window is not None:
+        m1_double = m1_double * window
     m2_double = normal_derivative - m1_double * log_factor
 
     regular_value, regular_dx, regular_dy = green.regular_at_zero()
@@ -740,6 +756,50 @@ def _chunk_rows(*, count: int, orders: int) -> int:
 
     per_row = max(count * max(orders, 1) * _COMPLEX_BYTES * _EWALD_TEMPORARIES, 1)
     return int(max(1, min(count, _MEMORY_BUDGET_BYTES // per_row)))
+
+
+def _absorption_window(
+    separation: np.ndarray, *, wavenumber: complex, period: float
+) -> np.ndarray | None:
+    """Return the cutoff that keeps the Kress split usable in an absorbing medium.
+
+    The split subtracts ``J_0(k R)``, and ``J_0 = (H_0^(1) + H_0^(2)) / 2``. In a
+    lossy medium ``H_0^(2)`` grows as ``exp(|Im k| R)`` while the Green function
+    it is desingularizing *decays*, so over one period the two halves of the
+    split reach ``exp(pi |Im k| d / 2pi)`` and cancel back to a kernel of order
+    one. For gold on a 600 l/mm grating at 50 eV that factor is 7e18: the split
+    is an exact identity that float64 cannot evaluate, and the assembled system
+    comes out with entries of 1e13 where the kernel is 1e-2.
+
+    Restricting the subtraction to a neighbourhood of the singularity fixes it.
+    The split stays an identity because the window is one at ``t = s``, where the
+    singularity is, and ``M2`` stays analytic because the window is smooth, so
+    nothing about the scheme's order changes -- only the range over which the
+    Bessel factor is allowed to grow.
+
+    The width follows from the budget. With ``g = |Im k| d / 2pi`` the growth
+    over a parameter separation ``u`` is at most ``g |u|``, and the window
+    suppresses by ``(sin(u/2) / s)^2 >= (u / pi s)^2``, so the exponent peaks at
+    ``g^2 pi^2 s^2 / 4``. Setting that to the budget gives the width below. It
+    stays many grid steps wide for every node count this solver can afford --
+    about nineteen at ``N = 256`` on the case above -- so the Kress weights,
+    which are exact only up to the grid order, still see a resolved factor.
+
+    Args:
+        separation: Parameter differences ``t_i - t_j``.
+        wavenumber: Medium wavenumber ``k0 * n`` in inverse nanometers.
+        period: Grating period in nanometers.
+
+    Returns:
+        The cutoff, or ``None`` when the medium absorbs too weakly over one
+        period for the Bessel factor to need one.
+    """
+
+    growth = abs(float(np.imag(wavenumber))) * float(period) / (2.0 * np.pi)
+    if growth <= _WINDOW_OFF_BELOW:
+        return None
+    width = 2.0 * np.sqrt(_WINDOW_LOG_BUDGET) / (np.pi * growth)
+    return np.exp(-((np.sin(0.5 * separation) / width) ** 2))
 
 
 def _log_sine_factor(separation: np.ndarray) -> np.ndarray:

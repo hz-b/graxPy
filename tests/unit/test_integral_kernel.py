@@ -15,7 +15,11 @@ from scipy.special import erfcx, hankel1
 
 from grax.solvers._ewald_kernel import NUMBA_AVAILABLE, weideman_coefficients
 from grax.solvers._green import PeriodicGreen, default_ewald_splitting
-from grax.solvers._nystrom import build_trig_boundary, kress_log_weights
+from grax.solvers._nystrom import (
+    build_trig_boundary,
+    kress_log_weights,
+    nystrom_operators,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -213,3 +217,49 @@ def test_trig_boundary_reproduces_a_known_arc_length() -> None:
 
     exact = float(np.sum(np.hypot(np.diff(x), np.diff(y))))
     assert abs(float(np.sum(boundary.weight)) - exact) / exact < 1e-6
+
+
+def test_absorbing_medium_does_not_blow_up_the_kress_split() -> None:
+    """The operator blocks stay bounded when the medium absorbs over one period.
+
+    The Kress split subtracts ``J_0(k R)``, which grows as ``exp(|Im k| R)`` in a
+    lossy medium while the Green function it is desingularizing decays. On an
+    X-ray period that reaches ``exp(43)`` before the window introduced with this
+    test bounded it, and the assembled system came out with entries of 1e13
+    where the kernel itself is 1e-2. The regime is not exotic: it is gold at
+    50 eV on a 600 l/mm grating, which is a graxPy validation case.
+    """
+
+    period = 1666.667
+    wavelength = 24.796
+    k0 = 2.0 * np.pi / wavelength
+    wavenumber = k0 * (0.828696 + 0.205835j)
+    alpha0 = k0 * float(np.sin(np.deg2rad(90.0 - 4.882)))
+
+    positions = np.array([0.0, 1475.134, period])
+    heights = np.array([0.0, 18.77, 0.0])
+    boundary = build_trig_boundary(
+        np.linspace(0.0, period, 65),
+        np.interp(np.linspace(0.0, period, 65), positions, heights),
+        period=period,
+        count=64,
+    )
+    green = PeriodicGreen(
+        period=period,
+        wavenumber=wavenumber,
+        alpha0=alpha0,
+        method="ewald",
+        splitting=default_ewald_splitting(period, wavenumber),
+    )
+
+    single, double = nystrom_operators(
+        green, target=boundary, source=boundary, same_boundary=True
+    )
+
+    # The Green function itself is order 10 on this geometry, and the quadrature
+    # weights are below the period, so anything past a few thousand means the
+    # split has been evaluated outside the range float64 can carry.
+    assert np.max(np.abs(single)) < 1.0e4
+    assert np.max(np.abs(double)) < 1.0e4
+    assert np.all(np.isfinite(single))
+    assert np.all(np.isfinite(double))

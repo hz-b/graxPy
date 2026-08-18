@@ -71,25 +71,38 @@ relative for Nystrom against 8.7e-2 for panels, and Nystrom is also faster at
 equal N because it needs neither a quadrature multiplier nor near-panel
 refinement.
 
-Why the gap is that large is worth recording, because it is the whole reason the
-second scheme exists. The boundary densities are strongly band-limited: at
-``d/lambda = 50`` the field density carries 8 significant harmonics and its
-normal derivative 31, while the panel scheme needed 6266 unknowns. Panels were
-being spent resolving the oscillatory *kernel* rather than the unknowns, because
-a collocation scheme uses one grid for both. As ``d/lambda`` grows at fixed
-depth the density envelope gets *smoother* while the kernel oscillates *faster*;
-a single-grid scheme is dragged by the faster of the two, and a Nystrom scheme is
-not.
+Why the gap is that large: the panel scheme was spending unknowns on the
+oscillatory *kernel* rather than on the densities, because a collocation scheme
+uses one grid for both, and product quadrature handles the kernel analytically
+instead.
+
+It is a constant factor, not a better exponent, and the distinction was
+originally recorded the wrong way round here. The Stage 1 diagnostic that
+motivated this scheme measured the harmonic content of the density *envelope* --
+8 harmonics for the field at ``d/lambda = 50`` -- and concluded that the node
+count could decouple from ``d / lambda``. It cannot. What the quadrature has to
+resolve is the kernel *times* the density, and the periodic Green function
+carries every diffraction order, so the requirement tracks the propagating-order
+count rather than the envelope. Measured on the blazed 600 l/mm validation case,
+the threshold is about four nodes per carrier oscillation and six brings the
+solve onto the reference solvers' own truncation floor, so ``N ~ 4 d/lambda``
+for both schemes.
 
 What is left
 ------------
-Runtime. At ``d/lambda = 100`` a converged solve is still seconds to minutes per
-energy point, against a target of about one second. The identified work is
-engineering rather than method development: the Ewald splitting default is a
-measured factor of two off its optimum, the kernel evaluation is numpy-bound at
-roughly 0.3 microseconds per term where a compiled kernel should reach tens of
-nanoseconds, and the conformal-interface structure means only one distinct block
-per vertical offset needs building rather than one per interface pair.
+Runtime, and the ceiling is now known rather than assumed. Assembly is quadratic
+in the node count and linear in the Ewald spectral reach, which itself grows with
+``d / lambda``, so cost goes as roughly ``(d / lambda)^3``: 11 s per point at
+``d/lambda = 67`` and about 11 minutes at 269, with a dense system of ``4 N``
+unknowns to store. That makes this a usable independent cross-check over the low
+end of graxPy's range and out of reach at the high end, where ``d / lambda``
+reaches several thousand.
+
+Closing that gap is method development rather than engineering. The compiled
+Ewald kernels are already in place, the dense solve is a small fraction of the
+runtime, and the splitting parameter is pinned by conditioning -- none of the
+remaining engineering levers is worth the factor of ``10^4`` that the high-energy
+end needs.
 
 Scope
 -----
@@ -243,7 +256,16 @@ class IntegralOptions:
         reported orders and the surface field itself. The surface field carries
         the incident phase ``exp(i alpha_0 x)``, which oscillates roughly
         ``period / wavelength`` times across one period, so that ratio sets the
-        floor.
+        floor -- both requirements have to be met, so this is their maximum, not
+        their minimum. The coefficient is measured rather than assumed: on the
+        blazed 600 l/mm validation case, four nodes per carrier oscillation is
+        where the solve leaves the pre-asymptotic regime and six brings it onto
+        the reference solvers' own truncation floor.
+
+        Note that this grows without bound as the wavelength shrinks, which is
+        the honest answer for a boundary method: at ``d / lambda`` beyond a few
+        hundred the count it asks for is no longer affordable. Pass an explicit
+        ``boundary_points`` to override it, and check convergence when you do.
 
         Args:
             period_nm: Grating period in nanometers.
@@ -258,7 +280,7 @@ class IntegralOptions:
             return int(self.boundary_points)
         per_wavelength = 6.0 * period_nm / max(wavelength_nm, 1e-12)
         per_order = 8.0 * (2 * orders + 1)
-        return int(max(64, min(per_wavelength, per_order)))
+        return int(max(64.0, per_wavelength, per_order))
 
 
 def coerce_integral_options(

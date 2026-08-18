@@ -19,9 +19,40 @@ suite -- 67 at 50 eV, against 538 for the 150 l/mm case. Cost grows with both th
 interface count and ``d / lambda``, so the low-energy end is much cheaper than
 the high-energy end. Start there.
 
+How many nodes, and what that costs
+-----------------------------------
+The boundary densities carry ``exp(i alpha_0 x)``, which at grazing incidence
+oscillates ``(d / lambda) cos(theta_g)`` times across one period -- 67 at 50 eV
+and 282 at 210 eV on this grating. The scheme has to resolve that, and the
+threshold is sharp. Measured against RCWA at 50 eV, on order zero:
+
+    nodes   per oscillation   deviation
+    128     1.9               3.1e-1
+    192     2.9               1.6e-2
+    256     3.8               5.5e-4
+    384     5.7               4.3e-4   <- RCWA's own truncation floor
+
+Below about three nodes per oscillation the answer is not merely inaccurate, it
+is unrelated to the right one and does not improve monotonically with the node
+count, so a two-point convergence check inside that regime reports nonsense.
+``"auto"`` asks for six, which is why it is the default here.
+
+That fixes the reachable range. Assembly is quadratic in the node count and
+linear in the Ewald spectral reach, which itself grows with ``d / lambda``, so
+cost goes as roughly ``(d / lambda)^3``: seconds per point at 50 eV, minutes by
+150 eV, and out of reach well before the 1500 eV end of the sweep. Use
+``--max-energy`` deliberately rather than letting it run.
+
+Corner grading is off by default here, against the ``IntegralOptions`` default of
+2.0. Grading clusters nodes at the profile's corners, where the density is
+singular; on a 0.729 degree blaze the corners are nearly flat and the singularity
+is negligible, while the clustering doubles the node spacing mid-facet -- exactly
+where the carrier lives. Measured, it costs a factor of three in node count for
+the same accuracy. Raise it for steep profiles.
+
 ```bash
-python validation/blazed/run_integral.py --live-plot
-python validation/blazed/run_integral.py --max-energy 400 --boundary-points 256
+python validation/blazed/run_integral.py --live-plot --max-energy 70
+python validation/blazed/run_integral.py --max-energy 150 --boundary-points 512
 python validation/blazed/run_integral.py --quick
 ```
 """
@@ -53,8 +84,24 @@ parser.add_argument(
 parser.add_argument(
     "--boundary-points",
     type=int,
-    default=192,
-    help="Collocation nodes per interface (default: 192)",
+    default=0,
+    help="Collocation nodes per interface. 0 (default) sizes them from "
+    "d/lambda, which is what sets the requirement; see the module docstring.",
+)
+parser.add_argument(
+    "--corner-grading",
+    type=float,
+    default=1.0,
+    help="Node clustering toward the profile corners. 1.0 (default here) spaces "
+    "them uniformly, which is measurably better on this shallow blaze.",
+)
+parser.add_argument(
+    "--energy-balance-tolerance",
+    type=float,
+    default=1.5,
+    help="Refuse to record a point whose propagating efficiency sums above this. "
+    "An under-resolved solve on this geometry overshoots by orders of magnitude, "
+    "so this is what stops nonsense reaching the CSV.",
 )
 parser.add_argument("--live-plot", action="store_true", help="Show the sweep while it runs")
 args = parser.parse_args()
@@ -98,7 +145,12 @@ def solve_point(grating, *, energy_ev: float, grazing_angle_deg: float, nodes: i
         beta0=float(np.sin(np.deg2rad(90.0 - grazing_angle_deg))),
         polarization=-1 if case.POLARIZATION == "p" else 1,
         photon_energy_ev=float(energy_ev),
-        options=IntegralOptions(boundary_points=nodes, discretization="nystrom"),
+        options=IntegralOptions(
+            boundary_points=nodes if nodes > 0 else "auto",
+            discretization="nystrom",
+            corner_grading=float(args.corner_grading),
+            energy_balance_tolerance=float(args.energy_balance_tolerance),
+        ),
     )
     reflected = result.inc_top_reflected
     return (
@@ -127,6 +179,33 @@ def efficiency_for_order(orders: np.ndarray, efficiency: np.ndarray, order: int)
     if index.size != 1:
         return float("nan")
     return float(efficiency[int(index[0])])
+
+
+def write_artifacts(rows: list[dict[str, object]], figure, paths) -> None:
+    """Rewrite the CSV and the plot from the points completed so far.
+
+    Called after every point rather than once at the end, because a point at the
+    top of the reachable range costs minutes and the whole sweep can be several
+    times longer than anyone wants to sit in front of. Interrupting the run then
+    keeps everything already computed instead of discarding it.
+
+    Rewriting the file whole each time, rather than appending, keeps the header
+    and the row set consistent if the run is killed mid-write: the cost is
+    negligible next to one solve.
+
+    Args:
+        rows: All rows recorded so far.
+        figure: The sweep figure, already redrawn for this point.
+        paths: Output paths from ``grating_definition.output_paths``.
+    """
+
+    if not rows:
+        return
+    with paths["all_orders_csv"].open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    figure.savefig(paths["orders_plot"], dpi=150, bbox_inches="tight")
 
 
 def main() -> None:
@@ -172,86 +251,108 @@ def main() -> None:
         f"Si + {case.LAYER_THICKNESS_NM:.0f} nm Au (2 interfaces), "
         f"{case.POLARIZATION} polarization, cff={case.CFF}"
     )
+    sizing = (
+        f"{args.boundary_points} nodes per interface"
+        if args.boundary_points > 0
+        else "node count sized from d/lambda"
+    )
     print(
         f"{energies.size} points from {energies[0]:.0f} to {energies[-1]:.0f} eV, "
-        f"{args.boundary_points} nodes per interface"
+        f"{sizing}, corner grading {args.corner_grading}"
     )
     header = " ".join(f"{'order ' + str(m):>11}" for m in case.PLOT_ORDERS)
-    print(f"{'E (eV)':>8} {'d/lam':>7} {'graz':>7} " + header + f"{'secs':>9}")
-    print("-" * 78)
+    print(
+        f"{'E (eV)':>8} {'d/lam':>7} {'graz':>7} {'nodes':>6} {'n/osc':>6} "
+        + header
+        + f"{'secs':>9}"
+    )
+    print("-" * 92)
 
     rows: list[dict[str, object]] = []
     tracks: dict[int, list[tuple[float, float]]] = {m: [] for m in case.PLOT_ORDERS}
     total_seconds = 0.0
 
-    for index, energy in enumerate(energies):
-        grazing = angles[float(energy)]
-        started = time.perf_counter()
-        try:
-            orders, efficiency, angles_deg = solve_point(
-                grating,
-                energy_ev=float(energy),
-                grazing_angle_deg=grazing,
-                nodes=args.boundary_points,
-            )
-        except Exception as error:  # noqa: BLE001 - a sweep reports and continues
-            print(f"{energy:>8.0f}  failed: {type(error).__name__}: {str(error)[:60]}")
-            continue
-        seconds = time.perf_counter() - started
-        total_seconds += seconds
-
-        for order, value, angle in zip(orders, efficiency, angles_deg, strict=True):
-            rows.append(
-                {
-                    "case_id": f"mono-{index:08d}",
-                    "energy_ev": float(energy),
-                    "grazing_angle_deg": grazing,
-                    "order": int(order),
-                    "efficiency": float(value),
-                    "diffraction_angle_deg": float(angle),
-                }
-            )
-
-        selected = [efficiency_for_order(orders, efficiency, m) for m in case.PLOT_ORDERS]
-        for order, value in zip(case.PLOT_ORDERS, selected, strict=True):
-            tracks[order].append((float(energy), value))
-        print(
-            f"{energy:>8.0f} {grating.period_nm / (1239.8 / float(energy)):>7.0f} "
-            f"{grazing:>7.3f} " + " ".join(f"{v:>11.6f}" for v in selected)
-            + f"{seconds:>8.1f}s",
-            flush=True,
-        )
-
-        axis.clear()
-        axis.set_xlabel("Photon Energy (eV)")
-        axis.set_ylabel("Diffraction Efficiency")
-        axis.set_title(
-            f"Blazed Grating Monochromator Sweep ({case.PERIOD_LPERMM} l/mm, "
-            f"BA={case.BLAZE_ANGLE_DEG} deg), {SOLVER_TITLE}: Orders 1-3"
-        )
-        axis.grid(True, alpha=0.3)
-        for order in case.PLOT_ORDERS:
-            if not tracks[order]:
+    # Ctrl-C is the expected way to end a long sweep: every point is already
+    # on disk by the time it lands, so it stops the run rather than propagating.
+    try:
+        for index, energy in enumerate(energies):
+            grazing = angles[float(energy)]
+            started = time.perf_counter()
+            try:
+                orders, efficiency, angles_deg = solve_point(
+                    grating,
+                    energy_ev=float(energy),
+                    grazing_angle_deg=grazing,
+                    nodes=args.boundary_points,
+                )
+            except Exception as error:  # noqa: BLE001 - a sweep reports and continues
+                print(
+                    f"{energy:>8.0f}  failed: {type(error).__name__}: {str(error)[:90]}",
+                    flush=True,
+                )
                 continue
-            x = [point[0] for point in tracks[order]]
-            y = [point[1] for point in tracks[order]]
-            axis.plot(x, y, "-o", ms=4, lw=1.2, label=f"order {order}")
-        axis.legend(loc="best")
-        figure.tight_layout()
-        if args.live_plot:
-            figure.canvas.draw_idle()
-            figure.canvas.flush_events()
-            plt.pause(0.01)
+            seconds = time.perf_counter() - started
+            total_seconds += seconds
+
+            for order, value, angle in zip(orders, efficiency, angles_deg, strict=True):
+                rows.append(
+                    {
+                        "case_id": f"mono-{index:08d}",
+                        "energy_ev": float(energy),
+                        "grazing_angle_deg": grazing,
+                        "order": int(order),
+                        "efficiency": float(value),
+                        "diffraction_angle_deg": float(angle),
+                    }
+                )
+
+            selected = [efficiency_for_order(orders, efficiency, m) for m in case.PLOT_ORDERS]
+            for order, value in zip(case.PLOT_ORDERS, selected, strict=True):
+                tracks[order].append((float(energy), value))
+            ratio = grating.period_nm / (1239.8 / float(energy))
+            node_count = IntegralOptions(
+                boundary_points=args.boundary_points if args.boundary_points > 0 else "auto"
+            ).resolved_boundary_points(
+                period_nm=float(grating.period_nm),
+                wavelength_nm=1239.8 / float(energy),
+                orders=int(case.QUICK_FOURIER_ORDERS if args.quick else case.FOURIER_ORDERS),
+            )
+            oscillations = ratio * float(np.cos(np.deg2rad(grazing)))
+            print(
+                f"{energy:>8.0f} {ratio:>7.0f} {grazing:>7.3f} {node_count:>6d} "
+                f"{node_count / max(oscillations, 1e-12):>6.1f} "
+                + " ".join(f"{v:>11.6f}" for v in selected)
+                + f"{seconds:>8.1f}s",
+                flush=True,
+            )
+
+            axis.clear()
+            axis.set_xlabel("Photon Energy (eV)")
+            axis.set_ylabel("Diffraction Efficiency")
+            axis.set_title(
+                f"Blazed Grating Monochromator Sweep ({case.PERIOD_LPERMM} l/mm, "
+                f"BA={case.BLAZE_ANGLE_DEG} deg), {SOLVER_TITLE}: Orders 1-3"
+            )
+            axis.grid(True, alpha=0.3)
+            for order in case.PLOT_ORDERS:
+                if not tracks[order]:
+                    continue
+                x = [point[0] for point in tracks[order]]
+                y = [point[1] for point in tracks[order]]
+                axis.plot(x, y, "-o", ms=4, lw=1.2, label=f"order {order}")
+            axis.legend(loc="best")
+            figure.tight_layout()
+            if args.live_plot:
+                figure.canvas.draw_idle()
+                figure.canvas.flush_events()
+                plt.pause(0.01)
+            write_artifacts(rows, figure, paths)
+    except KeyboardInterrupt:
+        print("\nInterrupted. The points already computed are saved.", flush=True)
 
     if not rows:
         print("No points completed.")
         return
-
-    with paths["all_orders_csv"].open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    figure.savefig(paths["orders_plot"], dpi=150, bbox_inches="tight")
 
     points = len(tracks[case.PLOT_ORDERS[0]])
     print(f"\nComputed {points} monochromator points with the {SOLVER} solver.")
