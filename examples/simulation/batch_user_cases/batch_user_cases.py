@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,7 +18,7 @@ base_grating_kwargs = dict(
     left_wall_angle_deg=15.0,
     right_wall_angle_deg=15.0,
     x_resolution_nm=0.5,
-    z_resolution_nm=0.1,
+    z_resolution_nm=0.5,
 )
 
 energy_ev = 1000.0
@@ -56,63 +57,76 @@ for depth_nm in depths_nm:
         }
     )
 
-runner = grax.BatchSimulationRunner(
-    default_diffraction_order=diffraction_order,
-    default_fourier_orders=25,
-    show_progress=True,
-    live_plot=False,
-    on_error="continue",
-    checkpoint_dir=checkpoint_dir,
-    checkpoint_interval=1,
-    resume=False,
-    backend="numba",
+parser = argparse.ArgumentParser(description="Batch runner over user-defined cases")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
 )
+args = parser.parse_args()
 
-results = list(runner.run_cases(user_cases))
-
-csv_path = output_dir / "batch_user_cases_all_orders.csv"
-grax.write_all_orders_csv(results, csv_path)
-
-orders_plot_path = output_dir / "batch_user_cases_orders_1_3_vs_depth.png"
-depth_values = np.asarray([float(result.case_data["depth_nm"]) for result in results], dtype=float)
-figure, axis = plt.subplots(figsize=(10, 6))
-markers = ["o", "s", "^"]
-for index, order in enumerate([1, 2, 3]):
-    order_efficiency = np.asarray(
-        [
-            grax.efficiency_for_order(
-                result.orders,
-                result.efficiency_all,
-                diffraction_order=order,
-            )
-            for result in results
-        ],
-        dtype=float,
+if __name__ == "__main__":
+    runner = grax.BatchSimulationRunner(
+        solver=args.solver,
+        diffraction_order=diffraction_order,
+        fourier_orders=15,
+        show_progress=True,
+        live_plot=True,
+        max_workers="auto",
+        on_error="continue",
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_interval=1,
+        resume=False,
+        backend="numba",
     )
-    axis.plot(
-        depth_values,
-        order_efficiency,
-        f"{markers[index]}-",
-        linewidth=1.0,
-        markersize=3.0,
-        label=f"Order {order}",
-    )
-axis.set_xlabel("Grating Depth (nm)")
-axis.set_ylabel("Diffraction Efficiency")
-axis.set_title("Batch User Cases: Orders 1-3 Efficiency vs Depth at 1000 eV")
-axis.grid(True, alpha=0.3)
-axis.legend(loc="best")
-figure.tight_layout()
-figure.savefig(orders_plot_path, dpi=150, bbox_inches="tight")
-plt.close(figure)
 
-profile_grating = grax.LaminarGrating(depth_nm=depths_nm[0], **base_grating_kwargs)
-profile_path = output_dir / "batch_user_cases_profile.png"
-profile_grating.plot_profile(profile_path)
+    results = list(runner.run_cases(user_cases))
 
-print(f"Results saved to: {csv_path}")
-print(f"Orders 1-3 plot saved to: {orders_plot_path}")
-print(f"Profile plot saved to: {profile_path}")
-print(f"Energy: {energy_ev:.1f} eV")
-print(f"Monochromator grazing angle (cff={cff}): {grazing_angle_deg:.6f} deg")
-print(f"Checkpoint directory: {checkpoint_dir}")
+    csv_path = output_dir / f"batch_user_cases_all_orders_{args.solver}.csv"
+    grax.write_all_orders_csv(results, csv_path)
+
+    orders_plot_path = output_dir / f"batch_user_cases_orders_1_3_vs_depth_{args.solver}.png"
+    depth_values = np.asarray([float(result.case_data["depth_nm"]) for result in results], dtype=float)
+    figure, axis = plt.subplots(figsize=(10, 6))
+    markers = ["o", "s", "^"]
+    for index, order in enumerate([1, 2, 3]):
+        order_efficiency = np.asarray(
+            [
+                grax.efficiency_for_order(
+                    result.orders,
+                    result.efficiency_all,
+                    diffraction_order=order,
+                )
+                for result in results
+            ],
+            dtype=float,
+        )
+        axis.plot(
+            depth_values,
+            order_efficiency,
+            f"{markers[index]}-",
+            linewidth=1.0,
+            markersize=3.0,
+            label=f"Order {order}",
+        )
+    axis.set_xlabel("Grating Depth (nm)")
+    axis.set_ylabel("Diffraction Efficiency")
+    axis.set_title("Batch User Cases: Orders 1-3 Efficiency vs Depth at 1000 eV")
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(orders_plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+
+    profile_grating = grax.LaminarGrating(depth_nm=depths_nm[0], **base_grating_kwargs)
+    profile_path = output_dir / "batch_user_cases_profile.png"
+    profile_grating.plot_profile(profile_path)
+
+    print(f"Results saved to: {csv_path}")
+    print(f"Orders 1-3 plot saved to: {orders_plot_path}")
+    print(f"Profile plot saved to: {profile_path}")
+    print(f"Energy: {energy_ev:.1f} eV")
+    print(f"Monochromator grazing angle (cff={cff}): {grazing_angle_deg:.6f} deg")
+    print(f"Checkpoint directory: {checkpoint_dir}")

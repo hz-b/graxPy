@@ -70,12 +70,14 @@ class ThetaSearchDiagnostics:
 
 @dataclass
 class SingleSimulationResult:
-    """Result for one RCWA simulation case.
+    """Result for one grating simulation case.
 
     Attributes:
         energy_ev: Photon energy in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        orders: Calculated diffraction orders.
+        orders: Calculated diffraction orders. These are physical orders and may
+            be fractional (spaced at ``1/num_supercells``) when supercell
+            roughness (``RoughnessSpec.num_supercells > 1``) is active.
         selected_efficiency: Efficiency for the selected diffraction order.
         selected_diffraction_angle_deg: Diffraction angle for the selected order.
         efficiency_all: Efficiency for all calculated diffraction orders.
@@ -83,6 +85,19 @@ class SingleSimulationResult:
         diffraction_order: Positive selected diffraction order.
         fourier_orders: Fourier truncation order used for the solve.
         roughness_sigma_nm: Optional rms roughness in nanometers.
+        num_supercells: Number of grating periods spanned by the roughness
+            field at solve time (mirrors ``RoughnessSpec.num_supercells``);
+            ``1`` when no supercell roughness was in effect.
+        num_realizations: Number of independent random-interface roughness
+            realizations averaged into this result (mirrors
+            ``RoughnessSpec.num_realizations``); ``1`` when no averaging was
+            in effect (including all Debye-Waller and no-roughness runs).
+        solver: Electromagnetic solver that produced this result, ``"rcwa"`` or
+            ``"neviere"``.
+        solver_options: Solver settings that produced this result, or ``None``
+            when the solver takes none. Recorded so a checkpointed differential-
+            method run is reproducible: the solver name alone does not pin the
+            integration settings.
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
         retry_attempts: Number of additional retry attempts after the first run.
@@ -110,7 +125,11 @@ class SingleSimulationResult:
     diffraction_order: int
     fourier_orders: int
     roughness_sigma_nm: float | None = None
+    num_supercells: int = 1
+    num_realizations: int = 1
     polarization: str = "s"
+    solver: str = "rcwa"
+    solver_options: dict[str, object] | None = None
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
     retry_attempts: int = 0
@@ -148,7 +167,9 @@ class CaseExecutionResult:
         label: Optional case label.
         energy_ev: Photon energy in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        orders: Calculated diffraction orders.
+        orders: Calculated diffraction orders. These are physical orders and may
+            be fractional (spaced at ``1/num_supercells``) when supercell
+            roughness (``RoughnessSpec.num_supercells > 1``) is active.
         selected_efficiency: Efficiency for the selected diffraction order.
         selected_diffraction_angle_deg: Diffraction angle for the selected order.
         efficiency_all: Efficiency for all calculated diffraction orders.
@@ -158,6 +179,10 @@ class CaseExecutionResult:
         peak_memory_bytes: Peak tracked memory during execution, when profiling is enabled.
         wall_seconds: Total wall time during execution, when profiling is enabled.
         case_data: Original serializable case metadata without the grating object.
+        solver: Electromagnetic solver that produced this result, ``"rcwa"`` or
+            ``"neviere"``.
+        solver_options: Solver settings that produced this result, or ``None``
+            when the solver takes none.
         theta_search_diagnostics: Optional transient theta-search diagnostics.
         retry_triggered: Whether zero-efficiency retry logic was triggered.
         retry_attempts: Number of additional retry attempts after the first run.
@@ -191,6 +216,8 @@ class CaseExecutionResult:
     wall_seconds: float | None = None
     case_data: dict[str, object] = field(default_factory=dict)
     polarization: str = "s"
+    solver: str = "rcwa"
+    solver_options: dict[str, object] | None = None
     theta_search_diagnostics: ThetaSearchDiagnostics | None = None
     retry_triggered: bool = False
     retry_attempts: int = 0
@@ -248,8 +275,8 @@ class BatchSimulationResult:
 
         successful_cases = self.successful_cases
         if not successful_cases:
-            return np.asarray([], dtype=int)
-        return np.asarray(successful_cases[0].orders, dtype=int)
+            return np.asarray([], dtype=float)
+        return np.asarray(successful_cases[0].orders, dtype=float)
 
     @property
     def efficiency(self) -> np.ndarray:

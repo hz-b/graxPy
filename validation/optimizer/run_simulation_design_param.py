@@ -78,8 +78,8 @@ cases = (
 )
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=5 if quick_mode else 15,
+    diffraction_order=1,
+    fourier_orders=5 if quick_mode else 15,
     show_progress=True,
     live_plot=LIVE_PLOT,
     live_plot_x_key="energy_ev",

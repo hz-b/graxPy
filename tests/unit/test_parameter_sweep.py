@@ -14,7 +14,7 @@ from grax import (
     plot_parameter_study,
     run_parameter_study,
 )
-from grax.simulation import RCWASimulation
+from grax.simulation import GratingSimulation
 
 
 def test_run_parameter_study_returns_expected_shapes(
@@ -38,7 +38,7 @@ def test_run_parameter_study_returns_expected_shapes(
             "diffraction_angle_all": np.asarray([1.0, 2.0, 3.0], dtype=float),
         }
 
-    monkeypatch.setattr(RCWASimulation, "run_single", fake_run_single)
+    monkeypatch.setattr(GratingSimulation, "run_single", fake_run_single)
 
     grating = BlazedGrating(
         period_lpermm=600,
@@ -93,7 +93,7 @@ def test_run_parameter_study_preserves_error_messages_in_csv(
     def fake_run_single(self, photon_energy_ev: float) -> dict[str, object]:
         raise ValueError(f"failed at {photon_energy_ev:.1f} eV")
 
-    monkeypatch.setattr(RCWASimulation, "run_single", fake_run_single)
+    monkeypatch.setattr(GratingSimulation, "run_single", fake_run_single)
 
     result = run_parameter_study(
         grating=BlazedGrating(period_lpermm=600, blaze_angle_deg=0.75),
@@ -131,7 +131,7 @@ def test_plot_parameter_study_writes_output(
             "diffraction_angle_all": np.asarray([1.0, 2.0, 3.0], dtype=float),
         }
 
-    monkeypatch.setattr(RCWASimulation, "run_single", fake_run_single)
+    monkeypatch.setattr(GratingSimulation, "run_single", fake_run_single)
 
     grating = BlazedGrating(period_lpermm=600, blaze_angle_deg=0.75)
     result = run_parameter_study(
@@ -224,7 +224,7 @@ def test_run_parameter_study_supports_blazed_xz_scans(
             "diffraction_angle_all": np.asarray([1.0, 2.0, 3.0], dtype=float),
         }
 
-    monkeypatch.setattr(RCWASimulation, "run_single", fake_run_single)
+    monkeypatch.setattr(GratingSimulation, "run_single", fake_run_single)
 
     grating = BlazedGrating(
         period_lpermm=600,

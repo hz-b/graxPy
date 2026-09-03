@@ -64,8 +64,21 @@
     <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
     <label>Polarization
       <select name="polarization">
-        <option value="s" selected>s</option>
-        <option value="p">p</option>
+        <option value="s" selected>s (TE)</option>
+        <option value="p">p (TM)</option>
+      </select>
+    </label>
+    <label>Solver
+      <select name="solver">
+        <option value="rcwa" selected>RCWA (modal)</option>
+        <option value="neviere">Nevi&egrave;re (differential)</option>
+      </select>
+    </label>
+    <label>Roughness
+      <select name="roughness_kind">
+        <option value="none" selected>None</option>
+        <option value="debye-waller">Debye-Waller</option>
+        <option value="random-interface">Random interface</option>
       </select>
     </label>
     <label>X resolution, nm <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>

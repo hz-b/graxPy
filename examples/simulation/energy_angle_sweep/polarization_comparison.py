@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -45,53 +46,67 @@ grating = grax.BlazedGrating(
     z_resolution_nm=1.0,
 )
 
-runner = grax.BatchSimulationRunner(
-    default_diffraction_order=2,
-    default_fourier_orders=5,
-    show_progress=True,
-    live_plot=False,
-    on_error="fail_fast",
-    backend="numba",
+parser = argparse.ArgumentParser(description="Polarization comparison (s vs p)")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
 )
+args = parser.parse_args()
 
-results_s = list(runner.run_cases(
-    grax.energy_angle_cases(grating=grating, energy_angle_pairs=energy_angle_pairs, polarization="s")
-))
-results_p = list(runner.run_cases(
-    grax.energy_angle_cases(grating=grating, energy_angle_pairs=energy_angle_pairs, polarization="p")
-))
+if __name__ == "__main__":
+    runner = grax.BatchSimulationRunner(
+        solver=args.solver,
+        diffraction_order=2,
+        fourier_orders=5,
+        show_progress=True,
+        live_plot=True,
+        live_plot_x_key="energy_ev",
+        max_workers="auto",
+        on_error="fail_fast",
+        backend="numba",
+    )
 
-ok_s = [r for r in results_s if r.status == "ok"]
-ok_p = [r for r in results_p if r.status == "ok"]
+    results_s = list(runner.run_cases(
+        grax.energy_angle_cases(grating=grating, energy_angle_pairs=energy_angle_pairs, polarization="s")
+    ))
+    results_p = list(runner.run_cases(
+        grax.energy_angle_cases(grating=grating, energy_angle_pairs=energy_angle_pairs, polarization="p")
+    ))
 
-comparison_plot_path = output_dir / "energy_angle_pol_comparison.png"
-figure, axis = plt.subplots(figsize=(10, 6))
-axis.plot(
-    [r.energy_ev for r in ok_s],
-    [r.selected_efficiency for r in ok_s],
-    "o-",
-    linewidth=1.5,
-    markersize=3,
-    color="tab:blue",
-    label="s (TE)",
-)
-axis.plot(
-    [r.energy_ev for r in ok_p],
-    [r.selected_efficiency for r in ok_p],
-    "s--",
-    linewidth=1.5,
-    markersize=3,
-    color="tab:orange",
-    label="p (TM)",
-)
-axis.set_xlabel("Energy (eV)")
-axis.set_ylabel("Efficiency (2nd order)")
-axis.set_title("Energy-Angle Sweep: s vs p Polarization")
-axis.grid(True, alpha=0.3)
-axis.legend(loc="best")
-figure.tight_layout()
-figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
-plt.close(figure)
+    ok_s = [r for r in results_s if r.status == "ok"]
+    ok_p = [r for r in results_p if r.status == "ok"]
 
-print(f"Sampled {len(energy_angle_pairs)} energy-angle pairs from: {input_path}")
-print(f"Polarization comparison plot saved to: {comparison_plot_path}")
+    comparison_plot_path = output_dir / f"energy_angle_pol_comparison_{args.solver}.png"
+    figure, axis = plt.subplots(figsize=(10, 6))
+    axis.plot(
+        [r.energy_ev for r in ok_s],
+        [r.selected_efficiency for r in ok_s],
+        "o-",
+        linewidth=1.5,
+        markersize=3,
+        color="tab:blue",
+        label="s (TE)",
+    )
+    axis.plot(
+        [r.energy_ev for r in ok_p],
+        [r.selected_efficiency for r in ok_p],
+        "s--",
+        linewidth=1.5,
+        markersize=3,
+        color="tab:orange",
+        label="p (TM)",
+    )
+    axis.set_xlabel("Energy (eV)")
+    axis.set_ylabel("Efficiency (2nd order)")
+    axis.set_title("Energy-Angle Sweep: s vs p Polarization")
+    axis.grid(True, alpha=0.3)
+    axis.legend(loc="best")
+    figure.tight_layout()
+    figure.savefig(comparison_plot_path, dpi=150, bbox_inches="tight")
+    plt.close(figure)
+
+    print(f"Sampled {len(energy_angle_pairs)} energy-angle pairs from: {input_path}")
+    print(f"Polarization comparison plot saved to: {comparison_plot_path}")

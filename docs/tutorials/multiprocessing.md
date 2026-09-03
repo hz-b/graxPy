@@ -9,9 +9,9 @@ Serial execution:
 
 ```python
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=15,
-    default_polarization="p",
+    diffraction_order=1,
+    fourier_orders=15,
+    polarization="p",
     max_workers=1,
     show_progress=True,
 )
@@ -21,9 +21,9 @@ Automatic worker selection:
 
 ```python
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=15,
-    default_polarization="p",
+    diffraction_order=1,
+    fourier_orders=15,
+    polarization="p",
     max_workers="auto",
     show_progress=True,
 )
@@ -33,9 +33,9 @@ Explicit worker count:
 
 ```python
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=1,
-    default_fourier_orders=15,
-    default_polarization="p",
+    diffraction_order=1,
+    fourier_orders=15,
+    polarization="p",
     max_workers=8,
     show_progress=True,
 )

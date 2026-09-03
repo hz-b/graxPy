@@ -10,6 +10,8 @@ execution.
 materials
 gratings
 simulations
+choosing-a-solver
+solver-difference-examples
 acceleration-backend
 optimizer
 ```

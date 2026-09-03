@@ -23,6 +23,10 @@
   <p>
     This run is saved in <code>{{ run.results_dir }}</code>.
   </p>
+  <p>
+    Solver: <code>{{ run.solver | default('rcwa', true) }}</code> &middot;
+    Polarization: <code>{{ run.polarization | default('s', true) }}</code>
+  </p>
 </section>
 
 <section

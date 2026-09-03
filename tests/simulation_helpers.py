@@ -25,16 +25,23 @@ AU = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Au_cxro.txt", "Au")
 EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "single_simulation" / "single_simulation.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_sweep" / "fixed_angle_sweep.py",
-    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_roughness" / "fixed_angle_roughness.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "fixed_angle_roughness" / "roughness_kind_comparison.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "monochromator_sweep" / "monochromator_sweep.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "energy_angle_sweep" / "energy_angle_sweep.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_theta_search" / "multilayer_theta_search.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "batch_user_cases" / "batch_user_cases.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_sweep" / "blazed_multilayer_sweep.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "blazed_multilayer_memory_comparison" / "blazed_multilayer_memory_comparison.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "neviere_solver" / "neviere_solver.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "deep_grating_limits" / "deep_grating_limits.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "continuous_vs_staircase" / "continuous_vs_staircase.py",
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "solver_runtime" / "solver_runtime.py",
 ]
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
+)
+JOINT_OPTIMIZER_EXAMPLE_ROOT = (
+    Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_joint"
 )
 
 

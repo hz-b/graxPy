@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ grating = grax.LaminarGrating(
     layer_material="Pt",
     layer_thickness_nm=28.77,
     x_resolution_nm=1.0,
-    z_resolution_nm=0.1,
+    z_resolution_nm=0.5,
 )
 
 output_dir = Path(__file__).resolve().parent / "results"
@@ -29,7 +30,18 @@ grazing_angle_deg = 4.0
 diffraction_order = 1
 fourier_orders = 5
 
+parser = argparse.ArgumentParser(description="Polarization comparison (s vs p)")
+parser.add_argument(
+    "--solver",
+    choices=("rcwa", "neviere"),
+    default="rcwa",
+    help="Electromagnetic solver to run. Both compute every diffraction order; "
+    "they differ only in how each layer is crossed in z.",
+)
+args = parser.parse_args()
+
 result_s = grax.run_simulation(
+    solver=args.solver,
     grating=grating,
     energy_ev=energy_ev,
     grazing_angle_deg=grazing_angle_deg,
@@ -40,6 +52,7 @@ result_s = grax.run_simulation(
 )
 
 result_p = grax.run_simulation(
+    solver=args.solver,
     grating=grating,
     energy_ev=energy_ev,
     grazing_angle_deg=grazing_angle_deg,
@@ -49,7 +62,7 @@ result_p = grax.run_simulation(
     backend="numba",
 )
 
-comparison_plot_path = output_dir / "single_simulation_pol_comparison.png"
+comparison_plot_path = output_dir / f"single_simulation_pol_comparison_{args.solver}.png"
 
 orders = result_s.orders
 efficiency_s = np.asarray(result_s.efficiency_all, dtype=float)

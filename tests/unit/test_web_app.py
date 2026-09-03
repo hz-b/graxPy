@@ -14,7 +14,7 @@ from werkzeug.datastructures import MultiDict
 
 from grax.gratings import BlazedGrating, LaminarGrating
 from grax.materials import MaterialSpec
-from grax.stacks import MultilayerStack
+from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
 from grax.web.persistence import (
     GratingStore,
@@ -274,6 +274,86 @@ def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     assert loaded.coating_stack.substrate_material.density_g_cm3 == pytest.approx(2.329)
 
 
+def test_saved_grating_round_trips_per_layer_roughness(tmp_path: Path) -> None:
+    grating = LaminarGrating(
+        period_lpermm=400,
+        width_to_period_ratio=0.67,
+        depth_nm=14.9,
+        left_wall_angle_deg=15.0,
+        right_wall_angle_deg=15.0,
+        coating_stack=SingleLayerStack(
+            substrate_material=MaterialSpec("Si", density_g_cm3=2.329),
+            layer_material=MaterialSpec("Pt", density_g_cm3=21.46),
+            layer_thickness_nm=28.77,
+            substrate_roughness_sigma_nm=0.4,
+            layer_roughness_sigma_nm=1.2,
+        ),
+    )
+    store = GratingStore(tmp_path / "gratings")
+
+    saved = store.save(grating_to_spec(grating, name="Rough"))
+    payload = store.load(saved["id"])
+
+    assert payload["stack"]["substrate_roughness_sigma_nm"] == pytest.approx(0.4)
+    assert payload["stack"]["layer_roughness_sigma_nm"] == pytest.approx(1.2)
+    assert payload["stack"]["top_cap_roughness_sigma_nm"] is None
+
+    loaded = build_grating_from_spec(payload)
+    # interfaces: [substrate boundary, top of layer]
+    assert loaded.resolved_stack().interface_roughness_sigmas_bottom_up(0.0) == [0.4, 1.2]
+
+
+def test_old_grating_spec_without_roughness_still_loads(tmp_path: Path) -> None:
+    spec = {
+        "name": "Legacy",
+        "grating_type": "laminar",
+        "period_lpermm": 400,
+        "x_resolution_nm": 1.0,
+        "z_resolution_nm": 1.0,
+        "width_to_period_ratio": 0.67,
+        "depth_nm": 14.9,
+        "left_wall_angle_deg": 15.0,
+        "right_wall_angle_deg": 15.0,
+        "stack": {
+            "type": "single_layer",
+            "substrate_material": {"name": "Si", "density_g_cm3": 2.329},
+            "layer_material": {"name": "Pt", "density_g_cm3": 21.46},
+            "layer_thickness_nm": 28.77,
+        },
+    }
+
+    loaded = build_grating_from_spec(spec)
+
+    assert loaded.resolved_stack().has_per_layer_roughness() is False
+    assert loaded.layer_thickness_nm == pytest.approx(28.77)
+
+
+def test_attach_roughness_sets_and_clears_grating_kind() -> None:
+    grating = LaminarGrating(
+        coating_stack=SingleLayerStack(
+            substrate_material="Si",
+            layer_material="Pt",
+            layer_thickness_nm=28.77,
+            layer_roughness_sigma_nm=1.0,
+        )
+    )
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "random-interface"})
+    assert grating.roughness is not None
+    assert grating.roughness.kind == "random-interface"
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "debye-waller"})
+    assert grating.roughness.kind == "debye-waller"
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "none"})
+    assert grating.roughness is None
+
+    # Missing field defaults to no roughness.
+    grating.roughness = object()  # type: ignore[assignment]
+    web_app_module._attach_roughness(grating, {})
+    assert grating.roughness is None
+
+
 def test_saved_grating_round_trips_blazed_single_layer(tmp_path: Path) -> None:
     grating = BlazedGrating(
         period_lpermm=600,
@@ -352,7 +432,7 @@ def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text())
 
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["id"] == saved["id"]
     assert payload["name"] == "Demo"
 
@@ -837,6 +917,7 @@ def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
             "grazing_angle_deg": "1.5",
             "cff": "2.25",
             "polarization": "p",
+            "solver": "neviere",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
         }
@@ -873,9 +954,15 @@ def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
     assert captured["fixed_angle"]["polarization"] == "p"
     assert captured["monochromator"]["polarization"] == "p"
     assert "polarization" not in captured["multilayer_theta_search"]
+    # The theta-search generator resolves solver from the runner default, so the
+    # web handler stamps it on the case dict rather than passing it through here.
+    assert "solver" not in captured["multilayer_theta_search"]
     assert fixed_cases[0]["polarization"] == "p"
     assert mono_cases[0]["polarization"] == "p"
     assert theta_cases[0]["polarization"] == "p"
+    assert fixed_cases[0]["solver"] == "neviere"
+    assert mono_cases[0]["solver"] == "neviere"
+    assert theta_cases[0]["solver"] == "neviere"
 
 
 def test_parameter_study_run_uses_selected_polarization(
@@ -2212,3 +2299,95 @@ def test_flask_app_plots_selected_orders_across_runs(
     saved_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
     assert saved_manifest["figure_json"]
     assert saved_manifest["plot_config"]["series_styles"]
+
+
+def test_parameter_study_run_uses_selected_solver(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify the run form's solver choice reaches the parameter-study call."""
+
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    captured: dict[str, object] = {}
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_text("plot", encoding="utf-8")
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Solver grating",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+            "polarization": "p",
+            "solver": "neviere",
+            "run_x_resolution_nm": "0.75",
+            "run_z_resolution_nm": "0.25",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+
+    deadline = time.monotonic() + 2.0
+    manifest: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        if captured:
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("status") == "completed":
+                break
+        time.sleep(0.02)
+
+    assert captured["solver"] == "neviere"
+    assert manifest.get("solver") == "neviere"
+    assert manifest.get("run_input", {}).get("solver") == "neviere"
+
+
+def test_run_form_rejects_an_unknown_solver(tmp_path: Path) -> None:
+    """Verify an invalid solver name is refused rather than silently defaulted."""
+
+    pytest.importorskip("flask")
+
+    from grax.web.app import _normalized_solver
+
+    assert _normalized_solver("neviere") == "neviere"
+    assert _normalized_solver(None) == "rcwa"
+    assert _normalized_solver("  RCWA  ") == "rcwa"
+    with pytest.raises(ValueError, match="solver must be"):
+        _normalized_solver("differential")

@@ -34,7 +34,7 @@ def fixed_angle_cases(
         energies_ev: Iterable of photon energies in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
         polarization: Incident polarization, ``"s"`` or ``"p"``. When ``None``
-            the runner's ``default_polarization`` is used.
+            the runner's ``polarization`` is used.
 
     Yields:
         Case dictionaries suitable for :class:`BatchSimulationRunner`.
@@ -186,6 +186,9 @@ def multilayer_theta_search_cases(
     multilayer_bragg_order: int = 1,
     roughness_sigma_nm: float | None = None,
     precise_peak_selection_mode: PeakSelectionMode = "max",
+    polarization: str | None = None,
+    solver: str | None = None,
+    solver_options: object | None = None,
 ) -> Iterator[dict[str, object]]:
     """Yield energy-only cases for the multilayer theta-search workflow.
 
@@ -216,6 +219,12 @@ def multilayer_theta_search_cases(
         final_z_resolution_nm: Z resolution used during the final solve.
         multilayer_bragg_order: Positive Bragg order used for the analytical estimate.
         roughness_sigma_nm: Optional rms roughness in nanometers.
+        polarization: Incident polarization, ``"s"``/``"TE"`` or ``"p"``/``"TM"``.
+            When ``None`` the runner's ``polarization`` is used.
+        solver: Electromagnetic solver (``"rcwa"`` or ``"neviere"``) used by the
+            theta search. When ``None`` the runner's ``solver`` is used.
+        solver_options: Integration settings for ``solver="neviere"``. When
+            ``None`` the runner's ``solver_options`` is used.
         precise_peak_selection_mode: Mode used to select the final theta from the
             precise scan. ``"max"`` uses the sampled maximum, ``"gauss"`` fits a
             local Gaussian, and ``"voigt"`` fits a local Voigt profile.
@@ -253,6 +262,9 @@ def multilayer_theta_search_cases(
             "multilayer_bragg_order": multilayer_bragg_order,
             "roughness_sigma_nm": roughness_sigma_nm,
             "precise_peak_selection_mode": precise_peak_selection_mode,
+            **({} if polarization is None else {"polarization": polarization}),
+            **({} if solver is None else {"solver": solver}),
+            **({} if solver_options is None else {"solver_options": solver_options}),
             "case_id": f"{_THETA_SEARCH_CASE_ID_PREFIX}-{index:08d}",
             "grating": grating,
             "energy_ev": float(energy_ev),

@@ -25,8 +25,9 @@ from grax.simulation import (
     BatchSimulationRunner,
     CaseExecutionResult,
     MultilayerThetaSearchSweepResult,
-    RCWASimulation,
+    GratingSimulation,
     SingleSimulationResult,
+    efficiency_for_order,
     energy_angle_cases,
     estimate_multilayer_bragg_angle_deg,
     fixed_angle_cases,
@@ -43,6 +44,8 @@ from grax.simulation import (
 from grax.simulation import batch as simulation_batch_module
 from grax.simulation import core as simulation_core_module
 from tests.simulation_helpers import (
+    C,
+    CR,
     PT,
     SI,
     build_blazed_multilayer_angle_parity_grating,
@@ -121,9 +124,51 @@ def test_res2_rejects_negative_roughness() -> None:
         res2(None, ([], []), roughness_sigma_nm=-0.1)
 
 
+def test_per_layer_debye_waller_combines_sigmas_in_quadrature() -> None:
+    from grax.stacks import LayerSpec, assemble_custom_stack
+
+    stack = assemble_custom_stack(
+        substrate_material=SI,
+        layers_bottom_up=[
+            LayerSpec(material=CR, thickness_nm=2.0, roughness_sigma_nm=0.3),
+            LayerSpec(material=C, thickness_nm=3.0, roughness_sigma_nm=0.4),
+        ],
+    )
+    grating = LaminarGrating(
+        substrate_material=SI,
+        coating_stack=stack,
+        roughness=RoughnessSpec(kind="debye-waller", sigma_nm=0.0),
+    )
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    # interfaces: [substrate=0.0, top-of-Cr=0.3, top-of-C=0.4] -> quadrature.
+    expected = float(np.sqrt(0.0**2 + 0.3**2 + 0.4**2))
+    assert result.roughness_sigma_nm == pytest.approx(expected)
+
+
+def test_debye_waller_without_per_layer_overrides_keeps_single_sigma() -> None:
+    grating = build_test_grating()
+    grating.roughness = RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert result.roughness_sigma_nm == pytest.approx(0.5)
+
+
 def test_rcwa_simulation_runs_for_multiple_energies() -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=25,
@@ -142,7 +187,7 @@ def test_rcwa_simulation_runs_for_multiple_energies() -> None:
 
 def test_rcwa_simulation_runs_laminar_grating_end_to_end() -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=5,
@@ -158,7 +203,7 @@ def test_rcwa_simulation_runs_laminar_grating_end_to_end() -> None:
 
 def test_rcwa_simulation_loads_experimental_data_and_plots_comparison(tmp_path: Path) -> None:
     grating = build_test_grating()
-    simulation = RCWASimulation(
+    simulation = GratingSimulation(
         grating=grating,
         diffraction_order=1,
         fourier_orders=25,
@@ -193,6 +238,202 @@ def test_run_simulation_returns_typed_single_result() -> None:
     assert result.orders.shape == (11,)
     assert result.efficiency_all.shape == (11,)
     assert result.diffraction_angle_all.shape == (11,)
+
+
+def test_run_simulation_num_supercells_one_matches_baseline() -> None:
+    grating_default = build_test_grating()
+    grating_explicit = LaminarGrating(
+        substrate_material=grating_default.substrate_material,
+        layer_material=grating_default.layer_material,
+        layer_thickness_nm=grating_default.layer_thickness_nm,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.0, num_supercells=1, num_realizations=1),
+    )
+
+    result_default = run_simulation(
+        grating=grating_default,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+    )
+    result_explicit = run_simulation(
+        grating=grating_explicit,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=5,
+    )
+
+    assert result_explicit.num_supercells == 1
+    assert np.allclose(result_default.orders, result_explicit.orders)
+    assert np.allclose(result_default.efficiency_all, result_explicit.efficiency_all, atol=1e-6)
+
+
+def test_run_simulation_num_supercells_produces_fractional_orders() -> None:
+    base_grating = build_test_grating()
+    grating = LaminarGrating(
+        substrate_material=base_grating.substrate_material,
+        layer_material=base_grating.layer_material,
+        layer_thickness_nm=base_grating.layer_thickness_nm,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(
+            kind="random-interface",
+            sigma_nm=0.3,
+            seed=1,
+            correlation_length_nm=100.0,
+            num_supercells=3,
+        ),
+    )
+
+    result = run_simulation(
+        grating=grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert result.num_supercells == 3
+    spacing = np.diff(np.sort(result.orders))
+    assert np.allclose(spacing, spacing[0])
+    assert spacing[0] == pytest.approx(1.0 / 3.0)
+    efficiency = efficiency_for_order(result.orders, result.efficiency_all, diffraction_order=1)
+    assert np.isfinite(efficiency)
+
+
+def test_run_simulation_warns_when_effective_fourier_orders_is_large() -> None:
+    grating = LaminarGrating(
+        substrate_material=build_test_grating().substrate_material,
+        layer_material=build_test_grating().layer_material,
+        layer_thickness_nm=build_test_grating().layer_thickness_nm,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.1, num_supercells=4, num_realizations=1),
+    )
+
+    with pytest.warns(UserWarning, match="effective Fourier orders"):
+        run_simulation(
+            grating=grating,
+            energy_ev=500.0,
+            grazing_angle_deg=1.0,
+            fourier_orders=15,
+        )
+
+
+def test_run_simulation_num_realizations_default_and_debye_waller_result_fields() -> None:
+    debye_grating = LaminarGrating(
+        substrate_material=build_test_grating().substrate_material,
+        layer_material=build_test_grating().layer_material,
+        layer_thickness_nm=build_test_grating().layer_thickness_nm,
+        roughness=RoughnessSpec(kind="debye-waller", sigma_nm=0.5),
+    )
+    no_roughness_result = run_simulation(
+        grating=build_test_grating(),
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+    debye_result = run_simulation(
+        grating=debye_grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert no_roughness_result.num_realizations == 1
+    assert debye_result.num_realizations == 1
+
+
+def test_run_simulation_averages_efficiency_across_realizations() -> None:
+    base_grating = build_test_grating()
+    averaged_grating = LaminarGrating(
+        substrate_material=base_grating.substrate_material,
+        layer_material=base_grating.layer_material,
+        layer_thickness_nm=base_grating.layer_thickness_nm,
+        x_resolution_nm=2.0,
+        roughness=RoughnessSpec(
+            kind="random-interface",
+            sigma_nm=0.3,
+            seed=123,
+            correlation_length_nm=100.0,
+            num_realizations=4,
+        ),
+    )
+
+    averaged_result = run_simulation(
+        grating=averaged_grating,
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        fourier_orders=3,
+    )
+
+    assert averaged_result.num_realizations == 4
+
+    realization_seeds = averaged_grating.roughness.realization_seeds()
+    assert len(realization_seeds) == 4
+
+    individual_efficiencies = []
+    for realization_seed in realization_seeds:
+        realization_grating = LaminarGrating(
+            substrate_material=base_grating.substrate_material,
+            layer_material=base_grating.layer_material,
+            layer_thickness_nm=base_grating.layer_thickness_nm,
+            x_resolution_nm=2.0,
+            roughness=RoughnessSpec(
+                kind="random-interface",
+                sigma_nm=0.3,
+                seed=realization_seed,
+                correlation_length_nm=100.0,
+                num_realizations=1,
+            ),
+        )
+        realization_result = run_simulation(
+            grating=realization_grating,
+            energy_ev=100.0,
+            grazing_angle_deg=4.0,
+            fourier_orders=3,
+        )
+        assert np.allclose(realization_result.orders, averaged_result.orders)
+        individual_efficiencies.append(realization_result.efficiency_all)
+
+    expected_mean = np.mean(individual_efficiencies, axis=0)
+    assert np.allclose(averaged_result.efficiency_all, expected_mean)
+    assert averaged_result.selected_efficiency == pytest.approx(
+        expected_mean[np.where(np.isclose(averaged_result.orders, -1.0))[0][0]]
+    )
+
+
+def test_run_simulation_num_realizations_one_matches_direct_solve() -> None:
+    base_grating = build_test_grating()
+    grating = LaminarGrating(
+        substrate_material=base_grating.substrate_material,
+        layer_material=base_grating.layer_material,
+        layer_thickness_nm=base_grating.layer_thickness_nm,
+        roughness=RoughnessSpec(kind="random-interface", sigma_nm=0.2, seed=7, num_realizations=1),
+    )
+
+    result_a = run_simulation(grating=grating, energy_ev=100.0, grazing_angle_deg=4.0, fourier_orders=3)
+    result_b = run_simulation(grating=grating, energy_ev=100.0, grazing_angle_deg=4.0, fourier_orders=3)
+
+    assert result_a.num_realizations == 1
+    assert np.allclose(result_a.efficiency_all, result_b.efficiency_all)
+
+
+def test_write_all_orders_csv_formats_fractional_and_integer_orders(tmp_path: Path) -> None:
+    result = SingleSimulationResult(
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        orders=np.array([-1.0, -1.0 / 3.0, 0.0, 1.0 / 3.0, 1.0]),
+        selected_efficiency=0.1,
+        selected_diffraction_angle_deg=5.0,
+        efficiency_all=np.array([0.1, 0.2, 0.3, 0.2, 0.1]),
+        diffraction_angle_all=np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+        diffraction_order=1,
+        fourier_orders=3,
+        num_supercells=3,
+    )
+    csv_path = tmp_path / "supercell_all_orders.csv"
+
+    write_all_orders_csv(result, csv_path)
+
+    rows = csv_path.read_text(encoding="utf-8").splitlines()
+    order_cells = [row.split(",")[3] for row in rows[1:]]
+    assert order_cells == ["-1", "-0.3333333333333333", "0", "0.3333333333333333", "1"]
 
 
 def test_estimate_multilayer_bragg_angle_returns_finite_value() -> None:
@@ -493,7 +734,7 @@ def test_batch_runner_executes_generator_cases_in_order(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
     grating = build_test_grating()
-    runner = BatchSimulationRunner(default_fourier_orders=5)
+    runner = BatchSimulationRunner(fourier_orders=5)
 
     def case_generator() -> Iterator[dict[str, object]]:
         yield {
@@ -619,7 +860,26 @@ def test_batch_runner_auto_workers_calibration_respects_memory_limit(
     monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_RESERVE_BYTES", 2 * 1024**3)
     monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_SAFETY_FACTOR", 1.0)
     monkeypatch.setattr(simulation_module, "_current_process_memory_bytes", lambda: 3 * 1024**3)
+    monkeypatch.setattr(simulation_module, "_peak_process_memory_bytes", lambda: 1 * 1024**3)
 
+    assert simulation_module._calibrate_auto_max_workers_from_result(
+        pending_case_count=10,
+        available_memory_bytes=8 * 1024**3,
+    ) == 2
+
+
+def test_batch_runner_auto_workers_calibration_uses_peak_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When the per-solve peak RSS exceeds the steady-state RSS, the peak must
+    # drive worker sizing so large-supercell solves do not oversubscribe RAM.
+    monkeypatch.setattr(simulation_module.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_RESERVE_BYTES", 2 * 1024**3)
+    monkeypatch.setattr(simulation_module, "AUTO_WORKER_MEMORY_SAFETY_FACTOR", 1.0)
+    monkeypatch.setattr(simulation_module, "_current_process_memory_bytes", lambda: 1 * 1024**3)
+    monkeypatch.setattr(simulation_module, "_peak_process_memory_bytes", lambda: 3 * 1024**3)
+
+    # usable = 8 - 2 = 6 GiB; 6 // 3 (peak) = 2, not 6 // 1 (steady) = 6.
     assert simulation_module._calibrate_auto_max_workers_from_result(
         pending_case_count=10,
         available_memory_bytes=8 * 1024**3,
@@ -631,6 +891,7 @@ def test_batch_runner_auto_workers_calibration_falls_back_to_cpu_limit(
 ) -> None:
     monkeypatch.setattr(simulation_module.os, "cpu_count", lambda: 16)
     monkeypatch.setattr(simulation_module, "_current_process_memory_bytes", lambda: None)
+    monkeypatch.setattr(simulation_module, "_peak_process_memory_bytes", lambda: None)
 
     assert simulation_module._calibrate_auto_max_workers_from_result(
         pending_case_count=10,
@@ -790,7 +1051,7 @@ def test_run_simulation_keeps_random_interface_roughness_out_of_res2(
         return FakeEfficiencies()
 
     grating = build_test_grating()
-    grating.roughness = RoughnessSpec(kind="random-interface", sigma_nm=0.5)
+    grating.roughness = RoughnessSpec(kind="random-interface", sigma_nm=0.5, num_realizations=1)
     fake_profile = (np.asarray([0.0]), np.asarray([0]))
     monkeypatch.setattr(grating, "build_textures", lambda *args, **kwargs: ([], fake_profile))
     monkeypatch.setattr(simulation_core_module, "res0", lambda *args, **kwargs: object())
@@ -872,7 +1133,7 @@ def test_batch_runner_rejects_unsupported_material_input_in_fail_fast_mode() -> 
         top_cap_thickness_nm=0.7,
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=5,
+        fourier_orders=5,
         on_error="fail_fast",
     )
 
@@ -1041,7 +1302,7 @@ def test_batch_runner_infers_progress_total_for_generator_cases(monkeypatch: pyt
 def test_batch_runner_parallel_executes_cases_and_writes_checkpoint(tmp_path: Path) -> None:
     grating = build_test_grating()
     runner = BatchSimulationRunner(
-        default_fourier_orders=1,
+        fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         on_error="continue",
@@ -1086,7 +1347,7 @@ def test_batch_runner_parallel_resume_skips_completed_cases(tmp_path: Path) -> N
         encoding="utf-8",
     )
     runner = BatchSimulationRunner(
-        default_fourier_orders=1,
+        fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         resume=True,
@@ -1119,7 +1380,7 @@ def test_parallel_worker_is_top_level_and_spawn_compatible() -> None:
 
 
 def test_rcwa_simulation_raises_for_non_physical_efficiency() -> None:
-    simulation = RCWASimulation(grating=build_test_grating())
+    simulation = GratingSimulation(grating=build_test_grating())
 
     with pytest.raises(ValueError, match="Non-physical reflected diffraction efficiency"):
         simulation._validate_reflected_efficiencies(
@@ -1169,6 +1430,24 @@ def test_lazy_case_helpers_yield_expected_cases() -> None:
     assert first_theta_search["energy_ev"] == 100.0
     assert first_theta_search["workflow"] == "multilayer_theta_search"
     assert "grazing_angle_deg" not in first_theta_search
+    # solver / solver_options are only stamped when explicitly requested.
+    assert "solver" not in first_theta_search
+    assert "solver_options" not in first_theta_search
+
+
+def test_multilayer_theta_search_cases_stamp_requested_solver() -> None:
+    grating = build_test_grating()
+    options = object()
+    case = next(
+        multilayer_theta_search_cases(
+            grating=grating,
+            energies_ev=iter([100.0]),
+            solver="neviere",
+            solver_options=options,
+        )
+    )
+    assert case["solver"] == "neviere"
+    assert case["solver_options"] is options
 
 
 def test_case_helpers_reject_removed_public_override_arguments() -> None:
@@ -1552,5 +1831,31 @@ def test_case_execution_result_round_trip_preserves_peak_memory_bytes() -> None:
 
     assert restored.peak_memory_bytes == 123456
     assert restored.wall_seconds == pytest.approx(9.87)
+
+
+def test_case_execution_result_round_trip_preserves_fractional_orders() -> None:
+    # Supercell roughness produces fractional physical orders; the parallel
+    # batch path serializes results through these records, which previously
+    # truncated orders to int (collapsing e.g. -1.2 and -1.4 onto -1).
+    fractional_orders = np.asarray([-1.4, -1.2, -1.0, -0.8, 0.0, 1.0], dtype=float)
+    case = CaseExecutionResult(
+        case_id="case-1",
+        index=0,
+        label="case",
+        energy_ev=100.0,
+        grazing_angle_deg=4.0,
+        orders=fractional_orders,
+        selected_efficiency=0.1,
+        selected_diffraction_angle_deg=2.0,
+        efficiency_all=np.linspace(0.1, 0.6, fractional_orders.size),
+        diffraction_angle_all=np.linspace(1.0, 6.0, fractional_orders.size),
+        status="ok",
+    )
+
+    record = simulation_module._case_result_to_record(case)
+    restored = simulation_module._case_result_from_record(record)
+
+    assert np.allclose(restored.orders, fractional_orders)
+    assert np.unique(restored.orders).size == fractional_orders.size
 
 

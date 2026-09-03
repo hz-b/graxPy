@@ -100,8 +100,8 @@ else:
     )
 
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=diffraction_order,
-    default_fourier_orders=fourier_orders,
+    diffraction_order=diffraction_order,
+    fourier_orders=fourier_orders,
     show_progress=True,
     live_plot=LIVE_PLOT,
     live_plot_x_key="energy_ev",

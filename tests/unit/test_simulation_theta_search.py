@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -208,7 +209,7 @@ def test_batch_runner_passes_min_reflected_efficiency_to_payload(monkeypatch: py
     )
 
     assert len(payloads) == 1
-    assert payloads[0]["min_efficiency"] == pytest.approx(-0.125)
+    assert payloads[0]["min_reflected_efficiency"] == pytest.approx(-0.125)
     assert payloads[0]["max_total_reflected_efficiency"] == pytest.approx(1.05)
 
 
@@ -1149,3 +1150,44 @@ def test_multilayer_theta_search_sweep_resume_ignores_malformed_checkpoint_row(
     assert calls == [1800.0]
 
 
+
+
+def test_safe_theta_scan_half_width_clamp_logs_once_at_info(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from grax.simulation import theta_search as theta_search_module
+
+    # caplog captures through the root logger, so propagation must be on for
+    # this assertion regardless of whether an earlier test called setup_logging.
+    monkeypatch.setattr(logging.getLogger("grax"), "propagate", True)
+    theta_search_module._reported_half_width_clamps.clear()
+
+    with caplog.at_level(logging.INFO, logger="grax.simulation.theta_search"):
+        first = theta_search_module._safe_theta_scan_half_width_deg(
+            center_deg=0.9, requested_half_width_deg=1.0
+        )
+        second = theta_search_module._safe_theta_scan_half_width_deg(
+            center_deg=0.9, requested_half_width_deg=1.0
+        )
+
+    assert first == pytest.approx(0.95 * 0.9)
+    assert second == pytest.approx(0.95 * 0.9)
+    clamp_records = [
+        record
+        for record in caplog.records
+        if record.name == "grax.simulation.theta_search"
+        and "reaches near/into 0 deg" in record.getMessage()
+    ]
+    assert len(clamp_records) == 1
+    assert clamp_records[0].levelno == logging.INFO
+
+
+def test_safe_theta_scan_half_width_returns_request_when_within_bounds() -> None:
+    from grax.simulation import theta_search as theta_search_module
+
+    theta_search_module._reported_half_width_clamps.clear()
+    value = theta_search_module._safe_theta_scan_half_width_deg(
+        center_deg=5.0, requested_half_width_deg=0.5
+    )
+    assert value == pytest.approx(0.5)

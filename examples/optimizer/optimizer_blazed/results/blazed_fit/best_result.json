@@ -2,7 +2,7 @@
   "optimization_mode": "measurement_fit",
   "experiment_name": "blazed_fit",
   "objective_name": "loss",
-  "measurement_path": "/home/jny/projects/graxPy/examples/optimizer/optimizer_blazed/GR600-BEIChem_energy-Cff2.5.dat",
+  "measurement_path": "/Users/vadilonga/projects/graxPy/examples/optimizer/optimizer_blazed/GR600-BEIChem_energy-Cff2.5.dat",
   "evaluation_mode": "energy_only",
   "evaluation_case_mode": "energy_only",
   "evaluation_energies_ev": [
@@ -72,14 +72,14 @@
     ]
   },
   "equality_constraints": {},
-  "best_loss": 3.422211971978115e-05,
+  "best_loss": 3.331287998447174e-05,
   "best_parameters": {
-    "blaze_angle_deg": 0.8594103033260448,
+    "blaze_angle_deg": 0.8641036454094532,
     "anti_blaze_angle_deg": 2.0,
     "top_cap_thickness_nm": 2.0
   },
   "best_grating_parameters": {
-    "blaze_angle_deg": 0.8594103033260448,
+    "blaze_angle_deg": 0.8641036454094532,
     "anti_blaze_angle_deg": 2.0,
     "top_cap_thickness_nm": 2.0
   },
@@ -91,6 +91,11 @@
   "early_stop_reason": null,
   "backend_requested": "auto",
   "backend_effective": "numba",
+  "solver": "rcwa",
+  "solver_options": null,
+  "optimizer_execution_strategy": "trial_batch_runner",
+  "optimizer_requested_max_workers": "auto",
+  "optimizer_resolved_max_workers": 8,
   "diffraction_order": 1,
   "fourier_orders": 10,
   "angle_mode": "cff",

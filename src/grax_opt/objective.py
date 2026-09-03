@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Callable, Dict, Mapping, Optional
+import logging
 import warnings
 
 import numpy as np
@@ -12,6 +14,8 @@ from grax.simulation import _resolve_max_workers as _resolve_simulation_max_work
 
 from .data import MeasurementData, sample_measurement_data
 from .evaluation import build_evaluation_cases
+
+module_logger = logging.getLogger(__name__)
 
 LossFunction = Callable[[np.ndarray, np.ndarray], float]
 BuildGratingFunction = Callable[[Mapping[str, float]], object]
@@ -50,6 +54,34 @@ def _evaluation_schedule(
         cff=config.cff,
     )
     return evaluation_energies_ev, grazing_angles
+
+
+def _joint_measurement_grazing_angles(
+    joint_measurement: Any,
+    energies_ev: np.ndarray,
+    *,
+    grating_period_lpermm: float,
+) -> np.ndarray:
+    """Return the grazing angle for every evaluation energy of one measurement.
+
+    Args:
+        joint_measurement: Resolved measurement carrying its own angle mode.
+        energies_ev: Evaluation energies for the measurement.
+        grating_period_lpermm: Grating period, needed by the ``"cff"`` mode.
+
+    Returns:
+        One grazing angle per energy: constant under ``angle_mode="fixed"``, and
+        the monochromator relation under ``angle_mode="cff"``.
+    """
+
+    if str(joint_measurement.angle_mode) == "cff":
+        return monochromator_grazing_angles_deg(
+            energies_ev,
+            period_lpermm=grating_period_lpermm,
+            diffraction_order=int(joint_measurement.diffraction_order),
+            cff=float(joint_measurement.cff),
+        )
+    return np.full(energies_ev.shape, float(joint_measurement.grazing_angle_deg), dtype=float)
 
 
 def _trial_max_workers(config: Any) -> int:
@@ -124,7 +156,7 @@ def simulate_efficiency_curve_with_metadata(
         config: Optimization configuration describing the simulation setup.
         trial_parameters: Ax trial parameters for the current candidate.
         measurement: Energy grid and target efficiencies used for evaluation.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Optional hook that builds a grating from the trial
             parameter mapping.
         resolve_solver_parameters_fn: Optional hook that resolves solver
@@ -132,6 +164,12 @@ def simulate_efficiency_curve_with_metadata(
 
     Returns:
         Simulated efficiency values on the measurement grid.
+
+    Note:
+        The electromagnetic solver comes from ``config.solver`` (and
+        ``config.solver_options``), alongside ``diffraction_order`` and
+        ``fourier_orders``, rather than from a separate argument. ``backend``
+        stays an argument because it is resolved from ``"auto"`` by the caller.
     """
 
     if build_grating_fn is None:
@@ -156,24 +194,36 @@ def simulate_efficiency_curve_with_metadata(
                 "energy_ev": float(energy_ev),
                 "grazing_angle_deg": float(grazing_angle_deg),
                 "diffraction_order": int(config.diffraction_order),
+                "polarization": str(getattr(config, "polarization", "s")),
                 "fourier_orders": int(config.fourier_orders),
                 "roughness_sigma_nm": solver_parameters["roughness_sigma_nm"],
             }
         )
 
     runner = BatchSimulationRunner(
-        default_diffraction_order=int(config.diffraction_order),
-        default_fourier_orders=int(config.fourier_orders),
+        diffraction_order=int(config.diffraction_order),
+        fourier_orders=int(config.fourier_orders),
         max_workers=getattr(config, "max_workers", None),
         validate_physical_results=bool(config.validate_physical_results),
         backend=backend,
+        solver=str(getattr(config, "solver", "rcwa")),
+        solver_options=getattr(config, "solver_options", None),
     )
-    trial_results = list(runner.run_cases(cases))
-    efficiencies = np.empty(len(cases), dtype=float)
-    for result in trial_results:
+    efficiencies = np.full(len(cases), np.nan, dtype=float)
+    filled = np.zeros(len(cases), dtype=bool)
+    for result in runner.run_cases(cases):
         if result.status != "ok":
             raise _BatchCaseFailure(result.case_id, result.status, int(runner.resolved_max_workers))
         efficiencies[int(result.index)] = float(result.selected_efficiency)
+        filled[int(result.index)] = True
+
+    if not bool(filled.all()):
+        missing_index = int(np.argmin(filled))
+        raise _BatchCaseFailure(
+            str(cases[missing_index]["case_id"]),
+            "missing",
+            int(runner.resolved_max_workers),
+        )
 
     return efficiencies, int(runner.resolved_max_workers)
 
@@ -200,6 +250,248 @@ def simulate_efficiency_curve(
     return efficiencies
 
 
+def reduce_joint_losses(
+    per_measurement_losses: Mapping[str, float],
+    *,
+    reduction: str = "mean",
+    weights: Mapping[str, float] | None = None,
+    point_counts: Mapping[str, int] | None = None,
+) -> float:
+    """Combine per-measurement losses into one joint objective value.
+
+    Args:
+        per_measurement_losses: Loss for each measurement, keyed by label.
+        reduction: One of ``"mean"``, ``"sum"``, ``"pooled"``, or ``"weighted"``.
+        weights: Explicit per-measurement weights, required for ``"weighted"``.
+        point_counts: Evaluation point count per measurement, required for
+            ``"pooled"``.
+
+    Returns:
+        The reduced joint loss.
+
+    Raises:
+        ValueError: If the losses are empty, the reduction is unknown, or the
+            inputs required by the chosen reduction are missing.
+    """
+
+    if len(per_measurement_losses) == 0:
+        raise ValueError("per_measurement_losses must not be empty.")
+
+    labels = list(per_measurement_losses)
+    losses = np.asarray([float(per_measurement_losses[label]) for label in labels], dtype=float)
+
+    if reduction == "sum":
+        return float(np.sum(losses))
+    if reduction == "mean":
+        weight_values = np.ones(len(labels), dtype=float)
+    elif reduction == "pooled":
+        if point_counts is None:
+            raise ValueError("point_counts is required for the 'pooled' reduction.")
+        weight_values = np.asarray(
+            [float(point_counts[label]) for label in labels],
+            dtype=float,
+        )
+    elif reduction == "weighted":
+        if weights is None:
+            raise ValueError("weights is required for the 'weighted' reduction.")
+        weight_values = np.asarray([float(weights[label]) for label in labels], dtype=float)
+    else:
+        raise ValueError(
+            "joint_loss_reduction must be one of 'mean', 'sum', 'pooled', or 'weighted'."
+        )
+
+    weight_total = float(np.sum(weight_values))
+    if weight_total <= 0.0:
+        raise ValueError("Joint loss reduction weights must sum to a positive value.")
+    return float(np.sum(weight_values * losses) / weight_total)
+
+
+def simulate_joint_efficiency_curves_with_metadata(
+    config: Any,
+    trial_parameters: Mapping[str, float],
+    joint_measurements: Sequence[Any],
+    *,
+    backend: str,
+    build_grating_fn: BuildGratingFunction | None = None,
+    resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
+) -> tuple[dict[str, np.ndarray], int]:
+    """Simulate efficiency curves for every measurement in one flat batch.
+
+    All measurements are evaluated in a single :class:`BatchSimulationRunner`
+    batch so trial-level ``max_workers`` parallelizes across angles as well as
+    energies. Results are reassembled by ``result.index`` because the parallel
+    runner yields in completion order rather than input order.
+
+    Args:
+        config: Joint optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        joint_measurements: Prepared per-angle measurements to evaluate.
+        backend: Fourier coefficient backend to use for the simulation.
+        build_grating_fn: Hook that builds a grating from the trial parameters.
+        resolve_solver_parameters_fn: Hook that resolves solver parameters.
+
+    Returns:
+        A mapping of measurement label to simulated efficiencies, and the
+        runner's resolved worker count.
+
+    Raises:
+        RuntimeError: If the required build hooks are missing.
+        _BatchCaseFailure: If any case fails or no result is returned for a case.
+    """
+
+    if build_grating_fn is None:
+        raise RuntimeError("build_grating_fn is required for joint optimizer execution.")
+    if resolve_solver_parameters_fn is None:
+        raise RuntimeError(
+            "resolve_solver_parameters_fn is required for joint optimizer execution."
+        )
+    grating = build_grating_fn(trial_parameters)
+    solver_parameters = resolve_solver_parameters_fn(trial_parameters)
+
+    cases: list[dict[str, object]] = []
+    case_slots: list[tuple[str, int]] = []
+    for joint_measurement in joint_measurements:
+        label = str(joint_measurement.label)
+        energies = np.asarray(joint_measurement.evaluation_energies_ev, dtype=float)
+        grazing_angles = _joint_measurement_grazing_angles(
+            joint_measurement,
+            energies,
+            grating_period_lpermm=float(grating.period_lpermm),
+        )
+        for point_index, (energy_ev, grazing_angle_deg) in enumerate(zip(energies, grazing_angles)):
+            cases.append(
+                {
+                    "case_id": f"trial_eval_{label}_{point_index}",
+                    "grating": grating,
+                    "energy_ev": float(energy_ev),
+                    "grazing_angle_deg": float(grazing_angle_deg),
+                    "diffraction_order": int(joint_measurement.diffraction_order),
+                    "polarization": str(joint_measurement.polarization),
+                    "fourier_orders": int(config.fourier_orders),
+                    "roughness_sigma_nm": solver_parameters["roughness_sigma_nm"],
+                }
+            )
+            case_slots.append((label, point_index))
+
+    runner = BatchSimulationRunner(
+        diffraction_order=int(config.diffraction_order),
+        fourier_orders=int(config.fourier_orders),
+        max_workers=getattr(config, "max_workers", None),
+        validate_physical_results=bool(config.validate_physical_results),
+        backend=backend,
+        solver=str(getattr(config, "solver", "rcwa")),
+        solver_options=getattr(config, "solver_options", None),
+    )
+
+    simulated: dict[str, np.ndarray] = {
+        str(joint_measurement.label): np.full(
+            len(joint_measurement.evaluation_energies_ev),
+            np.nan,
+            dtype=float,
+        )
+        for joint_measurement in joint_measurements
+    }
+    filled = np.zeros(len(cases), dtype=bool)
+    for result in runner.run_cases(cases):
+        if result.status != "ok":
+            raise _BatchCaseFailure(result.case_id, result.status, int(runner.resolved_max_workers))
+        flat_index = int(result.index)
+        label, point_index = case_slots[flat_index]
+        simulated[label][point_index] = float(result.selected_efficiency)
+        filled[flat_index] = True
+
+    if not bool(filled.all()):
+        missing_index = int(np.argmin(filled))
+        raise _BatchCaseFailure(
+            str(cases[missing_index]["case_id"]),
+            "missing",
+            int(runner.resolved_max_workers),
+        )
+
+    return simulated, int(runner.resolved_max_workers)
+
+
+def evaluate_joint_trial_with_metadata(
+    config: Any,
+    trial_parameters: Mapping[str, float],
+    joint_measurements: Sequence[Any],
+    *,
+    loss_function: LossFunction | None = None,
+    backend: str,
+    build_grating_fn: BuildGratingFunction | None = None,
+    resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
+) -> tuple[float, dict[str, float], dict[str, np.ndarray], int]:
+    """Evaluate one joint multi-angle trial.
+
+    Args:
+        config: Joint optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        joint_measurements: Prepared per-angle measurements to evaluate.
+        loss_function: Optional custom per-measurement loss function.
+        backend: Fourier coefficient backend to use for the simulation.
+        build_grating_fn: Hook that builds a grating from the trial parameters.
+        resolve_solver_parameters_fn: Hook that resolves solver parameters.
+
+    Returns:
+        The joint loss, the per-measurement losses, the simulated curves, and
+        the resolved worker count. On failure the penalty is reported for the
+        joint loss and every measurement, with empty simulated curves.
+    """
+
+    _warn_if_numpy_backend_requested(backend, stacklevel=2)
+    selected_loss_function = loss_function or mean_squared_error
+    labels = [str(joint_measurement.label) for joint_measurement in joint_measurements]
+
+    try:
+        simulated, resolved_max_workers = simulate_joint_efficiency_curves_with_metadata(
+            config,
+            trial_parameters,
+            joint_measurements,
+            backend=backend,
+            build_grating_fn=build_grating_fn,
+            resolve_solver_parameters_fn=resolve_solver_parameters_fn,
+        )
+    except _BatchCaseFailure as error:
+        module_logger.warning(
+            "Joint optimizer trial penalized: %s (resolved_max_workers=%s).",
+            error,
+            error.resolved_max_workers,
+        )
+        penalty = float(config.failure_penalty)
+        return penalty, {label: penalty for label in labels}, {}, int(error.resolved_max_workers)
+    except Exception as error:
+        module_logger.warning(
+            "Joint optimizer trial penalized by %s: %s.",
+            type(error).__name__,
+            error,
+        )
+        penalty = float(config.failure_penalty)
+        return penalty, {label: penalty for label in labels}, {}, _trial_max_workers(config)
+
+    per_measurement_losses = {
+        str(joint_measurement.label): float(
+            selected_loss_function(
+                np.asarray(joint_measurement.evaluation_efficiency, dtype=float),
+                simulated[str(joint_measurement.label)],
+            )
+        )
+        for joint_measurement in joint_measurements
+    }
+    joint_loss = reduce_joint_losses(
+        per_measurement_losses,
+        reduction=str(config.joint_loss_reduction),
+        weights={
+            str(joint_measurement.label): float(joint_measurement.weight)
+            for joint_measurement in joint_measurements
+        },
+        point_counts={
+            str(joint_measurement.label): len(joint_measurement.evaluation_energies_ev)
+            for joint_measurement in joint_measurements
+        },
+    )
+    return joint_loss, per_measurement_losses, simulated, int(resolved_max_workers)
+
+
 def evaluate_trial(
     config: Any,
     trial_parameters: Mapping[str, float],
@@ -220,7 +512,7 @@ def evaluate_trial(
         trial_parameters: Ax trial parameters for the current candidate.
         measurement: Energy grid and target efficiencies used for evaluation.
         loss_function: Optional custom loss function.
-        backend: RCWA backend to use for the simulation.
+        backend: Fourier coefficient backend to use for the simulation.
         build_grating_fn: Optional hook that builds a grating from the trial
             parameter mapping.
         resolve_solver_parameters_fn: Optional hook that resolves solver
@@ -252,7 +544,7 @@ def evaluate_trial(
     return float(selected_loss_function(evaluation_measurement.efficiency, simulated_efficiency))
 
 
-def evaluate_trial_with_metadata(
+def evaluate_trial_curve_with_metadata(
     config: Any,
     trial_parameters: Mapping[str, float],
     measurement: MeasurementData,
@@ -261,10 +553,27 @@ def evaluate_trial_with_metadata(
     backend: str,
     build_grating_fn: BuildGratingFunction | None = None,
     resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
-) -> tuple[float, int]:
-    """Evaluate one Ax trial and return loss plus resolved worker count."""
+) -> tuple[float, int, np.ndarray | None]:
+    """Evaluate one Ax trial and also return its simulated curve.
 
-    _warn_if_numpy_backend_requested(backend, stacklevel=2)
+    Returning the curve lets callers plot the best fit without re-running the
+    simulation afterwards.
+
+    Args:
+        config: Optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        measurement: Energy grid and target efficiencies used for evaluation.
+        loss_function: Optional custom loss function.
+        backend: Fourier coefficient backend to use for the simulation.
+        build_grating_fn: Hook that builds a grating from the trial parameters.
+        resolve_solver_parameters_fn: Hook that resolves solver parameters.
+
+    Returns:
+        The loss, the resolved worker count, and the simulated efficiencies.
+        The curve is ``None`` when the trial was penalized.
+    """
+
+    _warn_if_numpy_backend_requested(backend, stacklevel=3)
     selected_loss_function = loss_function or mean_squared_error
     evaluation_measurement = build_evaluation_measurement(config, measurement)
     try:
@@ -277,10 +586,58 @@ def evaluate_trial_with_metadata(
             resolve_solver_parameters_fn=resolve_solver_parameters_fn,
         )
     except _BatchCaseFailure as error:
-        return float(config.failure_penalty), int(error.resolved_max_workers)
-    except Exception:
-        return float(config.failure_penalty), _trial_max_workers(config)
+        module_logger.warning(
+            "Optimizer trial penalized: %s (resolved_max_workers=%s).",
+            error,
+            error.resolved_max_workers,
+        )
+        return float(config.failure_penalty), int(error.resolved_max_workers), None
+    except Exception as error:
+        module_logger.warning(
+            "Optimizer trial penalized by %s: %s.",
+            type(error).__name__,
+            error,
+        )
+        return float(config.failure_penalty), _trial_max_workers(config), None
     return (
         float(selected_loss_function(evaluation_measurement.efficiency, simulated_efficiency)),
         int(resolved_max_workers),
+        simulated_efficiency,
     )
+
+
+def evaluate_trial_with_metadata(
+    config: Any,
+    trial_parameters: Mapping[str, float],
+    measurement: MeasurementData,
+    *,
+    loss_function: LossFunction | None = None,
+    backend: str,
+    build_grating_fn: BuildGratingFunction | None = None,
+    resolve_solver_parameters_fn: ResolveSolverParametersFunction | None = None,
+) -> tuple[float, int]:
+    """Evaluate one Ax trial and return loss plus resolved worker count.
+
+    Args:
+        config: Optimization configuration describing the simulation setup.
+        trial_parameters: Ax trial parameters for the current candidate.
+        measurement: Energy grid and target efficiencies used for evaluation.
+        loss_function: Optional custom loss function.
+        backend: Fourier coefficient backend to use for the simulation.
+        build_grating_fn: Hook that builds a grating from the trial parameters.
+        resolve_solver_parameters_fn: Hook that resolves solver parameters.
+
+    Returns:
+        The loss and the resolved worker count.
+    """
+
+    loss, resolved_max_workers, _simulated_efficiency = evaluate_trial_curve_with_metadata(
+        config,
+        trial_parameters,
+        measurement,
+        loss_function=loss_function,
+        backend=backend,
+        build_grating_fn=build_grating_fn,
+        resolve_solver_parameters_fn=resolve_solver_parameters_fn,
+    )
+    return loss, resolved_max_workers

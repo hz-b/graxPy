@@ -65,7 +65,7 @@ intersphinx_mapping = {
 }
 
 html_theme = "furo"
-html_static_path = ["_static"]
+html_static_path = ["_static"] if (Path(__file__).resolve().parent / "_static").is_dir() else []
 html_title = "grax documentation"
 templates_path = ["_templates"]
 

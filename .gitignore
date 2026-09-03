@@ -110,3 +110,12 @@ __pycache__/
 *.pyc
 .pytes*t_cache/
 .ruff_cache
+
+# Per-solver checkpoint directories written by run_rcwa.py / run_neviere.py.
+# The unsuffixed checkpoints/ baseline stays tracked; these are scratch.
+validation/*/results/checkpoints_*/
+
+# Optimizer checkpoints written by the joint measurement-fit example. The Ax
+# snapshot and the problem fingerprint both record absolute paths from the
+# machine that produced them, so they are scratch, not shareable artifacts.
+examples/optimizer/*/results/*/checkpoint/

@@ -57,8 +57,8 @@ when omitted.
 
 ```python
 runner = grax.BatchSimulationRunner(
-    default_diffraction_order=diffraction_order,
-    default_fourier_orders=25,
+    diffraction_order=diffraction_order,
+    fourier_orders=25,
     show_progress=True,
     on_error="continue",
 )

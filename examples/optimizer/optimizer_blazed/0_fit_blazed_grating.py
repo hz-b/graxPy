@@ -99,43 +99,49 @@ spec = {
     "evaluation_energies_ev": list(evaluation_energies_ev),
 }
 
-try:
-    result = optimize_to_measurements(spec)
-except ImportError as error:
-    print(error)
-    print("Install the optional optimizer dependency first: `pip install .[opt]`.")
-    raise SystemExit(1) from error
 
-fitted_parameters_path = results_dir / "fitted_parameters.json"
-payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
-payload["result_json_path"] = str(result.result_json_path)
-payload["trial_history_csv_path"] = str(result.trial_history_csv_path)
-payload["best_fit_plot_path"] = (
-    None if result.best_fit_plot_path is None else str(result.best_fit_plot_path)
-)
-payload["loss_history_plot_path"] = (
-    None if result.loss_history_plot_path is None else str(result.loss_history_plot_path)
-)
-fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+def main() -> None:
+    try:
+        result = optimize_to_measurements(spec)
+    except ImportError as error:
+        print(error)
+        print("Install the optional optimizer dependency first: `pip install .[opt]`.")
+        raise SystemExit(1) from error
 
-print(f"Measurement: {result.measurement_path}")
-print(f"Optimizer backend request: {optimizer_backend}")
-print(f"Optimizer max_workers request: {optimizer_max_workers}")
-print(
-    f"Baseline top-cap setting: use_top_cap={use_top_cap}, "
-    f"material={top_cap_material_name if use_top_cap else 'None'}, "
-    f"thickness_nm={top_cap_thickness_nm}"
-)
-print(f"Best loss: {result.best_loss:.6g}")
-print(f"Best parameters: {result.best_parameters}")
-print(f"Completed trials: {result.completed_trials}")
-print(f"Stopped early: {result.stopped_early}")
-if result.early_stop_reason is not None:
-    print(f"Early-stop reason: {result.early_stop_reason}")
-print(f"Fitted parameters JSON: {fitted_parameters_path}")
-print(f"Best result JSON: {result.result_json_path}")
-print(f"Trial history CSV: {result.trial_history_csv_path}")
-if result.best_fit_plot_path is not None:
-    print(f"Best-fit plot: {result.best_fit_plot_path}")
-if result.loss_history_plot_path is not None:
-    print(f"Loss-history plot: {result.loss_history_plot_path}")
+    fitted_parameters_path = results_dir / "fitted_parameters.json"
+    payload = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+    payload["result_json_path"] = str(result.result_json_path)
+    payload["trial_history_csv_path"] = str(result.trial_history_csv_path)
+    payload["best_fit_plot_path"] = (
+        None if result.best_fit_plot_path is None else str(result.best_fit_plot_path)
+    )
+    payload["loss_history_plot_path"] = (
+        None if result.loss_history_plot_path is None else str(result.loss_history_plot_path)
+    )
+    fitted_parameters_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    print(f"Measurement: {result.measurement_path}")
+    print(f"Optimizer backend request: {optimizer_backend}")
+    print(f"Optimizer max_workers request: {optimizer_max_workers}")
+    print(
+        f"Baseline top-cap setting: use_top_cap={use_top_cap}, "
+        f"material={top_cap_material_name if use_top_cap else 'None'}, "
+        f"thickness_nm={top_cap_thickness_nm}"
+    )
+    print(f"Best loss: {result.best_loss:.6g}")
+    print(f"Best parameters: {result.best_parameters}")
+    print(f"Completed trials: {result.completed_trials}")
+    print(f"Stopped early: {result.stopped_early}")
+    if result.early_stop_reason is not None:
+        print(f"Early-stop reason: {result.early_stop_reason}")
+    print(f"Fitted parameters JSON: {fitted_parameters_path}")
+    print(f"Best result JSON: {result.result_json_path}")
+    print(f"Trial history CSV: {result.trial_history_csv_path}")
+    if result.best_fit_plot_path is not None:
+        print(f"Best-fit plot: {result.best_fit_plot_path}")
+    if result.loss_history_plot_path is not None:
+        print(f"Loss-history plot: {result.loss_history_plot_path}")
+
+
+if __name__ == "__main__":
+    main()

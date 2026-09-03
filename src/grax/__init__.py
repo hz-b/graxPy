@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import logging
 
+# Attach a no-op handler to the package logger so that when an application has
+# not configured logging, grax log records are not emitted to stderr by
+# ``logging.lastResort``. This matters for the spawned batch workers, which
+# re-import grax but never call ``setup_logging``: without this, every
+# ``logger.warning`` inside a worker leaks to the terminal.
+logging.getLogger("grax").addHandler(logging.NullHandler())
+
 from .afm_grating import AFMGrating
 from .afm_preprocessing import AFMPreprocessing
 from .materials import (
@@ -13,6 +20,7 @@ from .materials import (
     material_density_g_cm3,
 )
 from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
+from .simulation.core import normalize_polarization
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
     ParameterStudyResult,
@@ -21,7 +29,7 @@ from .parameter_sweep import (
     plot_parameter_study,
     run_parameter_study,
 )
-from .rcwa_1d import res0, res1, res2
+from .solvers import NeviereOptions, res0, res1, res2, res2_dm
 from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,
@@ -69,6 +77,7 @@ __all__ = [
     "LaminarGrating",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
+    "NeviereOptions",
     "ParameterStudyEnergyResult",
     "ParameterStudyResult",
     "ParameterSweepSeries",
@@ -93,12 +102,14 @@ __all__ = [
     "material_density_g_cm3",
     "multilayer_theta_search_cases",
     "monochromator_cases",
+    "normalize_polarization",
     "monochromator_grazing_angles_deg",
     "plot_parameter_study",
     "plot_order_subset",
     "res0",
     "res1",
     "res2",
+    "res2_dm",
     "run_example_slag",
     "run_parameter_study",
     "run_multilayer_theta_search",
@@ -151,6 +162,23 @@ def setup_logging(
 
     root_logger = logging.getLogger("grax")
     root_logger.setLevel(level)
+
+    # Do not let grax records bubble to the root logger: they are already
+    # written to this file handler, and a StreamHandler attached to the root
+    # by the host application would otherwise re-print every one of them.
+    root_logger.propagate = False
+
+    # Guard against duplicate file handlers if setup_logging is called twice
+    # (e.g. an example re-run in the same interpreter): a second identical
+    # FileHandler would write every record to the log twice.
+    new_target = getattr(handler, "baseFilename", None)
+    for existing in list(root_logger.handlers):
+        if (
+            isinstance(existing, logging.FileHandler)
+            and getattr(existing, "baseFilename", None) == new_target
+        ):
+            root_logger.removeHandler(existing)
+            existing.close()
     root_logger.addHandler(handler)
 
     logging.getLogger("numpy").setLevel(level)

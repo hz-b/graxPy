@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import inspect
 import py_compile
+import runpy
 from pathlib import Path
 
 from grax.gratings import BlazedGrating
@@ -22,6 +23,7 @@ from grax.stacks import MultilayerStack
 from tests.simulation_helpers import (
     CR,
     EXAMPLE_SCRIPT_PATHS,
+    JOINT_OPTIMIZER_EXAMPLE_ROOT,
     OPTIMIZER_EXAMPLE_ROOT,
     SI,
     C,
@@ -99,6 +101,57 @@ def test_optimizer_example_assets_exist() -> None:
         assert path.exists(), f"Missing optimizer example asset: {path}"
 
 
+def test_joint_optimizer_example_assets_exist() -> None:
+    expected_paths = [
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "example_config.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "joint_fit.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "0_generate_measurements.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "1_fit_joint.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "2_resume_and_extend.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "3_plot_joint_fit_comparison.py",
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "run_all.sh",
+    ]
+    for path in expected_paths:
+        assert path.exists(), f"Missing joint optimizer example asset: {path}"
+
+
+def test_joint_optimizer_example_covers_every_condition_axis() -> None:
+    """The example exists to show joint fitting is not limited to grazing angle.
+
+    If the conditions collapse back to one axis the example stops demonstrating
+    what it is there for, so pin the axes rather than the exact values.
+    """
+
+    example_config = runpy.run_path(str(JOINT_OPTIMIZER_EXAMPLE_ROOT / "example_config.py"))
+    conditions = example_config["measurement_conditions"]
+
+    assert len(conditions) >= 3
+    overridden_keys = {key for condition in conditions for key in condition}
+    for axis in ("grazing_angle_deg", "diffraction_order", "angle_mode", "polarization"):
+        assert axis in overridden_keys, f"No measurement varies {axis}."
+
+    labels = [condition["label"] for condition in conditions]
+    assert len(set(labels)) == len(labels), "Measurement labels must be unique."
+
+
+def test_joint_optimizer_example_generates_data_with_a_fixed_solver() -> None:
+    """The generated measurements are the fit target and must not follow --solver.
+
+    Fitting rcwa-generated data with either solver is the point of the example's
+    --solver flag; that only means something if the data itself is fixed.
+    """
+
+    generator_source = (
+        JOINT_OPTIMIZER_EXAMPLE_ROOT / "0_generate_measurements.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'solver="rcwa"' in generator_source
+    # The docstring mentions --solver to explain why the data is fixed, so check
+    # that no flag is actually wired up rather than that the string is absent.
+    assert "solver_argument_parser" not in generator_source
+    assert "add_argument" not in generator_source
+
+
 def test_optimizer_example_scripts_compile() -> None:
     import py_compile
 
@@ -131,6 +184,13 @@ def test_multilayer_theta_search_docs_use_grouped_canonical_arguments() -> None:
     example_call = example_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
     tutorial_call = tutorial_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
     assert "run_multilayer_theta_search(" not in tutorial_source
+
+    # The example exposes both physics choices as flags and keeps each
+    # solver/polarization run in its own directory.
+    assert '"--solver"' in example_source
+    assert '"--polarization"' in example_source
+    assert 'run_tag = f"{args.solver}_{args.polarization.lower()}"' in example_source
+    assert "polarization=args.polarization" in example_source
 
     for call_block in (example_call, tutorial_call):
         assert call_block.index("multilayer_bragg_order") < call_block.index("rough_scan_half_width_deg")
@@ -170,7 +230,7 @@ def test_single_simulation_example_parity_quick_configuration(tmp_path: Path) ->
 def test_fixed_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
     grating = build_laminar_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
     cases = fixed_angle_cases(grating=grating, energies_ev=[200.0], grazing_angle_deg=4.0)
-    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=1, fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "fixed_angle_all_orders.csv"
     orders_plot_path = tmp_path / "fixed_angle_orders_1_3.png"
@@ -187,7 +247,7 @@ def test_fixed_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
 def test_monochromator_example_parity_quick_configuration(tmp_path: Path) -> None:
     grating = build_monochromator_example_grating(x_resolution_nm=1.0, z_resolution_nm=1.0)
     cases = monochromator_cases(grating=grating, energies_ev=[200.0], diffraction_order=1, cff=2.25)
-    runner = BatchSimulationRunner(default_fourier_orders=3)
+    runner = BatchSimulationRunner(fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "monochromator_all_orders.csv"
     orders_plot_path = tmp_path / "monochromator_orders_1_3.png"
@@ -219,7 +279,7 @@ def test_blazed_multilayer_sweep_example_parity_quick_configuration(tmp_path: Pa
         z_resolution_nm=1.0,
     )
     cases = monochromator_cases(grating=grating, energies_ev=[500.0], diffraction_order=1, cff=2.25)
-    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=1, fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "blazed_multilayer_all_orders.csv"
 
@@ -251,8 +311,10 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
     assert '"memory_mode"' not in source
     assert '"_memory_mode"' not in source
     assert 'profile_memory": True' in source
-    assert "blazed_multilayer_memory_comparison.csv" in source
-    assert "blazed_multilayer_memory_comparison.png" in source
+    # Outputs are solver-suffixed so an rcwa and a neviere run sit side by side.
+    assert 'blazed_multilayer_memory_comparison_{args.solver}.csv' in source
+    assert 'blazed_multilayer_memory_comparison_{args.solver}.png' in source
+    assert '"--solver"' in source
     assert "blazed_multilayer_profile.png" in source
     assert "multilayer_stack_schematic.png" in source
 
@@ -260,7 +322,7 @@ def test_blazed_multilayer_memory_comparison_example_structure() -> None:
 def test_energy_angle_example_parity_quick_configuration(tmp_path: Path) -> None:
     grating = build_blazed_multilayer_angle_parity_grating()
     cases = energy_angle_cases(grating=grating, energy_angle_pairs=[(1800.0, 8.0)])
-    runner = BatchSimulationRunner(default_diffraction_order=2, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=2, fourier_orders=3)
     results = list(runner.run_cases(cases))
     csv_path = tmp_path / "energy_angle_all_orders.csv"
 
@@ -331,7 +393,7 @@ def test_batch_user_cases_example_parity_quick_configuration(tmp_path: Path) -> 
             "depth_nm": 14.9,
         }
     ]
-    runner = BatchSimulationRunner(default_diffraction_order=1, default_fourier_orders=3)
+    runner = BatchSimulationRunner(diffraction_order=1, fourier_orders=3)
     results = list(runner.run_cases(user_cases))
     csv_path = tmp_path / "batch_user_cases_all_orders.csv"
 

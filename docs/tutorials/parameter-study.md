@@ -33,7 +33,7 @@ study = grax.run_parameter_study(
 
 grax.plot_parameter_study(
     study,
-    output_filename="examples/simulation/parameter_study/results/parameter_study_grid.png",
+    output_filename="examples/simulation/parameter_study/results/parameter_study_grid_rcwa.png",
     title="Blazed Parameter Study: Orders vs Fourier/x/z Resolution",
 )
 ```

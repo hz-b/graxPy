@@ -22,7 +22,7 @@ from .cases import (
     multilayer_theta_search_cases,
 )
 from .core import (
-    RCWASimulation,
+    GratingSimulation,
     efficiency_for_order,
     load_experimental_csv,
     plot_order_subset,
@@ -74,15 +74,29 @@ def _current_process_memory_bytes():
     return _batch._current_process_memory_bytes()
 
 
+def _peak_process_memory_bytes():
+    """Return the process's lifetime peak RSS (high-water mark) in bytes."""
+
+    return _batch._peak_process_memory_bytes()
+
+
 def _calibrate_auto_max_workers_from_result(*, pending_case_count, available_memory_bytes):
     """Return an ``auto`` worker count from one already-completed calibration case."""
 
     cpu_limited_workers = _resolve_max_workers("auto")
     if pending_case_count <= 1 or available_memory_bytes is None:
         return cpu_limited_workers
-    measured_memory = _current_process_memory_bytes()
-    if measured_memory is None:
+    # Size from the per-solve peak RSS when available; steady-state RSS
+    # understates a solve's transient high-water mark, which grows with
+    # supercell count. Mirrors ``batch._calibrate_auto_max_workers_from_result``.
+    candidate_bytes = [
+        value
+        for value in (_current_process_memory_bytes(), _peak_process_memory_bytes())
+        if value is not None
+    ]
+    if not candidate_bytes:
         return cpu_limited_workers
+    measured_memory = max(candidate_bytes)
     per_worker_memory = max(int(measured_memory * AUTO_WORKER_MEMORY_SAFETY_FACTOR), 1)
     usable_memory = max(available_memory_bytes - AUTO_WORKER_MEMORY_RESERVE_BYTES, 0)
     if usable_memory <= 0:
@@ -97,7 +111,7 @@ __all__ = [
     "BatchSimulationResult",
     "CaseExecutionResult",
     "MultilayerThetaSearchSweepResult",
-    "RCWASimulation",
+    "GratingSimulation",
     "SimulationResult",
     "SingleSimulationResult",
     "ThetaSearchDiagnostics",

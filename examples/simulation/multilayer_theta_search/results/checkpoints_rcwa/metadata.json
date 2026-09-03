@@ -1,0 +1,13 @@
+{
+  "created": "2026-08-17T10:24:56.463314",
+  "workflow": "multilayer_theta_search",
+  "requested_max_workers": "auto",
+  "resolved_max_workers": 8,
+  "theta_tracking_mode": "auto",
+  "max_tracking_energy_step_ev": null,
+  "resume": true,
+  "current_run_started": "2026-08-17T10:24:56.463314",
+  "last_updated": "2026-08-17T10:38:44.887547",
+  "cumulative_elapsed_seconds": 828.4161603329994,
+  "last_run_elapsed_seconds": 828.4161603329994
+}
