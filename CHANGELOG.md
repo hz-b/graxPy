@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.8 - 2026-09-03
 
 - grax log records no longer leak to the terminal when the host application has not called `grax.setup_logging`. A `NullHandler` is attached to the `grax` logger at import, so Python's `logging.lastResort` handler no longer prints `WARNING`s to stderr -- most visibly from the spawned batch workers, which re-import grax but never configure logging. `setup_logging` now also sets `propagate = False` on the `grax` logger and refuses to attach a second file handler for the same path on a repeat call.
 - The multilayer theta-search `Requested theta half-width ... reaches near/into 0 deg. Reducing to ...` notice is now `INFO`, not `WARNING`, and is emitted once per distinct `(center, requested half-width)` instead of on every rough/fine re-centring attempt. At small grazing angles the clamp is expected behaviour, not a fault; it belongs in the log file, not the console.
