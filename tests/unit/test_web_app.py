@@ -917,6 +917,7 @@ def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
             "grazing_angle_deg": "1.5",
             "cff": "2.25",
             "polarization": "p",
+            "solver": "neviere",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
         }
@@ -953,9 +954,15 @@ def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
     assert captured["fixed_angle"]["polarization"] == "p"
     assert captured["monochromator"]["polarization"] == "p"
     assert "polarization" not in captured["multilayer_theta_search"]
+    # The theta-search generator resolves solver from the runner default, so the
+    # web handler stamps it on the case dict rather than passing it through here.
+    assert "solver" not in captured["multilayer_theta_search"]
     assert fixed_cases[0]["polarization"] == "p"
     assert mono_cases[0]["polarization"] == "p"
     assert theta_cases[0]["polarization"] == "p"
+    assert fixed_cases[0]["solver"] == "neviere"
+    assert mono_cases[0]["solver"] == "neviere"
+    assert theta_cases[0]["solver"] == "neviere"
 
 
 def test_parameter_study_run_uses_selected_polarization(

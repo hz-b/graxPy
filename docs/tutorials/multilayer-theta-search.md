@@ -116,3 +116,8 @@ for all three stages — rough scan, precise scan and final solve — so the sel
 angle and the reported efficiency come from the same polarization. Because the
 scan maximizes the selected order, `s` and `p` generally settle on slightly
 different angles.
+
+The runnable example exposes both choices as flags,
+`--solver {rcwa,neviere}` and `--polarization {s,p,TE,TM}`, and writes each
+combination under its own `results/<solver>_<polarization>/` directory so runs
+do not overwrite one another.

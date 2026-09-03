@@ -21,6 +21,13 @@ from .models import SingleSimulationResult, ThetaSearchDiagnostics
 
 logger = logging.getLogger(__name__)
 
+# Half-width clamps that have already been reported, keyed by
+# ``(round(center_deg, 3), round(requested_half_width_deg, 3))``. The rough and
+# fine scans re-enter the clamp on every re-centring attempt for the same
+# energy, so without this the identical notice is logged up to eight times per
+# energy point.
+_reported_half_width_clamps: set[tuple[float, float]] = set()
+
 
 def _worker_identity() -> str:
     """Return a compact worker identity for theta-search logs."""
@@ -120,13 +127,19 @@ def _safe_theta_scan_half_width_deg(
         raise ValueError("Theta scan center must be > 0 deg.")
     max_safe_half_width = 0.95 * center_deg
     if requested_half_width_deg > max_safe_half_width:
-        logger.warning(
-            "Requested theta half-width %.6f deg around center %.6f deg reaches near/into 0 deg. "
-            "Reducing to %.6f deg.",
-            requested_half_width_deg,
-            center_deg,
-            max_safe_half_width,
-        )
+        clamp_key = (round(center_deg, 3), round(requested_half_width_deg, 3))
+        if clamp_key not in _reported_half_width_clamps:
+            _reported_half_width_clamps.add(clamp_key)
+            # INFO, not WARNING: at small grazing angles this is the expected
+            # adjustment, not a fault. It goes to the configured log file and
+            # never to the terminal (see the NullHandler in grax/__init__.py).
+            logger.info(
+                "Requested theta half-width %.6f deg around center %.6f deg reaches near/into 0 deg. "
+                "Reducing to %.6f deg.",
+                requested_half_width_deg,
+                center_deg,
+                max_safe_half_width,
+            )
     return float(min(requested_half_width_deg, max_safe_half_width))
 
 

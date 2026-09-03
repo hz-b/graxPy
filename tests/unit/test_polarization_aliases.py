@@ -321,3 +321,35 @@ def test_theta_search_batch_workflow_honours_polarization() -> None:
     results = list(runner.run_cases(cases))
 
     assert results[0].polarization == "p"
+
+
+@pytest.mark.unit
+def test_theta_search_cases_carry_requested_solver_into_the_batch() -> None:
+    """A case-level solver from the generator must beat the runner default."""
+
+    common = dict(
+        grating=_multilayer_grating(),
+        energies_ev=[500.0],
+        diffraction_order=2,
+        rough_scan_half_width_deg=0.4,
+        rough_scan_points=5,
+        rough_fourier_orders=2,
+        rough_x_resolution_nm=4.0,
+        rough_z_resolution_nm=2.0,
+        fine_scan_half_width_deg=0.1,
+        fine_scan_points=5,
+        fine_fourier_orders=2,
+        fine_x_resolution_nm=4.0,
+        fine_z_resolution_nm=2.0,
+        final_fourier_orders=3,
+        final_x_resolution_nm=4.0,
+        final_z_resolution_nm=2.0,
+    )
+    cases = list(multilayer_theta_search_cases(solver="neviere", **common))
+    assert cases[0]["solver"] == "neviere"
+
+    # Runner default is rcwa; the case must override it.
+    runner = BatchSimulationRunner(fourier_orders=3, solver="rcwa", on_error="fail_fast")
+    results = list(runner.run_cases(cases))
+
+    assert results[0].solver == "neviere"
