@@ -1901,6 +1901,7 @@ def _cases_for_workflow(
     run_x_resolution_nm = float(form.get("run_x_resolution_nm") or grating.x_resolution_nm)
     run_z_resolution_nm = float(form.get("run_z_resolution_nm") or grating.z_resolution_nm)
     polarization = _normalized_polarization(form.get("polarization", "s"))
+    solver = _normalized_solver(form.get("solver", "rcwa"))
 
     if workflow == "fixed_angle":
         cases = list(
@@ -1942,6 +1943,7 @@ def _cases_for_workflow(
         case["case_id"] = f"{workflow}-{index:08d}"
         case["fourier_orders"] = fourier_orders
         case["polarization"] = polarization
+        case["solver"] = solver
         if workflow != "multilayer_theta_search":
             case["x_resolution_nm"] = run_x_resolution_nm
             case["z_resolution_nm"] = run_z_resolution_nm

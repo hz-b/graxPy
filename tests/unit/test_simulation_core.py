@@ -1430,6 +1430,24 @@ def test_lazy_case_helpers_yield_expected_cases() -> None:
     assert first_theta_search["energy_ev"] == 100.0
     assert first_theta_search["workflow"] == "multilayer_theta_search"
     assert "grazing_angle_deg" not in first_theta_search
+    # solver / solver_options are only stamped when explicitly requested.
+    assert "solver" not in first_theta_search
+    assert "solver_options" not in first_theta_search
+
+
+def test_multilayer_theta_search_cases_stamp_requested_solver() -> None:
+    grating = build_test_grating()
+    options = object()
+    case = next(
+        multilayer_theta_search_cases(
+            grating=grating,
+            energies_ev=iter([100.0]),
+            solver="neviere",
+            solver_options=options,
+        )
+    )
+    assert case["solver"] == "neviere"
+    assert case["solver_options"] is options
 
 
 def test_case_helpers_reject_removed_public_override_arguments() -> None:

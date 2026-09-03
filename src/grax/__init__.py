@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import logging
 
+# Attach a no-op handler to the package logger so that when an application has
+# not configured logging, grax log records are not emitted to stderr by
+# ``logging.lastResort``. This matters for the spawned batch workers, which
+# re-import grax but never call ``setup_logging``: without this, every
+# ``logger.warning`` inside a worker leaks to the terminal.
+logging.getLogger("grax").addHandler(logging.NullHandler())
+
 from .afm_grating import AFMGrating
 from .afm_preprocessing import AFMPreprocessing
 from .materials import (
@@ -155,6 +162,23 @@ def setup_logging(
 
     root_logger = logging.getLogger("grax")
     root_logger.setLevel(level)
+
+    # Do not let grax records bubble to the root logger: they are already
+    # written to this file handler, and a StreamHandler attached to the root
+    # by the host application would otherwise re-print every one of them.
+    root_logger.propagate = False
+
+    # Guard against duplicate file handlers if setup_logging is called twice
+    # (e.g. an example re-run in the same interpreter): a second identical
+    # FileHandler would write every record to the log twice.
+    new_target = getattr(handler, "baseFilename", None)
+    for existing in list(root_logger.handlers):
+        if (
+            isinstance(existing, logging.FileHandler)
+            and getattr(existing, "baseFilename", None) == new_target
+        ):
+            root_logger.removeHandler(existing)
+            existing.close()
     root_logger.addHandler(handler)
 
     logging.getLogger("numpy").setLevel(level)

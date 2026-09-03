@@ -185,6 +185,13 @@ def test_multilayer_theta_search_docs_use_grouped_canonical_arguments() -> None:
     tutorial_call = tutorial_source.split("run_multilayer_theta_search_sweep(", maxsplit=1)[1].split(")\n", maxsplit=1)[0]
     assert "run_multilayer_theta_search(" not in tutorial_source
 
+    # The example exposes both physics choices as flags and keeps each
+    # solver/polarization run in its own directory.
+    assert '"--solver"' in example_source
+    assert '"--polarization"' in example_source
+    assert 'run_tag = f"{args.solver}_{args.polarization.lower()}"' in example_source
+    assert "polarization=args.polarization" in example_source
+
     for call_block in (example_call, tutorial_call):
         assert call_block.index("multilayer_bragg_order") < call_block.index("rough_scan_half_width_deg")
         assert call_block.index("rough_scan_half_width_deg") < call_block.index("rough_fourier_orders")
