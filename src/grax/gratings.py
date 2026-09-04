@@ -9,7 +9,6 @@ from typing import Any
 import hashlib
 import warnings
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from .materials import material_label, resolve_refractive_index, validate_material_input
@@ -135,6 +134,8 @@ class BaseGrating(ABC):
 
     def plot_profile(self, output_filename: str | Path) -> None:
         """Save a plot showing the profile and the material stack."""
+
+        import matplotlib.pyplot as plt
 
         positions, heights = self._tiled_profile_points(num_periods=3)
         x_grid, z_grid, material_map, material_labels = self._material_plot_data(num_periods=3)
@@ -532,27 +533,17 @@ class BaseGrating(ABC):
                 row_values[incident_mask] = n_inc
             return row_values
 
-        cumulative_thickness_nm = 0.0
-        current_lower = self._rough_interface(
-            surface + cumulative_thickness_nm,
-            x_grid=x_grid,
-            interface_index=0,
-        )
-        for layer_index, (material_name, layer_thickness_nm) in enumerate(coating_stack.layer_sequence_bottom_up()):
-            refractive_index = resolve_refractive_index(material_name, photon_energy_ev)
-            cumulative_thickness_nm += layer_thickness_nm
-            current_upper = self._rough_interface(
-                surface + cumulative_thickness_nm,
-                x_grid=x_grid,
-                interface_index=layer_index + 1,
-            )
+        for material_name, current_lower, current_upper in self._iter_rough_layer_interfaces(
+            coating_stack, x_grid=x_grid, surface=surface
+        ):
+            if material_name is None:
+                incident_mask = z_value >= current_lower
+                if np.any(incident_mask):
+                    row_values[incident_mask] = n_inc
+                break
             layer_mask = (z_value >= current_lower) & (z_value < current_upper)
             if np.any(layer_mask):
-                row_values[layer_mask] = refractive_index
-            current_lower = current_upper
-        incident_mask = z_value >= current_lower
-        if np.any(incident_mask):
-            row_values[incident_mask] = n_inc
+                row_values[layer_mask] = resolve_refractive_index(material_name, photon_energy_ev)
         return row_values
 
     def _build_x_grid(self, *, num_periods: int) -> np.ndarray:
@@ -728,6 +719,43 @@ class BaseGrating(ABC):
             interface_index,
         )
 
+    def _iter_rough_layer_interfaces(
+        self,
+        coating_stack: BaseStack,
+        *,
+        x_grid: np.ndarray,
+        surface: np.ndarray,
+    ):
+        """Yield ``(material_name, lower_interface, upper_interface)`` bottom-up.
+
+        For each layer of a non-multilayer ``coating_stack`` the rough lower and
+        upper interface arrays (already evaluated on ``x_grid``) are yielded in
+        deposition order. A final tuple ``(None, top_interface, None)`` marks the
+        incident medium above the last layer. This is the shared spine of
+        :meth:`_refractive_index_row`, :meth:`_build_material_code_grid`, and
+        :meth:`_build_refractive_index_grid`; callers add their own masking and
+        payload assignment.
+        """
+
+        cumulative_thickness_nm = 0.0
+        lower = self._rough_interface(
+            surface + cumulative_thickness_nm,
+            x_grid=x_grid,
+            interface_index=0,
+        )
+        for layer_index, (material_name, layer_thickness_nm) in enumerate(
+            coating_stack.layer_sequence_bottom_up()
+        ):
+            cumulative_thickness_nm += layer_thickness_nm
+            upper = self._rough_interface(
+                surface + cumulative_thickness_nm,
+                x_grid=x_grid,
+                interface_index=layer_index + 1,
+            )
+            yield material_name, lower, upper
+            lower = upper
+        yield None, lower, None
+
     def _build_material_code_grid(
         self,
         *,
@@ -798,26 +826,16 @@ class BaseGrating(ABC):
                 material_map[z_mesh >= current_top[None, :]] = -1
             return material_map
 
-        cumulative_thickness_nm = 0.0
-        current_lower = self._rough_interface(
-            surface + cumulative_thickness_nm,
-            x_grid=x_grid,
-            interface_index=0,
-        )
-        for layer_index, (material_name, layer_thickness_nm) in enumerate(coating_stack.layer_sequence_bottom_up()):
-            cumulative_thickness_nm += layer_thickness_nm
-            current_upper = self._rough_interface(
-                surface + cumulative_thickness_nm,
-                x_grid=x_grid,
-                interface_index=layer_index + 1,
-            )
+        for material_name, current_lower, current_upper in self._iter_rough_layer_interfaces(
+            coating_stack, x_grid=x_grid, surface=surface
+        ):
+            if material_name is None:
+                material_map[z_mesh >= current_lower[None, :]] = (
+                    incident_code if include_incident_medium else -1
+                )
+                break
             layer_mask = (z_mesh >= current_lower[None, :]) & (z_mesh < current_upper[None, :])
             material_map[layer_mask] = material_codes[material_label(material_name)]
-            current_lower = current_upper
-        if include_incident_medium:
-            material_map[z_mesh >= current_lower[None, :]] = incident_code
-        else:
-            material_map[z_mesh >= current_lower[None, :]] = -1
         return material_map
 
     def _plot_material_colors(
@@ -827,6 +845,8 @@ class BaseGrating(ABC):
         material_labels: list[str],
     ) -> list[str]:
         """Return deterministic unique colors for ordered material labels."""
+
+        import matplotlib.pyplot as plt
 
         del coating_stack
         unique_labels = list(dict.fromkeys(material_labels))
@@ -939,27 +959,14 @@ class BaseGrating(ABC):
             index_grid[z_mesh >= current_top[None, :]] = n_inc
             return index_grid
 
-        cumulative_thickness_nm = 0.0
-        current_lower = self._rough_interface(
-            surface + cumulative_thickness_nm,
-            x_grid=x_grid,
-            interface_index=0,
-        )
-        for layer_index, (material_name, layer_thickness_nm) in enumerate(coating_stack.layer_sequence_bottom_up()):
-            refractive_index = resolve_refractive_index(
-                material_name,
-                photon_energy_ev,
-            )
-            cumulative_thickness_nm += layer_thickness_nm
-            current_upper = self._rough_interface(
-                surface + cumulative_thickness_nm,
-                x_grid=x_grid,
-                interface_index=layer_index + 1,
-            )
+        for material_name, current_lower, current_upper in self._iter_rough_layer_interfaces(
+            coating_stack, x_grid=x_grid, surface=surface
+        ):
+            if material_name is None:
+                index_grid[z_mesh >= current_lower[None, :]] = n_inc
+                break
             layer_mask = (z_mesh >= current_lower[None, :]) & (z_mesh < current_upper[None, :])
-            index_grid[layer_mask] = refractive_index
-            current_lower = current_upper
-        index_grid[z_mesh >= current_lower[None, :]] = n_inc
+            index_grid[layer_mask] = resolve_refractive_index(material_name, photon_energy_ev)
         return index_grid
 
 

@@ -12,11 +12,13 @@ import time
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 from ..gratings import BaseGrating
 from .batch import (
@@ -156,6 +158,8 @@ def _update_adaptive_live_plot(
 ) -> tuple[plt.Figure, plt.Axes]:
     """Update live plot for adaptive sweep execution path."""
 
+    import matplotlib.pyplot as plt
+
     if figure is None or axis is None or not plt.fignum_exists(figure.number):
         plt.ion()
         figure, axis = plt.subplots(figsize=(10, 6))
@@ -294,6 +298,8 @@ def run_multilayer_theta_search_sweep(
     Returns:
         Typed result object containing collected results and the created output paths.
     """
+
+    import matplotlib.pyplot as plt
 
     energy_list = [float(energy) for energy in energies_ev]
     if theta_tracking_mode not in {"auto", "previous", "bragg"}:

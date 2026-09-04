@@ -13,9 +13,8 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext as _nullcontext
 from copy import copy
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from ..gratings import BaseGrating
@@ -29,6 +28,9 @@ from .models import (
     SimulationResult,
     SingleSimulationResult,
 )
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +121,8 @@ def _simulation_api():
 def _supports_interactive_pause() -> bool:
     """Return whether the active Matplotlib backend supports interactive pause."""
 
+    import matplotlib.pyplot as plt
+
     return "agg" not in plt.get_backend().lower()
 
 
@@ -133,6 +137,8 @@ def _refresh_interactive_figure(figure: plt.Figure, *, pause_seconds: float = 0.
     forces the window to the front (orderFront) each time, which prevents
     the user from minimizing it or sending it behind another window.
     """
+
+    import matplotlib.pyplot as plt
 
     if not _supports_interactive_pause():
         figure.canvas.draw_idle()
@@ -686,6 +692,8 @@ def plot_order_subset(
         title: Plot title.
     """
 
+    import matplotlib.pyplot as plt
+
     collected = sorted(
         [result for result in _iter_case_results(results) if result.status == "ok"],
         key=lambda result: float(result.energy_ev),
@@ -872,6 +880,8 @@ class GratingSimulation:
         live_plot: bool | None = None,
     ) -> None:
         """Plot simulation and experimental efficiency curves."""
+
+        import matplotlib.pyplot as plt
 
         simulation_result = result if isinstance(result, SimulationResult) else result.to_simulation_result()
         live_plot_enabled = self.live_plot if live_plot is None else live_plot
