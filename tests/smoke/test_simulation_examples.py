@@ -24,6 +24,7 @@ from tests.simulation_helpers import (
     CR,
     EXAMPLE_SCRIPT_PATHS,
     JOINT_OPTIMIZER_EXAMPLE_ROOT,
+    MULTILAYER_OPT_EXAMPLE_ROOT,
     OPTIMIZER_EXAMPLE_ROOT,
     SI,
     C,
@@ -113,6 +114,42 @@ def test_joint_optimizer_example_assets_exist() -> None:
     ]
     for path in expected_paths:
         assert path.exists(), f"Missing joint optimizer example asset: {path}"
+
+
+def test_multilayer_optimization_example_assets_exist() -> None:
+    expected_paths = [
+        MULTILAYER_OPT_EXAMPLE_ROOT / "ru_b4c_parameters.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "0_ru_b4c_d_spacing_study.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "1_ru_b4c_gamma_study.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "2_ru_b4c_blaze_study.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "run_all.sh",
+    ]
+    for path in expected_paths:
+        assert path.exists(), f"Missing multilayer optimization example asset: {path}"
+
+
+def test_multilayer_optimization_d_spacing_stage_runs_small_real_scan(tmp_path: Path) -> None:
+    """Stage 0 runs end to end through the real XRT reflectivity engine."""
+
+    import json
+
+    import grax
+
+    config = grax.MultilayerOptimizationConfig(
+        output_dir=tmp_path,
+        d_spacing_points=5,
+        d_spacing_energy_min_ev=8800.0,
+        d_spacing_energy_max_ev=9200.0,
+        d_spacing_energy_step_ev=200.0,
+        xrt_angle_points=201,
+    )
+    result = grax.run_d_spacing_study(config)
+
+    assert result.combined_csv_path.is_file()
+    assert result.plot_path.is_file()
+    state = json.loads(config.state_path.read_text(encoding="utf-8"))
+    assert abs(state["d_suggested_nm"] - round(result.geometry_d_nm, 1)) < 1e-9
+    assert state["d_reflectivity_best_nm"] > 0.0
 
 
 def test_joint_optimizer_example_covers_every_condition_axis() -> None:

@@ -41,7 +41,25 @@ EXAMPLE_SCRIPT_PATHS = [
     / "simulation"
     / "neviere_grazing_stability"
     / "neviere_grazing_stability.py",
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "simulation"
+    / "multilayer_optimization_rub4c"
+    / "0_ru_b4c_d_spacing_study.py",
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "simulation"
+    / "multilayer_optimization_rub4c"
+    / "1_ru_b4c_gamma_study.py",
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "simulation"
+    / "multilayer_optimization_rub4c"
+    / "2_ru_b4c_blaze_study.py",
 ]
+MULTILAYER_OPT_EXAMPLE_ROOT = (
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_optimization_rub4c"
+)
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
 )
