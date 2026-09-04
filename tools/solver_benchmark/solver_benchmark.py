@@ -1,11 +1,29 @@
-"""Reproducible runtime benchmarks for the RCWA and Neviere solvers."""
+"""Reproducible runtime benchmarks for the RCWA and Neviere solvers.
+
+Developer tool, not part of the shipped ``grax`` package. Run it directly::
+
+    python tools/solver_benchmark/solver_benchmark.py --points 10
+
+The two execution modes measure deliberately different things:
+
+* ``serial`` times a single :func:`grax.run_simulation` call per energy at a
+  fixed grazing angle (no theta search), which isolates raw per-solve cost;
+* ``multiprocessing`` times a full ``cff``-locked monochromator sweep through
+  :class:`grax.BatchSimulationRunner`, which includes theta search and worker
+  scheduling overhead.
+
+Their numbers are therefore not directly comparable; results are written to
+separate files and plots keyed by ``execution_mode``.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
 from typing import Literal
@@ -14,12 +32,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from .gratings import BaseGrating, BlazedGrating, LaminarGrating
-from .simulation._profiling import SolverProfiler
-from .simulation.batch import BatchSimulationRunner
-from .simulation.cases import monochromator_cases
-from .simulation.core import run_simulation
-from .stacks import MultilayerStack
+from grax.gratings import BaseGrating, BlazedGrating, LaminarGrating
+from grax.simulation._profiling import SolverProfiler
+from grax.simulation.batch import BatchSimulationRunner
+from grax.simulation.cases import monochromator_cases
+from grax.simulation.core import run_simulation
+from grax.stacks import MultilayerStack
 
 Solver = Literal["rcwa", "neviere"]
 Difficulty = Literal["easy", "difficult"]
@@ -46,17 +64,20 @@ class BenchmarkCase:
     """A named grating factory and monochromator settings."""
 
     name: str
-    grating_factory: object
+    grating_factory: Callable[[BenchmarkPreset], BaseGrating]
     diffraction_order: int
     grazing_angle_deg: float
     polarization: str
 
     def build_grating(self, preset: BenchmarkPreset) -> BaseGrating:
-        return self.grating_factory(preset)  # type: ignore[operator]
+        """Instantiate this case's grating at the given preset's resolution."""
+        return self.grating_factory(preset)
 
 
 @dataclass
 class TimingRecord:
+    """Timing and efficiency for one (case, difficulty, mode, solver, energy) point."""
+
     case: str
     difficulty: Difficulty
     execution_mode: str
@@ -75,6 +96,7 @@ class TimingRecord:
     profiler: dict[str, object] | None = None
 
 
+@lru_cache(maxsize=1)
 def default_cases() -> tuple[BenchmarkCase, ...]:
     """Return the three validation-inspired monochromator benchmark cases."""
 
@@ -104,27 +126,54 @@ def default_cases() -> tuple[BenchmarkCase, ...]:
             BenchmarkCase("blazed_multilayer", multilayer, 2, 4.0, "p"))
 
 
+_MAX_ENERGY_POINTS = 100
+
+
 def benchmark_energies(energies_ev: list[float] | np.ndarray | None = None,
-                       *, count: int = 100) -> np.ndarray:
-    """Return an energy grid, rejecting more than 100 points."""
-    if count < 1 or count > 100:
-        raise ValueError("count must be between 1 and 100")
+                       *, count: int = _MAX_ENERGY_POINTS) -> np.ndarray:
+    """Return an energy grid.
+
+    With no explicit ``energies_ev`` a linear grid of ``count`` points spanning
+    50--2000 eV is returned, ``count`` clamped to ``[1, _MAX_ENERGY_POINTS]``.
+    An explicit sweep is passed through, truncated to the first
+    ``_MAX_ENERGY_POINTS`` points so a stray large array cannot make a run
+    open-ended.
+    """
     if energies_ev is None:
-        return np.linspace(50.0, 2000.0, count)
+        return np.linspace(50.0, 2000.0, int(np.clip(count, 1, _MAX_ENERGY_POINTS)))
     values = np.asarray(energies_ev, dtype=float)
-    if values.size > 100:
-        raise ValueError("energy sweeps may contain at most 100 points")
-    return values
+    return values[:_MAX_ENERGY_POINTS]
 
 
-def run_solver_benchmark(*, energies_ev=None, repeats: int = 3, warmups: int = 1,
+def _serial_solve(grating: BaseGrating, energy_ev: float, case: BenchmarkCase,
+                  preset: BenchmarkPreset, solver: Solver,
+                  *, profiler: SolverProfiler | None = None):
+    """Run one fixed-angle ``run_simulation`` call for the serial benchmark path."""
+    return run_simulation(
+        grating=grating, energy_ev=energy_ev,
+        grazing_angle_deg=case.grazing_angle_deg,
+        diffraction_order=case.diffraction_order,
+        fourier_orders=preset.fourier_orders,
+        polarization=case.polarization, solver=solver,
+        solver_options={"z_sampling": "textures"},
+        validate_physical_results=False, _profiler=profiler,
+    )
+
+
+def run_solver_benchmark(*, energies_ev: list[float] | np.ndarray | None = None,
+                         repeats: int = 3, warmups: int = 1,
                          output_dir: str | Path | None = None,
                          show_progress: bool = True, multiprocessing: bool = False,
                          max_workers: int | str | None = "auto") -> list[TimingRecord]:
     """Run all cases and presets for both solvers and optionally export results."""
     if repeats < 1 or warmups < 0:
         raise ValueError("repeats must be positive and warmups must be non-negative")
-    energies = benchmark_energies(energies_ev, count=10 if energies_ev is None and not multiprocessing else 100)
+    # A serial run times every (case, preset, solver, energy) point on its own, so
+    # default it to a short grid; multiprocessing amortises a whole sweep per
+    # configuration and can afford the full grid. An explicit ``energies_ev``
+    # overrides both.
+    default_count = 10 if not multiprocessing else _MAX_ENERGY_POINTS
+    energies = benchmark_energies(energies_ev, count=default_count)
     if multiprocessing:
         records = _run_multiprocessing_benchmark(
             energies, repeats=repeats, warmups=warmups, max_workers=max_workers,
@@ -149,34 +198,21 @@ def run_solver_benchmark(*, energies_ev=None, repeats: int = 3, warmups: int = 1
         for energy_index, energy in energy_iterator:
             if energy_index == 0:
                 for _ in range(warmups):
-                    run_simulation(
-                        grating=grating, energy_ev=float(energy),
-                        grazing_angle_deg=case.grazing_angle_deg,
-                        diffraction_order=case.diffraction_order,
-                        fourier_orders=preset.fourier_orders,
-                        polarization=case.polarization, solver=solver,
-                        solver_options={"z_sampling": "textures"},
-                        validate_physical_results=False,
-                    )
+                    _serial_solve(grating, float(energy), case, preset, solver)
             samples: list[float] = []
             result = None
             profiler_summary = None
             error = ""
             try:
                 for _ in range(repeats):
-                    profiler = SolverProfiler()
                     started = perf_counter()
-                    result = run_simulation(
-                        grating=grating, energy_ev=float(energy),
-                        grazing_angle_deg=case.grazing_angle_deg,
-                        diffraction_order=case.diffraction_order,
-                        fourier_orders=preset.fourier_orders,
-                        polarization=case.polarization, solver=solver,
-                        solver_options={"z_sampling": "textures"},
-                        validate_physical_results=False, _profiler=profiler,
-                    )
+                    result = _serial_solve(grating, float(energy), case, preset, solver)
                     samples.append(perf_counter() - started)
-                    profiler_summary = profiler.summary_dict()
+                # One extra, untimed pass captures a profile without letting the
+                # profiler's own overhead contaminate the timing samples above.
+                profiler = SolverProfiler()
+                _serial_solve(grating, float(energy), case, preset, solver, profiler=profiler)
+                profiler_summary = profiler.summary_dict()
             except Exception as exc:
                 error = str(exc)
             records.append(TimingRecord(
@@ -193,6 +229,7 @@ def run_solver_benchmark(*, energies_ev=None, repeats: int = 3, warmups: int = 1
     if output_dir is not None:
         export_benchmark(records, output_dir)
     return records
+
 
 def _run_multiprocessing_benchmark(energies: np.ndarray, *, repeats: int, warmups: int,
                                    max_workers: int | str | None,
@@ -243,35 +280,49 @@ def _run_multiprocessing_benchmark(energies: np.ndarray, *, repeats: int, warmup
 
 def export_benchmark(records: list[TimingRecord], output_dir: str | Path) -> None:
     """Write JSON, CSV, and summary plots for benchmark records."""
-    path = Path(output_dir); path.mkdir(parents=True, exist_ok=True)
+    path = Path(output_dir)
+    path.mkdir(parents=True, exist_ok=True)
     modes = sorted({record.execution_mode for record in records})
-    for mode in modes:
-        mode_records = [record for record in records if record.execution_mode == mode]
-        suffix = mode
-        (path / f"solver_runtime_benchmark_{suffix}.json").write_text(
-            json.dumps([asdict(record) for record in mode_records], indent=2, allow_nan=True), encoding="utf-8")
-        with (path / f"solver_runtime_benchmark_{suffix}.csv").open("w", newline="", encoding="utf-8") as handle:
-            fields = ["case", "difficulty", "execution_mode", "solver", "energy_ev", "fourier_orders",
+    csv_fields = ["case", "difficulty", "execution_mode", "solver", "energy_ev", "fourier_orders",
                   "x_resolution_nm", "z_resolution_nm", "median_seconds", "minimum_seconds",
                   "maximum_seconds", "stddev_seconds", "efficiency", "error_message"]
-            writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader()
-            for record in mode_records:
-                writer.writerow({field: getattr(record, field) for field in fields})
     for mode in modes:
-      mode_records = [record for record in records if record.execution_mode == mode]
-      for difficulty in PRESETS:
-        figure, axes = plt.subplots(1, 3, figsize=(15, 4), squeeze=False)
-        for axis, case in zip(axes[0], default_cases()):
-            for solver in ("rcwa", "neviere"):
-                selected = [r for r in mode_records if r.case == case.name and r.difficulty == difficulty and r.solver == solver]
-                axis.plot([r.energy_ev for r in selected], [r.median_seconds for r in selected], label=solver)
-            axis.set_title(case.name); axis.set_xlabel("Energy (eV)"); axis.set_ylabel("Median seconds")
-            axis.grid(True, alpha=0.3); axis.legend()
-        figure.suptitle(f"{mode} solver benchmark — {difficulty}")
-        figure.tight_layout(); figure.savefig(path / f"solver_runtime_{mode}_{difficulty}.png", dpi=150); plt.close(figure)
+        mode_records = [record for record in records if record.execution_mode == mode]
+        json_text = json.dumps([asdict(record) for record in mode_records],
+                               indent=2, allow_nan=True)
+        (path / f"solver_runtime_benchmark_{mode}.json").write_text(json_text, encoding="utf-8")
+        csv_path = path / f"solver_runtime_benchmark_{mode}.csv"
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=csv_fields)
+            writer.writeheader()
+            for record in mode_records:
+                writer.writerow({field: getattr(record, field) for field in csv_fields})
+
+    cases = default_cases()
+    for mode in modes:
+        mode_records = [record for record in records if record.execution_mode == mode]
+        for difficulty in PRESETS:
+            figure, axes = plt.subplots(1, 3, figsize=(15, 4), squeeze=False)
+            for axis, case in zip(axes[0], cases, strict=True):
+                for solver in ("rcwa", "neviere"):
+                    selected = [r for r in mode_records
+                                if r.case == case.name and r.difficulty == difficulty
+                                and r.solver == solver]
+                    axis.plot([r.energy_ev for r in selected],
+                              [r.median_seconds for r in selected], label=solver)
+                axis.set_title(case.name)
+                axis.set_xlabel("Energy (eV)")
+                axis.set_ylabel("Median seconds")
+                axis.grid(True, alpha=0.3)
+                axis.legend()
+            figure.suptitle(f"{mode} solver benchmark — {difficulty}")
+            figure.tight_layout()
+            figure.savefig(path / f"solver_runtime_{mode}_{difficulty}.png", dpi=150)
+            plt.close(figure)
 
 
 def main() -> None:
+    """Parse CLI arguments and run the solver benchmark."""
     parser = argparse.ArgumentParser(description="Benchmark RCWA and Neviere solver runtime")
     parser.add_argument("--output-dir", type=Path, default=Path("tools/solver_benchmark"))
     parser.add_argument("--points", type=int, default=None,
