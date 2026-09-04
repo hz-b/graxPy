@@ -1,0 +1,48 @@
+{% macro render_field(spec, values) %}
+  {% set value = values.get(spec.name) %}
+  {% if spec.kind == "material" %}
+    {% set pair = value if value is iterable and value is not string else ["", ""] %}
+    <label>
+      {{ spec.label }} — name
+      <input name="{{ spec.name }}_name" type="text" list="material-suggestions"
+             value="{{ pair[0] }}" data-material-select="{{ spec.name }}">
+    </label>
+    <label>
+      {{ spec.label }} — density, g/cm³
+      <input name="{{ spec.name }}_density" type="number" step="any"
+             value="{{ pair[1] }}" data-material-density="{{ spec.name }}">
+    </label>
+  {% elif spec.kind == "select" %}
+    <label>
+      {{ spec.label }}
+      <select name="{{ spec.name }}">
+        {% for choice in spec.choices %}
+          <option value="{{ choice }}" {% if value|string == choice %}selected{% endif %}>{{ choice }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  {% elif spec.kind == "checkbox" %}
+    <label class="inline-check">
+      <input type="checkbox" name="{{ spec.name }}" value="1" {% if value %}checked{% endif %}>
+      <span>{{ spec.label }}</span>
+    </label>
+  {% else %}
+    <label>
+      {{ spec.label }}
+      <input
+        name="{{ spec.name }}"
+        type="{{ 'text' if spec.kind == 'text' else 'number' }}"
+        {% if spec.kind == 'number' %}step="any"{% elif spec.kind == 'int' %}step="1"{% endif %}
+        value="{{ '' if value is none else value }}"
+      >
+    </label>
+  {% endif %}
+{% endmacro %}
+
+{% macro material_datalist(materials, density_map) %}
+  <datalist id="material-suggestions">
+    {% for material in materials %}
+      <option value="{{ material }}" data-density="{{ density_map.get(material, '') }}">{{ material }}</option>
+    {% endfor %}
+  </datalist>
+{% endmacro %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Multilayer studies{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Multilayer optimization studies</h1>
+    <p>Size a multilayer coating in three stages: d-spacing → gamma → blaze angle.</p>
+  </div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('multilayer_new') }}">New study</a>
+  </div>
+</section>
+
+{% if studies %}
+  <form class="form" method="post" action="{{ url_for('multilayer_index') }}">
+    <div class="manage-actions">
+      <button class="button danger" type="submit" name="action" value="delete"
+              data-confirm="Delete the selected studies and all their results? This cannot be undone.">
+        Delete selected
+      </button>
+    </div>
+    <div class="list">
+      {% for study in studies %}
+        <div class="row run-manage-row">
+          <div class="run-manage-main">
+            <a href="{{ url_for('multilayer_detail', study_id=study.id) }}"><strong>{{ study.display_name }}</strong></a>
+            <p class="subtle">{{ study.id }} · created {{ study.created_at }}</p>
+            <p class="subtle">
+              {% for stage in stages %}
+                <span class="status-pill is-{{ study.stages[stage].status }}">
+                  {{ stage_labels[stage] }}: {{ study.stages[stage].status }}
+                </span>
+              {% endfor %}
+            </p>
+          </div>
+          <label class="inline-check manage-delete">
+            <input type="checkbox" name="delete_study_id" value="{{ study.id }}">
+            <span>Delete</span>
+          </label>
+        </div>
+      {% endfor %}
+    </div>
+  </form>
+{% else %}
+  <p class="empty">No studies yet. Create one to get started.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_multilayer_macros.html" import render_field, material_datalist %}
+{% block title %}New multilayer study{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>New multilayer study</h1>
+    <p>These values seed all three stages; you can edit any stage's inputs later and re-run it.</p>
+  </div>
+</section>
+
+{{ material_datalist(materials, material_density_map) }}
+
+<form class="form" method="post" action="{{ url_for('multilayer_index') }}">
+  <fieldset>
+    <legend>Study</legend>
+    <label>Name <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"></label>
+  </fieldset>
+
+  {% for section, specs in basic_sections %}
+    <fieldset>
+      <legend>{{ section }}</legend>
+      {% for spec in specs %}{{ render_field(spec, defaults) }}{% endfor %}
+    </fieldset>
+  {% endfor %}
+
+  <details>
+    <summary>Advanced</summary>
+    {% for section, specs in advanced_sections %}
+      <fieldset>
+        <legend>{{ section }}</legend>
+        {% for spec in specs %}{{ render_field(spec, defaults) }}{% endfor %}
+      </fieldset>
+    {% endfor %}
+  </details>
+
+  <div class="actions">
+    <button class="button primary" type="submit">Create study</button>
+    <a class="button" href="{{ url_for('multilayer_index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -22,6 +22,7 @@
     <a class="button" href="#materials">Materials</a>
     <a class="button" href="#gratings">Gratings</a>
     <a class="button" href="#simulations">Simulations</a>
+    <a class="button" href="#multilayer">Multilayer study</a>
     <a class="button" href="#plots">Plots</a>
     <a class="button" href="#export">Export</a>
     <a class="button" href="#modify">Modify later</a>
@@ -98,6 +99,34 @@
     metadata, selected orders, comment, and progress state. The run directory also stores the result CSV files and
     generated preview images for that run.
   </p>
+</section>
+
+<section class="docs-section" id="multilayer">
+  <h2>Multilayer optimization study</h2>
+  <p>
+    The <a href="{{ url_for('multilayer_index') }}">Multilayer study</a> page sizes a periodic multilayer coating
+    for a blazed grating monochromator in three stages that share one configuration:
+  </p>
+  <ol>
+    <li><strong>D-spacing.</strong> Derives the grazing angle at the target energy and CFF, converts it with the
+      first-order Bragg law to a bilayer d-spacing, and scans practical candidates with XRT reflectivity. The
+      geometry value becomes <code>d_suggested_nm</code>.</li>
+    <li><strong>Gamma.</strong> Scans the bilayer thickness ratio at the selected d-spacing.</li>
+    <li><strong>Blaze.</strong> Builds the multilayer-coated blazed grating and scans the blaze angle with the
+      internal theta search.</li>
+  </ol>
+  <p>
+    Each stage runs in the background with a live progress bar and can be aborted between scan items. Set a stage's
+    <code>d-spacing, nm</code> field to <code>auto</code> to consume the previous stage's suggestion from
+    <code>optimization_state.json</code>; a number always wins. Re-running a stage marks the later stages
+    <em>stale</em> without deleting their results. Use <em>Reset stage</em> to delete one stage's outputs, or
+    <em>Delete study</em> to remove everything.
+  </p>
+  <div class="list compact">
+    <div class="row"><strong><code>multilayer_studies/&lt;id&gt;/study.json</code></strong><span>Config and per-stage status.</span></div>
+    <div class="row"><strong><code>optimization_state.json</code></strong><span>Cross-stage <code>auto</code> hand-off.</span></div>
+    <div class="row"><strong><code>0_d_spacing/ 1_gamma/ 2_blaze/ plot/</code></strong><span>Per-stage CSVs, plots and checkpoints.</span></div>
+  </div>
 </section>
 
 <section class="docs-section" id="plots">

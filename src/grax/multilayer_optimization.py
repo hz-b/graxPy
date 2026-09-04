@@ -22,6 +22,12 @@ anything in the state file, and no stage ever rewrites the config. Stage 2 reads
 ``config.gamma`` directly -- the gamma suggestion from stage 1 is recorded for
 traceability but is not auto-applied.
 
+Each ``run_*_study`` accepts an optional ``progress_callback`` (called with a
+:class:`StageProgress` before every scanned item) and ``should_continue`` (checked
+before every item; returning ``False`` stops the scan and computes the suggestion
+from the completed subset). Both default to ``None`` and change nothing for
+callers that do not pass them.
+
 Two numerical conventions are inherited from the original workflow and kept
 deliberately: the geometry d-spacing derivation uses ``HC_EV_NM = 1239.841984``
 while :func:`grax.monochromator_grazing_angles_deg` uses ``1239.8`` internally
@@ -34,7 +40,7 @@ substrate.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -54,6 +60,7 @@ __all__ = [
     "DSpacingStudyResult",
     "GammaStudyResult",
     "MultilayerOptimizationConfig",
+    "StageProgress",
     "d_spacing_bounds_from_bragg_angles",
     "energy_to_wavelength_nm",
     "ensure_target_energy",
@@ -67,6 +74,24 @@ __all__ = [
 ]
 
 HC_EV_NM = 1239.841984
+
+
+@dataclass(frozen=True)
+class StageProgress:
+    """Progress report emitted before each scanned item by a study stage.
+
+    Attributes:
+        stage: ``"d_spacing"``, ``"gamma"`` or ``"blaze"``.
+        completed: Items finished so far.
+        total: Total items in the scan.
+        current_label: Human-readable label of the item about to run, or
+            ``"done"`` on the final call once the scan has finished.
+    """
+
+    stage: str
+    completed: int
+    total: int
+    current_label: str
 
 
 @dataclass(frozen=True)
@@ -267,6 +292,8 @@ class DSpacingStudyResult:
         combined_csv_path: Combined per-d reflectivity table.
         plot_path: Reflectivity-versus-energy summary plot.
         state_path: The updated state file.
+        aborted: Whether the scan stopped early on a ``should_continue`` signal
+            (the suggestion is then computed from the completed subset).
         results: The combined reflectivity table.
     """
 
@@ -281,6 +308,7 @@ class DSpacingStudyResult:
     combined_csv_path: Path
     plot_path: Path
     state_path: Path
+    aborted: bool
     results: pd.DataFrame = field(repr=False)
 
 
@@ -295,6 +323,7 @@ class GammaStudyResult:
         combined_csv_path: Combined per-gamma reflectivity table.
         plot_path: Reflectivity-versus-energy summary plot.
         state_path: The updated state file.
+        aborted: Whether the scan stopped early on a ``should_continue`` signal.
         results: The combined reflectivity table.
     """
 
@@ -304,6 +333,7 @@ class GammaStudyResult:
     combined_csv_path: Path
     plot_path: Path
     state_path: Path
+    aborted: bool
     results: pd.DataFrame = field(repr=False)
 
 
@@ -320,6 +350,7 @@ class BlazeStudyResult:
         combined_csv_path: Combined per-blaze theta-search summary table.
         plot_path: Efficiency-versus-energy summary plot.
         state_path: The updated state file.
+        aborted: Whether the scan stopped early on a ``should_continue`` signal.
         results: The combined theta-search summary table.
     """
 
@@ -330,6 +361,7 @@ class BlazeStudyResult:
     combined_csv_path: Path
     plot_path: Path
     state_path: Path
+    aborted: bool
     results: pd.DataFrame = field(repr=False)
 
 
@@ -890,7 +922,30 @@ def _run_blaze_case(
     return pd.read_csv(sweep.summary_csv_path)
 
 
-def run_d_spacing_study(config: MultilayerOptimizationConfig) -> DSpacingStudyResult:
+def _emit_stage_progress(
+    callback: Callable[[StageProgress], None] | None,
+    *,
+    stage: str,
+    completed: int,
+    total: int,
+    current_label: str,
+) -> None:
+    """Report progress through ``callback`` when one was supplied."""
+
+    if callback is not None:
+        callback(
+            StageProgress(
+                stage=stage, completed=completed, total=total, current_label=current_label
+            )
+        )
+
+
+def run_d_spacing_study(
+    config: MultilayerOptimizationConfig,
+    *,
+    progress_callback: Callable[[StageProgress], None] | None = None,
+    should_continue: Callable[[], bool] | None = None,
+) -> DSpacingStudyResult:
     """Run stage 0: derive and scan the bilayer d-spacing.
 
     Derives the grazing angle at the target energy and CFF, converts it to a
@@ -901,10 +956,19 @@ def run_d_spacing_study(config: MultilayerOptimizationConfig) -> DSpacingStudyRe
 
     Args:
         config: The workflow configuration.
+        progress_callback: Optional callable invoked with a :class:`StageProgress`
+            before each d-spacing candidate and once more when the scan finishes.
+        should_continue: Optional callable checked before each candidate; when it
+            returns ``False`` the scan stops early and the suggestion is computed
+            from the completed subset (the result's ``aborted`` flag is set).
 
     Returns:
         A :class:`DSpacingStudyResult` with the suggestion, diagnostics and
         artifact paths.
+
+    Raises:
+        RuntimeError: If ``should_continue`` stops the scan before any candidate
+            has been evaluated.
     """
 
     target_energy = float(config.target_energy_ev)
@@ -937,11 +1001,28 @@ def run_d_spacing_study(config: MultilayerOptimizationConfig) -> DSpacingStudyRe
     )
     d_suggested = round(d_geometry, 1)
     d_values = _rounded_d_grid(lower, upper, int(config.d_spacing_points), d_suggested)
+    # Scan the geometry candidate first so an aborted run still yields the
+    # geometry suggestion. Order does not affect the plot or the selection.
+    d_values = np.concatenate(
+        ([d_suggested], d_values[~np.isclose(d_values, d_suggested, rtol=0.0, atol=1.0e-9)])
+    )
     energies = _stage_energy_grid(config, "d_spacing")
 
     results_dir = config.d_spacing_results_dir
+    progress_total = len(d_values)
     curves = []
+    aborted = False
     for d_spacing in d_values:
+        if should_continue is not None and not should_continue():
+            aborted = True
+            break
+        _emit_stage_progress(
+            progress_callback,
+            stage="d_spacing",
+            completed=len(curves),
+            total=progress_total,
+            current_label=f"d = {d_spacing:.1f} nm",
+        )
         print(f"Calculating multilayer reflectivity, d = {d_spacing:.1f} nm")
         curve = _reflectivity_curve(
             config,
@@ -952,6 +1033,15 @@ def run_d_spacing_study(config: MultilayerOptimizationConfig) -> DSpacingStudyRe
         )
         curve.insert(0, "d_spacing_nm", float(d_spacing))
         curves.append(curve)
+    if not curves:
+        raise RuntimeError("multilayer d-spacing study aborted before any result")
+    _emit_stage_progress(
+        progress_callback,
+        stage="d_spacing",
+        completed=len(curves),
+        total=progress_total,
+        current_label="done",
+    )
     combined = pd.concat(curves, ignore_index=True)
 
     metric = _reflectivity_metric(config)
@@ -1022,11 +1112,17 @@ def run_d_spacing_study(config: MultilayerOptimizationConfig) -> DSpacingStudyRe
         combined_csv_path=csv_path,
         plot_path=plot_path,
         state_path=config.state_path,
+        aborted=aborted,
         results=combined,
     )
 
 
-def run_gamma_study(config: MultilayerOptimizationConfig) -> GammaStudyResult:
+def run_gamma_study(
+    config: MultilayerOptimizationConfig,
+    *,
+    progress_callback: Callable[[StageProgress], None] | None = None,
+    should_continue: Callable[[], bool] | None = None,
+) -> GammaStudyResult:
     """Run stage 1: scan the bilayer thickness ratio at the selected d-spacing.
 
     Resolves ``config.d_spacing_nm`` (numeric, or ``"auto"`` from the state
@@ -1036,9 +1132,18 @@ def run_gamma_study(config: MultilayerOptimizationConfig) -> GammaStudyResult:
 
     Args:
         config: The workflow configuration.
+        progress_callback: Optional callable invoked with a :class:`StageProgress`
+            before each gamma value and once more when the scan finishes.
+        should_continue: Optional callable checked before each gamma value; when
+            it returns ``False`` the scan stops early and the suggestion is
+            computed from the completed subset (``aborted`` is set on the result).
 
     Returns:
         A :class:`GammaStudyResult` with the suggested gamma and artifact paths.
+
+    Raises:
+        RuntimeError: If ``should_continue`` stops the scan before any gamma
+            value has been evaluated.
     """
 
     target_energy = float(config.target_energy_ev)
@@ -1059,14 +1164,35 @@ def run_gamma_study(config: MultilayerOptimizationConfig) -> GammaStudyResult:
     energies = _stage_energy_grid(config, "gamma")
 
     results_dir = config.gamma_results_dir
+    progress_total = len(gamma_values)
     curves = []
+    aborted = False
     for gamma in gamma_values:
+        if should_continue is not None and not should_continue():
+            aborted = True
+            break
+        _emit_stage_progress(
+            progress_callback,
+            stage="gamma",
+            completed=len(curves),
+            total=progress_total,
+            current_label=f"gamma = {gamma:.3f}",
+        )
         print(f"Calculating multilayer reflectivity, gamma = {gamma:.3f}")
         curve = _reflectivity_curve(
             config, d_spacing, float(gamma), results_dir / f"gamma_{gamma:.3f}", energies
         )
         curve.insert(0, "gamma", float(gamma))
         curves.append(curve)
+    if not curves:
+        raise RuntimeError("multilayer gamma study aborted before any result")
+    _emit_stage_progress(
+        progress_callback,
+        stage="gamma",
+        completed=len(curves),
+        total=progress_total,
+        current_label="done",
+    )
     combined = pd.concat(curves, ignore_index=True)
 
     metric = _reflectivity_metric(config)
@@ -1109,11 +1235,17 @@ def run_gamma_study(config: MultilayerOptimizationConfig) -> GammaStudyResult:
         combined_csv_path=csv_path,
         plot_path=plot_path,
         state_path=config.state_path,
+        aborted=aborted,
         results=combined,
     )
 
 
-def run_blaze_study(config: MultilayerOptimizationConfig) -> BlazeStudyResult:
+def run_blaze_study(
+    config: MultilayerOptimizationConfig,
+    *,
+    progress_callback: Callable[[StageProgress], None] | None = None,
+    should_continue: Callable[[], bool] | None = None,
+) -> BlazeStudyResult:
     """Run stage 2: scan the blaze angle with graxPy's theta search.
 
     Resolves ``config.d_spacing_nm`` (numeric, or ``"auto"`` from the state
@@ -1125,10 +1257,20 @@ def run_blaze_study(config: MultilayerOptimizationConfig) -> BlazeStudyResult:
 
     Args:
         config: The workflow configuration.
+        progress_callback: Optional callable invoked with a :class:`StageProgress`
+            before each blaze angle and once more when the scan finishes.
+        should_continue: Optional callable checked before each blaze angle; when
+            it returns ``False`` the scan stops early (between blaze angles, not
+            mid theta-search) and the suggestion is computed from the completed
+            subset (``aborted`` is set on the result).
 
     Returns:
         A :class:`BlazeStudyResult` with the suggested blaze angle and artifact
         paths.
+
+    Raises:
+        RuntimeError: If ``should_continue`` stops the scan before any blaze
+            angle has been evaluated.
     """
 
     target_energy = float(config.target_energy_ev)
@@ -1150,14 +1292,35 @@ def run_blaze_study(config: MultilayerOptimizationConfig) -> BlazeStudyResult:
     energies = _stage_energy_grid(config, "blaze")
 
     results_dir = config.blaze_results_dir
+    progress_total = len(blaze_values)
     curves = []
+    aborted = False
     for blaze in blaze_values:
+        if should_continue is not None and not should_continue():
+            aborted = True
+            break
+        _emit_stage_progress(
+            progress_callback,
+            stage="blaze",
+            completed=len(curves),
+            total=progress_total,
+            current_label=f"blaze = {blaze:.4f} deg",
+        )
         print(f"Running theta search, blaze = {blaze:.4f} deg")
         curve = _run_blaze_case(
             config, d_spacing, gamma, float(blaze), energies, results_dir / f"blaze_{blaze:.4f}deg"
         )
         curve.insert(0, "blaze_angle_deg", float(blaze))
         curves.append(curve)
+    if not curves:
+        raise RuntimeError("multilayer blaze study aborted before any result")
+    _emit_stage_progress(
+        progress_callback,
+        stage="blaze",
+        completed=len(curves),
+        total=progress_total,
+        current_label="done",
+    )
     combined = pd.concat(curves, ignore_index=True)
 
     suggested_blaze, suggested_efficiency = select_target_energy_optimum(
@@ -1203,5 +1366,6 @@ def run_blaze_study(config: MultilayerOptimizationConfig) -> BlazeStudyResult:
         combined_csv_path=csv_path,
         plot_path=plot_path,
         state_path=config.state_path,
+        aborted=aborted,
         results=combined,
     )

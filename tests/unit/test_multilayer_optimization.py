@@ -403,3 +403,46 @@ def test_full_pipeline_state_accretes(fakes: None, tmp_path: Path) -> None:
     run_blaze_study(config)
     state = json.loads(config.state_path.read_text(encoding="utf-8"))
     assert {"d_suggested_nm", "gamma_suggested", "blaze_suggested_deg"} <= set(state)
+
+
+# --------------------------------------------------------------------------- #
+# progress_callback / should_continue                                          #
+# --------------------------------------------------------------------------- #
+def test_progress_callback_reports_monotonic_completion(fakes: None, tmp_path: Path) -> None:
+    """The callback fires once per gamma value plus a final 'done' report."""
+
+    reports = []
+    run_gamma_study(
+        _config(tmp_path, d_spacing_nm=2.7),
+        progress_callback=reports.append,
+    )
+    assert [r.stage for r in reports] == ["gamma"] * len(reports)
+    assert [r.completed for r in reports] == sorted(r.completed for r in reports)
+    assert reports[0].completed == 0
+    assert reports[-1].current_label == "done"
+    assert reports[-1].completed == reports[-1].total == 3  # gamma 0.4, 0.5, 0.6
+
+
+def test_should_continue_stops_scan_early_with_partial_suggestion(
+    fakes: None, tmp_path: Path
+) -> None:
+    """Returning False after two items yields aborted=True on the completed subset."""
+
+    calls = {"n": 0}
+
+    def stop_after_two() -> bool:
+        calls["n"] += 1
+        return calls["n"] <= 2
+
+    result = run_d_spacing_study(_config(tmp_path, d_spacing_points=5), should_continue=stop_after_two)
+    assert result.aborted is True
+    assert len(set(result.results["d_spacing_nm"])) == 2
+    state = json.loads(result.state_path.read_text(encoding="utf-8"))
+    assert "d_suggested_nm" in state  # suggestion still written from the partial scan
+
+
+def test_should_continue_before_first_item_raises(fakes: None, tmp_path: Path) -> None:
+    """Aborting before any item completes is a hard error, not an empty result."""
+
+    with pytest.raises(RuntimeError, match="aborted before any result"):
+        run_blaze_study(_config(tmp_path, d_spacing_nm=2.7), should_continue=lambda: False)

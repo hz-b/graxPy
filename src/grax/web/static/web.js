@@ -484,8 +484,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initSavedPlotFigure(container);
   });
 
-  const runMonitor = document.querySelector("[data-live-run-monitor]");
-  if (runMonitor) {
+  document.querySelectorAll("[data-live-run-monitor]").forEach((runMonitor) => {
     initRunMonitor(runMonitor);
-  }
+  });
 });

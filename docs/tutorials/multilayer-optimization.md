@@ -93,6 +93,18 @@ See `examples/simulation/multilayer_optimization_rub4c/` for the full runnable
 workflow: `ru_b4c_parameters.py` builds the config and the three numbered
 scripts run the stages. `run_all.sh` runs them in order.
 
+## In the web app
+
+`grax-web` exposes the same workflow on a **Multilayer study** page. Create a
+study, then run each stage from its own card: results are stored under
+`multilayer_studies/<id>/`, each stage shows a live progress bar and can be
+aborted between scan items, and re-running an earlier stage marks the later ones
+*stale* rather than discarding them. A per-stage "Reset" deletes one stage's
+outputs (and clears its keys from `optimization_state.json`); "Delete study"
+removes the whole directory. `run_d_spacing_study`, `run_gamma_study` and
+`run_blaze_study` accept the optional `progress_callback` and `should_continue`
+arguments the page relies on.
+
 ## Solver selection
 
 Stage 2 takes `solver` (`rcwa` or `neviere`) from the config; the example's

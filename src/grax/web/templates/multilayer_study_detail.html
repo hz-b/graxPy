@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% from "_multilayer_macros.html" import render_field, material_datalist %}
+{% block title %}{{ study.display_name }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ study.display_name }}</h1>
+    <p>{{ study.id }} · created {{ study.created_at }}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('multilayer_index') }}">All studies</a>
+    <form method="post" action="{{ url_for('multilayer_delete', study_id=study.id) }}">
+      <button class="button danger" type="submit"
+              data-confirm="Delete this study and all its results?">Delete study</button>
+    </form>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Stored in <code>multilayer_studies/{{ study.id }}/</code>. Stage&nbsp;2 and&nbsp;3 read
+    <code>d-spacing, nm</code> = <code>auto</code> from stage&nbsp;1's suggestion via
+    <code>optimization_state.json</code>; a number always wins.
+  </p>
+</section>
+
+{{ material_datalist(materials, material_density_map) }}
+
+{% for stage in stages %}
+  <section class="stage-card">
+    <div class="section-head">
+      <div>
+        <h2>{{ stage.label }}</h2>
+        <span class="status-pill is-{{ stage.status }}">{{ stage.status }}</span>
+        {% if stage.status == "stale" %}
+          <p class="subtle">Upstream inputs changed since this ran — re-run recommended.</p>
+        {% endif %}
+        {% if stage.error_text %}<p class="subtle">{{ stage.error_text }}</p>{% endif %}
+      </div>
+    </div>
+
+    {% if stage.status in ["queued", "running", "aborting"] %}
+      <div class="actions">
+        <a class="button" href="{{ url_for('multilayer_stage_abort_dialog', study_id=study.id, stage=stage.stage) }}"
+           data-run-abort-action>Abort stage</a>
+      </div>
+      <section
+        class="run-monitor"
+        data-live-run-monitor
+        data-run-status-url="{{ url_for('multilayer_stage_status', study_id=study.id, stage=stage.stage) }}"
+        data-memory-url="{{ url_for('system_memory') }}"
+      >
+        <section class="preview-panel run-monitor-plot">
+          <div class="section-head preview-head">
+            <div><h3>Progress</h3><p data-run-state>{{ stage.status }}</p></div>
+            <span class="preview-pill" data-run-progress-summary>0 / 0</span>
+          </div>
+          <img class="preview is-hidden" src="" alt="Stage progress plot" data-run-plot-image>
+        </section>
+        <section class="run-monitor-stats">
+          <div class="run-progress-bar"><span data-run-progress-bar style="width: 0%"></span></div>
+          <div class="stats-grid">
+            <div class="stat-card"><strong>Completed</strong><span data-run-completed>0</span></div>
+            <div class="stat-card"><strong>Remaining</strong><span data-run-remaining>0</span></div>
+            <div class="stat-card"><strong>Elapsed</strong><span data-run-elapsed>Estimating</span></div>
+            <div class="stat-card"><strong>ETA</strong><span data-run-eta>Estimating</span></div>
+            <div class="stat-card"><strong>Workers</strong><span data-run-workers>auto</span></div>
+            <div class="stat-card"><strong>Machine RAM</strong><span data-run-memory>Loading</span></div>
+          </div>
+          <p class="subtle" data-run-error></p>
+        </section>
+      </section>
+    {% endif %}
+
+    {% if stage.status in ["completed", "aborted", "stale"] and stage.artifacts %}
+      <section>
+        <img class="preview"
+             src="{{ url_for('data_file', filename='multilayer_studies/' ~ study.id ~ '/' ~ stage.artifacts.plot) }}"
+             alt="{{ stage.label }} plot">
+        {% if stage.suggested %}
+          <table>
+            <tbody>
+              {% for key, value in stage.suggested.items() %}
+                <tr><th>{{ key }}</th><td>{{ "%.6g"|format(value) if value is number else value }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+        <div class="list compact">
+          <a class="row" href="{{ url_for('data_file', filename='multilayer_studies/' ~ study.id ~ '/' ~ stage.artifacts.csv) }}">{{ stage.artifacts.csv }}</a>
+          <a class="row" href="{{ url_for('data_file', filename='multilayer_studies/' ~ study.id ~ '/optimization_state.json') }}">optimization_state.json</a>
+        </div>
+      </section>
+    {% endif %}
+
+    {% if stage.status not in ["queued", "running", "aborting"] %}
+      <form class="form" method="post"
+            action="{{ url_for('multilayer_run_stage', study_id=study.id, stage=stage.stage) }}">
+        <fieldset>
+          <legend>Inputs</legend>
+          {% for spec in stage.fields %}{{ render_field(spec, stage.field_values) }}{% endfor %}
+        </fieldset>
+        <div class="actions">
+          <button class="button primary" type="submit">
+            {{ "Run stage" if stage.status in ["not_run"] else "Re-run stage" }}
+          </button>
+          {% if stage.status in ["completed", "aborted", "stale"] %}
+            <button class="button danger" type="submit" formmethod="post"
+                    formaction="{{ url_for('multilayer_reset_stage', study_id=study.id, stage=stage.stage) }}"
+                    data-confirm="Delete this stage's stored results?">Reset stage</button>
+          {% endif %}
+        </div>
+      </form>
+    {% endif %}
+  </section>
+{% endfor %}
+{% endblock %}
