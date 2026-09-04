@@ -927,6 +927,7 @@ class BatchSimulationRunner:
                     total=effective_total_cases,
                     desc=f"{self.solver} batch",
                     unit="case",
+                    dynamic_ncols=True,
                 )
                 if self.resume and completed_ids:
                     progress.update(len(completed_ids))

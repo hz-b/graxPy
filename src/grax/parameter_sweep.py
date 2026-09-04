@@ -214,6 +214,7 @@ def run_parameter_study(
         total=progress_total,
         desc="Parameter study",
         disable=not show_progress,
+        dynamic_ncols=True,
     )
 
     for energy_ev in energies:
