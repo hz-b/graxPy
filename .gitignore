@@ -16,6 +16,7 @@ context
 superpowers
 .grax_web
 bugs.md 
+pyproject.toml-E
 
 # --- Standard Python ignores ---
 # Byte-compiled / optimized / DLL files

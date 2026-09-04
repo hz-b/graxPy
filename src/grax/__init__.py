@@ -69,6 +69,8 @@ __all__ = [
     "BaseGrating",
     "BaseStack",
     "BatchSimulationRunner",
+    "BenchmarkCase",
+    "BenchmarkPreset",
     "BlazedGrating",
     "CaseExecutionResult",
     "CustomStack",
@@ -81,18 +83,23 @@ __all__ = [
     "ParameterStudyEnergyResult",
     "ParameterStudyResult",
     "ParameterSweepSeries",
+    "PRESETS",
     "ProfileGrating",
     "RoughnessSpec",
     "SingleLayerStack",
     "SingleSimulationResult",
     "SlagConfig",
     "ThetaSearchDiagnostics",
+    "TimingRecord",
     "assemble_custom_stack",
     "available_material_symbols",
+    "benchmark_energies",
     "build_multilayer_stack",
     "build_single_layer_stack",
     "default_example_slag_config",
+    "default_cases",
     "efficiency_for_order",
+    "export_benchmark",
     "energy_angle_cases",
     "estimate_multilayer_bragg_angle_deg",
     "fixed_angle_cases",
@@ -115,10 +122,26 @@ __all__ = [
     "run_multilayer_theta_search",
     "run_multilayer_theta_search_sweep",
     "run_simulation",
+    "run_solver_benchmark",
     "setup_logging",
     "simulate_single_energy",
     "write_all_orders_csv",
 ]
+
+
+def __getattr__(name: str):
+    """Load benchmark helpers lazily to keep ``python -m`` execution clean."""
+    benchmark_names = {
+        "BenchmarkCase", "BenchmarkPreset", "PRESETS", "TimingRecord",
+        "benchmark_energies", "default_cases", "export_benchmark", "run_solver_benchmark",
+    }
+    if name in benchmark_names:
+        from . import solver_benchmark
+
+        value = getattr(solver_benchmark, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def setup_logging(
