@@ -22,6 +22,11 @@ This guide summarizes the source layout for contributors.
   - `serialization.py`: JSON/checkpoint serialization for single and case results
 - `parameter_sweep.py`: repeated simulations for numerical convergence and
   parameter studies
+- `multilayer_reflectivity.py`: planar-multilayer peak Bragg reflectivity versus
+  energy, wrapping the XRT dynamical-diffraction engine (imported lazily)
+- `multilayer_optimization.py`: three-stage d-spacing / gamma / blaze design
+  workflow built on the public API, with a JSON state file for the
+  `"auto"` hand-off between stages
 - `solvers/`: the one-dimensional electromagnetic solvers
   - `common.py`: shared types, `res0`/`res1`, the Fourier machinery, the layer
     field operators (including the Li/fast-Fourier-factorization rules for TM),

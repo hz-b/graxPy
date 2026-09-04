@@ -12,5 +12,6 @@ simulation/fixed-angle-sweep
 simulation/monochromator-sweep
 simulation/energy-angle-sweep
 simulation/multilayer-theta-search
+simulation/multilayer-optimization
 simulation/parameter-study
 ```

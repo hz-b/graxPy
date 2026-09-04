@@ -61,6 +61,16 @@ from .simulation import (
     run_simulation,
     write_all_orders_csv,
 )
+from .multilayer_reflectivity import MultilayerReflectivity
+from .multilayer_optimization import (
+    BlazeStudyResult,
+    DSpacingStudyResult,
+    GammaStudyResult,
+    MultilayerOptimizationConfig,
+    run_blaze_study,
+    run_d_spacing_study,
+    run_gamma_study,
+)
 from .slag import SlagConfig, default_example_slag_config, run_example_slag, simulate_single_energy
 
 __all__ = [
@@ -69,12 +79,17 @@ __all__ = [
     "BaseGrating",
     "BaseStack",
     "BatchSimulationRunner",
+    "BlazeStudyResult",
     "BlazedGrating",
     "CaseExecutionResult",
     "CustomStack",
+    "DSpacingStudyResult",
+    "GammaStudyResult",
     "LayerSpec",
     "MaterialSpec",
     "LaminarGrating",
+    "MultilayerOptimizationConfig",
+    "MultilayerReflectivity",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
     "NeviereOptions",
@@ -110,7 +125,10 @@ __all__ = [
     "res1",
     "res2",
     "res2_dm",
+    "run_blaze_study",
+    "run_d_spacing_study",
     "run_example_slag",
+    "run_gamma_study",
     "run_parameter_study",
     "run_multilayer_theta_search",
     "run_multilayer_theta_search_sweep",

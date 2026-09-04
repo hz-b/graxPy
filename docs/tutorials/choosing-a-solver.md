@@ -159,6 +159,7 @@ Solver selection reaches every workflow, not just one-point solves:
 | {class}`grax.BatchSimulationRunner` | `solver=`, `solver_options=`, or a per-case `"solver"` key |
 | {func}`grax.run_multilayer_theta_search` | `solver=` — used for all three scan stages |
 | {func}`grax.run_multilayer_theta_search_sweep` | `solver=` |
+| {func}`grax.run_blaze_study` | `MultilayerOptimizationConfig.solver` (stage 2 only) |
 | {func}`grax.run_parameter_study` | `solver=` |
 | `grax_opt` measurement fits | `solver` / `solver_options` on the config |
 | Web UI | Solver dropdown in the run form |
