@@ -771,7 +771,7 @@ def test_multilayer_theta_search_progress_updates_only_on_completed_points(
     postfixes: list[str] = []
 
     class DummyProgress:
-        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+        def __init__(self, total: int | None, desc: str, unit: str, **kwargs: object) -> None:
             self.total = total
             self.desc = desc
             self.unit = unit
@@ -1045,7 +1045,7 @@ def test_multilayer_theta_search_sweep_resume_progress_preloads_completed(
     updates: list[int] = []
 
     class DummyProgress:
-        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+        def __init__(self, total: int | None, desc: str, unit: str, **kwargs: object) -> None:
             self.total = total
             self.desc = desc
             self.unit = unit
