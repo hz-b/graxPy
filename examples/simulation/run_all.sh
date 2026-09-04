@@ -30,6 +30,7 @@ run_example "blazed_multilayer_memory_comparison/blazed_multilayer_memory_compar
 run_example "multilayer_theta_search/multilayer_theta_search.py"
 run_example "parameter_study/parameter_study.py"
 run_example "neviere_solver/neviere_solver.py"
+run_example "neviere_grazing_stability/neviere_grazing_stability.py"
 run_example "deep_grating_limits/deep_grating_limits.py"
 run_example "continuous_vs_staircase/continuous_vs_staircase.py"
 run_example "solver_runtime/solver_runtime.py"

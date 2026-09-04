@@ -975,6 +975,13 @@ def _cascade_boundary_pair(
             except Exception:
                 pass
 
+        # np.linalg.solve on non-finite input is a native crash on some LAPACK
+        # builds, not a LinAlgError. Reject it here so callers get a clean error.
+        if not (np.isfinite(matrix_to_solve).all() and np.isfinite(rhs).all()):
+            raise ValueError(
+                "interface-response cascade produced non-finite values; the "
+                "layer stack is too ill-conditioned to propagate"
+            )
         try:
             with _profiler.record("layer_cascade_pair_solve") if _profiler is not None else _nullcontext():
                 solved_blocks = np.linalg.solve(matrix_to_solve, rhs)
@@ -998,8 +1005,11 @@ def _cascade_boundary_pair(
             result[basis_size:, :basis_size] = bottom_left
             result[basis_size:, basis_size:] = bottom_right
 
-            if np.any(np.isnan(result)) or np.any(np.isinf(result)):
-                logger.warning("  cascade produced NaN/Inf values")
+            if not np.isfinite(result).all():
+                raise ValueError(
+                    "interface-response cascade produced non-finite values; the "
+                    "layer stack is too ill-conditioned to propagate"
+                )
 
     return result
 

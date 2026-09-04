@@ -426,7 +426,12 @@ def run_multilayer_theta_search_sweep(
         if resumed_case.status == "ok" and diagnostics is not None and diagnostics.precise_fwhm_deg is not None:
             completed_fwhm_by_energy[float(resumed_case.energy_ev)] = float(diagnostics.precise_fwhm_deg)
     progress_bar = (
-        simulation_api.tqdm(total=len(energy_list), desc=f"{solver} batch", unit="point")
+        simulation_api.tqdm(
+            total=len(energy_list),
+            desc=f"{solver} batch",
+            unit="point",
+            dynamic_ncols=True,
+        )
         if show_progress
         else None
     )

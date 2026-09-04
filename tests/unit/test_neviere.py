@@ -1199,3 +1199,125 @@ def test_joint_measurement_fit_agrees_across_solvers(tmp_path: Path) -> None:
         assert neviere.per_measurement_best_losses[label] == pytest.approx(
             rcwa_loss, abs=SOLVER_PARITY_ATOL, rel=SOLVER_PARITY_RTOL
         )
+
+
+# ---------------------------------------------------------------------------
+# Native-crash hardening: single-threaded BLAS for the differential method and
+# clean errors instead of a segfault when the cascade goes non-finite.
+#
+# Regression for a SIGSEGV observed on Linux/OpenBLAS during a serial
+# (MAX_WORKERS=1) Mo/B4C p-polarised theta-search sweep: a threaded BLAS driving
+# thousands of tiny zgesv/zgemm calls in the interface-response cascade, and
+# np.linalg.solve on non-finite input crashing rather than raising.
+# ---------------------------------------------------------------------------
+class _NullCtx:
+    """A do-nothing context manager for stubbing ``single_threaded_blas``."""
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
+@pytest.mark.unit
+def test_neviere_run_simulation_pins_blas_to_one_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``run_simulation(solver="neviere")`` runs its solve under a 1-thread BLAS limit."""
+
+    from grax.simulation import core as simulation_core
+
+    calls: list[str] = []
+    original = simulation_core.single_threaded_blas
+
+    def spy() -> object:
+        calls.append("enter")
+        return original()
+
+    monkeypatch.setattr(simulation_core, "single_threaded_blas", spy)
+
+    run_simulation(
+        grating=_multilayer_grating(),
+        energy_ev=500.0,
+        grazing_angle_deg=14.176,
+        diffraction_order=1,
+        fourier_orders=6,
+        polarization="p",
+        solver="neviere",
+    )
+    assert calls == ["enter"]
+
+
+@pytest.mark.unit
+def test_rcwa_run_simulation_does_not_touch_the_blas_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The RCWA path is left alone; its single large eigensolve wants threads."""
+
+    from grax.simulation import core as simulation_core
+
+    calls: list[str] = []
+
+    def spy() -> object:
+        calls.append("enter")
+        return _NullCtx()
+
+    monkeypatch.setattr(simulation_core, "single_threaded_blas", spy)
+
+    run_simulation(
+        grating=_multilayer_grating(),
+        energy_ev=500.0,
+        grazing_angle_deg=14.176,
+        diffraction_order=1,
+        fourier_orders=6,
+        polarization="p",
+        solver="rcwa",
+    )
+    assert calls == []
+
+
+@pytest.mark.unit
+def test_boundary_block_from_transfer_rejects_non_finite_transfer() -> None:
+    """A non-finite slab transfer matrix raises instead of reaching LAPACK."""
+
+    from grax.solvers.neviere import _boundary_block_from_transfer
+
+    basis_size = 3
+    transfer = np.eye(2 * basis_size, dtype=complex)
+    transfer[0, basis_size] = np.inf
+    with pytest.raises(ValueError, match="non-finite"):
+        _boundary_block_from_transfer(transfer, basis_size)
+
+
+@pytest.mark.unit
+def test_cascade_boundary_pair_rejects_non_finite_blocks() -> None:
+    """A non-finite interface-response block raises instead of reaching LAPACK."""
+
+    from grax.solvers.common import _cascade_boundary_pair
+
+    basis_size = 3
+    good = np.eye(2 * basis_size, dtype=complex)
+    bad = np.eye(2 * basis_size, dtype=complex)
+    bad[1, 1] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        _cascade_boundary_pair(good, bad, basis_size)
+
+
+@pytest.mark.unit
+def test_neviere_p_polarised_survives_a_very_small_grazing_angle() -> None:
+    """Order-2 p-pol on a coated multilayer at ~0.03 deg returns finite results.
+
+    This is the regime the Mo/B4C sweep's tracked-theta logic wandered into
+    (selected efficiency ~1e-4, grazing angle well below the Bragg estimate)
+    right before the native crash.
+    """
+
+    result = run_simulation(
+        grating=_multilayer_grating(),
+        energy_ev=9428.571428571428,
+        grazing_angle_deg=0.03,
+        diffraction_order=2,
+        fourier_orders=8,
+        polarization="p",
+        solver="neviere",
+        validate_physical_results=False,
+    )
+    assert np.all(np.isfinite(result.efficiency_all))
+    assert result.selected_efficiency >= 0.0

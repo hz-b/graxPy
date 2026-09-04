@@ -1184,7 +1184,7 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
     totals: list[int | None] = []
 
     class DummyProgress:
-        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+        def __init__(self, total: int | None, desc: str, unit: str, **kwargs: object) -> None:
             self.total = total
             self.desc = desc
             self.unit = unit
@@ -1269,7 +1269,7 @@ def test_batch_runner_infers_progress_total_for_generator_cases(monkeypatch: pyt
     totals: list[int | None] = []
 
     class DummyProgress:
-        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+        def __init__(self, total: int | None, desc: str, unit: str, **kwargs: object) -> None:
             del desc, unit
             totals.append(total)
 
