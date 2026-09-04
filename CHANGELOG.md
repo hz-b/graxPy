@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Internal cleanup pass; no public API or numerical behaviour changes.
+- `import grax` no longer imports `matplotlib.pyplot`. Six modules (`gratings`, `parameter_sweep`, `stacks`, `simulation.core`, `simulation.batch`, `simulation.theta_search_sweep`) imported pyplot at module scope, so every import -- including the re-import each spawned batch worker performs -- paid the pyplot and backend initialisation cost, roughly a third of `import grax`. Each plotting function now imports pyplot locally, matching what `afm_preprocessing` already did; plotting output is unchanged.
+- Removed `grax.solver_benchmark` from the package. It was a developer runtime benchmark, not a public API, and pulled `matplotlib` and `tqdm` into `import grax`. It now lives at `tools/solver_benchmark/` alongside the other developer tools. In the move: the serial path no longer re-times each configuration four times, the timed repeats run without the profiler attached (a single untimed pass captures the profile), `benchmark_energies` clamps to 100 points instead of raising, and the serial (fixed-angle) versus multiprocessing (cff monochromator sweep) distinction is documented.
+- `gratings.py` no longer carries three copies of the bottom-up rough-layer walk. `_refractive_index_row`, `_build_material_code_grid` and `_build_refractive_index_grid` share a new `_iter_rough_layer_interfaces` generator; the interface positions and per-layer assignments are unchanged (verified bit-identical across laminar, blazed and blazed-multilayer gratings, smooth and rough, in both solvers).
+- Deleted a dead, unreachable copy of the multiprocessing worker-pool helpers (`_resolve_max_workers`, `_multiprocessing_start_method`, `_worker_initializer`, and others) from `simulation/serialization.py`. It duplicated the live copies in `simulation/batch.py`, was imported nowhere, referenced names the module does not import, and still carried the macOS `fork` start method that `batch.py` had already replaced with `spawn`.
+
 ## 0.4.8 - 2026-09-03
 
 - grax log records no longer leak to the terminal when the host application has not called `grax.setup_logging`. A `NullHandler` is attached to the `grax` logger at import, so Python's `logging.lastResort` handler no longer prints `WARNING`s to stderr -- most visibly from the spawned batch workers, which re-import grax but never configure logging. `setup_logging` now also sets `propagate = False` on the `grax` logger and refuses to attach a second file handler for the same path on a repeat call.
