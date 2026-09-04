@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
+from .._threads import single_threaded_blas
 from ..gratings import BaseGrating
 from ..solvers import res0, res1, res2, res2_dm
 from ..solvers.neviere import NeviereOptions, build_grating_epsilon_sampler, coerce_neviere_options
@@ -281,15 +282,21 @@ def _run_single_realization(
                 orders=aa.orders,
                 fourier_backend=backend,
             )
-        ef = res2_dm(
-            aa,
-            profile,
-            parm,
-            roughness_sigma_nm=effective_roughness_sigma_nm,
-            options=solver_options,
-            epsilon_sampler=epsilon_sampler,
-            _profiler=_profiler,
-        )
+        # The differential method makes thousands of tiny dense solves per solve;
+        # a threaded BLAS spends its time in dispatch and some OpenBLAS builds
+        # crash under that pattern. Pin to one thread for the integration. In a
+        # spawned batch worker the environment already does this, so this is a
+        # no-op there.
+        with single_threaded_blas():
+            ef = res2_dm(
+                aa,
+                profile,
+                parm,
+                roughness_sigma_nm=effective_roughness_sigma_nm,
+                options=solver_options,
+                epsilon_sampler=epsilon_sampler,
+                _profiler=_profiler,
+            )
     else:
         ef = res2(
             aa,

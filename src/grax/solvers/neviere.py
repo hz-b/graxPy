@@ -564,6 +564,13 @@ def _boundary_block_from_transfer(transfer: np.ndarray, basis_size: int) -> np.n
     rhs = np.empty((basis_size, 2 * basis_size), dtype=complex)
     rhs[:, :basis_size] = t11
     rhs[:, basis_size:] = np.eye(basis_size, dtype=complex)
+    # A non-finite transfer matrix reaching np.linalg.solve is a hard crash on
+    # some LAPACK builds rather than a LinAlgError, so reject it here.
+    if not np.isfinite(transfer).all():
+        raise ValueError(
+            "Nevière slab transfer matrix has non-finite entries. Reduce "
+            "block_phase or step_phase so shorter sub-blocks are cascaded."
+        )
     try:
         solved = np.linalg.solve(t12, rhs)
     except np.linalg.LinAlgError as error:
