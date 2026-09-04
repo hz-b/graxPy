@@ -9,7 +9,6 @@ from typing import Any
 import hashlib
 import warnings
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from .materials import material_label, resolve_refractive_index, validate_material_input
@@ -135,6 +134,8 @@ class BaseGrating(ABC):
 
     def plot_profile(self, output_filename: str | Path) -> None:
         """Save a plot showing the profile and the material stack."""
+
+        import matplotlib.pyplot as plt
 
         positions, heights = self._tiled_profile_points(num_periods=3)
         x_grid, z_grid, material_map, material_labels = self._material_plot_data(num_periods=3)
@@ -844,6 +845,8 @@ class BaseGrating(ABC):
         material_labels: list[str],
     ) -> list[str]:
         """Return deterministic unique colors for ordered material labels."""
+
+        import matplotlib.pyplot as plt
 
         del coating_stack
         unique_labels = list(dict.fromkeys(material_labels))

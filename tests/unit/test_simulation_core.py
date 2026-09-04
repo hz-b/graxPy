@@ -1638,13 +1638,15 @@ def test_batch_runner_closes_live_plot_after_run_cases(monkeypatch: pytest.Monke
     monkeypatch.setattr(simulation_batch_module, "_refresh_interactive_figure", lambda figure: None)
     runner = BatchSimulationRunner(live_plot=True, live_plot_order_count=1)
     closed_figures = []
-    original_close = simulation_batch_module.plt.close
+    import matplotlib.pyplot as pyplot_module
+
+    original_close = pyplot_module.close
 
     def close_spy(figure: object) -> None:
         closed_figures.append(figure)
         original_close(figure)
 
-    monkeypatch.setattr(simulation_batch_module.plt, "close", close_spy)
+    monkeypatch.setattr(pyplot_module, "close", close_spy)
 
     results = list(
         runner.run_cases(

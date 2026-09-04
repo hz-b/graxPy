@@ -15,10 +15,13 @@ import threading
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 from ..gratings import BaseGrating
 from .core import (
@@ -1438,6 +1441,8 @@ class BatchSimulationRunner:
     def close_live_plot(self) -> None:
         """Close and reset the live plot figure, if one exists."""
 
+        import matplotlib.pyplot as plt
+
         if self._live_figure is not None and plt.fignum_exists(self._live_figure.number):
             plt.close(self._live_figure)
         self._live_figure = None
@@ -1464,6 +1469,8 @@ class BatchSimulationRunner:
             Only updates plot for successful ("ok") results. Skips if plot is
             disabled or figure has been closed.
         """
+
+        import matplotlib.pyplot as plt
 
         if not self.live_plot:
             return
