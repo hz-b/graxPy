@@ -646,11 +646,30 @@ def create_app(*, data_dir: str | Path | None = None):
             state["stage"] = stage
             state["label"] = STAGE_LABELS[stage]
             stages.append(state)
+        config = manifest["config"]
+
+        def _material_name(key: str) -> str:
+            # Materials are stored as [name, density] pairs.
+            value = config.get(key)
+            return str(value[0]) if isinstance(value, list) and value else ""
+
+        plot_meta = {
+            "coating_label": (
+                config.get("coating_label")
+                or f"{_material_name('material_a')}/{_material_name('material_b')}"
+            ),
+            "target_energy_ev": config.get("target_energy_ev"),
+            "diffraction_order": config.get("diffraction_order"),
+        }
         return {
             "study": manifest,
             "stages": stages,
             "design_options": options,
             "design_options_json": json.dumps(options),
+            "survey_plot_meta_json": json.dumps(plot_meta),
+            # Interactive survey plots need plotly.js inlined; without plotly the
+            # template falls back to the PNGs the library already wrote.
+            "plotly_bundle": _plotly_bundle_text() if get_plotlyjs is not None else None,
             "survey_cells": survey_cell_count(manifest["config"]),
         }
 
@@ -1491,15 +1510,16 @@ def _execute_multilayer_design_job(
     _update_active_run(app, key, state="running", started=True)
     _set_stage(status="running", error_text="", aborted=False)
     auto_chain = False
+    with _active_runs_lock(app):
+        entry = _active_runs(app).get(key)
+    stop_event = entry.stop_event if entry is not None else threading.Event()
     try:
         manifest = store.load(study_id)
         config = build_design_config(store.study_dir(study_id), manifest["config"])
         designer = MultilayerGratingDesigner(config)
 
         def _progress(report: Any) -> None:
-            _update_active_run(
-                app, key, completed_points=report.completed, resolved_workers=1
-            )
+            _update_active_run(app, key, completed_points=report.completed)
             with _active_runs_lock(app):
                 entry = _active_runs(app).get(key)
                 if entry is not None and report.total:
@@ -1510,9 +1530,22 @@ def _execute_multilayer_design_job(
                 entry = _active_runs(app).get(key)
                 return entry is None or not entry.stop_event.is_set()
 
+        def _worker_pids_changed(worker_pids: set[int]) -> None:
+            # The live pool size is the only honest worker count -- the config
+            # only ever says "auto".
+            _update_active_run(
+                app,
+                key,
+                simulation_pids=worker_pids,
+                resolved_workers=len(worker_pids) or None,
+            )
+
         if stage == "survey":
             result = designer.run_survey(
-                progress_callback=_progress, should_continue=_keep_going
+                progress_callback=_progress,
+                should_continue=_keep_going,
+                stop_event=stop_event,
+                on_worker_pids_changed=_worker_pids_changed,
             )
             aborted = bool(result.aborted)
             artifacts = {
@@ -1535,7 +1568,11 @@ def _execute_multilayer_design_job(
         else:
             designs = [tuple(pair) for pair in manifest["stages"][stage].get("designs") or []]
             scans = designer.run_energy_scan(
-                designs, progress_callback=_progress, should_continue=_keep_going
+                designs,
+                progress_callback=_progress,
+                should_continue=_keep_going,
+                stop_event=stop_event,
+                on_worker_pids_changed=_worker_pids_changed,
             )
             aborted = len(scans) < len(designs)
             artifacts = {
@@ -1565,8 +1602,19 @@ def _execute_multilayer_design_job(
         )
         _finish_active_run(app, key, state="aborted" if aborted else "completed")
     except Exception as error:  # noqa: BLE001 - surfaced to the study page
-        _set_stage(status="failed", error_text=str(error))
-        _finish_active_run(app, key, state="failed", error_text=str(error))
+        if stop_event.is_set():
+            # Killing the workers raises out of the stage; that is an abort, not
+            # a failure, and the user does not need the traceback for it.
+            _set_stage(
+                status="aborted",
+                ran_at=datetime.now().isoformat(timespec="seconds"),
+                aborted=True,
+                error_text="",
+            )
+            _finish_active_run(app, key, state="aborted")
+        else:
+            _set_stage(status="failed", error_text=str(error))
+            _finish_active_run(app, key, state="failed", error_text=str(error))
     finally:
         release_workers(key)
 
@@ -1687,7 +1735,9 @@ def _multilayer_design_stage_status_payload(
                 "remaining_points": max(total - completed, 0),
                 "elapsed_seconds": elapsed,
                 "eta_seconds": eta,
-                "current_label": label,
+                "current_label": (
+                    "stopping workers…" if active.state == "aborting" else label
+                ),
                 "worker_mode": "auto",
                 "requested_workers": None,
                 "resolved_workers": active.resolved_workers,
@@ -1741,9 +1791,49 @@ def _abort_multilayer_design_stage(
             active.abort_requested = True
             active.stop_event.set()
             active.state = "aborting"
+    # The sweep kills its own pool from the inside; this is the backstop for a
+    # worker stuck somewhere the stop check does not reach. It also matters for
+    # `discard`, which deletes the stage directory the worker is writing into.
+    _terminate_run_processes(app, key)
     _wait_for_run_shutdown(app, key)
     if discard:
         _reset_multilayer_design_stage(store=store, study_id=study_id, stage=stage)
+
+
+def _terminate_run_processes(app: Any, run_id: str, *, grace_seconds: float = 3.0) -> None:
+    """Stop one active run's simulation subprocesses, children first."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        pids = set() if active is None else set(active.simulation_pids)
+    pids.discard(os.getpid())
+    if not pids or not hasattr(psutil, "Process"):
+        return
+    targets: list[Any] = []
+    for pid in pids:
+        try:
+            process = psutil.Process(pid)
+        except Exception:
+            continue
+        try:
+            targets.extend(process.children(recursive=True))
+        except Exception:
+            pass
+        targets.append(process)
+    for process in targets:
+        try:
+            process.terminate()
+        except Exception:
+            continue
+    try:
+        _, alive = psutil.wait_procs(targets, timeout=grace_seconds)
+    except Exception:
+        return
+    for process in alive:
+        try:
+            process.kill()
+        except Exception:
+            continue
 
 
 def _reset_multilayer_design_stage(*, store: Any, study_id: str, stage: str) -> None:

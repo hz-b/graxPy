@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -1191,3 +1194,79 @@ def test_safe_theta_scan_half_width_returns_request_when_within_bounds() -> None
         center_deg=5.0, requested_half_width_deg=0.5
     )
     assert value == pytest.approx(0.5)
+
+
+def test_sweep_with_a_set_stop_event_returns_without_solving(tmp_path: Path) -> None:
+    """A stop event that is already set short-circuits the whole sweep."""
+
+    stop_event = threading.Event()
+    stop_event.set()
+
+    result = run_multilayer_theta_search_sweep(
+        grating=build_blazed_multilayer_angle_parity_grating(),
+        energies_ev=[1000.0, 1200.0],
+        output_dir=tmp_path,
+        max_workers=1,
+        stop_event=stop_event,
+        show_progress=False,
+        save_profile_plot=False,
+        save_stack_plot=False,
+    )
+
+    assert result.stopped_early is True
+    assert result.batch_result.cases == []
+
+
+def test_a_stop_event_forces_worker_processes_at_one_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """At max_workers=1 a stop event must still buy a killable child process."""
+
+    ran_in_process: list[str] = []
+    monkeypatch.setattr(
+        simulation_module.theta_search_sweep,
+        "_run_payload",
+        lambda payload: ran_in_process.append("serial"),
+    )
+    stop_event = threading.Event()
+    stop_event.set()
+
+    run_multilayer_theta_search_sweep(
+        grating=build_blazed_multilayer_angle_parity_grating(),
+        energies_ev=[1000.0],
+        output_dir=tmp_path,
+        max_workers=1,
+        stop_event=stop_event,
+        show_progress=False,
+        save_profile_plot=False,
+        save_stack_plot=False,
+    )
+
+    # The serial branch would have called _run_payload in this process.
+    assert ran_in_process == []
+
+
+def test_terminate_worker_pool_kills_a_solve_already_in_flight() -> None:
+    """The killer stops running workers instead of waiting them out."""
+
+    import concurrent.futures
+
+    from grax.simulation.theta_search_sweep import _terminate_worker_pool
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
+        futures = {executor.submit(time.sleep, 60): "sleeper" for _ in range(2)}
+        # Let the pool actually start its workers before killing them.
+        deadline = time.time() + 10.0
+        while not executor._processes and time.time() < deadline:
+            time.sleep(0.05)
+        pids = [p.pid for p in executor._processes.values()]
+        assert pids
+
+        started = time.time()
+        _terminate_worker_pool(executor, futures)
+        elapsed = time.time() - started
+
+    assert elapsed < 10.0, "terminating should not wait out the 60 s sleeps"
+    for pid in pids:
+        with pytest.raises(OSError):
+            os.kill(pid, 0)

@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import threading
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,6 +63,10 @@ __all__ = [
 ]
 
 HC_EV_NM = 1239.841984
+
+
+class _CellAbortedError(RuntimeError):
+    """Raised when a ``stop_event`` killed a survey cell's theta search mid-search."""
 
 
 @dataclass(frozen=True)
@@ -585,7 +591,12 @@ class MultilayerGratingDesigner:
     # Step 1: (d, blaze) survey                                          #
     # ------------------------------------------------------------------ #
     def _survey_cell(
-        self, d_spacing_nm: float, blaze_angle_deg: float
+        self,
+        d_spacing_nm: float,
+        blaze_angle_deg: float,
+        *,
+        stop_event: threading.Event | None = None,
+        on_worker_pids_changed: Callable[[set[int]], None] | None = None,
     ) -> tuple[dict[str, float], Path]:
         """Run one ``(d, blaze)`` multilayer theta search and save its full output.
 
@@ -631,6 +642,8 @@ class MultilayerGratingDesigner:
             roughness_sigma_nm=scan.roughness_sigma_nm,
             precise_peak_selection_mode=str(scan.precise_peak_selection_mode),
             max_workers=1,
+            stop_event=stop_event,
+            on_worker_pids_changed=on_worker_pids_changed,
             show_progress=False,
             on_error="fail_fast",
             checkpoint_dir=(run_dir / "checkpoints") if config.checkpoint else None,
@@ -643,6 +656,14 @@ class MultilayerGratingDesigner:
             solver=str(config.solver),
             polarization=str(config.polarization),
         )
+        if sweep.stopped_early:
+            # A killed cell leaves a header-only summary CSV, which would make
+            # every later evaluate_survey() raise on `.iloc[0]`. The cell is a
+            # single energy, so there is nothing worth keeping.
+            shutil.rmtree(run_dir, ignore_errors=True)
+            raise _CellAbortedError(
+                f"survey cell d={d_spacing_nm:.3f} nm blaze={blaze_angle_deg:.3f} deg was aborted"
+            )
         (run_dir / "search_parameters.json").write_text(
             json.dumps(
                 self._search_parameters_record(
@@ -674,6 +695,8 @@ class MultilayerGratingDesigner:
         *,
         progress_callback: Callable[[StageProgress], None] | None = None,
         should_continue: Callable[[], bool] | None = None,
+        stop_event: threading.Event | None = None,
+        on_worker_pids_changed: Callable[[set[int]], None] | None = None,
     ) -> SurveyResult:
         """Run the ``(d, blaze)`` survey at the optimization energy.
 
@@ -685,6 +708,12 @@ class MultilayerGratingDesigner:
                 returns ``False`` the scan stops early and the optimal blaze per
                 d-spacing is computed from the completed cells (``aborted`` is set
                 on the result).
+            stop_event: Optional stop signal forwarded to each cell's theta
+                search. Unlike ``should_continue``, which is only consulted
+                between cells, setting it kills the search in flight; the
+                half-finished cell is discarded and the survey is marked aborted.
+            on_worker_pids_changed: Optional callback receiving the theta
+                search's current worker process IDs.
 
         Returns:
             A :class:`SurveyResult` with the maps, the per-d optimal blaze
@@ -729,7 +758,17 @@ class MultilayerGratingDesigner:
                     f"Multilayer theta search: d = {d_spacing:.2f} nm, blaze = {blaze:.3f} deg"
                 )
                 try:
-                    summary, run_dir = self._survey_cell(float(d_spacing), float(blaze))
+                    summary, run_dir = self._survey_cell(
+                        float(d_spacing),
+                        float(blaze),
+                        stop_event=stop_event,
+                        on_worker_pids_changed=on_worker_pids_changed,
+                    )
+                except _CellAbortedError:
+                    # Must precede the generic handler below, or on_error
+                    # "fail_fast" would re-raise an abort as a failure.
+                    aborted = True
+                    break
                 except Exception as error:  # noqa: BLE001 - per-cell isolation
                     if config.on_error == "fail_fast":
                         raise
@@ -981,6 +1020,8 @@ class MultilayerGratingDesigner:
         *,
         progress_callback: Callable[[StageProgress], None] | None = None,
         should_continue: Callable[[], bool] | None = None,
+        stop_event: threading.Event | None = None,
+        on_worker_pids_changed: Callable[[set[int]], None] | None = None,
     ) -> list[EnergyScanResult]:
         """Sweep chosen ``(d_spacing_nm, blaze_angle_deg)`` designs over energy.
 
@@ -993,6 +1034,13 @@ class MultilayerGratingDesigner:
                 it returns ``False`` the scan stops early and returns the
                 designs completed so far (an empty list if it stopped before
                 the first one).
+            stop_event: Optional stop signal forwarded to the sweep. Unlike
+                ``should_continue``, which is only consulted between designs,
+                setting it kills the energies in flight. The half-scanned design
+                is not returned, but its checkpoint keeps every energy already
+                solved, so re-running resumes from there.
+            on_worker_pids_changed: Optional callback receiving the sweep's
+                current worker process IDs.
 
         Returns:
             One :class:`EnergyScanResult` per completed design, in input order.
@@ -1043,6 +1091,8 @@ class MultilayerGratingDesigner:
                 roughness_sigma_nm=scan.roughness_sigma_nm,
                 precise_peak_selection_mode=str(scan.precise_peak_selection_mode),
                 max_workers=config.max_workers,
+                stop_event=stop_event,
+                on_worker_pids_changed=on_worker_pids_changed,
                 show_progress=bool(config.show_progress),
                 on_error="fail_fast",
                 checkpoint_dir=(design_dir / "checkpoints") if config.checkpoint else None,
@@ -1056,6 +1106,10 @@ class MultilayerGratingDesigner:
                 solver=str(config.solver),
                 polarization=str(config.polarization),
             )
+            if sweep.stopped_early:
+                # Do not report a half-scanned design as done: its checkpoint
+                # holds every solved energy, so re-running resumes from there.
+                break
             scan_results = pd.read_csv(sweep.summary_csv_path)
             config.plot_dir.mkdir(parents=True, exist_ok=True)
             titled_plot_path = config.plot_dir / _energy_scan_plot_filename(

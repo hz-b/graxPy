@@ -59,23 +59,37 @@
   {% endif %}
 
   {% if survey.artifacts.heatmap_plot %}
-    <div class="grid two">
+    {% if plotly_bundle %}
+      {# Interactive versions of the same three plots the library writes as PNGs.
+         Clicking a heatmap cell feeds the stage-2 design picker below. #}
+      <div data-survey-figures
+           data-design-options="{{ design_options_json }}"
+           data-survey-plot-meta="{{ survey_plot_meta_json }}">
+        <div class="grid halves">
+          <div class="plotly-stage is-half" data-survey-figure="optimal_blaze"></div>
+          <div class="plotly-stage is-half" data-survey-figure="max_efficiency"></div>
+        </div>
+        <div class="plotly-stage" data-survey-figure="heatmap"></div>
+      </div>
+    {% else %}
+      <div class="grid halves">
+        <figure>
+          <img class="preview" src="{{ artifact }}{{ survey.artifacts.optimal_blaze_plot }}"
+               alt="Optimal blaze angle versus d-spacing">
+          <figcaption class="subtle">Optimal blaze angle vs d-spacing</figcaption>
+        </figure>
+        <figure>
+          <img class="preview" src="{{ artifact }}{{ survey.artifacts.max_efficiency_plot }}"
+               alt="Max efficiency versus d-spacing">
+          <figcaption class="subtle">Max efficiency vs d-spacing</figcaption>
+        </figure>
+      </div>
       <figure>
-        <img class="preview" src="{{ artifact }}{{ survey.artifacts.optimal_blaze_plot }}"
-             alt="Optimal blaze angle versus d-spacing">
-        <figcaption class="subtle">Optimal blaze angle vs d-spacing</figcaption>
+        <img class="preview" src="{{ artifact }}{{ survey.artifacts.heatmap_plot }}"
+             alt="Efficiency over the d-spacing and blaze-angle grid">
+        <figcaption class="subtle">Peak efficiency over (d, blaze), with the optimal-blaze ridge</figcaption>
       </figure>
-      <figure>
-        <img class="preview" src="{{ artifact }}{{ survey.artifacts.max_efficiency_plot }}"
-             alt="Max efficiency versus d-spacing">
-        <figcaption class="subtle">Max efficiency vs d-spacing</figcaption>
-      </figure>
-    </div>
-    <figure>
-      <img class="preview" src="{{ artifact }}{{ survey.artifacts.heatmap_plot }}"
-           alt="Efficiency over the d-spacing and blaze-angle grid">
-      <figcaption class="subtle">Peak efficiency over (d, blaze), with the optimal-blaze ridge</figcaption>
-    </figure>
+    {% endif %}
     <div class="list compact">
       <div class="row">
         <span>Per-cell table</span>

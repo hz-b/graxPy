@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 import types
 from pathlib import Path
@@ -53,7 +54,14 @@ def _install_fake_runners(monkeypatch: pytest.MonkeyPatch, *, survey_cells: int 
 
     from grax.multilayer_design import EnergyScanResult, MultilayerGratingDesigner, StageProgress
 
-    def fake_survey(self, *, progress_callback=None, should_continue=None):  # noqa: ANN001
+    def fake_survey(
+        self,
+        *,
+        progress_callback=None,
+        should_continue=None,
+        stop_event=None,
+        on_worker_pids_changed=None,
+    ):  # noqa: ANN001
         config = self.config
         d_values = config.d_grid_nm()
         blaze_values = config.blaze_grid_deg()
@@ -109,7 +117,15 @@ def _install_fake_runners(monkeypatch: pytest.MonkeyPatch, *, survey_cells: int 
             combined_csv_path=config.survey_dir / "survey.csv",
         )
 
-    def fake_energy_scan(self, pairs, *, progress_callback=None, should_continue=None):  # noqa: ANN001
+    def fake_energy_scan(
+        self,
+        pairs,
+        *,
+        progress_callback=None,
+        should_continue=None,
+        stop_event=None,
+        on_worker_pids_changed=None,
+    ):  # noqa: ANN001
         config = self.config
         designs = list(pairs)
         results = []
@@ -277,9 +293,18 @@ def test_survey_runs_and_the_detail_page_shows_the_three_plots(
     assert _wait_for_stage(_store(tmp_path), study_id, "survey") == "completed"
 
     html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
-    assert "optimal_blaze_vs_d_spacing.png" in html
-    assert "max_efficiency_vs_d_spacing.png" in html
-    assert "efficiency_heatmap_d_vs_blaze.png" in html
+    # The three plots render as interactive Plotly stages fed by the embedded
+    # survey grid; the PNGs stay on disk for the CLI and the no-plotly fallback.
+    assert 'data-survey-figure="optimal_blaze"' in html
+    assert 'data-survey-figure="max_efficiency"' in html
+    assert 'data-survey-figure="heatmap"' in html
+    assert "data-survey-plot-meta=" in html
+    for name in (
+        "optimal_blaze_vs_d_spacing.png",
+        "max_efficiency_vs_d_spacing.png",
+        "efficiency_heatmap_d_vs_blaze.png",
+    ):
+        assert (_store(tmp_path).study_dir(study_id) / "plots" / name).is_file()
     assert "survey.csv" in html
     # All three step-2 choices are offered once the survey is done.
     assert 'value="best"' in html
@@ -517,3 +542,109 @@ def test_energy_scan_progress_is_zero_before_any_checkpoint(tmp_path: Path) -> N
     )
 
     assert (completed, total) == (0, 10)
+
+
+def test_abort_terminates_the_registered_worker_processes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Abort kills the solves in flight instead of waiting them out."""
+
+    import multiprocessing as mp
+
+    import psutil
+
+    from grax.multilayer_design import MultilayerGratingDesigner
+
+    context = mp.get_context("spawn")
+    sleeper = context.Process(target=time.sleep, args=(120,), daemon=True)
+    sleeper.start()
+    worker_pid = sleeper.pid
+
+    def blocking_survey(
+        self,
+        *,
+        progress_callback=None,
+        should_continue=None,
+        stop_event=None,
+        on_worker_pids_changed=None,
+    ):  # noqa: ANN001
+        if on_worker_pids_changed is not None:
+            on_worker_pids_changed({sleeper.pid})
+        # Stand in for a solve that only ends when its workers are killed.
+        stop_event.wait(timeout=30.0)
+        raise RuntimeError("worker pool terminated")
+
+    monkeypatch.setattr(MultilayerGratingDesigner, "run_survey", blocking_survey)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+
+    # Wait until the run has registered the worker PID, otherwise the abort has
+    # nothing to terminate yet.
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        payload = client.get(f"/multilayer-design/{study_id}/stages/survey/status").get_json()
+        if payload.get("resolved_workers"):
+            break
+        time.sleep(0.02)
+
+    try:
+        response = client.post(
+            f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
+        )
+        assert response.status_code == 302
+        # Check with psutil, not Process.is_alive(): whoever reaps the child
+        # first wins, and psutil's wait_procs gets there before multiprocessing.
+        assert not psutil.pid_exists(worker_pid) or psutil.Process(worker_pid).status() in {
+            psutil.STATUS_ZOMBIE,
+            psutil.STATUS_DEAD,
+        }, "the abort should have killed the worker process"
+        # A stage killed on purpose is aborted, not failed, and carries no traceback.
+        assert _wait_for_stage(store, study_id, "survey") == "aborted"
+        assert store.load(study_id)["stages"]["survey"]["error_text"] == ""
+    finally:
+        if sleeper.is_alive():
+            sleeper.terminate()
+            sleeper.join(timeout=5.0)
+
+
+def test_monitor_reports_the_real_worker_count(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Workers stat shows the live pool size, not a hardcoded 1."""
+
+    from grax.multilayer_design import MultilayerGratingDesigner
+
+    release = threading.Event()
+
+    def survey_reporting_four_workers(
+        self,
+        *,
+        progress_callback=None,
+        should_continue=None,
+        stop_event=None,
+        on_worker_pids_changed=None,
+    ):  # noqa: ANN001
+        on_worker_pids_changed({11, 12, 13, 14})
+        release.wait(timeout=10.0)
+        raise RuntimeError("stopped")
+
+    monkeypatch.setattr(MultilayerGratingDesigner, "run_survey", survey_reporting_four_workers)
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+
+    try:
+        deadline = time.time() + 5.0
+        payload = {}
+        while time.time() < deadline:
+            payload = client.get(
+                f"/multilayer-design/{study_id}/stages/survey/status"
+            ).get_json()
+            if payload.get("resolved_workers"):
+                break
+            time.sleep(0.02)
+        assert payload["resolved_workers"] == 4
+    finally:
+        release.set()

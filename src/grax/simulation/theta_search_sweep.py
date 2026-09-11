@@ -8,8 +8,9 @@ import importlib
 import json
 import logging
 import multiprocessing as mp
+import threading
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -82,6 +83,37 @@ def _load_checkpoint_case_results_for_ids(
                 continue
             loaded[case_result.case_id] = case_result
     return loaded
+
+
+def _terminate_worker_pool(
+    executor: concurrent.futures.ProcessPoolExecutor,
+    futures: dict[concurrent.futures.Future, object],
+) -> None:
+    """Cancel queued cases and stop every live worker process immediately.
+
+    Terminating the workers breaks the pool, which is fine because the caller
+    abandons it: the point is that a solve already in flight dies now rather than
+    running to completion. Results reached before this call are already on disk
+    when checkpointing is on.
+    """
+
+    processes = [
+        process
+        for process in getattr(executor, "_processes", {}).values()
+        if process is not None
+    ]
+    for future in futures:
+        future.cancel()
+    executor.shutdown(wait=False, cancel_futures=True)
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+    for process in processes:
+        process.join(timeout=2.0)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=2.0)
+
 
 def _adaptive_scan_half_widths(
     *,
@@ -216,6 +248,8 @@ def run_multilayer_theta_search_sweep(
     retry_selected_efficiency_threshold: float = 1e-4,
     max_zero_efficiency_retries: int = 3,
     max_workers: MaxWorkers = None,
+    stop_event: threading.Event | None = None,
+    on_worker_pids_changed: Callable[[set[int]], None] | None = None,
     show_progress: bool = True,
     live_plot: bool = False,
     on_error: ErrorPolicy = "fail_fast",
@@ -266,6 +300,13 @@ def run_multilayer_theta_search_sweep(
         max_workers: Optional batch worker count. ``"auto"`` calibrates from one
             completed theta-search case and available system memory before
             launching the remaining parallel work.
+        stop_event: Optional stop signal. Once it is set, queued energies are no
+            longer submitted, the live worker processes are terminated, and the
+            sweep returns with ``stopped_early=True`` and the energies solved so
+            far. Passing one also forces worker-process execution even at
+            ``max_workers=1``, so a single-energy sweep stays interruptible.
+        on_worker_pids_changed: Optional callback receiving the current worker
+            process IDs, so a caller can track or signal them.
         show_progress: Whether to show a progress bar during execution.
         live_plot: Whether to update the standard batch live plot.
         on_error: Per-case error policy forwarded to the batch runner. ``continue``
@@ -315,6 +356,14 @@ def run_multilayer_theta_search_sweep(
         raise ValueError("retry_selected_efficiency_threshold must be finite and >= 0.0.")
     simulation_api = _simulation_api()
     effective_workers = simulation_api._resolve_max_workers(max_workers)
+
+    def _stop_requested() -> bool:
+        return stop_event is not None and stop_event.is_set()
+
+    def _emit_worker_pids(worker_pids: set[int]) -> None:
+        if on_worker_pids_changed is not None:
+            on_worker_pids_changed(set(worker_pids))
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     theta_scan_directory = output_path / "theta_scans"
@@ -893,6 +942,10 @@ def run_multilayer_theta_search_sweep(
                 previous_theta_deg=tracking_previous_theta_deg,
             )
         )
+        if should_try_bragg_fallback and _stop_requested():
+            # The fallback re-solve runs in this process and cannot be killed;
+            # skip it rather than make an abort wait out a whole extra search.
+            should_try_bragg_fallback = False
         if should_try_bragg_fallback:
             bragg_fallback_triggered = True
             fallback_case = dict(prepared_case)
@@ -1060,6 +1113,7 @@ def run_multilayer_theta_search_sweep(
             previous_elapsed_seconds,
         )
 
+    stopped_early = False
     try:
         resumed_artifacts_written = 0
         resumed_artifacts_skipped = 0
@@ -1097,7 +1151,7 @@ def run_multilayer_theta_search_sweep(
                 axis=live_axis,
                 successful_cases=[case for case in cases_result if case.status == "ok"],
             )
-        if max_workers == "auto" and pending_order:
+        if max_workers == "auto" and pending_order and not _stop_requested():
             calibration_energy_ev, calibration_case_id = pending_order[0]
             resumed_successful_cases = [case for case in resumed_cases_sorted if case.status == "ok"]
             previous_successful_case = (
@@ -1160,7 +1214,11 @@ def run_multilayer_theta_search_sweep(
                     axis=live_axis,
                     successful_cases=[case for case in cases_result if case.status == "ok"],
                 )
-        if effective_workers == 1:
+        # A caller that supplies a stop event always goes through worker processes,
+        # even at one worker: an in-process solve cannot be interrupted, but a
+        # child process can be terminated. Callers without one keep the cheaper
+        # in-process path.
+        if effective_workers == 1 and stop_event is None:
             resumed_successful_cases = [case for case in resumed_cases_sorted if case.status == "ok"]
             previous_successful_case: CaseExecutionResult | None = (
                 max(resumed_successful_cases, key=lambda case: case.energy_ev)
@@ -1168,6 +1226,9 @@ def run_multilayer_theta_search_sweep(
                 else None
             )
             for serial_index, (energy_ev, case_id) in enumerate(pending_order):
+                if _stop_requested():
+                    stopped_early = True
+                    break
                 _set_progress_postfix(active=1, queued=max(len(pending_order) - serial_index - 1, 0), completed=len(cases_result))
                 case = pending_by_case_id[case_id]
                 tracked_case, single = _run_with_tracking(
@@ -1240,7 +1301,11 @@ def run_multilayer_theta_search_sweep(
                     return max(candidates, key=lambda existing: existing.energy_ev)
 
                 while pending_cursor < len(pending_order) or futures:
-                    while pending_cursor < len(pending_order) and len(futures) < effective_workers:
+                    while (
+                        pending_cursor < len(pending_order)
+                        and len(futures) < effective_workers
+                        and not _stop_requested()
+                    ):
                         energy_ev, case_id = pending_order[pending_cursor]
                         case = pending_by_case_id[case_id]
                         previous_successful_case = _latest_available_lower_success(energy_ev)
@@ -1259,6 +1324,16 @@ def run_multilayer_theta_search_sweep(
                             auto_classification,
                         )
                         pending_cursor += 1
+                        if on_worker_pids_changed is not None:
+                            _emit_worker_pids(
+                                {
+                                    process.pid
+                                    for process in getattr(
+                                        executor, "_processes", {}
+                                    ).values()
+                                    if process is not None and process.pid is not None
+                                }
+                            )
                         _set_progress_postfix(
                             active=len(futures),
                             queued=len(pending_order) - pending_cursor,
@@ -1266,8 +1341,29 @@ def run_multilayer_theta_search_sweep(
                         )
 
                     if not futures:
+                        if _stop_requested():
+                            stopped_early = True
+                            break
                         continue
-                    completed_future = next(concurrent.futures.as_completed(futures))
+                    if stop_event is None:
+                        completed_future = next(concurrent.futures.as_completed(futures))
+                    else:
+                        # Poll rather than block: a blocking wait cannot notice the
+                        # stop event, so an abort would still have to sit out the
+                        # case currently in flight.
+                        done, _ = concurrent.futures.wait(
+                            futures,
+                            timeout=0.25,
+                            return_when=concurrent.futures.FIRST_COMPLETED,
+                        )
+                        if _stop_requested():
+                            stopped_early = True
+                            _terminate_worker_pool(executor, futures)
+                            futures.clear()
+                            break
+                        if not done:
+                            continue
+                        completed_future = next(iter(done))
                     index, case_id, energy_ev, prepared_case, center_mode, auto_classification = futures.pop(
                         completed_future
                     )
@@ -1355,6 +1451,7 @@ def run_multilayer_theta_search_sweep(
                             successful_cases=[case for case in cases_result if case.status == "ok"],
                         )
     finally:
+        _emit_worker_pids(set())
         current_run_elapsed_seconds = float(time.perf_counter() - run_started_monotonic)
         total_elapsed_seconds = float(previous_elapsed_seconds + current_run_elapsed_seconds)
         if checkpoint_metadata_file is not None:
@@ -1613,4 +1710,6 @@ def run_multilayer_theta_search_sweep(
         stack_plot_path=stack_plot_path,
         total_elapsed_seconds=total_elapsed_seconds,
         current_run_elapsed_seconds=current_run_elapsed_seconds,
+        stopped_early=stopped_early,
+        resolved_max_workers=int(effective_workers),
     )

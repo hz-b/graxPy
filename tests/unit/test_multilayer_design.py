@@ -10,7 +10,8 @@ solve. The sweep fake writes a miniature version of the real artifact bundle.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +39,7 @@ class _FakeSweepResult:
     theta_scan_directory: Path
     profile_plot_path: Path
     stack_plot_path: Path
+    stopped_early: bool = False
 
 
 def _fake_bragg(*, grating: object, energy_ev: float, multilayer_bragg_order: int = 1) -> float:
@@ -450,3 +452,83 @@ def test_evaluate_energy_scan_reads_existing_designs(
 def test_evaluate_energy_scan_without_results_raises(fakes: None, tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="no completed energy scans"):
         MultilayerGratingDesigner(_config(tmp_path)).evaluate_energy_scan()
+
+
+def test_run_survey_drops_a_cell_killed_mid_search(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A killed cell leaves no half-written run folder behind."""
+
+    calls = {"n": 0}
+
+    def sweep_stopping_on_the_third_cell(**kwargs: object):  # noqa: ANN202
+        calls["n"] += 1
+        result = _fake_sweep(**kwargs)
+        if calls["n"] >= 3:
+            return replace(result, stopped_early=True)
+        return result
+
+    monkeypatch.setattr(md, "estimate_multilayer_bragg_angle_deg", _fake_bragg)
+    monkeypatch.setattr(md, "run_multilayer_theta_search_sweep", sweep_stopping_on_the_third_cell)
+
+    designer = MultilayerGratingDesigner(_config(tmp_path))
+    result = designer.run_survey(stop_event=threading.Event())
+
+    assert result.aborted
+    assert len(result.results) == 2
+    assert len(result.run_dirs) == 2
+    # The killed cell's folder is gone, so a later evaluation does not trip over
+    # its header-only summary CSV.
+    assert designer.evaluate_survey().results.shape[0] == 2
+
+
+def test_run_energy_scan_drops_a_design_killed_mid_scan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A half-scanned design is not reported as finished."""
+
+    calls = {"n": 0}
+
+    def sweep_stopping_on_the_second_design(**kwargs: object):  # noqa: ANN202
+        calls["n"] += 1
+        result = _fake_sweep(**kwargs)
+        if calls["n"] >= 2:
+            return replace(result, stopped_early=True)
+        return result
+
+    monkeypatch.setattr(md, "estimate_multilayer_bragg_angle_deg", _fake_bragg)
+    monkeypatch.setattr(
+        md, "run_multilayer_theta_search_sweep", sweep_stopping_on_the_second_design
+    )
+
+    scans = MultilayerGratingDesigner(_config(tmp_path)).run_energy_scan(
+        [(3.0, 1.1), (4.5, 0.8)], stop_event=threading.Event()
+    )
+
+    assert [scan.d_spacing_nm for scan in scans] == [3.0]
+
+
+def test_stop_event_and_pid_callback_reach_the_sweep(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: list[dict[str, object]] = []
+
+    def recording_sweep(**kwargs: object):  # noqa: ANN202
+        seen.append(kwargs)
+        return _fake_sweep(**kwargs)
+
+    monkeypatch.setattr(md, "estimate_multilayer_bragg_angle_deg", _fake_bragg)
+    monkeypatch.setattr(md, "run_multilayer_theta_search_sweep", recording_sweep)
+
+    stop_event = threading.Event()
+    pids: list[set[int]] = []
+
+    def record_pids(worker_pids: set[int]) -> None:
+        pids.append(worker_pids)
+
+    MultilayerGratingDesigner(_config(tmp_path)).run_energy_scan(
+        [(3.0, 1.1)], stop_event=stop_event, on_worker_pids_changed=record_pids
+    )
+
+    assert seen[0]["stop_event"] is stop_event
+    assert seen[0]["on_worker_pids_changed"] is record_pids
