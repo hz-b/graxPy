@@ -136,6 +136,10 @@ class ActiveRunState:
     stop_event: threading.Event = field(default_factory=threading.Event)
     worker_thread: threading.Thread | None = None
     simulation_pids: set[int] = field(default_factory=set)
+    # Points already on disk when the run started (a resumed checkpoint). They
+    # count towards progress but not towards this run's rate, so the ETA has to
+    # subtract them.
+    resumed_points: int = 0
 
 
 def _active_runs(app: Any) -> dict[str, ActiveRunState]:
@@ -1447,6 +1451,12 @@ def _start_multilayer_design_worker(
         requested_workers=None,
         resolved_workers=None,
     )
+    if stage == "energy_scan":
+        active_state.resumed_points = _energy_scan_checkpoint_progress(
+            study_dir=store.study_dir(study_id),
+            designs=manifest["stages"][stage].get("designs") or [],
+            energy_points=int(manifest["config"].get("energy_scan_points") or 0),
+        )[0]
     with _active_runs_lock(app):
         _active_runs(app)[key] = active_state
 
@@ -1592,6 +1602,41 @@ def _relative_to(path: Path, root: Path) -> str:
         return Path(path).name
 
 
+def _energy_scan_checkpoint_progress(
+    *, study_dir: Path, designs: list[Any], energy_points: int
+) -> tuple[int, int]:
+    """Return ``(completed, total)`` energy points across an energy scan's designs.
+
+    ``run_energy_scan`` reports progress once per *design*, so a single-design
+    scan would otherwise sit at ``0 / 1`` for its whole run -- indistinguishable
+    from a job that never started. Each design's sweep checkpoints one line per
+    solved energy, so counting those gives a bar that actually moves.
+    """
+
+    total = max(0, int(energy_points)) * len(designs)
+    completed = 0
+    for pair in designs:
+        try:
+            d_spacing, blaze = float(pair[0]), float(pair[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        results = (
+            study_dir
+            / "energy_scan"
+            / f"d{d_spacing:.3f}nm_blaze{blaze:.3f}deg"
+            / "checkpoints"
+            / "results.jsonl"
+        )
+        if not results.is_file():
+            continue
+        try:
+            with results.open("r", encoding="utf-8") as handle:
+                completed += sum(1 for line in handle if line.strip())
+        except OSError:
+            continue
+    return min(completed, total) if total else completed, total
+
+
 def _multilayer_design_stage_status_payload(
     *, app: Any, data_dir: Path, study_id: str, stage: str
 ) -> dict[str, Any]:
@@ -1605,13 +1650,44 @@ def _multilayer_design_stage_status_payload(
     with _active_runs_lock(app):
         active = _active_runs(app).get(key)
         if active is not None and _is_active_run_entry_live(active):
+            completed = active.completed_points
+            total = active.total_points
+            elapsed = _elapsed_seconds(active)
+            eta = _eta_seconds(active)
+            label = ""
+            if stage == "energy_scan":
+                # Count solved energies, not finished designs, so the bar moves.
+                designs = stage_state.get("designs") or []
+                checkpoint_completed, checkpoint_total = _energy_scan_checkpoint_progress(
+                    study_dir=data_dir / "multilayer_designs" / study_id,
+                    designs=designs,
+                    energy_points=int(manifest["config"].get("energy_scan_points") or 0),
+                )
+                if checkpoint_total:
+                    completed, total = checkpoint_completed, checkpoint_total
+                    # Only energies solved by *this* run measure its rate;
+                    # resumed checkpoints cost it no time.
+                    solved_here = completed - active.resumed_points
+                    eta = (
+                        elapsed * (total - completed) / solved_here
+                        if solved_here > 0 and elapsed and total > completed
+                        else None
+                    )
+                if designs:
+                    index = min(active.completed_points, len(designs) - 1)
+                    d_spacing, blaze = designs[index]
+                    label = (
+                        f"design {index + 1} of {len(designs)}: "
+                        f"d = {float(d_spacing):.3f} nm, blaze = {float(blaze):.3f} deg"
+                    )
             return {
                 "state": active.state,
-                "completed_points": active.completed_points,
-                "total_points": active.total_points,
-                "remaining_points": max(active.total_points - active.completed_points, 0),
-                "elapsed_seconds": _elapsed_seconds(active),
-                "eta_seconds": _eta_seconds(active),
+                "completed_points": completed,
+                "total_points": total,
+                "remaining_points": max(total - completed, 0),
+                "elapsed_seconds": elapsed,
+                "eta_seconds": eta,
+                "current_label": label,
                 "worker_mode": "auto",
                 "requested_workers": None,
                 "resolved_workers": active.resolved_workers,
@@ -1642,6 +1718,7 @@ def _multilayer_design_stage_status_payload(
         "remaining_points": 0,
         "elapsed_seconds": None,
         "eta_seconds": None,
+        "current_label": "",
         "worker_mode": "auto",
         "requested_workers": None,
         "resolved_workers": None,

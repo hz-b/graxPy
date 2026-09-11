@@ -362,6 +362,9 @@ function initRunMonitor(container) {
   const memoryNode = container.querySelector("[data-run-memory]");
   const errorNode = container.querySelector("[data-run-error]");
   const progressBar = container.querySelector("[data-run-progress-bar]");
+  // Only some monitors render a "what is running right now" line; the shared
+  // run-detail monitor does not, so every use below is null-guarded.
+  const currentLabelNode = container.querySelector("[data-run-current-label]");
   // Scoped to this monitor: a page can host several (one per workflow stage),
   // and a document-wide lookup would let every monitor drive the first button.
   const abortButton = container.querySelector("[data-run-abort-action]");
@@ -400,6 +403,9 @@ function initRunMonitor(container) {
     const percent = payload.total_points > 0 ? (payload.completed_points / payload.total_points) * 100 : 0;
     progressBar.style.width = `${percent}%`;
     errorNode.textContent = payload.error_text || "";
+    if (currentLabelNode) {
+      currentLabelNode.textContent = payload.current_label || "";
+    }
     if (abortButton) {
       if (payload.can_abort) {
         abortButton.removeAttribute("aria-disabled");

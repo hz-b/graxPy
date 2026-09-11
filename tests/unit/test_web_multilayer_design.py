@@ -489,3 +489,31 @@ def test_design_options_are_embedded_for_the_manual_picker(
     assert options["blaze_values"] == [0.6, 1.0, 1.4]
     assert options["best"] == [3.0, 1.0]
     assert json.dumps(options)  # the template embeds this verbatim
+
+
+def test_energy_scan_progress_counts_solved_energies_not_designs(tmp_path: Path) -> None:
+    # run_energy_scan reports once per design, so a single-design scan would sit
+    # at 0 / 1 for hours. The monitor counts checkpoint lines instead.
+    from grax.web.app import _energy_scan_checkpoint_progress
+
+    checkpoints = tmp_path / "energy_scan" / "d3.000nm_blaze0.800deg" / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / "results.jsonl").write_text(
+        '{"energy_ev": 1000}\n{"energy_ev": 1010}\n\n', encoding="utf-8"
+    )
+
+    completed, total = _energy_scan_checkpoint_progress(
+        study_dir=tmp_path, designs=[[3.0, 0.8]], energy_points=200
+    )
+
+    assert (completed, total) == (2, 200)
+
+
+def test_energy_scan_progress_is_zero_before_any_checkpoint(tmp_path: Path) -> None:
+    from grax.web.app import _energy_scan_checkpoint_progress
+
+    completed, total = _energy_scan_checkpoint_progress(
+        study_dir=tmp_path, designs=[[3.0, 0.8], [4.0, 1.2]], energy_points=5
+    )
+
+    assert (completed, total) == (0, 10)
