@@ -667,3 +667,116 @@ def test_stage_monitor_reloads_the_page_when_a_stage_finishes(
         client.post(
             f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
         )
+
+
+def test_edit_form_is_prefilled_from_the_stored_config(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    study_id = _create_study(client, {"d_points": "7", "display_name": "Ru/B4C 2nd order"})
+
+    html = client.get(f"/multilayer-design/{study_id}/edit").get_data(as_text=True)
+
+    assert 'value="Ru/B4C 2nd order"' in html
+    assert 'name="d_points"' in html and 'value="7"' in html
+    assert f"/multilayer-design/{study_id}/edit" in html
+    assert "Save parameters" in html
+    # The detail page offers the way in.
+    detail = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+    assert f'href="/multilayer-design/{study_id}/edit"' in detail
+
+
+def test_editing_survey_parameters_marks_a_finished_survey_stale(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runners(monkeypatch)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+    assert _wait_for_stage(store, study_id, "survey") == "completed"
+
+    response = client.post(
+        f"/multilayer-design/{study_id}/edit", data=_study_form(d_points="5")
+    )
+
+    assert response.status_code == 302
+    manifest = store.load(study_id)
+    assert manifest["config"]["d_points"] == 5
+    assert manifest["stages"]["survey"]["status"] == "stale"
+    # The results themselves are kept until the user re-runs or resets.
+    assert (store.study_dir(study_id) / "survey" / "survey.csv").is_file()
+
+
+def test_editing_only_energy_scan_parameters_leaves_the_survey_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runners(monkeypatch)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+    assert _wait_for_stage(store, study_id, "survey") == "completed"
+
+    client.post(f"/multilayer-design/{study_id}/edit", data=_study_form(energy_scan_points="9"))
+
+    manifest = store.load(study_id)
+    assert manifest["config"]["energy_scan_points"] == 9
+    assert manifest["stages"]["survey"]["status"] == "completed"
+
+
+def test_a_cosmetic_edit_invalidates_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runners(monkeypatch)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+    assert _wait_for_stage(store, study_id, "survey") == "completed"
+
+    client.post(f"/multilayer-design/{study_id}/edit", data=_study_form(coating_label="Ru/B4C"))
+
+    manifest = store.load(study_id)
+    assert manifest["config"]["coating_label"] == "Ru/B4C"
+    assert manifest["stages"]["survey"]["status"] == "completed"
+
+
+def test_an_unchecked_box_actually_unchecks_on_edit(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    study_id = _create_study(client, {"resume": "1"})
+    assert _store(tmp_path).load(study_id)["config"]["resume"] is True
+
+    # The form always submits the hidden "0"; the box itself is simply absent.
+    client.post(f"/multilayer-design/{study_id}/edit", data=_study_form(resume="0"))
+
+    assert _store(tmp_path).load(study_id)["config"]["resume"] is False
+
+
+def test_invalid_edits_are_rejected_and_nothing_is_saved(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+
+    response = client.post(
+        f"/multilayer-design/{study_id}/edit", data=_study_form(d_min_nm="9.0", d_max_nm="1.0")
+    )
+
+    assert response.status_code == 400
+    assert _store(tmp_path).load(study_id)["config"]["d_min_nm"] == 2.0
+
+
+def test_parameters_cannot_be_edited_while_a_stage_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runners(monkeypatch, survey_cells=4000)
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+
+    try:
+        response = client.post(
+            f"/multilayer-design/{study_id}/edit", data=_study_form(d_points="5")
+        )
+        assert response.status_code == 409
+    finally:
+        client.post(
+            f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
+        )

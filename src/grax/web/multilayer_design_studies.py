@@ -313,7 +313,12 @@ def parse_study_config(form: Any, base: dict[str, Any] | None = None) -> dict[st
                 config[spec.name] = [str(name).strip(), float(density)]
             continue
         if spec.kind == "checkbox":
-            if any(key == spec.name for key in form):
+            # The form renders a hidden "0" before the box, so a checked box
+            # submits both and the last value is the real one.
+            values = form.getlist(spec.name) if hasattr(form, "getlist") else None
+            if values:
+                config[spec.name] = str(values[-1]) not in ("", "0", "false")
+            elif any(key == spec.name for key in form):
                 config[spec.name] = form.get(spec.name) not in (None, "", "0", "false")
             elif base is None:
                 config[spec.name] = False
@@ -357,6 +362,50 @@ def flatten_config_values(config: dict[str, Any]) -> dict[str, Any]:
         else:
             flat[key] = value
     return flat
+
+
+#: Fields that change nothing a stage computed -- only plot labelling, which
+#: artifacts get written, or how the work is scheduled. Editing one of these
+#: leaves existing results valid.
+_COSMETIC_FIELDS = frozenset(
+    {
+        "coating_label",
+        "save_profile_plot",
+        "save_stack_plot",
+        "checkpoint",
+        "resume",
+        "max_workers",
+    }
+)
+
+
+def stages_invalidated_by(old: dict[str, Any], new: dict[str, Any]) -> tuple[str, ...]:
+    """Return the stages whose stored results no longer match an edited config.
+
+    A field's :attr:`FieldSpec.section` says which stage reads it: the shared
+    section feeds both, so changing one invalidates the survey and everything
+    downstream of it.
+
+    Args:
+        old: The config as stored before the edit.
+        new: The config after the edit.
+
+    Returns:
+        Stage names in :data:`STAGES` order, empty when nothing that affects a
+        result changed.
+    """
+
+    before = flatten_config_values(old)
+    after = flatten_config_values(new)
+    invalidated: set[str] = set()
+    for spec in STUDY_FIELDS:
+        if spec.name in _COSMETIC_FIELDS or before.get(spec.name) == after.get(spec.name):
+            continue
+        if spec.section.startswith("Energy scan"):
+            invalidated.add("energy_scan")
+        else:
+            invalidated.update(("survey", *downstream_stages("survey")))
+    return tuple(stage for stage in STAGES if stage in invalidated)
 
 
 def survey_cell_count(config: dict[str, Any]) -> int:

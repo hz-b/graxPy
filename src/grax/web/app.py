@@ -46,6 +46,7 @@ from .multilayer_design_studies import (
     flatten_config_values,
     parse_study_config,
     resolve_designs,
+    stages_invalidated_by,
     study_config_defaults,
     study_form_sections,
     survey_cell_count,
@@ -713,6 +714,48 @@ def create_app(*, data_dir: str | Path | None = None):
             material_density_map=dict(material_density_catalog()),
             cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
         )
+
+    @app.get("/multilayer-design/<study_id>/edit")
+    def multilayer_design_edit(study_id: str):
+        manifest = _design_study_or_404(study_id)
+        return render_template(
+            "multilayer_design_form.html",
+            study=manifest,
+            defaults=flatten_config_values(manifest["config"]),
+            basic_sections=study_form_sections(advanced=False),
+            advanced_sections=study_form_sections(advanced=True),
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
+        )
+
+    @app.post("/multilayer-design/<study_id>/edit")
+    def multilayer_design_update(study_id: str):
+        store = _design_store()
+        manifest = _design_study_or_404(study_id)
+        if any(
+            _is_run_active(app, _multilayer_design_job_key(study_id, stage)) for stage in STAGES
+        ):
+            abort(409, "Stop the running stage before changing the parameters.")
+        try:
+            config = parse_study_config(request.form, base=manifest["config"])
+            build_design_config(store.study_dir(study_id), config)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
+        # Results computed under the old parameters are kept but flagged, so it
+        # is obvious which of them the edit left behind.
+        for stage in stages_invalidated_by(manifest["config"], config):
+            if manifest["stages"][stage]["status"] in {"completed", "aborted"}:
+                manifest["stages"][stage]["status"] = "stale"
+        manifest["config"] = config
+        manifest["display_name"] = (
+            request.form.get("display_name", "").strip() or manifest["display_name"]
+        )
+        manifest["auto_energy_scan"] = (
+            "best" if request.form.get("auto_energy_scan") else "none"
+        )
+        store.save(manifest)
+        return redirect(url_for("multilayer_design_detail", study_id=study_id))
 
     @app.get("/multilayer-design/<study_id>")
     def multilayer_design_detail(study_id: str):

@@ -22,7 +22,10 @@
       </select>
     </label>
   {% elif spec.kind == "checkbox" %}
+    {# The hidden "0" always submits, so an unchecked box reads as False rather
+       than as "field absent" -- which on an edit would keep the old value. #}
     <label class="inline-check">
+      <input type="hidden" name="{{ spec.name }}" value="0">
       <input type="checkbox" name="{{ spec.name }}" value="1" {% if value %}checked{% endif %}>
       <span>{{ spec.label }}</span>
     </label>

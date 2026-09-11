@@ -1,27 +1,42 @@
 {% extends "base.html" %}
 {% from "_multilayer_design_macros.html" import render_field, material_datalist %}
-{% block title %}New multilayer design{% endblock %}
+{% set editing = study is defined %}
+{% block title %}{% if editing %}Edit {{ study.display_name }}{% else %}New multilayer design{% endif %}{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>New multilayer design</h1>
-    <p>
-      Step 1 surveys a d-spacing × blaze-angle grid at one energy; step 2 scans the
-      designs you pick from it over an energy range. There is no CFF input — the
-      incident angle is a result of the theta search for every cell.
-    </p>
+    {% if editing %}
+      <h1>Edit parameters</h1>
+      <p>
+        {{ study.display_name }} · {{ study.id }}. Changing anything a finished stage
+        used marks that stage <em>stale</em> — its results stay on disk until you
+        re-run or reset it.
+      </p>
+    {% else %}
+      <h1>New multilayer design</h1>
+      <p>
+        Step 1 surveys a d-spacing × blaze-angle grid at one energy; step 2 scans the
+        designs you pick from it over an energy range. There is no CFF input — the
+        incident angle is a result of the theta search for every cell.
+      </p>
+    {% endif %}
   </div>
 </section>
 
 {{ material_datalist(materials, material_density_map) }}
 
-<form class="form" method="post" action="{{ url_for('multilayer_design_index') }}"
+<form class="form" method="post"
+      action="{% if editing %}{{ url_for('multilayer_design_update', study_id=study.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}"
       data-survey-cell-counter data-cell-warning-threshold="{{ cell_warning_threshold }}">
   <fieldset>
     <legend>Study</legend>
-    <label>Name <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"></label>
+    <label>Name
+      <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"
+             value="{{ study.display_name if editing else '' }}">
+    </label>
     <label class="inline-check">
-      <input type="checkbox" name="auto_energy_scan" value="1">
+      <input type="checkbox" name="auto_energy_scan" value="1"
+             {% if editing and study.auto_energy_scan == "best" %}checked{% endif %}>
       <span>When the survey finishes, scan the best design over energy automatically</span>
     </label>
   </fieldset>
@@ -65,8 +80,13 @@
   </details>
 
   <div class="actions">
-    <button class="button primary" type="submit">Create study</button>
-    <a class="button" href="{{ url_for('multilayer_design_index') }}">Cancel</a>
+    {% if editing %}
+      <button class="button primary" type="submit">Save parameters</button>
+      <a class="button" href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">Cancel</a>
+    {% else %}
+      <button class="button primary" type="submit">Create study</button>
+      <a class="button" href="{{ url_for('multilayer_design_index') }}">Cancel</a>
+    {% endif %}
   </div>
 </form>
 {% endblock %}
