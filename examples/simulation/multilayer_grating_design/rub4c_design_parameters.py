@@ -26,9 +26,7 @@ Workflow:
   "d,blaze; ..."``. ``--eval`` re-reads existing ``energy_scan/`` results
   instead of re-solving.
 
-There is no CFF input: the incident angle is a result of the theta search for
-every pair. ``gamma`` is held fixed; the anti-blaze angle defaults to 0 (a
-plain sawtooth).
+``gamma`` is held fixed; the anti-blaze angle defaults to 0 (a plain sawtooth).
 
 The config below is split into three sections, marked ``# ===`` below, matching
 :class:`grax.MultilayerDesignConfig`'s own grouping -- check that comment before

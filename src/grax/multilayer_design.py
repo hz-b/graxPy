@@ -25,10 +25,8 @@ chosen diffraction order, in two steps driven by a single
    :func:`grax.run_multilayer_theta_search_sweep`, yielding efficiency versus
    energy and ``theta*(E)`` for each design.
 
-There is no fixed-focus (CFF) input: the incident angle is a result of the theta
-search for every pair, not an assumption. ``gamma`` is held fixed and the
-anti-blaze angle defaults to ``0`` (a plain sawtooth); both are later
-optimizations.
+``gamma`` is held fixed and the anti-blaze angle defaults to ``0`` (a plain
+sawtooth); both are later optimizations.
 """
 
 from __future__ import annotations

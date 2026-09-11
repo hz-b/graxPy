@@ -5,8 +5,7 @@ d-spacing / blaze-angle survey at one optimization energy, followed by per-desig
 energy scans. For every `(d_spacing, blaze angle)` pair the survey builds the
 multilayer-coated blazed grating and runs graxPy's single-energy multilayer theta
 search, which scans the incident angle and returns the angle that maximizes the
-selected-order efficiency. There is no fixed-focus (CFF) input: the incident
-angle is a result of the search for every pair.
+selected-order efficiency for that pair.
 
 ```{eval-rst}
 .. autoclass:: grax.MultilayerDesignConfig
