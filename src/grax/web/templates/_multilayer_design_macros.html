@@ -49,7 +49,7 @@
 {% endmacro %}
 
 {% macro stage_monitor(study_id, stage) %}
-  <div class="run-monitor" data-live-run-monitor
+  <div class="run-monitor" data-live-run-monitor data-run-reload-on-finish
        data-run-status-url="{{ url_for('multilayer_design_stage_status', study_id=study_id, stage=stage) }}"
        data-memory-url="{{ url_for('system_memory') }}">
     <img class="run-monitor-plot is-hidden" data-run-plot-image alt="Live stage plot">

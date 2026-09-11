@@ -170,7 +170,7 @@
         <figcaption class="subtle">All scanned designs compared</figcaption>
       </figure>
     {% endif %}
-    <div class="grid two">
+    <div class="grid halves">
       {% for design in energy_scan.artifacts.designs %}
         <figure>
           <img class="preview" src="{{ artifact }}{{ design.plot }}"

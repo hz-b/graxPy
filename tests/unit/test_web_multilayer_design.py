@@ -648,3 +648,22 @@ def test_monitor_reports_the_real_worker_count(
         assert payload["resolved_workers"] == 4
     finally:
         release.set()
+
+
+def test_stage_monitor_reloads_the_page_when_a_stage_finishes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Results are server-rendered, so a running page must reload to show them."""
+
+    _install_fake_runners(monkeypatch, survey_cells=4000)
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+
+    try:
+        html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+        assert "data-run-reload-on-finish" in html
+    finally:
+        client.post(
+            f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
+        )

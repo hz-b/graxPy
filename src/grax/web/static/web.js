@@ -652,6 +652,13 @@ function initRunMonitor(container) {
       if (memoryTimerId !== null) {
         window.clearInterval(memoryTimerId);
       }
+      // Results are rendered server-side, so a page loaded while the stage was
+      // running has no way to show them. Monitors that opt in reload once; the
+      // reloaded page renders the results instead of this monitor, so there is
+      // no loop.
+      if (container.hasAttribute("data-run-reload-on-finish")) {
+        window.location.reload();
+      }
     }
   }
 
