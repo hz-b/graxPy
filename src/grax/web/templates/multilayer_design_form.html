@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_multilayer_design_macros.html" import render_field, material_datalist %}
+{% block title %}New multilayer design{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>New multilayer design</h1>
+    <p>
+      Step 1 surveys a d-spacing × blaze-angle grid at one energy; step 2 scans the
+      designs you pick from it over an energy range. There is no CFF input — the
+      incident angle is a result of the theta search for every cell.
+    </p>
+  </div>
+</section>
+
+{{ material_datalist(materials, material_density_map) }}
+
+<form class="form" method="post" action="{{ url_for('multilayer_design_index') }}"
+      data-survey-cell-counter data-cell-warning-threshold="{{ cell_warning_threshold }}">
+  <fieldset>
+    <legend>Study</legend>
+    <label>Name <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"></label>
+    <label class="inline-check">
+      <input type="checkbox" name="auto_energy_scan" value="1">
+      <span>When the survey finishes, scan the best design over energy automatically</span>
+    </label>
+  </fieldset>
+
+  {% for section, specs in basic_sections %}
+    <fieldset>
+      <legend>{{ section }}</legend>
+      {% for spec in specs %}{{ render_field(spec, defaults) }}{% endfor %}
+      {% if section.startswith("Survey - target") %}
+        <p class="notice" data-survey-cell-readout>This survey will run 24 theta searches.</p>
+      {% endif %}
+    </fieldset>
+  {% endfor %}
+
+  <details>
+    <summary>Advanced</summary>
+    {% for section, specs in advanced_sections %}
+      <fieldset>
+        <legend>{{ section }}</legend>
+        {% for spec in specs %}{{ render_field(spec, defaults) }}{% endfor %}
+      </fieldset>
+    {% endfor %}
+  </details>
+
+  <div class="actions">
+    <button class="button primary" type="submit">Create study</button>
+    <a class="button" href="{{ url_for('multilayer_design_index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

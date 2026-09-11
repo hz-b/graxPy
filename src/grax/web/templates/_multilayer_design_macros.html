@@ -1,0 +1,72 @@
+{% macro render_field(spec, values) %}
+  {% set value = values.get(spec.name) %}
+  {% if spec.kind == "material" %}
+    {% set pair = value if value is iterable and value is not string else ["", ""] %}
+    <label>
+      {{ spec.label }} — name
+      <input name="{{ spec.name }}_name" type="text" list="material-suggestions"
+             value="{{ pair[0] }}" data-material-select="{{ spec.name }}">
+    </label>
+    <label>
+      {{ spec.label }} — density, g/cm³
+      <input name="{{ spec.name }}_density" type="number" step="any"
+             value="{{ pair[1] }}" data-material-density="{{ spec.name }}">
+    </label>
+  {% elif spec.kind == "select" %}
+    <label>
+      {{ spec.label }}
+      <select name="{{ spec.name }}">
+        {% for choice in spec.choices %}
+          <option value="{{ choice }}" {% if value|string == choice %}selected{% endif %}>{{ choice }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  {% elif spec.kind == "checkbox" %}
+    <label class="inline-check">
+      <input type="checkbox" name="{{ spec.name }}" value="1" {% if value %}checked{% endif %}>
+      <span>{{ spec.label }}</span>
+    </label>
+  {% else %}
+    <label>
+      {{ spec.label }}
+      <input
+        name="{{ spec.name }}"
+        type="{{ 'text' if spec.kind == 'text' else 'number' }}"
+        {% if spec.kind == 'number' %}step="any"{% elif spec.kind == 'int' %}step="1"{% endif %}
+        {% if spec.name == 'd_points' %}data-survey-d-points{% elif spec.name == 'blaze_points' %}data-survey-blaze-points{% endif %}
+        value="{{ '' if value is none else value }}"
+      >
+    </label>
+  {% endif %}
+{% endmacro %}
+
+{% macro material_datalist(materials, density_map) %}
+  <datalist id="material-suggestions">
+    {% for material in materials %}
+      <option value="{{ material }}" data-density="{{ density_map.get(material, '') }}">{{ material }}</option>
+    {% endfor %}
+  </datalist>
+{% endmacro %}
+
+{% macro stage_monitor(study_id, stage) %}
+  <div class="run-monitor" data-live-run-monitor
+       data-run-status-url="{{ url_for('multilayer_design_stage_status', study_id=study_id, stage=stage) }}"
+       data-memory-url="{{ url_for('system_memory') }}">
+    <img class="run-monitor-plot is-hidden" data-run-plot-image alt="Live stage plot">
+    <p>Status: <strong data-run-state>queued</strong> — <span data-run-progress-summary>0 / 0</span></p>
+    <div class="run-progress-bar"><span data-run-progress-bar></span></div>
+    <div class="stats-grid">
+      <div class="stat-card"><span>Completed</span><strong data-run-completed>0</strong></div>
+      <div class="stat-card"><span>Remaining</span><strong data-run-remaining>0</strong></div>
+      <div class="stat-card"><span>Elapsed</span><strong data-run-elapsed>—</strong></div>
+      <div class="stat-card"><span>ETA</span><strong data-run-eta>—</strong></div>
+      <div class="stat-card"><span>Workers</span><strong data-run-workers>auto</strong></div>
+      <div class="stat-card"><span>Memory</span><strong data-run-memory>—</strong></div>
+    </div>
+    <p class="notice-error" data-run-error></p>
+    <div class="actions">
+      <a class="button danger" data-run-abort-action
+         href="{{ url_for('multilayer_design_stage_abort_dialog', study_id=study_id, stage=stage) }}">Abort stage</a>
+    </div>
+  </div>
+{% endmacro %}

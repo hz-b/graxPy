@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% from "_multilayer_design_macros.html" import stage_monitor %}
+{% block title %}{{ study.display_name }}{% endblock %}
+{% block body %}
+{% set survey = stages[0] %}
+{% set energy_scan = stages[1] %}
+{% set artifact = url_for('data_file', filename='multilayer_designs/' ~ study.id ~ '/') %}
+
+<section class="section-head">
+  <div>
+    <h1>{{ study.display_name }}</h1>
+    <p>{{ study.id }} · created {{ study.created_at }}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('multilayer_design_index') }}">All studies</a>
+    <form method="post" action="{{ url_for('multilayer_design_delete', study_id=study.id) }}">
+      <button class="button danger" type="submit"
+              data-confirm="Delete this study and all its results?">Delete study</button>
+    </form>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Stored in <code>multilayer_designs/{{ study.id }}/</code>.
+    {% if study.auto_energy_scan == "best" %}
+      The energy scan on the best design starts automatically once the survey finishes.
+    {% endif %}
+  </p>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Stage 1 — survey                                                    #}
+{# ------------------------------------------------------------------ #}
+<section class="stage-card">
+  <div class="section-head">
+    <div>
+      <h2>{{ survey.label }}</h2>
+      <span class="status-pill is-{{ survey.status }}">{{ survey.status }}</span>
+      {% if survey.error_text %}<p class="subtle">{{ survey.error_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  {% if survey.status in ["queued", "running", "aborting"] %}
+    {{ stage_monitor(study.id, "survey") }}
+  {% else %}
+    <form method="post" action="{{ url_for('multilayer_design_run_stage', study_id=study.id, stage='survey') }}">
+      <div class="actions">
+        <button class="button primary" type="submit">
+          {% if survey.status == "not_run" %}Run survey ({{ survey_cells }} theta searches){% else %}Re-run survey{% endif %}
+        </button>
+        {% if survey.status not in ["not_run"] %}
+          <button class="button danger" type="submit"
+                  formaction="{{ url_for('multilayer_design_reset_stage', study_id=study.id, stage='survey') }}"
+                  data-confirm="Delete this survey's results?">Reset survey</button>
+        {% endif %}
+      </div>
+    </form>
+  {% endif %}
+
+  {% if survey.artifacts.heatmap_plot %}
+    <div class="grid two">
+      <figure>
+        <img class="preview" src="{{ artifact }}{{ survey.artifacts.optimal_blaze_plot }}"
+             alt="Optimal blaze angle versus d-spacing">
+        <figcaption class="subtle">Optimal blaze angle vs d-spacing</figcaption>
+      </figure>
+      <figure>
+        <img class="preview" src="{{ artifact }}{{ survey.artifacts.max_efficiency_plot }}"
+             alt="Max efficiency versus d-spacing">
+        <figcaption class="subtle">Max efficiency vs d-spacing</figcaption>
+      </figure>
+    </div>
+    <figure>
+      <img class="preview" src="{{ artifact }}{{ survey.artifacts.heatmap_plot }}"
+           alt="Efficiency over the d-spacing and blaze-angle grid">
+      <figcaption class="subtle">Peak efficiency over (d, blaze), with the optimal-blaze ridge</figcaption>
+    </figure>
+    <div class="list compact">
+      <div class="row">
+        <span>Per-cell table</span>
+        <a href="{{ artifact }}{{ survey.artifacts.survey_csv }}">survey.csv</a>
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Stage 2 — energy scan                                               #}
+{# ------------------------------------------------------------------ #}
+<section class="stage-card">
+  <div class="section-head">
+    <div>
+      <h2>{{ energy_scan.label }}</h2>
+      <span class="status-pill is-{{ energy_scan.status }}">{{ energy_scan.status }}</span>
+      {% if energy_scan.status == "stale" %}
+        <p class="subtle">The survey was re-run since this scan — re-run recommended.</p>
+      {% endif %}
+      {% if energy_scan.error_text %}<p class="subtle">{{ energy_scan.error_text }}</p>{% endif %}
+    </div>
+  </div>
+
+  {% if energy_scan.status in ["queued", "running", "aborting"] %}
+    {{ stage_monitor(study.id, "energy_scan") }}
+  {% elif survey.status != "completed" %}
+    <p class="subtle">Run the survey first — its results decide which designs are worth scanning.</p>
+  {% elif not design_options.best %}
+    <p class="subtle">The survey produced no usable cell, so there is nothing to scan.</p>
+  {% else %}
+    <form method="post"
+          action="{{ url_for('multilayer_design_run_stage', study_id=study.id, stage='energy_scan') }}"
+          data-design-picker data-design-options="{{ design_options_json }}">
+      <div class="list compact">
+        <div class="row">
+          <div>
+            <strong>Scan the best design only</strong>
+            <p class="subtle">
+              d = {{ "%.3f"|format(design_options.best[0]) }} nm,
+              blaze = {{ "%.3f"|format(design_options.best[1]) }} deg — the survey's highest efficiency.
+            </p>
+          </div>
+          <button class="button primary" type="submit" name="mode" value="best">Scan best</button>
+        </div>
+        <div class="row">
+          <div>
+            <strong>Scan the optimal blaze at every d-spacing</strong>
+            <p class="subtle">{{ design_options.per_d|length }} designs, one per d-spacing.</p>
+          </div>
+          <button class="button" type="submit" name="mode" value="per_d">Scan all d</button>
+        </div>
+        <div class="row">
+          <div>
+            <strong>Choose manually</strong>
+            <p class="subtle">Pick any (d, blaze) combinations from the survey grid.</p>
+          </div>
+          <button class="button" type="button" data-design-toggle>Choose manually…</button>
+        </div>
+      </div>
+
+      <fieldset class="is-hidden" data-design-manual>
+        <legend>Designs to scan</legend>
+        <div data-design-rows></div>
+        <div class="actions">
+          <button class="button" type="button" data-design-add>Add case</button>
+          <button class="button primary" type="submit" name="mode" value="manual">Scan selected</button>
+        </div>
+      </fieldset>
+    </form>
+  {% endif %}
+
+  {% if energy_scan.status not in ["queued", "running", "aborting"] and energy_scan.artifacts.designs %}
+    {% if energy_scan.artifacts.overlay_plot %}
+      <figure>
+        <img class="preview" src="{{ artifact }}{{ energy_scan.artifacts.overlay_plot }}"
+             alt="Efficiency versus energy for every scanned design">
+        <figcaption class="subtle">All scanned designs compared</figcaption>
+      </figure>
+    {% endif %}
+    <div class="grid two">
+      {% for design in energy_scan.artifacts.designs %}
+        <figure>
+          <img class="preview" src="{{ artifact }}{{ design.plot }}"
+               alt="Efficiency versus energy for one design">
+          <figcaption class="subtle">
+            d = {{ "%.3f"|format(design.d_spacing_nm) }} nm,
+            blaze = {{ "%.3f"|format(design.blaze_angle_deg) }} deg ·
+            <a href="{{ artifact }}{{ design.summary_csv }}">summary.csv</a>
+          </figcaption>
+        </figure>
+      {% endfor %}
+    </div>
+    <form method="post"
+          action="{{ url_for('multilayer_design_reset_stage', study_id=study.id, stage='energy_scan') }}">
+      <div class="actions">
+        <button class="button danger" type="submit"
+                data-confirm="Delete these energy-scan results?">Reset energy scan</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

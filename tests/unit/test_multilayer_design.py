@@ -326,6 +326,37 @@ def test_run_energy_scan_requires_pairs(fakes: None, tmp_path: Path) -> None:
         MultilayerGratingDesigner(_config(tmp_path)).run_energy_scan([])
 
 
+def test_run_energy_scan_should_continue_stops_early(fakes: None, tmp_path: Path) -> None:
+    calls = {"n": 0}
+
+    def stop_after_one() -> bool:
+        calls["n"] += 1
+        return calls["n"] <= 1
+
+    results = MultilayerGratingDesigner(_config(tmp_path)).run_energy_scan(
+        [(3.0, 1.1), (4.5, 0.9), (6.0, 1.4)], should_continue=stop_after_one
+    )
+
+    assert [round(r.d_spacing_nm, 3) for r in results] == [3.0]
+
+
+def test_run_energy_scan_writes_an_overlay_for_several_designs(
+    fakes: None, tmp_path: Path
+) -> None:
+    config = _config(tmp_path, coating_label="Ru/B4C", diffraction_order=2)
+
+    results = MultilayerGratingDesigner(config).run_energy_scan([(3.0, 1.1), (4.5, 0.9)])
+
+    overlay = config.plot_dir / "efficiency_vs_energy_comparison_Ru-B4C_order2.png"
+    assert len(results) == 2
+    assert overlay.is_file()
+
+
+def test_plot_energy_scan_overlay_needs_at_least_one_result(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        MultilayerGratingDesigner(_config(tmp_path)).plot_energy_scan_overlay([])
+
+
 def test_coating_label_defaults_to_material_names(tmp_path: Path) -> None:
     config = _config(tmp_path)
     assert md._coating_label(config) == "Ru/C"

@@ -13,7 +13,9 @@ design gets a plot in the shared ``results/plots/`` folder (alongside
 titled with the coating (``CONFIG.coating_label``, "Ru/B4C" here), the
 diffraction order and this design's d-spacing and blaze angle, named
 ``efficiency_vs_energy_<materials>_order<n>_d<d>nm_blaze<b>deg.png`` -- that
-is the plot to open.
+is the plot to open. Scanning two or more designs also writes an overlay
+comparison, ``efficiency_vs_energy_comparison_<materials>_order<n>.png``, with
+every curve on one axis.
 
 ``--eval`` runs no new solves: it re-reads the existing
 ``results/energy_scan/*/multilayer_theta_search_summary.csv`` files

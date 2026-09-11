@@ -93,6 +93,18 @@ design's plot lands in the same folder, the filename itself carries the
 coating, order, d-spacing and blaze angle -- there is nothing per-design about
 the folder to disambiguate them.
 
+Scanning two or more designs in one call also writes an overlay comparison --
+every curve on one axis, legended by d-spacing and blaze angle, as
+`plots/efficiency_vs_energy_comparison_<materials>_order<n>.png`.
+{meth}`grax.MultilayerGratingDesigner.run_energy_scan` and
+{meth}`grax.MultilayerGratingDesigner.evaluate_energy_scan` call
+{meth}`grax.MultilayerGratingDesigner.plot_energy_scan_overlay` for you; call it
+directly to overlay an arbitrary subset.
+
+`run_energy_scan` also accepts `should_continue`, checked before each design, so
+a long scan can be stopped cooperatively; it returns the designs completed so
+far.
+
 The coating name comes from `MultilayerDesignConfig.coating_label` when set,
 otherwise from `"<material_a name>/<material_b name>"` -- set it explicitly
 whenever a material is modelled with a stand-in optical-constants table (B4C

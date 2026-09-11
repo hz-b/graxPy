@@ -18,7 +18,7 @@ angle is a result of the search for every pair.
 
 ```{eval-rst}
 .. autoclass:: grax.MultilayerGratingDesigner
-   :members: run_survey, evaluate_survey, run_energy_scan, evaluate_energy_scan
+   :members: run_survey, evaluate_survey, run_energy_scan, evaluate_energy_scan, plot_energy_scan_overlay
 ```
 
 ```{eval-rst}

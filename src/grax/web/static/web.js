@@ -362,7 +362,9 @@ function initRunMonitor(container) {
   const memoryNode = container.querySelector("[data-run-memory]");
   const errorNode = container.querySelector("[data-run-error]");
   const progressBar = container.querySelector("[data-run-progress-bar]");
-  const abortButton = document.querySelector("[data-run-abort-action]");
+  // Scoped to this monitor: a page can host several (one per workflow stage),
+  // and a document-wide lookup would let every monitor drive the first button.
+  const abortButton = container.querySelector("[data-run-abort-action]");
   let latestPlotToken = "";
   let latestPlotUrl = plotImage.getAttribute("src") || "";
   let statusTimerId = null;
@@ -440,6 +442,132 @@ function initRunMonitor(container) {
   memoryTimerId = window.setInterval(pollMemory, 500);
 }
 
+function initSurveyCellCounter(form) {
+  const dPoints = form.querySelector("[data-survey-d-points]");
+  const blazePoints = form.querySelector("[data-survey-blaze-points]");
+  const readout = form.querySelector("[data-survey-cell-readout]");
+  if (!dPoints || !blazePoints || !readout) {
+    return;
+  }
+  const threshold = Number(form.dataset.cellWarningThreshold || 200);
+
+  function update() {
+    const cells = Math.max(0, Number(dPoints.value) || 0) * Math.max(0, Number(blazePoints.value) || 0);
+    if (cells > threshold) {
+      readout.textContent =
+        `This survey will run ${cells} theta searches — well above ${threshold}, so expect it to take a long time. ` +
+        `You can abort it from the study page once it starts.`;
+      readout.classList.add("notice-error");
+    } else {
+      readout.textContent = `This survey will run ${cells} theta searches.`;
+      readout.classList.remove("notice-error");
+    }
+  }
+
+  dPoints.addEventListener("input", update);
+  blazePoints.addEventListener("input", update);
+  update();
+}
+
+function initDesignPicker(form) {
+  let options;
+  try {
+    options = JSON.parse(form.dataset.designOptions || "{}");
+  } catch (error) {
+    return;
+  }
+  const toggle = form.querySelector("[data-design-toggle]");
+  const panel = form.querySelector("[data-design-manual]");
+  const rows = form.querySelector("[data-design-rows]");
+  const addButton = form.querySelector("[data-design-add]");
+  if (!toggle || !panel || !rows || !addButton) {
+    return;
+  }
+  const dValues = options.d_values || [];
+  const blazeValues = options.blaze_values || [];
+  const efficiency = options.efficiency || {};
+
+  function formatValue(value) {
+    return Number(value).toFixed(3);
+  }
+
+  function buildSelect(values, initial) {
+    const select = document.createElement("select");
+    values.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = formatValue(value);
+      option.textContent = formatValue(value);
+      select.appendChild(option);
+    });
+    if (initial !== undefined) {
+      select.value = formatValue(initial);
+    }
+    return select;
+  }
+
+  function addRow() {
+    const best = options.best || [dValues[0], blazeValues[0]];
+    const row = document.createElement("div");
+    row.className = "row";
+
+    const dSelect = buildSelect(dValues, best[0]);
+    const blazeSelect = buildSelect(blazeValues, best[1]);
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = "design";
+
+    const hint = document.createElement("span");
+    hint.className = "subtle";
+
+    function sync() {
+      const pair = `${dSelect.value},${blazeSelect.value}`;
+      hidden.value = pair;
+      const value = efficiency[pair];
+      hint.textContent = value === undefined ? "not surveyed" : `efficiency ${Number(value).toPrecision(4)}`;
+    }
+
+    dSelect.addEventListener("change", sync);
+    blazeSelect.addEventListener("change", sync);
+    sync();
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button danger";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => row.remove());
+
+    const dLabel = document.createElement("label");
+    dLabel.append("d-spacing, nm", dSelect);
+    const blazeLabel = document.createElement("label");
+    blazeLabel.append("Blaze, deg", blazeSelect);
+
+    row.append(dLabel, blazeLabel, hint, hidden, remove);
+    rows.appendChild(row);
+  }
+
+  toggle.addEventListener("click", () => {
+    panel.classList.toggle("is-hidden");
+    if (!panel.classList.contains("is-hidden") && rows.children.length === 0) {
+      addRow();
+    }
+  });
+  addButton.addEventListener("click", addRow);
+
+  form.addEventListener("submit", (event) => {
+    const submitter = event.submitter;
+    if (!submitter || submitter.value !== "manual") {
+      return;
+    }
+    const chosen = new Set(
+      Array.from(rows.querySelectorAll('input[name="design"]')).map((input) => input.value),
+    );
+    if (chosen.size === 0) {
+      event.preventDefault();
+      window.alert("Add at least one (d, blaze) design to scan.");
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
@@ -482,6 +610,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll("[data-saved-plot-figure]").forEach((container) => {
     initSavedPlotFigure(container);
+  });
+
+  document.querySelectorAll("[data-survey-cell-counter]").forEach((form) => {
+    initSurveyCellCounter(form);
+  });
+
+  document.querySelectorAll("[data-design-picker]").forEach((form) => {
+    initDesignPicker(form);
   });
 
   document.querySelectorAll("[data-live-run-monitor]").forEach((runMonitor) => {

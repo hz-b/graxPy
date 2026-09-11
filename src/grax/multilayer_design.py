@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -511,6 +511,16 @@ def _energy_scan_plot_filename(
     )
 
 
+def _energy_scan_overlay_filename(config: MultilayerDesignConfig) -> str:
+    """Return the filename for the multi-design efficiency-versus-energy overlay."""
+
+    materials = _filename_slug(_coating_label(config))
+    return (
+        f"efficiency_vs_energy_comparison_{materials}_"
+        f"order{int(config.diffraction_order)}.png"
+    )
+
+
 def _emit_progress(
     callback: Callable[[StageProgress], None] | None,
     *,
@@ -970,6 +980,7 @@ class MultilayerGratingDesigner:
         pairs: Iterable[tuple[float, float]],
         *,
         progress_callback: Callable[[StageProgress], None] | None = None,
+        should_continue: Callable[[], bool] | None = None,
     ) -> list[EnergyScanResult]:
         """Sweep chosen ``(d_spacing_nm, blaze_angle_deg)`` designs over energy.
 
@@ -978,9 +989,13 @@ class MultilayerGratingDesigner:
                 off the survey.
             progress_callback: Optional callable invoked with a
                 :class:`StageProgress` before each design and once when finished.
+            should_continue: Optional callable checked before each design; when
+                it returns ``False`` the scan stops early and returns the
+                designs completed so far (an empty list if it stopped before
+                the first one).
 
         Returns:
-            One :class:`EnergyScanResult` per design, in input order.
+            One :class:`EnergyScanResult` per completed design, in input order.
 
         Raises:
             ValueError: If ``pairs`` is empty.
@@ -995,6 +1010,8 @@ class MultilayerGratingDesigner:
         total = len(designs)
         results: list[EnergyScanResult] = []
         for index, (d_spacing, blaze) in enumerate(designs):
+            if should_continue is not None and not should_continue():
+                break
             _emit_progress(
                 progress_callback,
                 stage="energy_scan",
@@ -1069,6 +1086,8 @@ class MultilayerGratingDesigner:
             total=total,
             current_label="done",
         )
+        if len(results) >= 2:
+            print(f"Comparison plot: {self.plot_energy_scan_overlay(results)}")
         return results
 
     def evaluate_energy_scan(
@@ -1136,6 +1155,8 @@ class MultilayerGratingDesigner:
                 f"no completed energy scans found under {config.energy_scan_dir}"
             )
         print(f"Re-evaluated {len(results)} energy scans under {config.energy_scan_dir}")
+        if len(results) >= 2:
+            print(f"Comparison plot: {self.plot_energy_scan_overlay(results)}")
         return results
 
     # ------------------------------------------------------------------ #
@@ -1320,6 +1341,55 @@ class MultilayerGratingDesigner:
         figure.tight_layout()
         figure.savefig(output_path, dpi=150)
         plt.close(figure)
+
+    def plot_energy_scan_overlay(self, results: Sequence[EnergyScanResult]) -> Path:
+        """Overlay several designs' efficiency-versus-energy curves on one axis.
+
+        Written to :attr:`MultilayerDesignConfig.plot_dir` as
+        ``efficiency_vs_energy_comparison_<materials>_order<n>.png``, so the
+        designs scanned in one batch can be compared at a glance. Called
+        automatically by :meth:`run_energy_scan` and
+        :meth:`evaluate_energy_scan` whenever they produce two or more designs.
+
+        Args:
+            results: The designs to overlay, in legend order.
+
+        Returns:
+            The path the overlay was written to.
+
+        Raises:
+            ValueError: If ``results`` is empty.
+        """
+
+        import matplotlib.pyplot as plt
+
+        if not results:
+            raise ValueError("plot_energy_scan_overlay requires at least one result")
+        config = self.config
+        config.plot_dir.mkdir(parents=True, exist_ok=True)
+        output_path = config.plot_dir / _energy_scan_overlay_filename(config)
+
+        figure, axis = plt.subplots(figsize=(9, 6))
+        for scan in results:
+            axis.plot(
+                scan.results["energy_ev"],
+                scan.results["selected_efficiency"],
+                "-",
+                linewidth=1.6,
+                label=f"d = {scan.d_spacing_nm:.3f} nm, blaze = {scan.blaze_angle_deg:.3f} deg",
+            )
+        axis.set_xlabel("Photon energy (eV)")
+        axis.set_ylabel(f"Selected-order efficiency ({config.polarization}-pol)")
+        axis.set_title(
+            f"{_coating_label(config)} multilayer grating "
+            f"(order {config.diffraction_order}): {len(results)} designs"
+        )
+        axis.grid(True, alpha=0.3)
+        axis.legend(loc="best", fontsize=8)
+        figure.tight_layout()
+        figure.savefig(output_path, dpi=150)
+        plt.close(figure)
+        return output_path
 
     def _search_parameters_record(
         self, *, d_spacing_nm: float, blaze_angle_deg: float, bragg_estimate_deg: float
