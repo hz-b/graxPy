@@ -299,7 +299,8 @@ def test_run_survey_fail_fast_propagates(monkeypatch: pytest.MonkeyPatch, tmp_pa
 # Energy scan                                                                  #
 # --------------------------------------------------------------------------- #
 def test_run_energy_scan_fans_out_over_pairs(fakes: None, tmp_path: Path) -> None:
-    designer = MultilayerGratingDesigner(_config(tmp_path))
+    config = _config(tmp_path, coating_label="Ru/B4C", diffraction_order=2)
+    designer = MultilayerGratingDesigner(config)
     results = designer.run_energy_scan([(3.0, 1.1), (4.5, 0.9)])
 
     assert [(round(r.d_spacing_nm, 3), round(r.blaze_angle_deg, 3)) for r in results] == [
@@ -310,8 +311,14 @@ def test_run_energy_scan_fans_out_over_pairs(fakes: None, tmp_path: Path) -> Non
         assert scan.summary_csv_path.is_file()
         assert scan.titled_plot_path.is_file()
         assert len(scan.results) == 3
+        # Every design's titled plot lands in the shared plots/ folder, not its
+        # own per-design results/energy_scan/... folder.
+        assert scan.titled_plot_path.parent == config.plot_dir
+        assert config.plot_dir.name == "plots"
     assert results[0].output_dir != results[1].output_dir
     assert results[0].titled_plot_path != results[1].titled_plot_path
+    assert results[0].titled_plot_path.name == "efficiency_vs_energy_Ru-B4C_order2_d3.000nm_blaze1.100deg.png"
+    assert results[1].titled_plot_path.name == "efficiency_vs_energy_Ru-B4C_order2_d4.500nm_blaze0.900deg.png"
 
 
 def test_run_energy_scan_requires_pairs(fakes: None, tmp_path: Path) -> None:
@@ -336,6 +343,23 @@ def test_energy_scan_title_names_coating_and_design(tmp_path: Path) -> None:
     assert "d = 3.102 nm" in title
     assert "blaze = 0.859 deg" in title
     assert "order 2" in title
+
+
+def test_energy_scan_plot_filename_encodes_every_term(tmp_path: Path) -> None:
+    config = _config(tmp_path, coating_label="Ru/B4C", diffraction_order=2)
+    filename = md._energy_scan_plot_filename(config, 3.102, 0.859)
+    assert filename == "efficiency_vs_energy_Ru-B4C_order2_d3.102nm_blaze0.859deg.png"
+
+
+def test_energy_scan_plot_filename_defaults_materials_from_config(tmp_path: Path) -> None:
+    config = _config(tmp_path, diffraction_order=1)
+    filename = md._energy_scan_plot_filename(config, 1.5, 0.6)
+    assert filename == "efficiency_vs_energy_Ru-C_order1_d1.500nm_blaze0.600deg.png"
+
+
+def test_filename_slug_collapses_unsafe_characters() -> None:
+    assert md._filename_slug("Ru/B4C") == "Ru-B4C"
+    assert md._filename_slug("W / Si  multilayer") == "W-Si-multilayer"
 
 
 # --------------------------------------------------------------------------- #

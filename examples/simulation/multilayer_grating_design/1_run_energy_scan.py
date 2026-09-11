@@ -7,16 +7,19 @@ Runs :meth:`grax.MultilayerGratingDesigner.run_energy_scan` for one or more
 * ``--best`` -- only the single ``(d, blaze)`` with the highest survey efficiency;
 * ``--pairs`` -- exactly the designs you list.
 
-Besides the standard sweep artifacts, each design's folder gets
-``efficiency_vs_energy.png`` -- selected efficiency versus energy, titled with
-the coating (``CONFIG.coating_label``, "Ru/B4C" here) and this design's
-d-spacing and blaze angle -- that is the plot to open.
+Besides the standard sweep artifacts under ``results/energy_scan/``, each
+design gets a plot in the shared ``results/plots/`` folder (alongside
+``0_run_survey.py``'s headline plots): selected efficiency versus energy,
+titled with the coating (``CONFIG.coating_label``, "Ru/B4C" here), the
+diffraction order and this design's d-spacing and blaze angle, named
+``efficiency_vs_energy_<materials>_order<n>_d<d>nm_blaze<b>deg.png`` -- that
+is the plot to open.
 
 ``--eval`` runs no new solves: it re-reads the existing
 ``results/energy_scan/*/multilayer_theta_search_summary.csv`` files
 (:meth:`grax.MultilayerGratingDesigner.evaluate_energy_scan`) for the selected
 designs, or for every design folder found when no selector is given; it also
-regenerates ``efficiency_vs_energy.png``.
+regenerates the titled plot in ``results/plots/``.
 
 Examples::
 

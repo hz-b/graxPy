@@ -34,14 +34,14 @@ The survey writes:
 - `survey/survey.csv` -- one row per cell: `d_nm`, `blaze_deg`,
   `bragg_estimate_deg`, `incidence_angle_deg`, `peak_efficiency`,
   `precise_fwhm_deg`, `edge_clipped`.
-- `plot/optimal_blaze_vs_d_spacing.png` -- **headline curve 1**: for each
+- `plots/optimal_blaze_vs_d_spacing.png` -- **headline curve 1**: for each
   d-spacing, the blaze angle with the highest efficiency
   (`optimal_blaze_deg = argmax_blaze efficiency`), plotted d-spacing (x) against
   optimal blaze angle (y), each point labelled with its peak efficiency.
-- `plot/max_efficiency_vs_d_spacing.png` -- **headline curve 2**: the same
+- `plots/max_efficiency_vs_d_spacing.png` -- **headline curve 2**: the same
   optimum plotted d-spacing (x) against max selected-order efficiency (y), each
   point labelled with the blaze angle that achieved it.
-- `plot/efficiency_heatmap_d_vs_blaze.png` -- **headline map**: the full
+- `plots/efficiency_heatmap_d_vs_blaze.png` -- **headline map**: the full
   `efficiency_map`, not just the per-d optimum -- d-spacing (x), blaze angle
   (y), peak selected-order efficiency as colour (z) -- with the
   `optimal_blaze_deg` ridge overlaid, so you can see the whole resonance
@@ -82,16 +82,22 @@ and `theta*(E)`. Adding `--eval`
 ({meth}`grax.MultilayerGratingDesigner.evaluate_energy_scan`) re-reads existing
 `energy_scan/` results instead of re-solving.
 
-Besides the sweep's own generic-titled plot (`EnergyScanResult.energy_efficiency_plot_path`),
-each design's folder gets `efficiency_vs_energy.png`
-(`EnergyScanResult.titled_plot_path`) -- the same curve, titled with the
-coating and this design's d-spacing and blaze angle, e.g. *"Ru/B4C multilayer
-grating (order 2): d = 3.102 nm, blaze = 0.859 deg"*. The coating name comes
-from `MultilayerDesignConfig.coating_label` when set, otherwise from
-`"<material_a name>/<material_b name>"` -- set it explicitly whenever a
-material is modelled with a stand-in optical-constants table (B4C modelled
-with the carbon table, in the Ru/B4C example) so the title shows the real
-compound.
+Besides the sweep's own generic-titled plot (`EnergyScanResult.energy_efficiency_plot_path`,
+inside that design's `energy_scan/` folder), every design also gets a plot in
+the shared `plot_dir` (`EnergyScanResult.titled_plot_path`, the same folder as
+the survey's three headline plots) -- the same curve, titled with the coating
+and this design's d-spacing and blaze angle, e.g. *"Ru/B4C multilayer grating
+(order 2): d = 3.102 nm, blaze = 0.859 deg"*, and named accordingly:
+`efficiency_vs_energy_Ru-B4C_order2_d3.102nm_blaze0.859deg.png`. Because every
+design's plot lands in the same folder, the filename itself carries the
+coating, order, d-spacing and blaze angle -- there is nothing per-design about
+the folder to disambiguate them.
+
+The coating name comes from `MultilayerDesignConfig.coating_label` when set,
+otherwise from `"<material_a name>/<material_b name>"` -- set it explicitly
+whenever a material is modelled with a stand-in optical-constants table (B4C
+modelled with the carbon table, in the Ru/B4C example) so the title and
+filename show the real compound.
 
 ## Example
 

@@ -2,10 +2,11 @@
 
 Runs :meth:`grax.MultilayerGratingDesigner.run_survey` with the shared
 ``rub4c_design_parameters.CONFIG``. Writes ``results/survey/survey.csv``, three
-headline plots in ``results/plot/`` (``optimal_blaze_vs_d_spacing.png``,
+headline plots in ``results/plots/`` (``optimal_blaze_vs_d_spacing.png``,
 ``max_efficiency_vs_d_spacing.png`` and ``efficiency_heatmap_d_vs_blaze.png`` --
-the full ``(d, blaze) -> efficiency`` map with the optimal-blaze ridge overlaid),
-and a per-run folder tree under
+the full ``(d, blaze) -> efficiency`` map with the optimal-blaze ridge overlaid;
+``1_run_energy_scan.py``'s titled plots land in this same folder), and a
+per-run folder tree under
 ``results/survey/runs/``: one ``d<d>nm/`` folder per period (with an
 ``overlay.png`` of its blaze angles, chosen one highlighted) and inside it one
 ``blaze<b>deg/`` folder per run holding that theta search's full output

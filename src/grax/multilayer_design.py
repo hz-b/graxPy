@@ -34,6 +34,7 @@ optimizations.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -308,9 +309,9 @@ class MultilayerDesignConfig:
 
     @property
     def plot_dir(self) -> Path:
-        """Directory for the survey summary plots."""
+        """Directory for the survey headline plots and the titled energy-scan plots."""
 
-        return self.output_dir / "plot"
+        return self.output_dir / "plots"
 
     @property
     def runs_dir(self) -> Path:
@@ -431,7 +432,11 @@ class EnergyScanResult:
             :func:`grax.run_multilayer_theta_search_sweep`).
         titled_plot_path: The same curve, titled with the coating
             (:attr:`MultilayerDesignConfig.coating_label`) and this design's
-            d-spacing and blaze angle -- the plot to actually look at.
+            d-spacing and blaze angle -- the plot to actually look at. Lives in
+            :attr:`MultilayerDesignConfig.plot_dir` (shared with the survey's
+            headline plots) as
+            ``efficiency_vs_energy_<materials>_order<n>_d<d>nm_blaze<b>deg.png``,
+            since every design's plot lands in the same folder.
         results: The summary table.
     """
 
@@ -479,6 +484,30 @@ def _energy_scan_title(
     return (
         f"{_coating_label(config)} multilayer grating (order {config.diffraction_order}): "
         f"d = {d_spacing_nm:.3f} nm, blaze = {blaze_angle_deg:.3f} deg"
+    )
+
+
+def _filename_slug(text: str) -> str:
+    """Return ``text`` with filesystem-unsafe characters collapsed to ``-``."""
+
+    slug = re.sub(r"[^A-Za-z0-9.+_-]+", "-", text.strip())
+    return slug.strip("-") or "coating"
+
+
+def _energy_scan_plot_filename(
+    config: MultilayerDesignConfig, d_spacing_nm: float, blaze_angle_deg: float
+) -> str:
+    """Return the filename for one design's titled efficiency-versus-energy plot.
+
+    All designs share :attr:`MultilayerDesignConfig.plot_dir`, so the filename
+    itself carries the coating, diffraction order, d-spacing and blaze angle:
+    ``efficiency_vs_energy_<materials>_order<n>_d<d>nm_blaze<b>deg.png``.
+    """
+
+    materials = _filename_slug(_coating_label(config))
+    return (
+        f"efficiency_vs_energy_{materials}_order{int(config.diffraction_order)}_"
+        f"d{d_spacing_nm:.3f}nm_blaze{blaze_angle_deg:.3f}deg.png"
     )
 
 
@@ -1011,7 +1040,10 @@ class MultilayerGratingDesigner:
                 polarization=str(config.polarization),
             )
             scan_results = pd.read_csv(sweep.summary_csv_path)
-            titled_plot_path = design_dir / "efficiency_vs_energy.png"
+            config.plot_dir.mkdir(parents=True, exist_ok=True)
+            titled_plot_path = config.plot_dir / _energy_scan_plot_filename(
+                config, d_spacing, blaze
+            )
             self._plot_energy_scan(
                 d_spacing_nm=d_spacing,
                 blaze_angle_deg=blaze,
@@ -1075,7 +1107,10 @@ class MultilayerGratingDesigner:
                 print(f"  skipping {design_dir} (no summary CSV)")
                 continue
             scan_results = pd.read_csv(summary_csv)
-            titled_plot_path = design_dir / "efficiency_vs_energy.png"
+            config.plot_dir.mkdir(parents=True, exist_ok=True)
+            titled_plot_path = config.plot_dir / _energy_scan_plot_filename(
+                config, d_spacing, blaze
+            )
             self._plot_energy_scan(
                 d_spacing_nm=d_spacing,
                 blaze_angle_deg=blaze,
