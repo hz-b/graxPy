@@ -11,6 +11,6 @@ roughness
 monochromator-sweep
 energy-angle-sweep
 multilayer-theta-search
-multilayer-optimization
+multilayer-design
 parameter-study
 ```

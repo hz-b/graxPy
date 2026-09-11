@@ -24,7 +24,7 @@ This guide summarizes the source layout for contributors.
   parameter studies
 - `multilayer_reflectivity.py`: planar-multilayer peak Bragg reflectivity versus
   energy, wrapping the XRT dynamical-diffraction engine (imported lazily)
-- `multilayer_optimization.py`: three-stage d-spacing / gamma / blaze design
+- `multilayer_design.py`: d-spacing / blaze-angle survey plus per-design energy scans
   workflow built on the public API, with a JSON state file for the
   `"auto"` hand-off between stages
 - `solvers/`: the one-dimensional electromagnetic solvers

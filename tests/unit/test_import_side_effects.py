@@ -45,7 +45,8 @@ def test_import_multilayer_modules_does_not_import_xrt() -> None:
     """Importing the multilayer workflow modules does not import ``xrt`` eagerly."""
 
     modules = _modules_after_import(
-        "import grax.multilayer_optimization",
+        "import grax.multilayer_design",
         "import grax.multilayer_reflectivity",
     )
     assert not any(name == "xrt" or name.startswith("xrt.") for name in modules)
+    assert "matplotlib.pyplot" not in modules
