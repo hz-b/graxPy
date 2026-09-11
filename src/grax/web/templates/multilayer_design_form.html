@@ -19,6 +19,12 @@
         designs you pick from it over an energy range. There is no CFF input — the
         incident angle is a result of the theta search for every cell.
       </p>
+      {% if seeded_from %}
+        <p class="subtle">
+          Pre-filled from your most recent study,
+          <a href="{{ url_for('multilayer_design_detail', study_id=seeded_from.id) }}">{{ seeded_from.display_name }}</a>.
+        </p>
+      {% endif %}
     {% endif %}
   </div>
 </section>

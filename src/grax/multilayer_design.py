@@ -34,6 +34,7 @@ optimizations.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import threading
@@ -63,6 +64,20 @@ __all__ = [
 ]
 
 HC_EV_NM = 1239.841984
+
+
+def _write_csv_atomic(frame: pd.DataFrame, path: Path) -> None:
+    """Write ``frame`` to ``path`` so a concurrent reader never sees a half file.
+
+    The survey table is rewritten after every cell while the web app polls it for
+    the live plots; a plain ``to_csv`` truncates first, so a read landing in that
+    window gets a partial or empty file.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    frame.to_csv(temporary, index=False)
+    os.replace(temporary, path)
 
 
 class _CellAbortedError(RuntimeError):
@@ -801,6 +816,10 @@ class MultilayerGratingDesigner:
                     }
                 )
                 completed += 1
+                # Rewrite the table after every cell so a watcher -- the web
+                # app's live plots -- can read the survey as it fills in. The
+                # grid is small (hundreds of rows) next to a theta search.
+                _write_csv_atomic(pd.DataFrame(rows), config.survey_dir / "survey.csv")
 
         if not rows:
             raise RuntimeError("multilayer design survey aborted before any result")
@@ -934,7 +953,7 @@ class MultilayerGratingDesigner:
         combined = pd.DataFrame(rows)
         config.survey_dir.mkdir(parents=True, exist_ok=True)
         csv_path = config.survey_dir / "survey.csv"
-        combined.to_csv(csv_path, index=False)
+        _write_csv_atomic(combined, csv_path)
 
         period_dirs: list[Path] = []
         run_dirs: list[Path] = []

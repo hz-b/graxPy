@@ -372,6 +372,31 @@ function initSurveyFigures(root) {
 
   draw();
 
+  // While the survey runs its table is rewritten after every cell, so re-reading
+  // it shows the grid filling in. The monitor reloads the page when the stage
+  // finishes, which is what ends this polling.
+  const liveUrl = root.dataset.surveyLiveUrl;
+  if (liveUrl) {
+    window.setInterval(async () => {
+      try {
+        const response = await window.fetch(liveUrl, {cache: "no-store"});
+        if (!response.ok) {
+          return;
+        }
+        const fresh = await response.json();
+        if ((fresh.per_d || []).length === 0) {
+          return;
+        }
+        options = fresh;
+        dValues.splice(0, dValues.length, ...(fresh.d_values || []).map(Number));
+        blazeValues.splice(0, blazeValues.length, ...(fresh.blaze_values || []).map(Number));
+        draw();
+      } catch (error) {
+        // A dropped poll is not worth surfacing; the next one will catch up.
+      }
+    }, 4000);
+  }
+
   const heatmapNode = stages.get("heatmap");
   if (heatmapNode && typeof heatmapNode.on === "function") {
     heatmapNode.on("plotly_click", (event) => {

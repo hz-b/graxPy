@@ -52,7 +52,12 @@ def _install_fake_runners(monkeypatch: pytest.MonkeyPatch, *, survey_cells: int 
     so a test can abort it mid-flight.
     """
 
-    from grax.multilayer_design import EnergyScanResult, MultilayerGratingDesigner, StageProgress
+    from grax.multilayer_design import (
+        EnergyScanResult,
+        MultilayerGratingDesigner,
+        StageProgress,
+        _write_csv_atomic,
+    )
 
     def fake_survey(
         self,
@@ -89,6 +94,9 @@ def _install_fake_runners(monkeypatch: pytest.MonkeyPatch, *, survey_cells: int 
                             "edge_clipped": 0.0,
                         }
                     )
+                    # Like the real run_survey, rewrite the table every cell
+                    # (atomically) so the live plots have something to read.
+                    _write_csv_atomic(pd.DataFrame(rows), config.survey_dir / "survey.csv")
                     if progress_callback is not None:
                         progress_callback(
                             StageProgress(
@@ -776,6 +784,89 @@ def test_parameters_cannot_be_edited_while_a_stage_runs(
             f"/multilayer-design/{study_id}/edit", data=_study_form(d_points="5")
         )
         assert response.status_code == 409
+    finally:
+        client.post(
+            f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
+        )
+
+
+def test_the_new_form_is_seeded_from_the_most_recent_study(tmp_path: Path) -> None:
+    """A new study starts from the settings last tuned, not the bare defaults."""
+
+    client = _client(tmp_path)
+    _create_study(client, {"display_name": "First", "d_points": "3"})
+    _create_study(
+        client,
+        {
+            "display_name": "Most recent",
+            "d_points": "7",
+            "survey_scan_settings.rough_scan_points": "19",
+        },
+    )
+
+    html = client.get("/multilayer-design/new").get_data(as_text=True)
+
+    assert "Pre-filled from your most recent study" in html
+    assert "Most recent" in html
+    import re
+
+    tag = re.search(r"<input[^>]*survey_scan_settings\.rough_scan_points[^>]*>", html)
+    assert tag is not None and 'value="19"' in tag.group(0)
+
+
+def test_the_new_form_falls_back_to_defaults_without_any_study(tmp_path: Path) -> None:
+    from grax.web.multilayer_design_studies import study_config_defaults
+
+    client = _client(tmp_path)
+
+    html = client.get("/multilayer-design/new").get_data(as_text=True)
+
+    assert "Pre-filled from your most recent study" not in html
+    default_points = study_config_defaults()["survey_scan_settings"]["rough_scan_points"]
+    assert f'value="{default_points}"' in html
+
+
+def test_survey_options_endpoint_serves_a_partly_filled_grid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The live plots read the survey table while it is still being written."""
+
+    _install_fake_runners(monkeypatch)
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+    _wait_for_stage(_store(tmp_path), study_id, "survey")
+
+    payload = client.get(f"/multilayer-design/{study_id}/survey-options").get_json()
+
+    assert payload["d_values"] == [2.0, 3.0, 4.0]
+    assert payload["best"] == [3.0, 1.0]
+
+
+def test_the_survey_figures_follow_a_running_stage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runners(monkeypatch, survey_cells=4000)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+
+    try:
+        # Wait for the first cells to reach survey.csv, which is what the
+        # figures read. The stage is still running: survey_cells pads the loop.
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if (store.study_dir(study_id) / "survey" / "survey.csv").is_file():
+                break
+            time.sleep(0.02)
+        assert store.load(study_id)["stages"]["survey"]["status"] == "running"
+        options = client.get(f"/multilayer-design/{study_id}/survey-options").get_json()
+        assert options["best"], "the live endpoint should serve the partial grid"
+        html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+        assert 'data-survey-figure="heatmap"' in html
+        assert f"/multilayer-design/{study_id}/survey-options" in html
+        assert "data-survey-live-url=" in html
     finally:
         client.post(
             f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}

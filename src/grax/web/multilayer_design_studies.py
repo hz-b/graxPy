@@ -446,7 +446,12 @@ def survey_design_options(study_dir: Path) -> dict[str, Any]:
     csv_path = Path(study_dir) / "survey" / "survey.csv"
     if not csv_path.is_file():
         return empty
-    table = pd.read_csv(csv_path).dropna(subset=["peak_efficiency"])
+    try:
+        table = pd.read_csv(csv_path).dropna(subset=["peak_efficiency"])
+    except (OSError, ValueError, KeyError):
+        # The survey rewrites this file as it runs; a read that lands badly is
+        # answered with "nothing yet" and the next poll picks it up.
+        return empty
     if table.empty:
         return empty
 

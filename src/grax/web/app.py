@@ -705,9 +705,17 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.get("/multilayer-design/new")
     def multilayer_design_new():
+        # Seed from the newest study: the settings someone last tuned -- the
+        # advanced scan parameters above all -- are a far better starting point
+        # than the dataclass defaults.
+        recent = _design_store().list()
+        seed = recent[0] if recent else None
         return render_template(
             "multilayer_design_form.html",
-            defaults=flatten_config_values(study_config_defaults()),
+            seeded_from=seed,
+            defaults=flatten_config_values(
+                seed["config"] if seed else study_config_defaults()
+            ),
             basic_sections=study_form_sections(advanced=False),
             advanced_sections=study_form_sections(advanced=True),
             materials=available_material_symbols(),
@@ -806,6 +814,13 @@ def create_app(*, data_dir: str | Path | None = None):
             app=app, data_dir=data_dir, study_id=study_id, stage=stage
         )
         return redirect(url_for("multilayer_design_detail", study_id=study_id))
+
+    @app.get("/multilayer-design/<study_id>/survey-options")
+    def multilayer_design_survey_options(study_id: str):
+        """Return the survey grid as it stands, so the plots can follow a live run."""
+
+        _design_study_or_404(study_id)
+        return jsonify(survey_design_options(_design_store().study_dir(study_id)))
 
     @app.get("/multilayer-design/<study_id>/stages/<stage>/status")
     def multilayer_design_stage_status(study_id: str, stage: str):

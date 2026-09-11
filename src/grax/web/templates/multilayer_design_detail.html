@@ -59,20 +59,28 @@
     </form>
   {% endif %}
 
-  {% if survey.artifacts.heatmap_plot %}
-    {% if plotly_bundle %}
-      {# Interactive versions of the same three plots the library writes as PNGs.
-         Clicking a heatmap cell feeds the stage-2 design picker below. #}
-      <div data-survey-figures
-           data-design-options="{{ design_options_json }}"
-           data-survey-plot-meta="{{ survey_plot_meta_json }}">
-        <div class="grid halves">
-          <div class="plotly-stage is-half" data-survey-figure="optimal_blaze"></div>
-          <div class="plotly-stage is-half" data-survey-figure="max_efficiency"></div>
-        </div>
-        <div class="plotly-stage" data-survey-figure="heatmap"></div>
+  {% set survey_running = survey.status in ["queued", "running", "aborting"] %}
+  {% if plotly_bundle and (survey.artifacts.heatmap_plot or (survey_running and design_options.best)) %}
+    {# Interactive versions of the same three plots the library writes as PNGs.
+       Clicking a heatmap cell feeds the stage-2 design picker below. While the
+       survey runs, data-survey-live-url makes them follow the grid filling in. #}
+    <div data-survey-figures
+         data-design-options="{{ design_options_json }}"
+         data-survey-plot-meta="{{ survey_plot_meta_json }}"
+         {% if survey_running %}data-survey-live-url="{{ url_for('multilayer_design_survey_options', study_id=study.id) }}"{% endif %}>
+      {% if survey_running %}
+        <p class="subtle">Updating as cells are solved.</p>
+      {% endif %}
+      <div class="grid halves">
+        <div class="plotly-stage is-half" data-survey-figure="optimal_blaze"></div>
+        <div class="plotly-stage is-half" data-survey-figure="max_efficiency"></div>
       </div>
-    {% else %}
+      <div class="plotly-stage" data-survey-figure="heatmap"></div>
+    </div>
+  {% endif %}
+
+  {% if survey.artifacts.heatmap_plot %}
+    {% if not plotly_bundle %}
       <div class="grid halves">
         <figure>
           <img class="preview" src="{{ artifact }}{{ survey.artifacts.optimal_blaze_plot }}"
