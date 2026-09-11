@@ -66,6 +66,9 @@ class FieldSpec:
         section: Fieldset heading it belongs to.
         advanced: Rendered inside the collapsible "Advanced" section.
         choices: Options for ``select`` fields.
+        row: Optional sub-group inside ``section``. Fields sharing a ``row``
+            render on one line under that heading; ``""`` means "no sub-group",
+            and those fields flow in the fieldset as usual.
     """
 
     name: str
@@ -74,6 +77,7 @@ class FieldSpec:
     section: str
     advanced: bool = False
     choices: tuple[str, ...] = ()
+    row: str = ""
 
     @property
     def html_name(self) -> str:
@@ -83,40 +87,46 @@ class FieldSpec:
 
 
 def _scan_fields(prefix: str, section: str) -> tuple[FieldSpec, ...]:
-    """Return the advanced field specs for one nested scan-settings block."""
+    """Return the advanced field specs for one nested scan-settings block.
+
+    Grouped into one line per theta-search pass -- rough, then fine, then the
+    final solve -- followed by the two settings that apply to the search as a
+    whole. The pass name lives in the row heading, so the field labels drop it.
+    """
 
     return (
         FieldSpec(f"{prefix}.rough_scan_half_width_deg", "number",
-                  "Rough half-width, deg", section, advanced=True),
+                  "Half-width, deg", section, advanced=True, row="Rough pass"),
         FieldSpec(f"{prefix}.rough_scan_points", "int",
-                  "Rough points", section, advanced=True),
+                  "Points", section, advanced=True, row="Rough pass"),
         FieldSpec(f"{prefix}.rough_fourier_orders", "int",
-                  "Rough Fourier orders", section, advanced=True),
+                  "Fourier orders", section, advanced=True, row="Rough pass"),
         FieldSpec(f"{prefix}.rough_x_resolution_nm", "number",
-                  "Rough x resolution, nm", section, advanced=True),
+                  "x resolution, nm", section, advanced=True, row="Rough pass"),
         FieldSpec(f"{prefix}.rough_z_resolution_nm", "number",
-                  "Rough z resolution, nm", section, advanced=True),
+                  "z resolution, nm", section, advanced=True, row="Rough pass"),
         FieldSpec(f"{prefix}.fine_scan_half_width_deg", "number",
-                  "Fine half-width, deg", section, advanced=True),
+                  "Half-width, deg", section, advanced=True, row="Fine pass"),
         FieldSpec(f"{prefix}.fine_scan_points", "int",
-                  "Fine points", section, advanced=True),
+                  "Points", section, advanced=True, row="Fine pass"),
         FieldSpec(f"{prefix}.fine_fourier_orders", "int",
-                  "Fine Fourier orders", section, advanced=True),
+                  "Fourier orders", section, advanced=True, row="Fine pass"),
         FieldSpec(f"{prefix}.fine_x_resolution_nm", "number",
-                  "Fine x resolution, nm", section, advanced=True),
+                  "x resolution, nm", section, advanced=True, row="Fine pass"),
         FieldSpec(f"{prefix}.fine_z_resolution_nm", "number",
-                  "Fine z resolution, nm", section, advanced=True),
+                  "z resolution, nm", section, advanced=True, row="Fine pass"),
         FieldSpec(f"{prefix}.final_fourier_orders", "int",
-                  "Final Fourier orders", section, advanced=True),
+                  "Fourier orders", section, advanced=True, row="Final solve"),
         FieldSpec(f"{prefix}.final_x_resolution_nm", "number",
-                  "Final x resolution, nm", section, advanced=True),
+                  "x resolution, nm", section, advanced=True, row="Final solve"),
         FieldSpec(f"{prefix}.final_z_resolution_nm", "number",
-                  "Final z resolution, nm", section, advanced=True),
+                  "z resolution, nm", section, advanced=True, row="Final solve"),
         FieldSpec(f"{prefix}.precise_peak_selection_mode", "select",
-                  "Peak selection", section, advanced=True,
+                  "Peak selection", section, advanced=True, row="Peak & roughness",
                   choices=("max", "gauss", "voigt")),
         FieldSpec(f"{prefix}.roughness_sigma_nm", "number",
-                  "Roughness sigma, nm (blank = none)", section, advanced=True),
+                  "Roughness sigma, nm (blank = none)", section, advanced=True,
+                  row="Peak & roughness"),
     )
 
 
@@ -204,8 +214,13 @@ def _field_by_name() -> dict[str, FieldSpec]:
     return {spec.name: spec for spec in STUDY_FIELDS}
 
 
-def study_form_sections(advanced: bool) -> list[tuple[str, list[FieldSpec]]]:
-    """Return ``(section, fields)`` groups for the study form.
+def study_form_sections(advanced: bool) -> list[tuple[str, list[tuple[str, list[FieldSpec]]]]]:
+    """Return ``(section, rows)`` groups for the study form.
+
+    Each section holds ``(row_label, fields)`` pairs. A row labelled ``""``
+    is an ungrouped run of fields that flows in the fieldset as usual; a named
+    row renders on its own line under that heading (see
+    :attr:`FieldSpec.row`).
 
     Args:
         advanced: ``True`` for the advanced (collapsible) fields, ``False`` for
@@ -215,11 +230,15 @@ def study_form_sections(advanced: bool) -> list[tuple[str, list[FieldSpec]]]:
         Section groups preserving :data:`STUDY_FIELDS` order.
     """
 
-    sections: dict[str, list[FieldSpec]] = {}
+    sections: dict[str, list[tuple[str, list[FieldSpec]]]] = {}
     for spec in STUDY_FIELDS:
         if bool(spec.advanced) != advanced:
             continue
-        sections.setdefault(spec.section, []).append(spec)
+        rows = sections.setdefault(spec.section, [])
+        if rows and rows[-1][0] == spec.row:
+            rows[-1][1].append(spec)
+        else:
+            rows.append((spec.row, [spec]))
     return list(sections.items())
 
 

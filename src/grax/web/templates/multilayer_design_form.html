@@ -26,10 +26,19 @@
     </label>
   </fieldset>
 
-  {% for section, specs in basic_sections %}
+  {% for section, rows in basic_sections %}
     <fieldset>
       <legend>{{ section }}</legend>
-      {% for spec in specs %}{{ render_field(spec, defaults) }}{% endfor %}
+      {% for row_label, row_specs in rows %}
+        {% if row_label %}
+          <p class="field-row-label">{{ row_label }}</p>
+          <div class="field-row">
+            {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+          </div>
+        {% else %}
+          {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+        {% endif %}
+      {% endfor %}
       {% if section.startswith("Survey - target") %}
         <p class="notice" data-survey-cell-readout>This survey will run 24 theta searches.</p>
       {% endif %}
@@ -38,10 +47,19 @@
 
   <details>
     <summary>Advanced</summary>
-    {% for section, specs in advanced_sections %}
+    {% for section, rows in advanced_sections %}
       <fieldset>
         <legend>{{ section }}</legend>
-        {% for spec in specs %}{{ render_field(spec, defaults) }}{% endfor %}
+        {% for row_label, row_specs in rows %}
+        {% if row_label %}
+          <p class="field-row-label">{{ row_label }}</p>
+          <div class="field-row">
+            {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+          </div>
+        {% else %}
+          {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+        {% endif %}
+      {% endfor %}
       </fieldset>
     {% endfor %}
   </details>

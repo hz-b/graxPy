@@ -205,6 +205,37 @@ def test_form_groups_fields_and_hides_scan_settings_behind_advanced(tmp_path: Pa
     assert 'name="auto_energy_scan"' in html
 
 
+def test_scan_settings_are_grouped_one_line_per_theta_search_pass() -> None:
+    from grax.web.multilayer_design_studies import study_form_sections
+
+    sections = dict(study_form_sections(advanced=True))
+
+    for section in ("Survey - theta-search settings", "Energy scan - theta-search settings"):
+        rows = sections[section]
+        assert [label for label, _ in rows] == [
+            "Rough pass",
+            "Fine pass",
+            "Final solve",
+            "Peak & roughness",
+        ]
+        assert [len(specs) for _, specs in rows] == [5, 5, 3, 2]
+
+    # Sections without sub-groups stay one ungrouped run, flowing as before.
+    assert [label for label, _ in sections["Shared - runtime"]] == [""]
+
+
+def test_scan_settings_rows_render_as_labelled_lines(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    html = client.get("/multilayer-design/new").get_data(as_text=True)
+
+    assert '<p class="field-row-label">Rough pass</p>' in html
+    assert '<p class="field-row-label">Final solve</p>' in html
+    assert html.count('class="field-row"') == 8  # four rows x two scan blocks
+    # Grouping is presentation only -- every input keeps its dotted name.
+    assert html.count('name="survey_scan_settings.') == 15
+
+
 def test_form_offers_the_whole_material_catalog(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
