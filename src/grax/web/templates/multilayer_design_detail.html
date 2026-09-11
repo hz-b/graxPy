@@ -125,6 +125,16 @@
 
   {% if energy_scan.status in ["queued", "running", "aborting"] %}
     {{ stage_monitor(study.id, "energy_scan") }}
+    {% if plotly_bundle %}
+      {# Fed from each design's checkpoint, which gains a record per solved
+         energy; the finished stage renders its saved plots instead. #}
+      <div data-energy-scan-figure-root
+           data-energy-scan-live-url="{{ url_for('multilayer_design_energy_scan_points', study_id=study.id) }}"
+           data-survey-plot-meta="{{ survey_plot_meta_json }}">
+        <p class="subtle">Updating as energies are solved.</p>
+        <div class="plotly-stage" data-energy-scan-figure></div>
+      </div>
+    {% endif %}
   {% elif survey.status != "completed" %}
     <p class="subtle">Run the survey first — its results decide which designs are worth scanning.</p>
   {% elif not design_options.best %}

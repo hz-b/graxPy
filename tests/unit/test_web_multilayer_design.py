@@ -871,3 +871,85 @@ def test_the_survey_figures_follow_a_running_stage(
         client.post(
             f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
         )
+
+
+def test_energy_scan_series_reads_the_checkpoint_in_energy_order(tmp_path: Path) -> None:
+    """The live scan plot reads checkpoints; the summary CSV only lands at the end."""
+
+    from grax.web.app import _energy_scan_checkpoint_series
+
+    checkpoints = tmp_path / "energy_scan" / "d3.000nm_blaze0.800deg" / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / "results.jsonl").write_text(
+        # Out of order (workers finish out of order), plus a failed case, a
+        # record with no efficiency, and a line still being written.
+        '{"status": "ok", "energy_ev": 3100.0, "selected_efficiency": 0.4}\n'
+        '{"status": "ok", "energy_ev": 3000.0, "selected_efficiency": 0.2}\n'
+        '{"status": "error", "energy_ev": 3050.0, "selected_efficiency": 0.9}\n'
+        '{"status": "ok", "energy_ev": 3200.0}\n'
+        '{"status": "ok", "energy_ev": 3300.0, "selected_ef\n',
+        encoding="utf-8",
+    )
+
+    series = _energy_scan_checkpoint_series(
+        study_dir=tmp_path, designs=[[3.0, 0.8], [4.0, 1.2]]
+    )
+
+    assert series[0]["energies_ev"] == [3000.0, 3100.0]
+    assert series[0]["efficiencies"] == [0.2, 0.4]
+    # A design that has not started yet is reported with no points, not dropped.
+    assert series[1]["d_spacing_nm"] == 4.0
+    assert series[1]["energies_ev"] == []
+
+
+def test_the_energy_scan_figure_follows_a_running_stage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from grax.multilayer_design import MultilayerGratingDesigner
+
+    _install_fake_runners(monkeypatch)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    study_id = _create_study(client)
+    client.post(f"/multilayer-design/{study_id}/stages/survey/run")
+    assert _wait_for_stage(store, study_id, "survey") == "completed"
+
+    release = threading.Event()
+
+    def blocking_scan(self, pairs, **kwargs):  # noqa: ANN001
+        design_dir = (
+            self.config.energy_scan_dir / "d3.000nm_blaze1.000deg" / "checkpoints"
+        )
+        design_dir.mkdir(parents=True, exist_ok=True)
+        (design_dir / "results.jsonl").write_text(
+            '{"status": "ok", "energy_ev": 9000.0, "selected_efficiency": 0.61}\n',
+            encoding="utf-8",
+        )
+        release.wait(timeout=10.0)
+        return []
+
+    monkeypatch.setattr(MultilayerGratingDesigner, "run_energy_scan", blocking_scan)
+    client.post(f"/multilayer-design/{study_id}/stages/energy_scan/run", data={"mode": "best"})
+
+    try:
+        deadline = time.time() + 5.0
+        payload = {"designs": []}
+        while time.time() < deadline:
+            payload = client.get(
+                f"/multilayer-design/{study_id}/energy-scan-points"
+            ).get_json()
+            if payload["designs"] and payload["designs"][0]["energies_ev"]:
+                break
+            time.sleep(0.02)
+        assert payload["designs"][0]["energies_ev"] == [9000.0]
+        assert payload["designs"][0]["efficiencies"] == [0.61]
+
+        html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+        assert "data-energy-scan-figure" in html
+        assert f"/multilayer-design/{study_id}/energy-scan-points" in html
+    finally:
+        release.set()
+        client.post(
+            f"/multilayer-design/{study_id}/stages/energy_scan/abort",
+            data={"disposition": "save"},
+        )

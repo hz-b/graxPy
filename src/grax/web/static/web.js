@@ -198,8 +198,13 @@ function nearestGridValue(values, target) {
   return best;
 }
 
-function surveyFigureLayout(meta, xTitle, yTitle, title) {
-  const subtitle = [meta.coating_label, `${meta.target_energy_ev} eV`, `order ${meta.diffraction_order}`]
+function surveyFigureLayout(meta, xTitle, yTitle, title, options) {
+  // The survey energy is a property of the survey, so it belongs on the survey
+  // plots only -- naming it on an energy scan would be actively misleading.
+  const parts = (options || {}).withEnergy === false
+    ? [meta.coating_label, `order ${meta.diffraction_order}`]
+    : [meta.coating_label, `${meta.target_energy_ev} eV`, `order ${meta.diffraction_order}`];
+  const subtitle = parts
     .filter((part) => part !== undefined && part !== null && part !== "")
     .join(" · ");
   return {
@@ -339,6 +344,66 @@ function buildSurveyFigures(options, meta, selectedKeys) {
   };
 
   return {optimal_blaze: optimalBlaze, max_efficiency: maxEfficiency, heatmap};
+}
+
+function initEnergyScanFigure(root) {
+  const stage = root.querySelector("[data-energy-scan-figure]");
+  const liveUrl = root.dataset.energyScanLiveUrl;
+  if (!stage || !liveUrl || !window.Plotly) {
+    return;
+  }
+  let meta;
+  try {
+    meta = JSON.parse(root.dataset.surveyPlotMeta || "{}");
+  } catch (error) {
+    meta = {};
+  }
+
+  function draw(designs) {
+    const layout = surveyFigureLayout(
+      meta,
+      "Photon energy (eV)",
+      "Selected-order efficiency",
+      "Efficiency versus energy",
+      {withEnergy: false},
+    );
+    // Below the axes: one entry per design, and the curves themselves leave no
+    // reliable free corner.
+    layout.showlegend = true;
+    layout.legend = {orientation: "h", x: 0, y: -0.22, yanchor: "top"};
+    layout.margin = {l: 64, r: 24, t: 72, b: 96};
+    renderPlotlyFigure(stage, {
+      data: designs.map((design) => ({
+        type: "scatter",
+        mode: "lines+markers",
+        name: `d = ${formatDesignValue(design.d_spacing_nm)} nm, blaze = ${formatDesignValue(design.blaze_angle_deg)} deg`,
+        x: design.energies_ev || [],
+        y: design.efficiencies || [],
+        marker: {size: 5},
+        line: {width: 1.6},
+        hovertemplate: "%{x:.1f} eV<br>efficiency = %{y:.4f}<extra>%{fullData.name}</extra>",
+      })),
+      layout,
+    });
+  }
+
+  async function poll() {
+    try {
+      const response = await window.fetch(liveUrl, {cache: "no-store"});
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      if ((payload.designs || []).some((design) => (design.energies_ev || []).length)) {
+        draw(payload.designs);
+      }
+    } catch (error) {
+      // A dropped poll is not worth surfacing; the next one will catch up.
+    }
+  }
+
+  poll();
+  window.setInterval(poll, 4000);
 }
 
 function initSurveyFigures(root) {
@@ -922,6 +987,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll("[data-survey-figures]").forEach((root) => {
     initSurveyFigures(root);
+  });
+
+  document.querySelectorAll("[data-energy-scan-figure-root]").forEach((root) => {
+    initEnergyScanFigure(root);
   });
 
   document.querySelectorAll("[data-live-run-monitor]").forEach((runMonitor) => {

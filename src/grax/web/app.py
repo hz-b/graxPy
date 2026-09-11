@@ -822,6 +822,20 @@ def create_app(*, data_dir: str | Path | None = None):
         _design_study_or_404(study_id)
         return jsonify(survey_design_options(_design_store().study_dir(study_id)))
 
+    @app.get("/multilayer-design/<study_id>/energy-scan-points")
+    def multilayer_design_energy_scan_points(study_id: str):
+        """Return each design's solved energies, so the scan plot can follow a live run."""
+
+        manifest = _design_study_or_404(study_id)
+        return jsonify(
+            {
+                "designs": _energy_scan_checkpoint_series(
+                    study_dir=_design_store().study_dir(study_id),
+                    designs=manifest["stages"]["energy_scan"].get("designs") or [],
+                )
+            }
+        )
+
     @app.get("/multilayer-design/<study_id>/stages/<stage>/status")
     def multilayer_design_stage_status(study_id: str, stage: str):
         if stage not in STAGES:
@@ -1708,6 +1722,67 @@ def _relative_to(path: Path, root: Path) -> str:
         return Path(path).name
 
 
+def _energy_scan_checkpoint_path(study_dir: Path, pair: Any) -> Path | None:
+    """Return one design's checkpoint file, or ``None`` if the pair is malformed."""
+
+    try:
+        d_spacing, blaze = float(pair[0]), float(pair[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return (
+        study_dir
+        / "energy_scan"
+        / f"d{d_spacing:.3f}nm_blaze{blaze:.3f}deg"
+        / "checkpoints"
+        / "results.jsonl"
+    )
+
+
+def _energy_scan_checkpoint_series(*, study_dir: Path, designs: list[Any]) -> list[dict[str, Any]]:
+    """Return each design's solved ``(energy, efficiency)`` points, energy-sorted.
+
+    The summary CSV only lands when a design finishes, so the live plot reads the
+    checkpoint instead -- one JSON record per solved energy, written as the sweep
+    goes. Energies come back in completion order, hence the sort.
+    """
+
+    series: list[dict[str, Any]] = []
+    for pair in designs:
+        results = _energy_scan_checkpoint_path(study_dir, pair)
+        if results is None:
+            continue
+        points: list[tuple[float, float]] = []
+        if results.is_file():
+            try:
+                with results.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except ValueError:
+                            continue  # a line still being written
+                        if record.get("status") != "ok":
+                            continue
+                        energy = record.get("energy_ev")
+                        efficiency = record.get("selected_efficiency")
+                        if energy is None or efficiency is None:
+                            continue
+                        points.append((float(energy), float(efficiency)))
+            except OSError:
+                points = []
+        points.sort()
+        series.append(
+            {
+                "d_spacing_nm": float(pair[0]),
+                "blaze_angle_deg": float(pair[1]),
+                "energies_ev": [energy for energy, _ in points],
+                "efficiencies": [efficiency for _, efficiency in points],
+            }
+        )
+    return series
+
+
 def _energy_scan_checkpoint_progress(
     *, study_dir: Path, designs: list[Any], energy_points: int
 ) -> tuple[int, int]:
@@ -1722,18 +1797,8 @@ def _energy_scan_checkpoint_progress(
     total = max(0, int(energy_points)) * len(designs)
     completed = 0
     for pair in designs:
-        try:
-            d_spacing, blaze = float(pair[0]), float(pair[1])
-        except (TypeError, ValueError, IndexError):
-            continue
-        results = (
-            study_dir
-            / "energy_scan"
-            / f"d{d_spacing:.3f}nm_blaze{blaze:.3f}deg"
-            / "checkpoints"
-            / "results.jsonl"
-        )
-        if not results.is_file():
+        results = _energy_scan_checkpoint_path(study_dir, pair)
+        if results is None or not results.is_file():
             continue
         try:
             with results.open("r", encoding="utf-8") as handle:
