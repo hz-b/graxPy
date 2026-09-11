@@ -953,3 +953,63 @@ def test_the_energy_scan_figure_follows_a_running_stage(
             f"/multilayer-design/{study_id}/stages/energy_scan/abort",
             data={"disposition": "save"},
         )
+
+
+def test_the_generated_script_is_one_runnable_file(tmp_path: Path) -> None:
+    """The download is a standalone script whose CONFIG matches the study."""
+
+    import ast
+    import importlib.util
+
+    from grax.web.multilayer_design_studies import build_design_config
+
+    client = _client(tmp_path)
+    study_id = _create_study(client, {"d_points": "4", "coating_label": "Ru/B4C"})
+
+    response = client.get(f"/multilayer-design/{study_id}/script")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/x-python"
+    assert f'filename="{study_id.replace("-", "_")}.py"' in response.headers[
+        "Content-Disposition"
+    ]
+    source = response.get_data(as_text=True)
+    ast.parse(source)  # it is valid Python
+
+    # Parameters first, as named constants, then the stage flags.
+    assert "D_POINTS = 4" in source
+    assert "COATING_LABEL = 'Ru/B4C'" in source
+    assert "SURVEY_SCAN = ThetaSearchScanSettings(" in source
+    assert "ENERGY_SCAN_SCAN = ThetaSearchScanSettings(" in source
+    for flag in ('"--survey"', '"--energy-scan"', '"--best"', '"--pairs"', '"--eval"'):
+        assert flag in source
+    assert 'if __name__ == "__main__":' in source
+    # One file: it imports grax, never the web app or a sibling parameters module.
+    assert "grax.web" not in source
+
+    # Importing it rebuilds the very same config.
+    script = tmp_path / "generated.py"
+    script.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("generated_design_script", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    stored = _store(tmp_path).load(study_id)["config"]
+    expected = build_design_config(script.parent / "results", stored)
+    for field in ("d_points", "coating_label", "survey_scan_settings", "energy_scan_settings"):
+        assert getattr(module.CONFIG, field) == getattr(expected, field)
+
+
+def test_the_script_button_is_on_the_study_page(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+
+    html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+
+    assert f'href="/multilayer-design/{study_id}/script"' in html
+    assert "Download script" in html
+
+
+def test_the_script_route_404s_for_an_unknown_study(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    assert client.get("/multilayer-design/nope/script").status_code == 404

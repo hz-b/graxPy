@@ -44,7 +44,9 @@ from .multilayer_design_studies import (
     build_design_config,
     downstream_stages,
     flatten_config_values,
+    offline_script_filename,
     parse_study_config,
+    render_offline_script,
     resolve_designs,
     stages_invalidated_by,
     study_config_defaults,
@@ -167,6 +169,7 @@ def create_app(*, data_dir: str | Path | None = None):
     try:
         from flask import (
             Flask,
+            Response,
             abort,
             jsonify,
             redirect,
@@ -814,6 +817,18 @@ def create_app(*, data_dir: str | Path | None = None):
             app=app, data_dir=data_dir, study_id=study_id, stage=stage
         )
         return redirect(url_for("multilayer_design_detail", study_id=study_id))
+
+    @app.get("/multilayer-design/<study_id>/script")
+    def multilayer_design_script(study_id: str):
+        """Download this study as one standalone script to run outside the web app."""
+
+        manifest = _design_study_or_404(study_id)
+        filename = offline_script_filename(manifest)
+        return Response(
+            render_offline_script(manifest),
+            mimetype="text/x-python",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/multilayer-design/<study_id>/survey-options")
     def multilayer_design_survey_options(study_id: str):

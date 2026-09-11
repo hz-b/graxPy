@@ -13,6 +13,8 @@
   </div>
   <div class="actions">
     <a class="button primary" href="{{ url_for('multilayer_design_edit', study_id=study.id) }}">Edit parameters</a>
+    <a class="button" href="{{ url_for('multilayer_design_script', study_id=study.id) }}"
+       download>Download script</a>
     <a class="button" href="{{ url_for('multilayer_design_index') }}">All studies</a>
     <form method="post" action="{{ url_for('multilayer_design_delete', study_id=study.id) }}">
       <button class="button danger" type="submit"
