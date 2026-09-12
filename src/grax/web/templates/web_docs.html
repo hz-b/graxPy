@@ -22,6 +22,7 @@
     <a class="button" href="#materials">Materials</a>
     <a class="button" href="#gratings">Gratings</a>
     <a class="button" href="#simulations">Simulations</a>
+    <a class="button" href="#multilayer-design">Multilayer design</a>
     <a class="button" href="#plots">Plots</a>
     <a class="button" href="#export">Export</a>
     <a class="button" href="#modify">Modify later</a>
@@ -98,6 +99,53 @@
     metadata, selected orders, comment, and progress state. The run directory also stores the result CSV files and
     generated preview images for that run.
   </p>
+</section>
+
+<section class="docs-section" id="multilayer-design">
+  <h2>Multilayer grating design</h2>
+  <p>
+    The <a href="{{ url_for('multilayer_design_index') }}">Multilayer design</a> tab sizes a
+    periodic multilayer coating for a blazed grating in two steps that share one configuration.
+    The incident angle is not an input: every cell gets its own theta search, and the angle that
+    search settles on is what the efficiency is reported at.
+  </p>
+  <ol>
+    <li>
+      <strong>Survey.</strong> Scans a d-spacing × blaze-angle grid, running one single-energy
+      multilayer theta search per cell. It produces three plots: optimal blaze angle vs
+      d-spacing, max efficiency vs d-spacing, and the full <code>(d, blaze)</code> efficiency
+      heatmap with the optimal-blaze ridge overlaid.
+    </li>
+    <li>
+      <strong>Energy scan.</strong> Sweeps the designs you pick over an energy range. Choose
+      <em>Scan best</em> (the survey's single highest-efficiency cell), <em>Scan all d</em>
+      (the optimal blaze at every d-spacing), or <em>Choose manually</em> to build a list of
+      <code>(d, blaze)</code> cases from dropdowns. Two or more designs also get an overlay
+      comparison plot.
+    </li>
+  </ol>
+  <p>
+    Tick <em>scan the best design over energy automatically</em> when creating the study to chain
+    step 2 straight off the survey — the plots render as soon as the survey lands and the scan
+    starts underneath them. Either stage runs in the background with a live progress bar and can
+    be aborted at any point — aborting stops the running solves immediately and offers to keep or
+    discard the partial results; what was kept is resumed on the next run. <em>Edit parameters</em>
+    on a study reopens the same form with its stored values: saving a change that a finished stage
+    depended on marks that stage <em>stale</em> rather than deleting anything.
+    <em>Download script</em> writes the study out as a single standalone Python file -- the
+    parameters as named constants, then both stages behind <code>--survey</code> /
+    <code>--energy-scan</code> flags (plus <code>--best</code>, <code>--pairs</code> and
+    <code>--eval</code>) -- to run on a cluster or another machine with only grax installed.
+    Re-running
+    the survey marks a finished energy scan <em>stale</em> without deleting it.
+  </p>
+  <div class="list compact">
+    <div class="row"><strong><code>multilayer_designs/&lt;id&gt;/study.json</code></strong><span>Config and per-stage status.</span></div>
+    <div class="row"><strong><code>survey/survey.csv</code></strong><span>One row per surveyed cell.</span></div>
+    <div class="row"><strong><code>survey/runs/d&lt;d&gt;nm/blaze&lt;b&gt;deg/</code></strong><span>Each theta search's full output.</span></div>
+    <div class="row"><strong><code>plots/</code></strong><span>Headline survey plots and the titled energy-scan plots.</span></div>
+    <div class="row"><strong><code>energy_scan/</code></strong><span>Per-design sweep artifacts.</span></div>
+  </div>
 </section>
 
 <section class="docs-section" id="plots">

@@ -1184,7 +1184,7 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
     totals: list[int | None] = []
 
     class DummyProgress:
-        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+        def __init__(self, total: int | None, desc: str, unit: str, **kwargs: object) -> None:
             self.total = total
             self.desc = desc
             self.unit = unit
@@ -1269,7 +1269,7 @@ def test_batch_runner_infers_progress_total_for_generator_cases(monkeypatch: pyt
     totals: list[int | None] = []
 
     class DummyProgress:
-        def __init__(self, total: int | None, desc: str, unit: str) -> None:
+        def __init__(self, total: int | None, desc: str, unit: str, **kwargs: object) -> None:
             del desc, unit
             totals.append(total)
 
@@ -1638,13 +1638,15 @@ def test_batch_runner_closes_live_plot_after_run_cases(monkeypatch: pytest.Monke
     monkeypatch.setattr(simulation_batch_module, "_refresh_interactive_figure", lambda figure: None)
     runner = BatchSimulationRunner(live_plot=True, live_plot_order_count=1)
     closed_figures = []
-    original_close = simulation_batch_module.plt.close
+    import matplotlib.pyplot as pyplot_module
+
+    original_close = pyplot_module.close
 
     def close_spy(figure: object) -> None:
         closed_figures.append(figure)
         original_close(figure)
 
-    monkeypatch.setattr(simulation_batch_module.plt, "close", close_spy)
+    monkeypatch.setattr(pyplot_module, "close", close_spy)
 
     results = list(
         runner.run_cases(

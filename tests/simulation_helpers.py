@@ -36,7 +36,25 @@ EXAMPLE_SCRIPT_PATHS = [
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "deep_grating_limits" / "deep_grating_limits.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "continuous_vs_staircase" / "continuous_vs_staircase.py",
     Path(__file__).resolve().parents[1] / "examples" / "simulation" / "solver_runtime" / "solver_runtime.py",
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "simulation"
+    / "neviere_grazing_stability"
+    / "neviere_grazing_stability.py",
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "simulation"
+    / "multilayer_grating_design"
+    / "0_run_survey.py",
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "simulation"
+    / "multilayer_grating_design"
+    / "1_run_energy_scan.py",
 ]
+MULTILAYER_OPT_EXAMPLE_ROOT = (
+    Path(__file__).resolve().parents[1] / "examples" / "simulation" / "multilayer_grating_design"
+)
 OPTIMIZER_EXAMPLE_ROOT = (
     Path(__file__).resolve().parents[1] / "examples" / "optimizer" / "optimizer_laminar"
 )

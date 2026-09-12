@@ -137,6 +137,15 @@ p {
   gap: 28px;
 }
 
+/* Peer panels of equal width -- unlike `.grid.two`, which is a main pane plus a
+   narrower sidebar. At most two per row (a third 45% track cannot fit), and a
+   lone item takes the whole row instead of sitting in a half-width column. */
+.grid.halves {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(45%, 1fr));
+  gap: 28px;
+}
+
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
@@ -233,6 +242,25 @@ legend {
   font-weight: 700;
 }
 
+/* A named sub-group inside a fieldset: heading and fields each claim a full
+   row of the fieldset grid, so the group reads as one line. */
+.field-row-label {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.field-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+}
+
 .plot-run {
   grid-template-columns: 1fr;
 }
@@ -297,6 +325,10 @@ select {
 .plot-stage-panel .preview {
   width: 100%;
   margin-bottom: 12px;
+}
+
+.plotly-stage.is-half {
+  min-height: 360px;
 }
 
 .plotly-stage {
@@ -422,6 +454,54 @@ select {
   font-size: 0.85rem;
 }
 
+.stage-card {
+  margin-bottom: 24px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fcfcfc;
+}
+
+.stage-card .form {
+  margin-top: 12px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: #fff;
+}
+
+.status-pill.is-completed {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.status-pill.is-running,
+.status-pill.is-queued,
+.status-pill.is-aborting {
+  border-color: #b5860b;
+  color: #8a6508;
+}
+
+.status-pill.is-stale {
+  border-color: #b5860b;
+  color: #8a6508;
+  background: #fff8e6;
+}
+
+.status-pill.is-failed,
+.status-pill.is-aborted {
+  border-color: #b42318;
+  color: #b42318;
+}
+
 .export-dialog {
   width: min(820px, 92vw);
   border: 1px solid var(--line);
@@ -492,7 +572,8 @@ td {
     flex-direction: column;
   }
 
-  .grid.two {
+  .grid.two,
+  .grid.halves {
     grid-template-columns: 1fr;
   }
 

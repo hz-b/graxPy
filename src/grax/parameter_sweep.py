@@ -7,11 +7,14 @@ from collections.abc import Sequence
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import FuncFormatter
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
 
 from .gratings import BaseGrating
 from .simulation import GratingSimulation
@@ -211,6 +214,7 @@ def run_parameter_study(
         total=progress_total,
         desc="Parameter study",
         disable=not show_progress,
+        dynamic_ncols=True,
     )
 
     for energy_ev in energies:
@@ -317,6 +321,7 @@ def plot_parameter_study(
         >>> result = run_parameter_study(grating, [500, 600, 700], 5.0)
         >>> plot_parameter_study(result, title="Convergence Study")
     """
+    import matplotlib.pyplot as plt
 
     parameter_order = ["fourier_orders", "x_resolution_nm", "z_resolution_nm"]
     column_titles = {
@@ -599,6 +604,8 @@ def _get_log_formatter(x_min: float, x_max: float) -> FuncFormatter:
         Values >= 0.01: Show with three decimals
         Values < 0.01: Show with four decimals
     """
+
+    from matplotlib.ticker import FuncFormatter
 
     def formatter(x: float, _: int) -> str:
         if x < min(x_min, x_max) or x > max(x_min, x_max):

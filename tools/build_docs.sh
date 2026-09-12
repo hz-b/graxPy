@@ -169,6 +169,12 @@ if [[ "${SKIP_IMAGE_SYNC}" == false ]]; then
       "${SIM_IMAGE_DIR}/multilayer_theta_search_workflow.png"
     cp "${PROJECT_ROOT}/examples/simulation/parameter_study/results/parameter_study_grid_rcwa.png" \
       "${SIM_IMAGE_DIR}/parameter_study_grid.png"
+    if [[ -f "${PROJECT_ROOT}/examples/simulation/multilayer_optimization_rub4c/results/plot/0_d_spacing_study.png" ]]; then
+      cp "${PROJECT_ROOT}/examples/simulation/multilayer_optimization_rub4c/results/plot/0_d_spacing_study.png" \
+        "${SIM_IMAGE_DIR}/multilayer_optimization_rub4c_d_spacing.png"
+    else
+      echo "Warning: multilayer optimization image not found; run examples/simulation/multilayer_optimization_rub4c workflow first."
+    fi
     cp "${PROJECT_ROOT}/examples/optimizer/optimizer_laminar/results/laminar_fit/best_fit.png" \
       "${OPTIMIZER_IMAGE_DIR}/best_fit.png"
     cp "${PROJECT_ROOT}/examples/optimizer/optimizer_laminar/results/laminar_fit/optimization_loss_history.png" \

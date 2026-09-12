@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Abort {{ stage_label }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Abort {{ stage_label }}</h1>
+    <p>{{ study.display_name }} · {{ study.id }}</p>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    Aborting stops the running solves immediately. Whatever was already solved stays in
+    the stage checkpoints, so re-running the stage resumes from there rather than
+    starting over.
+  </p>
+</section>
+
+<form class="form" method="post"
+      action="{{ url_for('multilayer_design_stage_abort', study_id=study.id, stage=stage) }}">
+  <div class="list">
+    <div class="row">
+      <div>
+        <strong>Keep partial results</strong>
+        <p class="subtle">
+          {% if stage == "survey" %}
+            Stop here and keep the cells already solved; the plots and the optimal-blaze
+            curve are built from them.
+          {% else %}
+            Stop here and keep the designs already scanned.
+          {% endif %}
+        </p>
+      </div>
+      <button class="button primary" type="submit" name="disposition" value="save">Keep partial</button>
+    </div>
+    <div class="row">
+      <div>
+        <strong>Discard this stage</strong>
+        <p class="subtle">Stop and delete this stage's results. Downstream stages are marked stale.</p>
+      </div>
+      <button class="button danger" type="submit" name="disposition" value="discard">Discard stage</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

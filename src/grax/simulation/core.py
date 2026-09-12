@@ -13,11 +13,11 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext as _nullcontext
 from copy import copy
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 
+from .._threads import single_threaded_blas
 from ..gratings import BaseGrating
 from ..solvers import res0, res1, res2, res2_dm
 from ..solvers.neviere import NeviereOptions, build_grating_epsilon_sampler, coerce_neviere_options
@@ -29,6 +29,9 @@ from .models import (
     SimulationResult,
     SingleSimulationResult,
 )
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,8 @@ def _simulation_api():
 def _supports_interactive_pause() -> bool:
     """Return whether the active Matplotlib backend supports interactive pause."""
 
+    import matplotlib.pyplot as plt
+
     return "agg" not in plt.get_backend().lower()
 
 
@@ -133,6 +138,8 @@ def _refresh_interactive_figure(figure: plt.Figure, *, pause_seconds: float = 0.
     forces the window to the front (orderFront) each time, which prevents
     the user from minimizing it or sending it behind another window.
     """
+
+    import matplotlib.pyplot as plt
 
     if not _supports_interactive_pause():
         figure.canvas.draw_idle()
@@ -275,15 +282,21 @@ def _run_single_realization(
                 orders=aa.orders,
                 fourier_backend=backend,
             )
-        ef = res2_dm(
-            aa,
-            profile,
-            parm,
-            roughness_sigma_nm=effective_roughness_sigma_nm,
-            options=solver_options,
-            epsilon_sampler=epsilon_sampler,
-            _profiler=_profiler,
-        )
+        # The differential method makes thousands of tiny dense solves per solve;
+        # a threaded BLAS spends its time in dispatch and some OpenBLAS builds
+        # crash under that pattern. Pin to one thread for the integration. In a
+        # spawned batch worker the environment already does this, so this is a
+        # no-op there.
+        with single_threaded_blas():
+            ef = res2_dm(
+                aa,
+                profile,
+                parm,
+                roughness_sigma_nm=effective_roughness_sigma_nm,
+                options=solver_options,
+                epsilon_sampler=epsilon_sampler,
+                _profiler=_profiler,
+            )
     else:
         ef = res2(
             aa,
@@ -686,6 +699,8 @@ def plot_order_subset(
         title: Plot title.
     """
 
+    import matplotlib.pyplot as plt
+
     collected = sorted(
         [result for result in _iter_case_results(results) if result.status == "ok"],
         key=lambda result: float(result.energy_ev),
@@ -872,6 +887,8 @@ class GratingSimulation:
         live_plot: bool | None = None,
     ) -> None:
         """Plot simulation and experimental efficiency curves."""
+
+        import matplotlib.pyplot as plt
 
         simulation_result = result if isinstance(result, SimulationResult) else result.to_simulation_result()
         live_plot_enabled = self.live_plot if live_plot is None else live_plot

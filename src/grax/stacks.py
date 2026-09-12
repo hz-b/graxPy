@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-
 from .materials import material_label
 
 
@@ -180,6 +178,8 @@ class BaseStack(ABC):
             max_layers: Optional maximum number of layers to draw. When provided,
                 the uppermost ``max_layers`` are shown.
         """
+
+        import matplotlib.pyplot as plt
 
         layers_top_down, summary_lines, repeat_unit = self._schematic_layers_and_summary(
             max_layers=max_layers

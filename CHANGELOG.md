@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.9 - 2026-09-12
+
+- Added a two-step multilayer-grating design workflow with survey and energy-scan stages, resumable evaluation from saved artifacts, progress callbacks, cooperative cancellation, and a runnable Ru/B4C example. This replaces the earlier three-stage optimization workflow.
+- Added a **Multilayer design** tab to the web app with survey and energy-scan controls, live progress and plots, Plotly interactivity, heatmap-based design selection, background execution, cancellation, reset, parameter editing, and standalone script download.
+- Multilayer survey and energy-scan plots now update while runs are in progress, and completed results appear automatically. Multiple energy scans can be compared in one overlay plot.
+- Multilayer studies can reuse settings from the latest study. Editing parameters marks affected completed stages as stale while preserving their artifacts.
+- Improved the multilayer-design tutorial with a quick start, real example output, guidance for smaller exploratory runs, and cancellation documentation.
+- Fixed a native Nevière/OpenBLAS crash by limiting BLAS threads during Nevière solves and validating non-finite cascade results before they reach LAPACK. Added a grazing-angle stability example.
+- Progress bars now adapt to terminal width. `import grax` no longer imports `matplotlib.pyplot`, and the developer solver benchmark has moved to `tools/solver_benchmark/`.
+- Simplified rough-layer grid construction and removed unused multiprocessing helpers without changing numerical behavior.
+
 ## 0.4.8 - 2026-09-03
 
 - grax log records no longer leak to the terminal when the host application has not called `grax.setup_logging`. A `NullHandler` is attached to the `grax` logger at import, so Python's `logging.lastResort` handler no longer prints `WARNING`s to stderr -- most visibly from the spawned batch workers, which re-import grax but never configure logging. `setup_logging` now also sets `propagate = False` on the `grax` logger and refuses to attach a second file handler for the same path on a repeat call.

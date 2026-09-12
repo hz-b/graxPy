@@ -61,6 +61,15 @@ from .simulation import (
     run_simulation,
     write_all_orders_csv,
 )
+from .multilayer_reflectivity import MultilayerReflectivity
+from .multilayer_design import (
+    EnergyScanResult,
+    MultilayerDesignConfig,
+    MultilayerGratingDesigner,
+    StageProgress,
+    SurveyResult,
+    ThetaSearchScanSettings,
+)
 from .slag import SlagConfig, default_example_slag_config, run_example_slag, simulate_single_energy
 
 __all__ = [
@@ -72,9 +81,13 @@ __all__ = [
     "BlazedGrating",
     "CaseExecutionResult",
     "CustomStack",
+    "EnergyScanResult",
     "LayerSpec",
     "MaterialSpec",
     "LaminarGrating",
+    "MultilayerDesignConfig",
+    "MultilayerGratingDesigner",
+    "MultilayerReflectivity",
     "MultilayerThetaSearchSweepResult",
     "MultilayerStack",
     "NeviereOptions",
@@ -86,7 +99,10 @@ __all__ = [
     "SingleLayerStack",
     "SingleSimulationResult",
     "SlagConfig",
+    "StageProgress",
+    "SurveyResult",
     "ThetaSearchDiagnostics",
+    "ThetaSearchScanSettings",
     "assemble_custom_stack",
     "available_material_symbols",
     "build_multilayer_stack",

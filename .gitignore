@@ -6,6 +6,7 @@ examples/reference_baselines/**/results/latest.csv
 .codex
 uv.lock
 examples/simulation/multilayer_theta_search/results/theta_scans/*
+examples/simulation/multilayer_grating_design/results/
 reticolo
 *.log
 .token
@@ -16,6 +17,7 @@ context
 superpowers
 .grax_web
 bugs.md 
+pyproject.toml-E
 
 # --- Standard Python ignores ---
 # Byte-compiled / optimized / DLL files
