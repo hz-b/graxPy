@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% from "_multilayer_design_macros.html" import render_field, material_datalist %}
+{% set editing = study is defined %}
+{% block title %}{% if editing %}Edit {{ study.display_name }}{% else %}New multilayer design{% endif %}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    {% if editing %}
+      <h1>Edit parameters</h1>
+      <p>
+        {{ study.display_name }} · {{ study.id }}. Changing anything a finished stage
+        used marks that stage <em>stale</em> — its results stay on disk until you
+        re-run or reset it.
+      </p>
+    {% else %}
+      <h1>New multilayer design</h1>
+      <p>
+        Step 1 surveys a d-spacing × blaze-angle grid at one energy; step 2 scans the
+        designs you pick from it over an energy range.
+      </p>
+      {% if seeded_from %}
+        <p class="subtle">
+          Pre-filled from your most recent study,
+          <a href="{{ url_for('multilayer_design_detail', study_id=seeded_from.id) }}">{{ seeded_from.display_name }}</a>.
+        </p>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>
+
+{{ material_datalist(materials, material_density_map) }}
+
+<form class="form" method="post"
+      action="{% if editing %}{{ url_for('multilayer_design_update', study_id=study.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}"
+      data-survey-cell-counter data-cell-warning-threshold="{{ cell_warning_threshold }}">
+  <fieldset>
+    <legend>Study</legend>
+    <label>Name
+      <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"
+             value="{{ study.display_name if editing else '' }}">
+    </label>
+    <label class="inline-check">
+      <input type="checkbox" name="auto_energy_scan" value="1"
+             {% if editing and study.auto_energy_scan == "best" %}checked{% endif %}>
+      <span>When the survey finishes, scan the best design over energy automatically</span>
+    </label>
+  </fieldset>
+
+  {% for section, rows in basic_sections %}
+    <fieldset>
+      <legend>{{ section }}</legend>
+      {% for row_label, row_specs in rows %}
+        {% if row_label %}
+          <p class="field-row-label">{{ row_label }}</p>
+          <div class="field-row">
+            {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+          </div>
+        {% else %}
+          {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+        {% endif %}
+      {% endfor %}
+      {% if section.startswith("Survey - target") %}
+        <p class="notice" data-survey-cell-readout>This survey will run 24 theta searches.</p>
+      {% endif %}
+    </fieldset>
+  {% endfor %}
+
+  <details>
+    <summary>Advanced</summary>
+    {% for section, rows in advanced_sections %}
+      <fieldset>
+        <legend>{{ section }}</legend>
+        {% for row_label, row_specs in rows %}
+        {% if row_label %}
+          <p class="field-row-label">{{ row_label }}</p>
+          <div class="field-row">
+            {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+          </div>
+        {% else %}
+          {% for spec in row_specs %}{{ render_field(spec, defaults) }}{% endfor %}
+        {% endif %}
+      {% endfor %}
+      </fieldset>
+    {% endfor %}
+  </details>
+
+  <div class="actions">
+    {% if editing %}
+      <button class="button primary" type="submit">Save parameters</button>
+      <a class="button" href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">Cancel</a>
+    {% else %}
+      <button class="button primary" type="submit">Create study</button>
+      <a class="button" href="{{ url_for('multilayer_design_index') }}">Cancel</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

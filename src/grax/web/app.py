@@ -36,6 +36,24 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime
 from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
 from grax.simulation.core import normalize_polarization
 
+from .multilayer_design_studies import (
+    STAGE_LABELS,
+    STAGES,
+    SURVEY_CELL_WARNING_THRESHOLD,
+    MultilayerDesignStudyStore,
+    build_design_config,
+    downstream_stages,
+    flatten_config_values,
+    offline_script_filename,
+    parse_study_config,
+    render_offline_script,
+    resolve_designs,
+    stages_invalidated_by,
+    study_config_defaults,
+    study_form_sections,
+    survey_cell_count,
+    survey_design_options,
+)
 from .persistence import GratingStore, build_grating_from_spec
 from .runs import RunStore
 
@@ -121,6 +139,10 @@ class ActiveRunState:
     stop_event: threading.Event = field(default_factory=threading.Event)
     worker_thread: threading.Thread | None = None
     simulation_pids: set[int] = field(default_factory=set)
+    # Points already on disk when the run started (a resumed checkpoint). They
+    # count towards progress but not towards this run's rate, so the ETA has to
+    # subtract them.
+    resumed_points: int = 0
 
 
 def _active_runs(app: Any) -> dict[str, ActiveRunState]:
@@ -147,6 +169,7 @@ def create_app(*, data_dir: str | Path | None = None):
     try:
         from flask import (
             Flask,
+            Response,
             abort,
             jsonify,
             redirect,
@@ -604,6 +627,281 @@ def create_app(*, data_dir: str | Path | None = None):
             shutil.rmtree(plot_dir, ignore_errors=True)
             return redirect(url_for("plot_index"))
         return render_template("plot_delete.html", plot=manifest)
+
+    # ------------------------------------------------------------------ #
+    # Multilayer-design studies                                          #
+    # ------------------------------------------------------------------ #
+    def _design_store() -> MultilayerDesignStudyStore:
+        return MultilayerDesignStudyStore(app.config["GRAx_DATA_DIR"] / "multilayer_designs")
+
+    def _design_study_or_404(study_id: str) -> dict[str, Any]:
+        try:
+            return _design_store().load(study_id)
+        except (ValueError, FileNotFoundError, OSError):
+            abort(404)
+
+    def _design_view_model(manifest: dict[str, Any]) -> dict[str, Any]:
+        store = _design_store()
+        study_dir = store.study_dir(str(manifest["id"]))
+        options = survey_design_options(study_dir)
+        stages = []
+        for stage in STAGES:
+            state = dict(manifest["stages"][stage])
+            state["stage"] = stage
+            state["label"] = STAGE_LABELS[stage]
+            stages.append(state)
+        config = manifest["config"]
+
+        def _material_name(key: str) -> str:
+            # Materials are stored as [name, density] pairs.
+            value = config.get(key)
+            return str(value[0]) if isinstance(value, list) and value else ""
+
+        plot_meta = {
+            "coating_label": (
+                config.get("coating_label")
+                or f"{_material_name('material_a')}/{_material_name('material_b')}"
+            ),
+            "target_energy_ev": config.get("target_energy_ev"),
+            "diffraction_order": config.get("diffraction_order"),
+        }
+        return {
+            "study": manifest,
+            "stages": stages,
+            "design_options": options,
+            "design_options_json": json.dumps(options),
+            "survey_plot_meta_json": json.dumps(plot_meta),
+            # Interactive survey plots need plotly.js inlined; without plotly the
+            # template falls back to the PNGs the library already wrote.
+            "plotly_bundle": _plotly_bundle_text() if get_plotlyjs is not None else None,
+            "survey_cells": survey_cell_count(manifest["config"]),
+        }
+
+    @app.get("/multilayer-design")
+    def multilayer_design_index():
+        return render_template(
+            "multilayer_design_index.html",
+            studies=_design_store().list(),
+            stage_labels=STAGE_LABELS,
+            stages=STAGES,
+        )
+
+    @app.post("/multilayer-design")
+    def multilayer_design_create():
+        if request.form.get("action") == "delete":
+            _design_store().delete_many(request.form.getlist("delete_study_id"))
+            return redirect(url_for("multilayer_design_index"))
+        display_name = request.form.get("display_name", "").strip() or "Multilayer design"
+        try:
+            config = parse_study_config(request.form)
+            build_design_config(
+                app.config["GRAx_DATA_DIR"] / "multilayer_designs" / "_validate", config
+            )
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
+        study = _design_store().create(
+            display_name=display_name,
+            config=config,
+            auto_energy_scan="best" if request.form.get("auto_energy_scan") else "none",
+        )
+        return redirect(url_for("multilayer_design_detail", study_id=study["id"]))
+
+    @app.get("/multilayer-design/new")
+    def multilayer_design_new():
+        # Seed from the newest study: the settings someone last tuned -- the
+        # advanced scan parameters above all -- are a far better starting point
+        # than the dataclass defaults.
+        recent = _design_store().list()
+        seed = recent[0] if recent else None
+        return render_template(
+            "multilayer_design_form.html",
+            seeded_from=seed,
+            defaults=flatten_config_values(
+                seed["config"] if seed else study_config_defaults()
+            ),
+            basic_sections=study_form_sections(advanced=False),
+            advanced_sections=study_form_sections(advanced=True),
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
+        )
+
+    @app.get("/multilayer-design/<study_id>/edit")
+    def multilayer_design_edit(study_id: str):
+        manifest = _design_study_or_404(study_id)
+        return render_template(
+            "multilayer_design_form.html",
+            study=manifest,
+            defaults=flatten_config_values(manifest["config"]),
+            basic_sections=study_form_sections(advanced=False),
+            advanced_sections=study_form_sections(advanced=True),
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
+        )
+
+    @app.post("/multilayer-design/<study_id>/edit")
+    def multilayer_design_update(study_id: str):
+        store = _design_store()
+        manifest = _design_study_or_404(study_id)
+        if any(
+            _is_run_active(app, _multilayer_design_job_key(study_id, stage)) for stage in STAGES
+        ):
+            abort(409, "Stop the running stage before changing the parameters.")
+        try:
+            config = parse_study_config(request.form, base=manifest["config"])
+            build_design_config(store.study_dir(study_id), config)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
+        # Results computed under the old parameters are kept but flagged, so it
+        # is obvious which of them the edit left behind.
+        for stage in stages_invalidated_by(manifest["config"], config):
+            if manifest["stages"][stage]["status"] in {"completed", "aborted"}:
+                manifest["stages"][stage]["status"] = "stale"
+        manifest["config"] = config
+        manifest["display_name"] = (
+            request.form.get("display_name", "").strip() or manifest["display_name"]
+        )
+        manifest["auto_energy_scan"] = (
+            "best" if request.form.get("auto_energy_scan") else "none"
+        )
+        store.save(manifest)
+        return redirect(url_for("multilayer_design_detail", study_id=study_id))
+
+    @app.get("/multilayer-design/<study_id>")
+    def multilayer_design_detail(study_id: str):
+        manifest = _design_study_or_404(study_id)
+        return render_template(
+            "multilayer_design_detail.html",
+            **_design_view_model(manifest),
+        )
+
+    @app.post("/multilayer-design/<study_id>/delete")
+    def multilayer_design_delete(study_id: str):
+        _design_store().delete_many([study_id])
+        return redirect(url_for("multilayer_design_index"))
+
+    @app.post("/multilayer-design/<study_id>/stages/<stage>/run")
+    def multilayer_design_run_stage(study_id: str, stage: str):
+        if stage not in STAGES:
+            abort(404)
+        store = _design_store()
+        manifest = _design_study_or_404(study_id)
+        data_dir = app.config["GRAx_DATA_DIR"]
+        if any(
+            _is_run_active(app, _multilayer_design_job_key(study_id, other)) for other in STAGES
+        ):
+            abort(409, "Another stage of this study is still running.")
+
+        designs: list[list[float]] = []
+        if stage == "energy_scan":
+            if manifest["stages"]["survey"]["status"] != "completed":
+                abort(409, "Run the survey before scanning designs over energy.")
+            try:
+                designs = resolve_designs(
+                    request.form.get("mode", "best"),
+                    survey_design_options(store.study_dir(study_id)),
+                    request.form.getlist("design"),
+                )
+            except ValueError as error:
+                abort(400, str(error))
+
+        manifest["stages"][stage]["status"] = "queued"
+        manifest["stages"][stage]["error_text"] = ""
+        manifest["stages"][stage]["designs"] = designs
+        for later in downstream_stages(stage):
+            if manifest["stages"][later]["status"] in {"completed", "aborted"}:
+                manifest["stages"][later]["status"] = "stale"
+        store.save(manifest)
+        _start_multilayer_design_worker(
+            app=app, data_dir=data_dir, study_id=study_id, stage=stage
+        )
+        return redirect(url_for("multilayer_design_detail", study_id=study_id))
+
+    @app.get("/multilayer-design/<study_id>/script")
+    def multilayer_design_script(study_id: str):
+        """Download this study as one standalone script to run outside the web app."""
+
+        manifest = _design_study_or_404(study_id)
+        filename = offline_script_filename(manifest)
+        return Response(
+            render_offline_script(manifest),
+            mimetype="text/x-python",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.get("/multilayer-design/<study_id>/survey-options")
+    def multilayer_design_survey_options(study_id: str):
+        """Return the survey grid as it stands, so the plots can follow a live run."""
+
+        _design_study_or_404(study_id)
+        return jsonify(survey_design_options(_design_store().study_dir(study_id)))
+
+    @app.get("/multilayer-design/<study_id>/energy-scan-points")
+    def multilayer_design_energy_scan_points(study_id: str):
+        """Return each design's solved energies, so the scan plot can follow a live run."""
+
+        manifest = _design_study_or_404(study_id)
+        return jsonify(
+            {
+                "designs": _energy_scan_checkpoint_series(
+                    study_dir=_design_store().study_dir(study_id),
+                    designs=manifest["stages"]["energy_scan"].get("designs") or [],
+                )
+            }
+        )
+
+    @app.get("/multilayer-design/<study_id>/stages/<stage>/status")
+    def multilayer_design_stage_status(study_id: str, stage: str):
+        if stage not in STAGES:
+            abort(404)
+        _design_study_or_404(study_id)
+        return jsonify(
+            _multilayer_design_stage_status_payload(
+                app=app,
+                data_dir=app.config["GRAx_DATA_DIR"],
+                study_id=study_id,
+                stage=stage,
+            )
+        )
+
+    @app.get("/multilayer-design/<study_id>/stages/<stage>/abort")
+    def multilayer_design_stage_abort_dialog(study_id: str, stage: str):
+        if stage not in STAGES:
+            abort(404)
+        manifest = _design_study_or_404(study_id)
+        return render_template(
+            "multilayer_design_stage_abort.html",
+            study=manifest,
+            stage=stage,
+            stage_label=STAGE_LABELS[stage],
+        )
+
+    @app.post("/multilayer-design/<study_id>/stages/<stage>/abort")
+    def multilayer_design_stage_abort(study_id: str, stage: str):
+        if stage not in STAGES:
+            abort(404)
+        _design_study_or_404(study_id)
+        _abort_multilayer_design_stage(
+            app=app,
+            store=_design_store(),
+            study_id=study_id,
+            stage=stage,
+            discard=request.form.get("disposition") == "discard",
+        )
+        return redirect(url_for("multilayer_design_detail", study_id=study_id))
+
+    @app.post("/multilayer-design/<study_id>/stages/<stage>/reset")
+    def multilayer_design_reset_stage(study_id: str, stage: str):
+        if stage not in STAGES:
+            abort(404)
+        _design_study_or_404(study_id)
+        if _is_run_active(app, _multilayer_design_job_key(study_id, stage)):
+            abort(409, "This stage is still running.")
+        _reset_multilayer_design_stage(
+            store=_design_store(), study_id=study_id, stage=stage
+        )
+        return redirect(url_for("multilayer_design_detail", study_id=study_id))
 
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
@@ -1223,6 +1521,498 @@ def _execute_run_job(
         _finish_active_run(app, run_id, state="failed", error_text=str(error))
     finally:
         release_workers(run_id)
+
+
+# --------------------------------------------------------------------------- #
+# Multilayer-design studies                                                    #
+# --------------------------------------------------------------------------- #
+def _multilayer_design_job_key(study_id: str, stage: str) -> str:
+    """Registry key for one running design-study stage."""
+
+    return f"mldesign:{study_id}:{stage}"
+
+
+def _multilayer_design_stage_total(manifest: dict[str, Any], stage: str) -> int:
+    """Best-effort count of scan items for one stage, for the progress bar."""
+
+    if stage == "survey":
+        return survey_cell_count(manifest["config"])
+    return len(manifest["stages"][stage].get("designs") or [])
+
+
+def _start_multilayer_design_worker(
+    *, app: Any, data_dir: Path, study_id: str, stage: str
+) -> None:
+    """Register an active-run entry for a design stage and start its worker thread."""
+
+    store = MultilayerDesignStudyStore(data_dir / "multilayer_designs")
+    manifest = store.load(study_id)
+
+    key = _multilayer_design_job_key(study_id, stage)
+    active_state = ActiveRunState(
+        run_id=key,
+        workflow=f"multilayer_design_{stage}",
+        total_points=_multilayer_design_stage_total(manifest, stage),
+        worker_mode="auto",
+        requested_workers=None,
+        resolved_workers=None,
+    )
+    if stage == "energy_scan":
+        active_state.resumed_points = _energy_scan_checkpoint_progress(
+            study_dir=store.study_dir(study_id),
+            designs=manifest["stages"][stage].get("designs") or [],
+            energy_points=int(manifest["config"].get("energy_scan_points") or 0),
+        )[0]
+    with _active_runs_lock(app):
+        _active_runs(app)[key] = active_state
+
+    worker = threading.Thread(
+        target=_execute_multilayer_design_job,
+        kwargs={"app": app, "data_dir": data_dir, "study_id": study_id, "stage": stage},
+        daemon=True,
+        name=f"grax-mldesign-{study_id}-{stage}",
+    )
+    active_state.worker_thread = worker
+    worker.start()
+
+
+def _execute_multilayer_design_job(
+    *, app: Any, data_dir: Path, study_id: str, stage: str
+) -> None:
+    """Run one design-study stage in a background thread and record the outcome."""
+
+    from grax.multilayer_design import MultilayerGratingDesigner
+
+    from .resource_manager import allocate_workers, release_workers
+
+    key = _multilayer_design_job_key(study_id, stage)
+    store = MultilayerDesignStudyStore(data_dir / "multilayer_designs")
+
+    def _set_stage(**updates: Any) -> None:
+        manifest = store.load(study_id)
+        manifest["stages"][stage].update(updates)
+        store.save(manifest)
+
+    allocate_workers(key)
+    _update_active_run(app, key, state="running", started=True)
+    _set_stage(status="running", error_text="", aborted=False)
+    auto_chain = False
+    with _active_runs_lock(app):
+        entry = _active_runs(app).get(key)
+    stop_event = entry.stop_event if entry is not None else threading.Event()
+    try:
+        manifest = store.load(study_id)
+        config = build_design_config(store.study_dir(study_id), manifest["config"])
+        designer = MultilayerGratingDesigner(config)
+
+        def _progress(report: Any) -> None:
+            _update_active_run(app, key, completed_points=report.completed)
+            with _active_runs_lock(app):
+                entry = _active_runs(app).get(key)
+                if entry is not None and report.total:
+                    entry.total_points = report.total
+
+        def _keep_going() -> bool:
+            with _active_runs_lock(app):
+                entry = _active_runs(app).get(key)
+                return entry is None or not entry.stop_event.is_set()
+
+        def _worker_pids_changed(worker_pids: set[int]) -> None:
+            # The live pool size is the only honest worker count -- the config
+            # only ever says "auto".
+            _update_active_run(
+                app,
+                key,
+                simulation_pids=worker_pids,
+                resolved_workers=len(worker_pids) or None,
+            )
+
+        if stage == "survey":
+            result = designer.run_survey(
+                progress_callback=_progress,
+                should_continue=_keep_going,
+                stop_event=stop_event,
+                on_worker_pids_changed=_worker_pids_changed,
+            )
+            aborted = bool(result.aborted)
+            artifacts = {
+                "optimal_blaze_plot": _relative_to(result.plot_path, store.study_dir(study_id)),
+                "max_efficiency_plot": _relative_to(
+                    result.efficiency_plot_path, store.study_dir(study_id)
+                ),
+                "heatmap_plot": _relative_to(
+                    result.heatmap_plot_path, store.study_dir(study_id)
+                ),
+                "survey_csv": _relative_to(
+                    result.combined_csv_path, store.study_dir(study_id)
+                ),
+            }
+            auto_chain = (
+                not aborted
+                and manifest.get("auto_energy_scan") == "best"
+                and manifest["stages"]["energy_scan"]["status"] != "running"
+            )
+        else:
+            designs = [tuple(pair) for pair in manifest["stages"][stage].get("designs") or []]
+            scans = designer.run_energy_scan(
+                designs,
+                progress_callback=_progress,
+                should_continue=_keep_going,
+                stop_event=stop_event,
+                on_worker_pids_changed=_worker_pids_changed,
+            )
+            aborted = len(scans) < len(designs)
+            artifacts = {
+                "designs": [
+                    {
+                        "d_spacing_nm": scan.d_spacing_nm,
+                        "blaze_angle_deg": scan.blaze_angle_deg,
+                        "plot": _relative_to(scan.titled_plot_path, store.study_dir(study_id)),
+                        "summary_csv": _relative_to(
+                            scan.summary_csv_path, store.study_dir(study_id)
+                        ),
+                    }
+                    for scan in scans
+                ],
+            }
+            if len(scans) >= 2:
+                artifacts["overlay_plot"] = _relative_to(
+                    designer.plot_energy_scan_overlay(scans), store.study_dir(study_id)
+                )
+
+        _set_stage(
+            status="aborted" if aborted else "completed",
+            ran_at=datetime.now().isoformat(timespec="seconds"),
+            aborted=aborted,
+            artifacts=artifacts,
+            error_text="",
+        )
+        _finish_active_run(app, key, state="aborted" if aborted else "completed")
+    except Exception as error:  # noqa: BLE001 - surfaced to the study page
+        if stop_event.is_set():
+            # Killing the workers raises out of the stage; that is an abort, not
+            # a failure, and the user does not need the traceback for it.
+            _set_stage(
+                status="aborted",
+                ran_at=datetime.now().isoformat(timespec="seconds"),
+                aborted=True,
+                error_text="",
+            )
+            _finish_active_run(app, key, state="aborted")
+        else:
+            _set_stage(status="failed", error_text=str(error))
+            _finish_active_run(app, key, state="failed", error_text=str(error))
+    finally:
+        release_workers(key)
+
+    if auto_chain:
+        _start_auto_energy_scan(app=app, data_dir=data_dir, study_id=study_id)
+
+
+def _start_auto_energy_scan(*, app: Any, data_dir: Path, study_id: str) -> None:
+    """Queue the energy scan on the survey's best design, for ``auto_energy_scan``."""
+
+    store = MultilayerDesignStudyStore(data_dir / "multilayer_designs")
+    try:
+        options = survey_design_options(store.study_dir(study_id))
+        designs = resolve_designs("best", options, [])
+    except (ValueError, OSError):
+        return
+    manifest = store.load(study_id)
+    manifest["stages"]["energy_scan"]["status"] = "queued"
+    manifest["stages"]["energy_scan"]["error_text"] = ""
+    manifest["stages"]["energy_scan"]["designs"] = designs
+    store.save(manifest)
+    _start_multilayer_design_worker(
+        app=app, data_dir=data_dir, study_id=study_id, stage="energy_scan"
+    )
+
+
+def _relative_to(path: Path, root: Path) -> str:
+    """Return ``path`` relative to ``root`` as a POSIX string, or its name."""
+
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
+def _energy_scan_checkpoint_path(study_dir: Path, pair: Any) -> Path | None:
+    """Return one design's checkpoint file, or ``None`` if the pair is malformed."""
+
+    try:
+        d_spacing, blaze = float(pair[0]), float(pair[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return (
+        study_dir
+        / "energy_scan"
+        / f"d{d_spacing:.3f}nm_blaze{blaze:.3f}deg"
+        / "checkpoints"
+        / "results.jsonl"
+    )
+
+
+def _energy_scan_checkpoint_series(*, study_dir: Path, designs: list[Any]) -> list[dict[str, Any]]:
+    """Return each design's solved ``(energy, efficiency)`` points, energy-sorted.
+
+    The summary CSV only lands when a design finishes, so the live plot reads the
+    checkpoint instead -- one JSON record per solved energy, written as the sweep
+    goes. Energies come back in completion order, hence the sort.
+    """
+
+    series: list[dict[str, Any]] = []
+    for pair in designs:
+        results = _energy_scan_checkpoint_path(study_dir, pair)
+        if results is None:
+            continue
+        points: list[tuple[float, float]] = []
+        if results.is_file():
+            try:
+                with results.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except ValueError:
+                            continue  # a line still being written
+                        if record.get("status") != "ok":
+                            continue
+                        energy = record.get("energy_ev")
+                        efficiency = record.get("selected_efficiency")
+                        if energy is None or efficiency is None:
+                            continue
+                        points.append((float(energy), float(efficiency)))
+            except OSError:
+                points = []
+        points.sort()
+        series.append(
+            {
+                "d_spacing_nm": float(pair[0]),
+                "blaze_angle_deg": float(pair[1]),
+                "energies_ev": [energy for energy, _ in points],
+                "efficiencies": [efficiency for _, efficiency in points],
+            }
+        )
+    return series
+
+
+def _energy_scan_checkpoint_progress(
+    *, study_dir: Path, designs: list[Any], energy_points: int
+) -> tuple[int, int]:
+    """Return ``(completed, total)`` energy points across an energy scan's designs.
+
+    ``run_energy_scan`` reports progress once per *design*, so a single-design
+    scan would otherwise sit at ``0 / 1`` for its whole run -- indistinguishable
+    from a job that never started. Each design's sweep checkpoints one line per
+    solved energy, so counting those gives a bar that actually moves.
+    """
+
+    total = max(0, int(energy_points)) * len(designs)
+    completed = 0
+    for pair in designs:
+        results = _energy_scan_checkpoint_path(study_dir, pair)
+        if results is None or not results.is_file():
+            continue
+        try:
+            with results.open("r", encoding="utf-8") as handle:
+                completed += sum(1 for line in handle if line.strip())
+        except OSError:
+            continue
+    return min(completed, total) if total else completed, total
+
+
+def _multilayer_design_stage_status_payload(
+    *, app: Any, data_dir: Path, study_id: str, stage: str
+) -> dict[str, Any]:
+    """Return a status payload for one design stage in the shape ``initRunMonitor`` reads."""
+
+    _cleanup_finished_runs(app)
+    key = _multilayer_design_job_key(study_id, stage)
+    manifest = MultilayerDesignStudyStore(data_dir / "multilayer_designs").load(study_id)
+    stage_state = manifest["stages"][stage]
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(key)
+        if active is not None and _is_active_run_entry_live(active):
+            completed = active.completed_points
+            total = active.total_points
+            elapsed = _elapsed_seconds(active)
+            eta = _eta_seconds(active)
+            label = ""
+            if stage == "energy_scan":
+                # Count solved energies, not finished designs, so the bar moves.
+                designs = stage_state.get("designs") or []
+                checkpoint_completed, checkpoint_total = _energy_scan_checkpoint_progress(
+                    study_dir=data_dir / "multilayer_designs" / study_id,
+                    designs=designs,
+                    energy_points=int(manifest["config"].get("energy_scan_points") or 0),
+                )
+                if checkpoint_total:
+                    completed, total = checkpoint_completed, checkpoint_total
+                    # Only energies solved by *this* run measure its rate;
+                    # resumed checkpoints cost it no time.
+                    solved_here = completed - active.resumed_points
+                    eta = (
+                        elapsed * (total - completed) / solved_here
+                        if solved_here > 0 and elapsed and total > completed
+                        else None
+                    )
+                if designs:
+                    index = min(active.completed_points, len(designs) - 1)
+                    d_spacing, blaze = designs[index]
+                    label = (
+                        f"design {index + 1} of {len(designs)}: "
+                        f"d = {float(d_spacing):.3f} nm, blaze = {float(blaze):.3f} deg"
+                    )
+            return {
+                "state": active.state,
+                "completed_points": completed,
+                "total_points": total,
+                "remaining_points": max(total - completed, 0),
+                "elapsed_seconds": elapsed,
+                "eta_seconds": eta,
+                "current_label": (
+                    "stopping workers…" if active.state == "aborting" else label
+                ),
+                "worker_mode": "auto",
+                "requested_workers": None,
+                "resolved_workers": active.resolved_workers,
+                "plot_url": None,
+                "plot_token": "",
+                "error_text": active.error_text,
+                "can_abort": active.state in {"queued", "running"}
+                and not active.abort_requested,
+            }
+
+    status = stage_state.get("status", "not_run")
+    normalized = {"queued": "running", "aborting": "running"}.get(status, status)
+    if normalized not in {"completed", "failed", "aborted", "stale", "not_run", "running"}:
+        normalized = "not_run"
+    artifacts = stage_state.get("artifacts") or {}
+    plot_rel = artifacts.get("heatmap_plot") if stage == "survey" else artifacts.get("overlay_plot")
+    plot_url = None
+    plot_token = ""
+    if plot_rel:
+        plot_path = data_dir / "multilayer_designs" / study_id / plot_rel
+        if plot_path.exists():
+            plot_token = _file_token(plot_path)
+            plot_url = f"/_data/multilayer_designs/{study_id}/{plot_rel}?v={plot_token}"
+    return {
+        "state": normalized if normalized != "stale" else "completed",
+        "completed_points": 0,
+        "total_points": 0,
+        "remaining_points": 0,
+        "elapsed_seconds": None,
+        "eta_seconds": None,
+        "current_label": "",
+        "worker_mode": "auto",
+        "requested_workers": None,
+        "resolved_workers": None,
+        "plot_url": plot_url,
+        "plot_token": plot_token,
+        "error_text": stage_state.get("error_text", ""),
+        "can_abort": False,
+    }
+
+
+def _abort_multilayer_design_stage(
+    *, app: Any, store: Any, study_id: str, stage: str, discard: bool
+) -> None:
+    """Request a cooperative stop for a running stage and wait for it to finish."""
+
+    key = _multilayer_design_job_key(study_id, stage)
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(key)
+        if active is not None and active.state in {"queued", "running"}:
+            active.abort_requested = True
+            active.stop_event.set()
+            active.state = "aborting"
+    # The sweep kills its own pool from the inside; this is the backstop for a
+    # worker stuck somewhere the stop check does not reach. It also matters for
+    # `discard`, which deletes the stage directory the worker is writing into.
+    _terminate_run_processes(app, key)
+    _wait_for_run_shutdown(app, key)
+    if discard:
+        _reset_multilayer_design_stage(store=store, study_id=study_id, stage=stage)
+
+
+def _terminate_run_processes(app: Any, run_id: str, *, grace_seconds: float = 3.0) -> None:
+    """Stop one active run's simulation subprocesses, children first."""
+
+    with _active_runs_lock(app):
+        active = _active_runs(app).get(run_id)
+        pids = set() if active is None else set(active.simulation_pids)
+    pids.discard(os.getpid())
+    if not pids or not hasattr(psutil, "Process"):
+        return
+    targets: list[Any] = []
+    for pid in pids:
+        try:
+            process = psutil.Process(pid)
+        except Exception:
+            continue
+        try:
+            targets.extend(process.children(recursive=True))
+        except Exception:
+            pass
+        targets.append(process)
+    for process in targets:
+        try:
+            process.terminate()
+        except Exception:
+            continue
+    try:
+        _, alive = psutil.wait_procs(targets, timeout=grace_seconds)
+    except Exception:
+        return
+    for process in alive:
+        try:
+            process.kill()
+        except Exception:
+            continue
+
+
+def _reset_multilayer_design_stage(*, store: Any, study_id: str, stage: str) -> None:
+    """Delete one stage's outputs and blank its manifest entry."""
+
+    study_dir = store.study_dir(study_id)
+    manifest = store.load(study_id)
+    artifacts = manifest["stages"][stage].get("artifacts") or {}
+
+    if stage == "survey":
+        shutil.rmtree(study_dir / "survey", ignore_errors=True)
+        for key in ("optimal_blaze_plot", "max_efficiency_plot", "heatmap_plot"):
+            _unlink_relative(study_dir, artifacts.get(key))
+    else:
+        shutil.rmtree(study_dir / "energy_scan", ignore_errors=True)
+        _unlink_relative(study_dir, artifacts.get("overlay_plot"))
+        for design in artifacts.get("designs") or []:
+            _unlink_relative(study_dir, design.get("plot"))
+
+    manifest["stages"][stage] = {
+        "status": "not_run",
+        "ran_at": None,
+        "error_text": "",
+        "aborted": False,
+        "designs": [],
+        "artifacts": {},
+    }
+    for later in downstream_stages(stage):
+        if manifest["stages"][later]["status"] in {"completed", "aborted"}:
+            manifest["stages"][later]["status"] = "stale"
+    store.save(manifest)
+
+
+def _unlink_relative(root: Path, relative: str | None) -> None:
+    """Delete ``root / relative`` when it exists and stays inside ``root``."""
+
+    if not relative:
+        return
+    candidate = (root / relative).resolve()
+    if root.resolve() in candidate.parents and candidate.exists():
+        candidate.unlink()
 
 
 def _worker_settings_from_form(form: Any) -> tuple[str, str | int, int | None]:

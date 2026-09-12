@@ -340,6 +340,9 @@ class MultilayerThetaSearchSweepResult:
         total_elapsed_seconds: Total accumulated sweep runtime in seconds, including
             prior resumed runs when checkpoint metadata is available.
         current_run_elapsed_seconds: Runtime spent in the current process invocation.
+        stopped_early: Whether a ``stop_event`` cut the sweep short, leaving some
+            requested energies unsolved.
+        resolved_max_workers: Worker count the sweep actually resolved and used.
     """
 
     batch_result: BatchSimulationResult
@@ -352,3 +355,5 @@ class MultilayerThetaSearchSweepResult:
     stack_plot_path: Path | None = None
     total_elapsed_seconds: float = 0.0
     current_run_elapsed_seconds: float = 0.0
+    stopped_early: bool = False
+    resolved_max_workers: int = 1

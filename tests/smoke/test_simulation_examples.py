@@ -6,6 +6,8 @@ import py_compile
 import runpy
 from pathlib import Path
 
+import numpy as np
+
 from grax.gratings import BlazedGrating
 from grax.simulation import (
     BatchSimulationRunner,
@@ -118,38 +120,69 @@ def test_joint_optimizer_example_assets_exist() -> None:
 
 def test_multilayer_optimization_example_assets_exist() -> None:
     expected_paths = [
-        MULTILAYER_OPT_EXAMPLE_ROOT / "ru_b4c_parameters.py",
-        MULTILAYER_OPT_EXAMPLE_ROOT / "0_ru_b4c_d_spacing_study.py",
-        MULTILAYER_OPT_EXAMPLE_ROOT / "1_ru_b4c_gamma_study.py",
-        MULTILAYER_OPT_EXAMPLE_ROOT / "2_ru_b4c_blaze_study.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "rub4c_design_parameters.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "0_run_survey.py",
+        MULTILAYER_OPT_EXAMPLE_ROOT / "1_run_energy_scan.py",
         MULTILAYER_OPT_EXAMPLE_ROOT / "run_all.sh",
     ]
     for path in expected_paths:
-        assert path.exists(), f"Missing multilayer optimization example asset: {path}"
+        assert path.exists(), f"Missing multilayer design example asset: {path}"
 
 
-def test_multilayer_optimization_d_spacing_stage_runs_small_real_scan(tmp_path: Path) -> None:
-    """Stage 0 runs end to end through the real XRT reflectivity engine."""
+def test_multilayer_design_survey_runs_small_real_scan(tmp_path: Path) -> None:
+    """The (d, blaze) survey runs end to end through the real theta search."""
 
-    import json
+    import pandas as pd
 
     import grax
 
-    config = grax.MultilayerOptimizationConfig(
+    config = grax.MultilayerDesignConfig(
         output_dir=tmp_path,
-        d_spacing_points=5,
-        d_spacing_energy_min_ev=8800.0,
-        d_spacing_energy_max_ev=9200.0,
-        d_spacing_energy_step_ev=200.0,
-        xrt_angle_points=201,
+        target_energy_ev=9000.0,
+        d_min_nm=1.5,
+        d_max_nm=6.0,
+        d_points=2,
+        blaze_min_deg=0.8,
+        blaze_max_deg=1.4,
+        blaze_points=2,
+        survey_scan_settings=grax.ThetaSearchScanSettings(
+            rough_scan_points=15,
+            fine_scan_points=15,
+            rough_fourier_orders=3,
+            fine_fourier_orders=5,
+            final_fourier_orders=7,
+            rough_x_resolution_nm=2.0,
+            rough_z_resolution_nm=2.0,
+            fine_x_resolution_nm=1.0,
+            fine_z_resolution_nm=1.0,
+            final_x_resolution_nm=1.0,
+            final_z_resolution_nm=1.0,
+        ),
+        solver="neviere",
+        polarization="p",
+        max_workers=1,
+        show_progress=False,
     )
-    result = grax.run_d_spacing_study(config)
+    result = grax.MultilayerGratingDesigner(config).run_survey()
 
     assert result.combined_csv_path.is_file()
     assert result.plot_path.is_file()
-    state = json.loads(config.state_path.read_text(encoding="utf-8"))
-    assert abs(state["d_suggested_nm"] - round(result.geometry_d_nm, 1)) < 1e-9
-    assert state["d_reflectivity_best_nm"] > 0.0
+    assert result.efficiency_plot_path.is_file()
+    assert result.heatmap_plot_path.is_file()
+    assert len(result.period_dirs) == 2
+    assert all((d / "overlay.png").is_file() for d in result.period_dirs)
+    assert len(result.run_dirs) == 4
+    assert all(
+        (d / "multilayer_theta_search_summary.csv").is_file()
+        and (d / "multilayer_theta_search_all_orders.csv").is_file()
+        and (d / "search_parameters.json").is_file()
+        and list((d / "theta_scans").glob("theta_scan_*.csv"))
+        for d in result.run_dirs
+    )
+    assert result.efficiency_map.shape == (2, 2)
+    table = pd.read_csv(result.combined_csv_path)
+    assert len(table) == 4
+    assert np.isfinite(result.optimal_blaze_deg).any()
 
 
 def test_joint_optimizer_example_covers_every_condition_axis() -> None:
