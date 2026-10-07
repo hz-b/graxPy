@@ -48,6 +48,32 @@ The result contains reflected and transmitted diffraction orders, angles,
 amplitudes, and efficiencies. High-level APIs usually select one reflected order
 for convenience while preserving all-order arrays for export and diagnostics.
 
+## Order sign convention
+
+`grax` reports diffraction orders with the usual grating-equation sign,
+`m * lambda = d * (sin(alpha) + sin(beta))`, with the specular beam at `m = 0`.
+For reflection at grazing incidence this means:
+
+- **Positive orders are the inside orders.** They are diffracted toward the
+  grating normal from the specular beam, at steeper grazing angles. This is
+  where a monochromator works (the "+1" and "+2" orders) and where most of the
+  light goes.
+- **Negative orders are the outside orders.** They lie between the specular beam
+  and the grating plane, and only propagate when
+  `cos(alpha) + |m| * lambda / d < 1`. At grazing incidence on a dense grating
+  they are usually evanescent, so their efficiency is exactly zero.
+
+The propagating orders satisfy `cos(beta_m) = cos(alpha) - m * lambda / d`,
+where `alpha` and `beta_m` are grazing angles.
+
+The solvers themselves expand the field with `kx_n = k0 * cos(alpha) + 2 * pi * n / d`,
+so their raw orders `n` have the opposite sign (inside orders are negative).
+`grax.simulation` flips the sign once, in `_run_single_realization`, and returns
+the arrays sorted by ascending order. Everything built on it (`orders`,
+`efficiency_for_order`, the all-orders CSV files, the web app) uses the public
+sign; only code that calls `res1`/`res2`/`res2_dm` directly sees the raw
+solver orders.
+
 ## Current limitations
 
 The native Python solver path currently supports the one-dimensional TE-style

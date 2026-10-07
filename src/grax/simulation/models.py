@@ -75,9 +75,11 @@ class SingleSimulationResult:
     Attributes:
         energy_ev: Photon energy in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        orders: Calculated diffraction orders. These are physical orders and may
-            be fractional (spaced at ``1/num_supercells``) when supercell
-            roughness (``RoughnessSpec.num_supercells > 1``) is active.
+        orders: Calculated diffraction orders. Positive orders are the inside
+            orders (diffracted toward the grating normal from the specular
+            beam); negative orders are the outside orders. These are physical
+            orders and may be fractional (spaced at ``1/num_supercells``) when
+            supercell roughness (``RoughnessSpec.num_supercells > 1``) is active.
         selected_efficiency: Efficiency for the selected diffraction order.
         selected_diffraction_angle_deg: Diffraction angle for the selected order.
         efficiency_all: Efficiency for all calculated diffraction orders.
@@ -167,9 +169,11 @@ class CaseExecutionResult:
         label: Optional case label.
         energy_ev: Photon energy in electronvolts.
         grazing_angle_deg: Grazing incidence angle in degrees.
-        orders: Calculated diffraction orders. These are physical orders and may
-            be fractional (spaced at ``1/num_supercells``) when supercell
-            roughness (``RoughnessSpec.num_supercells > 1``) is active.
+        orders: Calculated diffraction orders. Positive orders are the inside
+            orders (diffracted toward the grating normal from the specular
+            beam); negative orders are the outside orders. These are physical
+            orders and may be fractional (spaced at ``1/num_supercells``) when
+            supercell roughness (``RoughnessSpec.num_supercells > 1``) is active.
         selected_efficiency: Efficiency for the selected diffraction order.
         selected_diffraction_angle_deg: Diffraction angle for the selected order.
         efficiency_all: Efficiency for all calculated diffraction orders.

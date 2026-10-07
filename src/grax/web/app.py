@@ -3251,7 +3251,7 @@ def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, An
     """Load one order-vs-energy series from a saved run."""
     all_orders_path = run_dir / "all_orders.csv"
 
-    requested_order = 0 if int(order) == 0 else -abs(int(order))
+    requested_order = abs(int(order))
     rows: list[dict[str, float]] = []
     if all_orders_path.exists():
         with all_orders_path.open("r", encoding="utf-8") as handle:

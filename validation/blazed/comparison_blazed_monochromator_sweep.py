@@ -23,7 +23,7 @@ def load_solver_curves(base_csv, order):
 
     Args:
         base_csv: Historical unsuffixed all-orders CSV path for this case.
-        order: Signed diffraction order to extract (reflected orders are negative).
+        order: Signed diffraction order to extract (inside orders are positive).
 
     Returns:
         List of plottable curves, skipping solvers with no results yet.
@@ -74,7 +74,7 @@ meas_eff = meas["eff"]
 print("graxpy curves:")
 grax_curves = load_solver_curves(
     base_path / "results" / "blazed_comparison_monochromator_orders_1_3.csv",
-    order=-1,
+    order=1,
 )
 
 # reticolo Matlab
@@ -114,7 +114,7 @@ plt.plot(reflec_energy, reflec_eff, 's-', label='REFLEC', markersize=marker_size
 plt.plot(diffmod_energy, diffmod_eff, '^-', label='DiffMod', markersize=marker_size, linewidth=linewidth)
 plt.plot(meas_energy, meas_eff, 'v-', label='Measured', markersize=marker_size, linewidth=linewidth)
 plt.xlabel('Energy (eV)')
-plt.ylabel('Efficiency (-1 order)')
+plt.ylabel('Efficiency (+1 order)')
 plt.title('Comparison To Other Codes')
 plt.legend()
 plt.grid(True, alpha=0.3)

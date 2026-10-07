@@ -24,7 +24,7 @@ def load_solver_curves(base_csv, order):
 
     Args:
         base_csv: Historical unsuffixed all-orders CSV path for this case.
-        order: Signed diffraction order to extract (reflected orders are negative).
+        order: Signed diffraction order to extract (inside orders are positive).
 
     Returns:
         List of plottable curves, skipping solvers with no results yet.
@@ -117,7 +117,7 @@ def _load_external_table(path: Path) -> tuple[pd.Series, list[tuple[str, pd.Seri
 
 
 print("graxpy curves:")
-grax_curves = load_solver_curves(results_file, order=-1)
+grax_curves = load_solver_curves(results_file, order=1)
 
 external_files = sorted([path for path in simulation_dir.iterdir() if path.is_file()])
 if not external_files:
@@ -128,7 +128,7 @@ for curve_label, curve_energy, curve_efficiency, curve_style in grax_curves:
     axis.plot(
         curve_energy,
         curve_efficiency,
-        label=f"{curve_label}, order -1 -> +1",
+        label=f"{curve_label}, order +1",
         linewidth=2.2,
         **curve_style,
     )

@@ -159,8 +159,8 @@ def compare_all_orders(
 
     rows = []
     for order in orders:
-        rcwa_order = rcwa[np.isclose(rcwa["order"], -order)][["energy_ev", "efficiency"]]
-        neviere_order = neviere[np.isclose(neviere["order"], -order)][["energy_ev", "efficiency"]]
+        rcwa_order = rcwa[np.isclose(rcwa["order"], order)][["energy_ev", "efficiency"]]
+        neviere_order = neviere[np.isclose(neviere["order"], order)][["energy_ev", "efficiency"]]
         merged = rcwa_order.merge(
             neviere_order,
             on="energy_ev",
@@ -235,8 +235,8 @@ def plot_solver_comparison(
 
     for index, order in enumerate(orders):
         color = colors[index % len(colors)]
-        rcwa_order = rcwa[np.isclose(rcwa["order"], -order)].sort_values("energy_ev")
-        neviere_order = neviere[np.isclose(neviere["order"], -order)].sort_values("energy_ev")
+        rcwa_order = rcwa[np.isclose(rcwa["order"], order)].sort_values("energy_ev")
+        neviere_order = neviere[np.isclose(neviere["order"], order)].sort_values("energy_ev")
         efficiency_axis.plot(
             rcwa_order["energy_ev"],
             rcwa_order["efficiency"],
