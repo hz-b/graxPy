@@ -163,9 +163,9 @@ def _comparison_report(
         )
 
     lines.extend(["", "order_minus_1_efficiency_deltas_vs_numpy"])
-    numpy_efficiency = _efficiency_for_exact_order(results["numpy"], order=-1)
+    numpy_efficiency = _efficiency_for_exact_order(results["numpy"], order=1)
     for backend_name, result in results.items():
-        backend_efficiency = _efficiency_for_exact_order(result, order=-1)
+        backend_efficiency = _efficiency_for_exact_order(result, order=1)
         lines.append(
             f"- {backend_name}: {backend_efficiency - numpy_efficiency:.12e}"
         )

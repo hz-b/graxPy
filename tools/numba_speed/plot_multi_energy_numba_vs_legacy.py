@@ -70,9 +70,9 @@ ax.grid(True, alpha=0.3)
 ax.legend()
 
 ax = axes[1, 1]
-ax.plot(energy_ev, numpy_eff_m1, marker="o", linestyle="-", label="numpy (-1 order)")
-ax.plot(energy_ev, numba_eff_m1, marker="o", linestyle=":", label="numba (-1 order)")
-ax.set_title("Diffracted Efficiency Comparison (-1 Order)")
+ax.plot(energy_ev, numpy_eff_m1, marker="o", linestyle="-", label="numpy (+1 order)")
+ax.plot(energy_ev, numba_eff_m1, marker="o", linestyle=":", label="numba (+1 order)")
+ax.set_title("Diffracted Efficiency Comparison (+1 Order)")
 ax.set_xlabel("Energy (eV)")
 ax.set_ylabel("Efficiency")
 ax.grid(True, alpha=0.3)

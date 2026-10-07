@@ -20,7 +20,7 @@ def load_solver_curves(base_csv, order):
 
     Args:
         base_csv: Historical unsuffixed all-orders CSV path for this case.
-        order: Signed diffraction order to extract (reflected orders are negative).
+        order: Signed diffraction order to extract (inside orders are positive).
 
     Returns:
         List of plottable curves, skipping solvers with no results yet.
@@ -85,10 +85,10 @@ df_meas = pd.read_csv(
     names=["Energy_eV", "Intensity"]
 ).dropna()
 # =========================
-# graxpy simulations (-1 order), one curve per solver that has been run
+# graxpy simulations (+1 order), one curve per solver that has been run
 # =========================
 print("graxpy curves:")
-grax_curves = load_solver_curves(sim_file, order=-1)
+grax_curves = load_solver_curves(sim_file, order=1)
 
 # =========================
 # RETICOLO simulation

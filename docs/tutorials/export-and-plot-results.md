@@ -35,7 +35,7 @@ Column meaning:
 - `case_id`: case identifier from the batch case generator
 - `energy_ev`: photon energy in eV
 - `grazing_angle_deg`: grazing angle in degrees used for the case
-- `order`: diffraction order index from RCWA output (can be negative/zero/positive)
+- `order`: diffraction order index. Positive orders are the inside orders (toward the grating normal from the specular beam), negative orders are the outside orders; see {doc}`../developer/rcwa-theory`
 - `efficiency`: diffraction efficiency for that order
 - `diffraction_angle_deg`: diffraction angle for that order in degrees
 
@@ -67,10 +67,12 @@ data = pd.read_csv(
 )
 
 # Keep first diffraction order
-order1 = data[data["order"] == -1].copy()
+order1 = data[data["order"] == 1].copy()
 
 print(order1[["energy_ev", "efficiency"]].head())
 ```
 
-`plot_order_subset(...)` internally applies the same RCWA order convention as
-the simulation utilities when selecting orders.
+Exported orders use the standard grating-equation sign: positive orders are the
+inside orders (diffracted toward the grating normal from the specular beam),
+negative orders are the outside orders. `plot_order_subset(...)` and
+`efficiency_for_order(...)` select orders with the same sign.

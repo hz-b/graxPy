@@ -53,7 +53,7 @@ def _write_run_fixture(
         handle.write("case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg\n")
         for energy in (100.0, 110.0):
             for order in orders:
-                stored_order = 0 if int(order) == 0 else -abs(int(order))
+                stored_order = int(order)
                 handle.write(
                     f"case-{energy:.1f},{energy:.1f},1.5,{stored_order},"
                     f"{0.05 * order + energy / 1000:.6f},{order * 1.2:.6f}\n"
@@ -127,7 +127,7 @@ def _write_checkpoint_fixture(
             label=None,
             energy_ev=energy,
             grazing_angle_deg=1.5,
-            orders=__import__("numpy").asarray([-1, 0, 1]),
+            orders=__import__("numpy").asarray([1, 0, -1]),
             selected_efficiency=efficiency,
             selected_diffraction_angle_deg=1.2,
             efficiency_all=__import__("numpy").asarray([efficiency, 0.1, 0.0]),
@@ -657,7 +657,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
                 label=None,
                 energy_ev=float(case["energy_ev"]),
                 grazing_angle_deg=float(case["grazing_angle_deg"]),
-                orders=__import__("numpy").asarray([-1, 0, 1]),
+                orders=__import__("numpy").asarray([1, 0, -1]),
                 selected_efficiency=0.25,
                 selected_diffraction_angle_deg=1.2,
                 efficiency_all=__import__("numpy").asarray([0.25, 0.1, 0.0]),
@@ -1527,7 +1527,7 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
                 label=None,
                 energy_ev=float(case["energy_ev"]),
                 grazing_angle_deg=float(case["grazing_angle_deg"]),
-                orders=__import__("numpy").asarray([-1, 0, 1]),
+                orders=__import__("numpy").asarray([1, 0, -1]),
                 selected_efficiency=0.2 + index * 0.01,
                 selected_diffraction_angle_deg=1.2,
                 efficiency_all=__import__("numpy").asarray([0.2, 0.1, 0.0]),
@@ -1864,7 +1864,7 @@ def test_abort_route_marks_run_aborted(
                 label=None,
                 energy_ev=float(case["energy_ev"]),
                 grazing_angle_deg=float(case["grazing_angle_deg"]),
-                orders=__import__("numpy").asarray([-1, 0, 1]),
+                orders=__import__("numpy").asarray([1, 0, -1]),
                 selected_efficiency=0.2,
                 selected_diffraction_angle_deg=1.2,
                 efficiency_all=__import__("numpy").asarray([0.2, 0.1, 0.0]),
@@ -2065,7 +2065,7 @@ def test_results_sorted_for_live_plot_orders_by_energy() -> None:
             label=None,
             energy_ev=200.0,
             grazing_angle_deg=1.5,
-            orders=__import__("numpy").asarray([-1, 0, 1]),
+            orders=__import__("numpy").asarray([1, 0, -1]),
             selected_efficiency=0.2,
             selected_diffraction_angle_deg=1.0,
             efficiency_all=__import__("numpy").asarray([0.2, 0.1, 0.0]),
@@ -2079,7 +2079,7 @@ def test_results_sorted_for_live_plot_orders_by_energy() -> None:
             label=None,
             energy_ev=100.0,
             grazing_angle_deg=1.5,
-            orders=__import__("numpy").asarray([-1, 0, 1]),
+            orders=__import__("numpy").asarray([1, 0, -1]),
             selected_efficiency=0.1,
             selected_diffraction_angle_deg=1.0,
             efficiency_all=__import__("numpy").asarray([0.1, 0.1, 0.0]),
@@ -2116,7 +2116,7 @@ def test_publish_live_progress_is_throttled(
             label=None,
             energy_ev=100.0,
             grazing_angle_deg=1.5,
-            orders=__import__("numpy").asarray([-1, 0, 1]),
+            orders=__import__("numpy").asarray([1, 0, -1]),
             selected_efficiency=0.1,
             selected_diffraction_angle_deg=1.0,
             efficiency_all=__import__("numpy").asarray([0.1, 0.1, 0.0]),
@@ -2168,10 +2168,10 @@ def test_load_order_series_uses_selected_diffraction_order_convention(tmp_path: 
         "\n".join(
             [
                 "case_id,energy_ev,grazing_angle_deg,order,efficiency,diffraction_angle_deg",
-                "case-1,100.0,1.5,-1,0.11,1.2",
-                "case-1,100.0,1.5,1,0.00,-1.2",
-                "case-2,200.0,1.5,-1,0.22,1.3",
-                "case-2,200.0,1.5,1,0.00,-1.3",
+                "case-1,100.0,1.5,1,0.11,1.2",
+                "case-1,100.0,1.5,-1,0.00,-1.2",
+                "case-2,200.0,1.5,1,0.22,1.3",
+                "case-2,200.0,1.5,-1,0.00,-1.3",
             ]
         )
         + "\n",
@@ -2203,7 +2203,7 @@ def test_flask_app_plots_selected_orders_across_runs(
                 label=None,
                 energy_ev=float(case["energy_ev"]),
                 grazing_angle_deg=float(case["grazing_angle_deg"]),
-                orders=__import__("numpy").asarray([-2, -1, 1]),
+                orders=__import__("numpy").asarray([2, 1, -1]),
                 selected_efficiency=0.25,
                 selected_diffraction_angle_deg=1.2,
                 efficiency_all=__import__("numpy").asarray([0.15, 0.25, 0.05]),

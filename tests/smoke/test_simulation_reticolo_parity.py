@@ -128,10 +128,12 @@ def test_laminar_multilayer_solver_matches_octave_reference(tmp_path: Path) -> N
     )
 
     python_result = simulation.run_single(1000.0)
-    octave_orders = octave_reference["solver"][:, 0].astype(int)
+    # The Octave reference uses the solver sign (inside orders negative); the
+    # public grax orders are positive for inside orders.
+    octave_orders = -octave_reference["solver"][:, 0].astype(int)
 
     for order, octave_theta, octave_efficiency in octave_reference["solver"]:
-        match = np.where(python_result["orders"] == int(order))[0]
+        match = np.where(python_result["orders"] == -int(order))[0]
         assert match.size == 1
         idx = int(match[0])
         assert python_result["diffraction_angle_all"][idx] == pytest.approx(90.0 - octave_theta, abs=1e-9)
@@ -163,7 +165,7 @@ def test_laminar_multilayer_solver_stays_physical_for_full_example(tmp_path: Pat
     assert float(np.sum(python_result["efficiency_all"])) <= 1.05
 
     for order, octave_theta, octave_efficiency in octave_reference["solver"]:
-        matches = np.where(python_result["orders"] == int(order))[0]
+        matches = np.where(python_result["orders"] == -int(order))[0]
         if matches.size == 0:
             continue
         idx = int(matches[0])
@@ -190,9 +192,10 @@ def test_blazed_multilayer_angle_sweep_matches_reticolo_v9_reference(tmp_path: P
         assert np.array_equal(python_result["orders"], expected_python_orders)
 
         octave_rows = octave_reference[np.isclose(octave_reference[:, 0], grazing_angle_deg)]
+        # Reticolo reference orders keep the solver sign (inside orders negative).
         assert np.array_equal(octave_rows[:, 1].astype(int), expected_reticolo_orders)
         for _, order, octave_theta, octave_efficiency in octave_rows:
-            match = np.where(python_result["orders"] == int(order))[0]
+            match = np.where(python_result["orders"] == -int(order))[0]
             assert match.size == 1
             idx = int(match[0])
             assert python_result["diffraction_angle_all"][idx] == pytest.approx(90.0 - octave_theta, abs=1e-6)
@@ -228,7 +231,7 @@ def test_blazed_single_layer_200ev_matches_reticolo_reference_more_closely() -> 
     )
 
     python_result = simulation.run_single(200.0)
-    order_index = int(np.where(python_result["orders"] == -1)[0][0])
+    order_index = int(np.where(python_result["orders"] == 1)[0][0])
 
     assert python_result["diffraction_angle_all"][order_index] == pytest.approx(5.517321, abs=1e-6)
     assert python_result["efficiency_all"][order_index] == pytest.approx(0.115515, abs=3e-3)

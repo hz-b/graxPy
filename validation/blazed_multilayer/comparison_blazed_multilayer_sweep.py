@@ -24,7 +24,7 @@ def load_solver_curves(base_csv, order):
 
     Args:
         base_csv: Historical unsuffixed all-orders CSV path for this case.
-        order: Signed diffraction order to extract (reflected orders are negative).
+        order: Signed diffraction order to extract (inside orders are positive).
 
     Returns:
         List of plottable curves, skipping solvers with no results yet.
@@ -64,13 +64,13 @@ theta_search_results_path = project_root / "examples" / "simulation" / "multilay
 print("graxpy curves:")
 grax_curves = load_solver_curves(
     base_path / "results" / "blazed_multilayer_all_orders.csv",
-    order=-2,
+    order=2,
 )
 
 theta_search_results = pd.read_csv(
     theta_search_results_path / "multilayer_theta_search_all_orders.csv"
 )
-theta_search_order = theta_search_results[theta_search_results["order"] == -2].copy()
+theta_search_order = theta_search_results[theta_search_results["order"] == 2].copy()
 theta_search_order = theta_search_order.sort_values("energy_ev")
 
 diffmod_results = pd.read_csv(
