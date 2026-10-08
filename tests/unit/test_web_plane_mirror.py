@@ -23,9 +23,12 @@ FORM = {
     "n_bilayers": "10",
     "top_material": "C",
     "scan_mode": "energy",
-    "scan_min": "200",
-    "scan_max": "300",
-    "scan_points": "11",
+    "energy_min": "200",
+    "energy_max": "300",
+    "energy_points": "11",
+    "angle_min": "5",
+    "angle_max": "30",
+    "angle_points": "4",
     "fixed_angle_deg": "20",
     "fixed_energy_ev": "259",
     "polarization": "s",
@@ -76,14 +79,45 @@ def test_graded_curve_and_angle_scan(client) -> None:
 
     angle = client.post(
         "/_compute/plane-mirror",
-        data={**FORM, "scan_mode": "angle", "scan_min": "5", "scan_max": "30"},
+        data={**FORM, "scan_mode": "angle"},
     ).get_json()
-    assert angle["x_label"].startswith("Grazing angle")
+    assert angle["x_label"].startswith("Grazing angle") and len(angle["x"]) == 4
+
+
+def test_map_scan_matches_direct_parratt_and_csv(client) -> None:
+    payload = client.post("/_compute/plane-mirror", data={**FORM, "scan_mode": "map"}).get_json()
+
+    stack = build_multilayer_stack(
+        substrate_material=MaterialSpec("Si"),
+        material_a=MaterialSpec("Ru"),
+        material_b=MaterialSpec("C"),
+        d_period_nm=7.0,
+        gamma=0.4,
+        n_bilayers=10,
+        top_material=MaterialSpec("C"),
+    )
+    expected = parratt_reflectivity(
+        stack, np.linspace(200, 300, 11), np.linspace(5, 30, 4), roughness_sigma_nm=0.2
+    )
+    assert payload["mode"] == "map" and payload["graded"] is False
+    np.testing.assert_allclose(np.array(payload["z"]), expected.T, rtol=1e-9)
+
+    lines = client.post("/plane-mirror/csv", data={**FORM, "scan_mode": "map"}).get_data(as_text=True).splitlines()
+    assert lines[0] == "energy_ev,grazing_angle_deg,reflectivity" and len(lines) == 1 + 11 * 4
+
+
+def test_unused_scan_fields_are_not_required_or_validated(client) -> None:
+    form = {key: value for key, value in FORM.items() if not key.startswith("angle_")}
+    assert client.post("/_compute/plane-mirror", data={**form, "angle_min": "-5"}).status_code == 200
+
+
+def test_default_roughness_is_zero(client) -> None:
+    assert b'name="roughness_sigma_nm" type="number" step="0.01" min="0" value="0"' in client.get("/plane-mirror").data
 
 
 @pytest.mark.parametrize(
     "override",
-    [{"scan_points": "0"}, {"scan_mode": "bogus"}, {"scan_min": "abc"}, {"polarization": "x"}, {"substrate_material": "Zz"}],
+    [{"energy_points": "0"}, {"scan_mode": "bogus"}, {"energy_min": "abc"}, {"polarization": "x"}, {"substrate_material": "Zz"}],
 )
 def test_bad_input_returns_400(client, override) -> None:
     response = client.post("/_compute/plane-mirror", data={**FORM, **override})
@@ -96,4 +130,4 @@ def test_csv_download(client) -> None:
     lines = response.get_data(as_text=True).strip().splitlines()
     assert response.mimetype == "text/csv"
     assert lines[0].endswith("reflectivity_graded") and len(lines) == 12
-    assert client.post("/plane-mirror/csv", data={**FORM, "scan_points": "0"}).status_code == 400
+    assert client.post("/plane-mirror/csv", data={**FORM, "energy_points": "0"}).status_code == 400

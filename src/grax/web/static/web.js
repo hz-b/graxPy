@@ -1005,6 +1005,12 @@ function syncGradingFields(select) {
   });
 }
 
+function syncScanFields(select) {
+  document.querySelectorAll("[data-scan-field]").forEach((label) => {
+    toggleSectionFields(label, label.dataset.scanField.split(" ").includes(select.value));
+  });
+}
+
 function initPlaneMirror(form) {
   const computeUrl = form.dataset.computeUrl;
   const figure = document.querySelector("[data-plane-mirror-figure]");
@@ -1015,6 +1021,24 @@ function initPlaneMirror(form) {
 
   const draw = (payload) => {
     if (!figure || !window.Plotly) {
+      return;
+    }
+    const config = { responsive: true, displaylogo: false };
+    if (payload.mode === "map") {
+      window.Plotly.react(figure, [{
+        type: "heatmap",
+        x: payload.x,
+        y: payload.y,
+        z: payload.z,
+        zmin: 0,
+        zmax: 1,
+        colorscale: "Viridis",
+        colorbar: { title: { text: payload.graded ? "Reflectivity (footprint avg)" : "Reflectivity" } },
+      }], {
+        xaxis: { title: { text: "Photon energy (eV)" } },
+        yaxis: { title: { text: "Grazing angle (deg)" } },
+        margin: { t: 20 },
+      }, config);
       return;
     }
     const traces = [{
@@ -1031,7 +1055,7 @@ function initPlaneMirror(form) {
       yaxis: { title: { text: "Reflectivity" }, range: [0, 1] },
       margin: { t: 20 },
       legend: { orientation: "h", y: -0.3 },
-    }, { responsive: true, displaylogo: false });
+    }, config);
   };
 
   const update = debounce(async () => {
@@ -1061,6 +1085,11 @@ function initPlaneMirror(form) {
     }
   }, 300);
 
+  const scanMode = form.querySelector("[data-scan-mode]");
+  if (scanMode) {
+    syncScanFields(scanMode);
+    scanMode.addEventListener("change", () => syncScanFields(scanMode));
+  }
   if (gradingMode) {
     syncGradingFields(gradingMode);
     gradingMode.addEventListener("change", () => syncGradingFields(gradingMode));

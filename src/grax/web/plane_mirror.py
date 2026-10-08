@@ -18,13 +18,16 @@ MAX_TOTAL_SAMPLES = 2_000_000
 
 PLANE_MIRROR_DEFAULTS: dict[str, str] = {
     "scan_mode": "energy",
-    "scan_min": "150",
-    "scan_max": "400",
-    "scan_points": "500",
+    "energy_min": "150",
+    "energy_max": "400",
+    "energy_points": "300",
+    "angle_min": "5",
+    "angle_max": "40",
+    "angle_points": "100",
     "fixed_angle_deg": "20",
     "fixed_energy_ev": "259",
     "polarization": "s",
-    "roughness_sigma_nm": "0.3",
+    "roughness_sigma_nm": "0",
     "grading_mode": "none",
     "grading_percent_per_mm": "0.05",
     "grading_coefficients": "1, 0.0005",
@@ -49,9 +52,12 @@ class PlaneMirrorOptions:
     """Validated scan, polarization, roughness and grading settings."""
 
     scan_mode: str
-    scan_min: float
-    scan_max: float
-    scan_points: int
+    energy_min: float
+    energy_max: float
+    energy_points: int
+    angle_min: float
+    angle_max: float
+    angle_points: int
     fixed_angle_deg: float
     fixed_energy_ev: float
     polarization: str
@@ -82,16 +88,22 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
         return value
 
     scan_mode = text("scan_mode")
-    if scan_mode not in {"energy", "angle"}:
-        raise ValueError("scan_mode must be 'energy' or 'angle'.")
-    scan_min, scan_max = number("scan_min"), number("scan_max")
-    scan_points = int(number("scan_points"))
-    if not 1 <= scan_points <= MAX_SCAN_POINTS:
-        raise ValueError(f"scan_points must be between 1 and {MAX_SCAN_POINTS}.")
-    if scan_min <= 0.0 or scan_max < scan_min:
-        raise ValueError("The scan range must be positive with max >= min.")
-    if scan_mode == "angle" and scan_max > 90.0:
-        raise ValueError("Angle scans are limited to 90 degrees.")
+    if scan_mode not in {"energy", "angle", "map"}:
+        raise ValueError("scan_mode must be 'energy', 'angle' or 'map'.")
+
+    def axis(prefix: str, label: str, upper: float | None = None) -> tuple[float, float, int]:
+        low, high = number(f"{prefix}_min"), number(f"{prefix}_max")
+        points = int(number(f"{prefix}_points"))
+        if not 1 <= points <= MAX_SCAN_POINTS:
+            raise ValueError(f"{prefix}_points must be between 1 and {MAX_SCAN_POINTS}.")
+        if low <= 0.0 or high < low:
+            raise ValueError(f"The {label} range must be positive with max >= min.")
+        if upper is not None and high > upper:
+            raise ValueError(f"The {label} range is limited to {upper:g}.")
+        return low, high, points
+
+    energy_min, energy_max, energy_points = axis("energy", "energy") if scan_mode in {"energy", "map"} else (0.0, 0.0, 1)
+    angle_min, angle_max, angle_points = axis("angle", "angle", 90.0) if scan_mode in {"angle", "map"} else (0.0, 0.0, 1)
 
     grading_mode = text("grading_mode")
     grading: LateralGrading | None
@@ -114,14 +126,18 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
     footprint_length_mm = number("footprint_length_mm")
     if footprint_length_mm < 0.0:
         raise ValueError("footprint_length_mm must be >= 0.")
-    if scan_points * footprint_points > MAX_TOTAL_SAMPLES:
-        raise ValueError("scan_points x footprint_points is too large; reduce one of them.")
+    positions = footprint_points if grading is not None else 1
+    if energy_points * angle_points * positions > MAX_TOTAL_SAMPLES:
+        raise ValueError("The scan is too large; reduce the number of energy, angle or footprint points.")
 
     return PlaneMirrorOptions(
         scan_mode=scan_mode,
-        scan_min=scan_min,
-        scan_max=scan_max,
-        scan_points=scan_points,
+        energy_min=energy_min,
+        energy_max=energy_max,
+        energy_points=energy_points,
+        angle_min=angle_min,
+        angle_max=angle_max,
+        angle_points=angle_points,
         fixed_angle_deg=number("fixed_angle_deg"),
         fixed_energy_ev=number("fixed_energy_ev"),
         polarization=text("polarization"),
@@ -133,27 +149,32 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
 
 
 def compute_plane_mirror(stack: BaseStack, options: PlaneMirrorOptions) -> dict[str, Any]:
-    """Return the scan axis and reflectivity curves for one stack.
+    """Return the reflectivity curve or map for one stack.
 
     Returns:
-        Dict with ``x``, ``x_label``, ``reflectivity`` (central position,
-        ungraded), and ``graded`` (footprint average, or ``None``).
+        For ``energy`` and ``angle`` scans: ``mode``, ``x``, ``x_label``,
+        ``reflectivity`` (central position, ungraded) and ``graded``
+        (footprint average, or ``None``). For ``map``: ``mode``, ``x``
+        (energies), ``y`` (angles), ``z`` (rows are angles, columns energies)
+        and ``graded`` (whether ``z`` is the footprint average).
     """
 
-    axis = np.linspace(options.scan_min, options.scan_max, options.scan_points)
-    if options.scan_mode == "energy":
-        energies, angles, x_label = axis, np.array([options.fixed_angle_deg]), "Photon energy (eV)"
+    mode = options.scan_mode
+    if mode == "energy":
+        energies = np.linspace(options.energy_min, options.energy_max, options.energy_points)
+        angles = np.array([options.fixed_angle_deg])
+    elif mode == "angle":
+        energies = np.array([options.fixed_energy_ev])
+        angles = np.linspace(options.angle_min, options.angle_max, options.angle_points)
     else:
-        energies, angles, x_label = np.array([options.fixed_energy_ev]), axis, "Grazing angle (deg)"
+        energies = np.linspace(options.energy_min, options.energy_max, options.energy_points)
+        angles = np.linspace(options.angle_min, options.angle_max, options.angle_points)
 
     common = {"polarization": options.polarization, "roughness_sigma_nm": options.roughness_sigma_nm}
-    nominal = parratt_reflectivity(stack, energies, angles, **common)
-    nominal_curve = nominal[:, 0] if options.scan_mode == "energy" else nominal[0, :]
 
-    graded_curve = None
-    if options.grading is not None:
+    def graded_average() -> np.ndarray:
         half = 0.5 * options.footprint_length_mm
-        graded = footprint_reflectivity(
+        return footprint_reflectivity(
             stack,
             energies,
             angles,
@@ -161,13 +182,26 @@ def compute_plane_mirror(stack: BaseStack, options: PlaneMirrorOptions) -> dict[
             positions_mm=np.linspace(-half, half, options.footprint_points),
             **common,
         )
-        graded_curve = graded[:, 0] if options.scan_mode == "energy" else graded[0, :]
+
+    if mode == "map":
+        grid = graded_average() if options.grading is not None else parratt_reflectivity(stack, energies, angles, **common)
+        return {
+            "mode": mode,
+            "x": energies.tolist(),
+            "y": angles.tolist(),
+            "z": grid.T.tolist(),
+            "graded": options.grading is not None,
+        }
+
+    def curve(values: np.ndarray) -> list[float]:
+        return (values[:, 0] if mode == "energy" else values[0, :]).tolist()
 
     return {
-        "x": axis.tolist(),
-        "x_label": x_label,
-        "reflectivity": nominal_curve.tolist(),
-        "graded": None if graded_curve is None else graded_curve.tolist(),
+        "mode": mode,
+        "x": (energies if mode == "energy" else angles).tolist(),
+        "x_label": "Photon energy (eV)" if mode == "energy" else "Grazing angle (deg)",
+        "reflectivity": curve(parratt_reflectivity(stack, energies, angles, **common)),
+        "graded": None if options.grading is None else curve(graded_average()),
     }
 
 
@@ -176,6 +210,12 @@ def plane_mirror_csv(result: dict[str, Any]) -> str:
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
+    if result["mode"] == "map":
+        writer.writerow(["energy_ev", "grazing_angle_deg", "reflectivity"])
+        for angle, row in zip(result["y"], result["z"]):
+            for energy, value in zip(result["x"], row):
+                writer.writerow([repr(energy), repr(angle), repr(value)])
+        return buffer.getvalue()
     header = [result["x_label"], "reflectivity"]
     if result["graded"] is not None:
         header.append("reflectivity_graded")
