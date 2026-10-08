@@ -54,7 +54,14 @@ from .multilayer_design_studies import (
     survey_cell_count,
     survey_design_options,
 )
-from .persistence import GratingStore, build_grating_from_spec
+from .persistence import GratingStore, build_grating_from_spec, build_stack_from_spec
+from .plane_mirror import (
+    PLANE_MIRROR_DEFAULTS,
+    PLANE_MIRROR_STACK_DEFAULTS,
+    compute_plane_mirror,
+    parse_plane_mirror_options,
+    plane_mirror_csv,
+)
 from .runs import RunStore
 
 try:
@@ -903,6 +910,42 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         return redirect(url_for("multilayer_design_detail", study_id=study_id))
 
+    @app.get("/plane-mirror")
+    def plane_mirror_page():
+        defaults = _default_form_values()
+        defaults.update(PLANE_MIRROR_STACK_DEFAULTS)
+        defaults["material_a_density_g_cm3"] = _default_density_text(defaults["material_a"])
+        defaults["material_b_density_g_cm3"] = _default_density_text(defaults["material_b"])
+        defaults["top_material_density_g_cm3"] = _default_density_text(defaults["top_material"])
+        defaults.update(PLANE_MIRROR_DEFAULTS)
+        return render_template(
+            "plane_mirror.html",
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            defaults=defaults,
+            density_placeholders=_material_density_placeholders(defaults),
+            plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
+        )
+
+    @app.post("/_compute/plane-mirror")
+    def plane_mirror_compute():
+        try:
+            return jsonify({"ok": True, **_plane_mirror_result(request.form)})
+        except (KeyError, TypeError, ValueError) as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+
+    @app.post("/plane-mirror/csv")
+    def plane_mirror_download():
+        try:
+            result = _plane_mirror_result(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        return Response(
+            plane_mirror_csv(result),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=plane_mirror_reflectivity.csv"},
+        )
+
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
         return send_from_directory(app.config["GRAx_DATA_DIR"], filename)
@@ -1101,6 +1144,12 @@ def _build_grating_preview(
         "preview_id": preview_id,
         "preview_url": f"/_data/previews/live/{preview_id}.png",
     }
+
+
+def _plane_mirror_result(form: Any) -> dict[str, Any]:
+    """Validate the plane-mirror form and compute its reflectivity curves."""
+    stack = build_stack_from_spec(_stack_spec_from_form(form))
+    return compute_plane_mirror(stack, parse_plane_mirror_options(form))
 
 
 def _stack_spec_from_form(form: Any) -> dict[str, Any]:

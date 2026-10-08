@@ -110,20 +110,11 @@ def grating_to_spec(grating: BaseGrating, *, name: str) -> dict[str, Any]:
     raise TypeError("Only LaminarGrating and BlazedGrating are supported by the web MVP.")
 
 
-def build_grating_from_spec(
-    spec: dict[str, Any],
-    catalog: dict[str, OpticalConstantsTable] | None = None,
-) -> BaseGrating:
-    """Build a supported grating from a saved JSON-compatible spec."""
-    stack_spec = dict(spec["stack"])
-    stack_type = str(stack_spec.get("type", "single_layer"))
-    common = {
-        "period_lpermm": int(spec["period_lpermm"]),
-        "x_resolution_nm": float(spec["x_resolution_nm"]),
-        "z_resolution_nm": float(spec["z_resolution_nm"]),
-    }
-    if stack_type == "multilayer":
-        common["coating_stack"] = MultilayerStack(
+def build_stack_from_spec(stack_spec: dict[str, Any]) -> MultilayerStack | SingleLayerStack:
+    """Build a single-layer or multilayer stack from a JSON-compatible stack spec."""
+    stack_spec = dict(stack_spec)
+    if str(stack_spec.get("type", "single_layer")) == "multilayer":
+        return MultilayerStack(
             substrate_material=_material(stack_spec["substrate_material"], field_name="substrate_material"),
             material_a=_material(stack_spec["material_a"], field_name="material_a"),
             material_b=_material(stack_spec["material_b"], field_name="material_b"),
@@ -138,31 +129,43 @@ def build_grating_from_spec(
             material_b_roughness_sigma_nm=_optional_sigma(stack_spec.get("material_b_roughness_sigma_nm")),
             top_cap_roughness_sigma_nm=_optional_sigma(stack_spec.get("top_cap_roughness_sigma_nm")),
         )
+    return SingleLayerStack(
+        substrate_material=_material(stack_spec["substrate_material"], field_name="substrate_material"),
+        layer_material=_material(stack_spec["layer_material"], field_name="layer_material"),
+        layer_thickness_nm=float(stack_spec["layer_thickness_nm"]),
+        top_cap_material=_optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material"),
+        top_cap_thickness_nm=float(stack_spec.get("top_cap_thickness_nm", 0.0)),
+        substrate_roughness_sigma_nm=_optional_sigma(stack_spec.get("substrate_roughness_sigma_nm")),
+        layer_roughness_sigma_nm=_optional_sigma(stack_spec.get("layer_roughness_sigma_nm")),
+        top_cap_roughness_sigma_nm=_optional_sigma(stack_spec.get("top_cap_roughness_sigma_nm")),
+    )
+
+
+def build_grating_from_spec(
+    spec: dict[str, Any],
+    catalog: dict[str, OpticalConstantsTable] | None = None,
+) -> BaseGrating:
+    """Build a supported grating from a saved JSON-compatible spec."""
+    stack_spec = dict(spec["stack"])
+    common = {
+        "period_lpermm": int(spec["period_lpermm"]),
+        "x_resolution_nm": float(spec["x_resolution_nm"]),
+        "z_resolution_nm": float(spec["z_resolution_nm"]),
+    }
+    stack = build_stack_from_spec(stack_spec)
+    if isinstance(stack, MultilayerStack):
+        common["coating_stack"] = stack
     else:
-        substrate_material = _material(stack_spec["substrate_material"], field_name="substrate_material")
-        layer_material = _material(stack_spec["layer_material"], field_name="layer_material")
-        layer_thickness_nm = float(stack_spec["layer_thickness_nm"])
-        top_cap_material = _optional_material(stack_spec.get("top_cap_material"), field_name="top_cap_material")
-        top_cap_thickness_nm = float(stack_spec.get("top_cap_thickness_nm", 0.0))
         # Keep the individual grating fields (for direct attribute reads) and
         # also attach a coating stack so per-interface roughness is carried.
         common.update(
             {
-                "substrate_material": substrate_material,
-                "layer_material": layer_material,
-                "layer_thickness_nm": layer_thickness_nm,
-                "top_cap_material": top_cap_material,
-                "top_cap_thickness_nm": top_cap_thickness_nm,
-                "coating_stack": SingleLayerStack(
-                    substrate_material=substrate_material,
-                    layer_material=layer_material,
-                    layer_thickness_nm=layer_thickness_nm,
-                    top_cap_material=top_cap_material,
-                    top_cap_thickness_nm=top_cap_thickness_nm,
-                    substrate_roughness_sigma_nm=_optional_sigma(stack_spec.get("substrate_roughness_sigma_nm")),
-                    layer_roughness_sigma_nm=_optional_sigma(stack_spec.get("layer_roughness_sigma_nm")),
-                    top_cap_roughness_sigma_nm=_optional_sigma(stack_spec.get("top_cap_roughness_sigma_nm")),
-                ),
+                "substrate_material": stack.substrate_material,
+                "layer_material": stack.layer_material,
+                "layer_thickness_nm": stack.layer_thickness_nm,
+                "top_cap_material": stack.top_cap_material,
+                "top_cap_thickness_nm": stack.top_cap_thickness_nm,
+                "coating_stack": stack,
             }
         )
 
@@ -285,6 +288,7 @@ def _slugify(value: str) -> str:
 __all__ = [
     "GratingStore",
     "build_grating_from_spec",
+    "build_stack_from_spec",
     "grating_to_spec",
     "load_material_catalog",
 ]

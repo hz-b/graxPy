@@ -62,6 +62,7 @@ from .simulation import (
     write_all_orders_csv,
 )
 from .multilayer_reflectivity import MultilayerReflectivity
+from .planar_mirror import LateralGrading, footprint_reflectivity, parratt_reflectivity
 from .multilayer_design import (
     EnergyScanResult,
     MultilayerDesignConfig,
@@ -82,6 +83,7 @@ __all__ = [
     "CaseExecutionResult",
     "CustomStack",
     "EnergyScanResult",
+    "LateralGrading",
     "LayerSpec",
     "MaterialSpec",
     "LaminarGrating",
@@ -111,6 +113,7 @@ __all__ = [
     "efficiency_for_order",
     "energy_angle_cases",
     "estimate_multilayer_bragg_angle_deg",
+    "footprint_reflectivity",
     "fixed_angle_cases",
     "get_default_parameter_study_ranges",
     "load_experimental_csv",
@@ -119,6 +122,7 @@ __all__ = [
     "multilayer_theta_search_cases",
     "monochromator_cases",
     "normalize_polarization",
+    "parratt_reflectivity",
     "monochromator_grazing_angles_deg",
     "plot_parameter_study",
     "plot_order_subset",

@@ -997,3 +997,83 @@ document.addEventListener("DOMContentLoaded", () => {
     initRunMonitor(runMonitor);
   });
 });
+
+function syncGradingFields(select) {
+  document.querySelectorAll("[data-grading-field]").forEach((label) => {
+    const modes = label.dataset.gradingField.split(" ");
+    toggleSectionFields(label, modes.includes(select.value));
+  });
+}
+
+function initPlaneMirror(form) {
+  const computeUrl = form.dataset.computeUrl;
+  const figure = document.querySelector("[data-plane-mirror-figure]");
+  const status = document.querySelector("[data-plane-mirror-status]");
+  const loading = document.querySelector("[data-plane-mirror-loading]");
+  const gradingMode = form.querySelector("[data-grading-mode]");
+  let requestId = 0;
+
+  const draw = (payload) => {
+    if (!figure || !window.Plotly) {
+      return;
+    }
+    const traces = [{
+      x: payload.x,
+      y: payload.reflectivity,
+      mode: "lines",
+      name: payload.graded ? "Ungraded (centre)" : "Reflectivity",
+    }];
+    if (payload.graded) {
+      traces.push({ x: payload.x, y: payload.graded, mode: "lines", name: "Footprint average" });
+    }
+    window.Plotly.react(figure, traces, {
+      xaxis: { title: { text: payload.x_label } },
+      yaxis: { title: { text: "Reflectivity" }, range: [0, 1] },
+      margin: { t: 20 },
+      legend: { orientation: "h", y: -0.3 },
+    }, { responsive: true, displaylogo: false });
+  };
+
+  const update = debounce(async () => {
+    requestId += 1;
+    const currentRequest = requestId;
+    loading.textContent = "Computing";
+    try {
+      const response = await fetch(computeUrl, { method: "POST", body: new FormData(form) });
+      const payload = await response.json();
+      if (currentRequest !== requestId) {
+        return;
+      }
+      if (payload.ok) {
+        loading.textContent = "Ready";
+        status.textContent = "Ready";
+        draw(payload);
+      } else {
+        loading.textContent = "Error";
+        status.textContent = payload.error || "Calculation failed.";
+      }
+    } catch (error) {
+      if (currentRequest !== requestId) {
+        return;
+      }
+      loading.textContent = "Error";
+      status.textContent = "Calculation request failed.";
+    }
+  }, 300);
+
+  if (gradingMode) {
+    syncGradingFields(gradingMode);
+    gradingMode.addEventListener("change", () => syncGradingFields(gradingMode));
+  }
+  form.querySelectorAll("input, select, textarea").forEach((field) => {
+    field.addEventListener("input", update);
+    field.addEventListener("change", update);
+  });
+  update();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-plane-mirror-form]").forEach((form) => {
+    initPlaneMirror(form);
+  });
+});

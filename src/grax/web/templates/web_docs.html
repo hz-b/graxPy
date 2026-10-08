@@ -23,6 +23,7 @@
     <a class="button" href="#gratings">Gratings</a>
     <a class="button" href="#simulations">Simulations</a>
     <a class="button" href="#multilayer-design">Multilayer design</a>
+    <a class="button" href="#plane-mirror">Plane mirror</a>
     <a class="button" href="#plots">Plots</a>
     <a class="button" href="#export">Export</a>
     <a class="button" href="#modify">Modify later</a>
@@ -146,6 +147,25 @@
     <div class="row"><strong><code>plots/</code></strong><span>Headline survey plots and the titled energy-scan plots.</span></div>
     <div class="row"><strong><code>energy_scan/</code></strong><span>Per-design sweep artifacts.</span></div>
   </div>
+</section>
+
+<section class="docs-section" id="plane-mirror">
+  <h2>Plane mirror</h2>
+  <p>
+    The <a href="{{ url_for('plane_mirror_page') }}">Plane mirror</a> tab computes the specular
+    reflectivity of a single layer or multilayer on a flat substrate with the Parratt recursion. It is
+    stateless and instant: the curve updates as you edit the form, and <strong>Download CSV</strong>
+    saves the current curve. Choose an energy scan at a fixed grazing angle or an angle scan at a fixed
+    energy, the polarization (s, p or average) and a default interface roughness; per-layer roughness
+    fields override it.
+  </p>
+  <p>
+    <strong>Lateral grading</strong> varies every layer thickness along the mirror by a scale factor
+    (linear in %/mm, or polynomial coefficients c0, c1, c2&hellip; in the position in mm from the mirror
+    centre). The plot then shows the ungraded central curve and the average over sample points along the
+    illuminated footprint length, which is broader and lower because each position reflects a different
+    Bragg energy.
+  </p>
 </section>
 
 <section class="docs-section" id="plots">
