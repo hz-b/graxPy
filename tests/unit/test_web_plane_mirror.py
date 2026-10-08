@@ -228,3 +228,78 @@ def test_too_many_points_messages_state_limits_and_suggest_counts() -> None:
 
     graded_single = error(grading_mode="linear", energy_points="5000", footprint_points="500")
     assert "at most 4,000 points" in graded_single
+
+
+def _save_mirror(client, **extra) -> str:
+    response = client.post(
+        "/plane-mirrors",
+        data={**CUSTOM_FORM, "mirror_name": "Pt on Si", "mirror_label": "first try", "scan_name": "Energy 1", **extra},
+    )
+    assert response.status_code == 302
+    return response.headers["Location"].split("/plane-mirrors/")[1].split("?")[0]
+
+
+def test_save_open_and_list_plane_mirror(client) -> None:
+    mirror_id = _save_mirror(client)
+
+    page = client.get(f"/plane-mirrors/{mirror_id}").get_data(as_text=True)
+    assert "Pt on Si" in page and "first try" in page and "Energy 1" in page
+    # Saved stack and scan values come back into the form.
+    assert 'name="cl_material" list="material-suggestions" value="Cr"' in page
+    assert 'name="energy_points" type="number" step="1" min="1" max="5000" value="11"' in page
+
+    listing = client.get("/plane-mirrors").get_data(as_text=True)
+    assert "Pt on Si" in listing and "3 custom layers" in listing and "1 scan" in listing
+    assert client.get("/plane-mirrors/unknown-id").status_code == 404
+
+
+def test_scans_are_added_overwritten_renamed_labelled_and_deleted(client) -> None:
+    mirror_id = _save_mirror(client)
+    base = f"/plane-mirrors/{mirror_id}"
+
+    angle_form = {**CUSTOM_FORM, "scan_mode": "angle", "scan_name": "Angle sweep", "scan_label": "grazing"}
+    client.post(f"{base}/scans", data=angle_form)
+    client.post(f"{base}/scans", data={**angle_form, "angle_max": "20", "scan_label": "updated"})
+
+    from grax.web.persistence import PlaneMirrorStore
+
+    store = PlaneMirrorStore(client.application.config["GRAx_DATA_DIR"] / "saved_plane_mirrors")
+    scans = store.load(mirror_id)["scans"]
+    assert [scan["name"] for scan in scans] == ["Energy 1", "Angle sweep"]
+    assert scans[1]["form"]["angle_max"] == "20" and scans[1]["label"] == "updated"
+
+    # The saved scan opens with its own settings.
+    page = client.get(f"{base}?scan=angle-sweep").get_data(as_text=True)
+    assert '<option value="angle" selected>' in page
+
+    assert client.post(f"{base}/scans/angle-sweep/rename", data={"scan_name": "Energy 1"}).status_code == 400
+    client.post(f"{base}/scans/angle-sweep/rename", data={"scan_name": "Angles", "scan_label": "renamed"})
+    assert store.load(mirror_id)["scans"][1]["name"] == "Angles"
+
+    client.post(f"{base}/scans/angle-sweep/delete")
+    assert [scan["id"] for scan in store.load(mirror_id)["scans"]] == ["energy-1"]
+
+
+def test_update_and_delete_plane_mirror(client) -> None:
+    mirror_id = _save_mirror(client)
+    base = f"/plane-mirrors/{mirror_id}"
+    client.post(base, data={**CUSTOM_FORM, "mirror_name": "Renamed", "mirror_label": "new note", "cl_thickness_nm": ["2", "20", "3"]})
+
+    from grax.web.persistence import PlaneMirrorStore
+
+    spec = PlaneMirrorStore(client.application.config["GRAx_DATA_DIR"] / "saved_plane_mirrors").load(mirror_id)
+    assert spec["name"] == "Renamed" and spec["label"] == "new note"
+    assert spec["stack_form"]["cl_thickness_nm"] == ["2", "20", "3"] and len(spec["scans"]) == 1
+
+    assert client.post(base, data={**CUSTOM_FORM, "mirror_name": " "}).status_code == 400
+    assert client.post(f"{base}/delete").status_code == 302
+    assert client.get(base).status_code == 404
+
+
+def test_bulk_delete_and_invalid_save(client) -> None:
+    first, second = _save_mirror(client), _save_mirror(client, mirror_name="Second")
+    client.post("/plane-mirrors/manage", data={"delete_mirror_id": [first, second]})
+    assert b"No plane mirrors" in client.get("/plane-mirrors").data
+
+    assert client.post("/plane-mirrors", data={**CUSTOM_FORM, "mirror_name": ""}).status_code == 400
+    assert client.post("/plane-mirrors", data={**CUSTOM_FORM, "mirror_name": "x", "energy_points": "0"}).status_code == 400

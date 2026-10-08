@@ -369,3 +369,73 @@ def plane_mirror_csv(result: dict[str, Any]) -> str:
             row.append(repr(result["graded"][index]))
         writer.writerow(row)
     return buffer.getvalue()
+
+
+# Form fields that are not part of the stack: scan settings and the save controls.
+_NON_STACK_FIELDS = frozenset(PLANE_MIRROR_DEFAULTS) | {"mirror_name", "mirror_label", "scan_name", "scan_label"}
+
+
+def split_plane_mirror_form(form: Any) -> tuple[dict[str, Any], dict[str, str]]:
+    """Split a submitted page form into stack fields and scan fields.
+
+    Repeated fields (custom layer columns) stay lists; all other values are
+    strings. Scan fields are returned for every key of
+    :data:`PLANE_MIRROR_DEFAULTS` that was submitted.
+    """
+
+    stack_form: dict[str, Any] = {}
+    scan_form: dict[str, str] = {}
+    for key in form.keys():
+        values = form.getlist(key)
+        if key in PLANE_MIRROR_DEFAULTS:
+            scan_form[key] = str(values[0])
+        elif key not in _NON_STACK_FIELDS:
+            stack_form[key] = list(values) if key.startswith("cl_") else str(values[0])
+    return stack_form, scan_form
+
+
+def clean_label(value: Any) -> str:
+    """Return a stripped optional free-text label (at most 300 characters)."""
+
+    return str(value or "").strip()[:300]
+
+
+def clean_name(value: Any, label: str) -> str:
+    """Return a stripped non-empty name, or raise ``ValueError``."""
+
+    name = str(value or "").strip()
+    if name == "":
+        raise ValueError(f"{label} is required.")
+    return name[:120]
+
+
+def unique_scan_id(name: str, existing_ids: set[str]) -> str:
+    """Return a slug of ``name`` that is not in ``existing_ids``."""
+
+    import re
+
+    base = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9]+", "-", name.lower())).strip("-") or "scan"
+    candidate, index = base, 2
+    while candidate in existing_ids:
+        candidate = f"{base}-{index}"
+        index += 1
+    return candidate
+
+
+def plane_mirror_summary(spec: dict[str, Any]) -> str:
+    """Return a one-line description of a saved plane mirror for list pages."""
+
+    stack = spec.get("stack_form", {})
+    stack_type = str(stack.get("stack_type", "single_layer"))
+    substrate = str(stack.get("substrate_material", "")) or "?"
+    if stack_type == "multilayer":
+        what = (
+            f"{stack.get('material_a', '?')}/{stack.get('material_b', '?')} multilayer, "
+            f"{stack.get('n_bilayers', '?')} bilayers"
+        )
+    elif stack_type == "custom":
+        what = f"{len(stack.get('cl_material', []))} custom layers"
+    else:
+        what = f"{stack.get('layer_material', '?')} single layer"
+    count = len(spec.get("scans", []))
+    return f"{what} on {substrate} · {count} scan{'s' if count != 1 else ''}"

@@ -688,3 +688,29 @@ fieldset {
 .plane-mirror-form > fieldset.is-wide {
   grid-column: 1 / -1;
 }
+
+.plane-mirror-save {
+  grid-column: 1 / -1;
+}
+
+.scan-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(0, 2fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.scan-row.is-active {
+  background: #eef5f2;
+}
+
+.scan-edit {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scan-edit input {
+  flex: 1 1 140px;
+  min-width: 0;
+}

@@ -1,12 +1,47 @@
 {% extends "base.html" %}
-{% block title %}Plane mirror{% endblock %}
+{% block title %}{{ mirror.name if mirror else "New plane mirror" }}{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>Plane mirror</h1>
+    <h1>{{ mirror.name if mirror else "New plane mirror" }}</h1>
+    {% if mirror and mirror.label %}<p><strong>{{ mirror.label }}</strong></p>{% endif %}
     <p>Specular reflectivity of a single layer or multilayer on a flat substrate (Parratt recursion), with optional lateral grading of the layer thickness along the footprint</p>
   </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plane_mirror_index') }}">All plane mirrors</a>
+  </div>
 </section>
+
+{% if message %}
+  <section class="notice"><p>{{ message }}</p></section>
+{% endif %}
+
+{% if mirror %}
+<section class="notice plane-mirror-scans">
+  <h2>Scans of this mirror</h2>
+  {% if scans %}
+    <div class="list compact">
+      {% for scan in scans %}
+        <div class="row scan-row {% if scan.id == active_scan_id %}is-active{% endif %}">
+          <a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">
+            <strong>{{ scan.name }}</strong>{% if scan.id == active_scan_id %} (shown){% endif %}
+          </a>
+          <form class="scan-edit" method="post" action="{{ url_for('plane_mirror_rename_scan', mirror_id=mirror.id, scan_id=scan.id) }}">
+            <input name="scan_name" value="{{ scan.name }}" aria-label="Scan name" required>
+            <input name="scan_label" value="{{ scan.label or '' }}" placeholder="Label / note" aria-label="Scan label">
+            <button class="button" type="submit">Rename / relabel</button>
+          </form>
+          <form method="post" action="{{ url_for('plane_mirror_delete_scan', mirror_id=mirror.id, scan_id=scan.id) }}">
+            <button class="button danger" type="submit" data-confirm="Delete scan '{{ scan.name }}'?">Delete scan</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">No scans saved yet. Set up a scan below and use "Save scan".</p>
+  {% endif %}
+</section>
+{% endif %}
 
 <div class="plane-mirror-top">
 <section class="preview-panel plane-mirror-plot">
@@ -42,6 +77,23 @@
   data-compute-url="{{ url_for('plane_mirror_compute') }}"
   data-stack-preview-url="{{ url_for('plane_mirror_stack_preview') }}"
 >
+  <fieldset class="plane-mirror-save" data-save-controls>
+    <legend>{% if mirror %}Saved plane mirror{% else %}Save{% endif %}</legend>
+    <label>Mirror name <input name="mirror_name" value="{{ mirror.name if mirror else '' }}" placeholder="e.g. Pt mirror on Si" maxlength="120"></label>
+    <label>Mirror label / note <input name="mirror_label" value="{{ mirror.label if mirror and mirror.label else '' }}" placeholder="Optional" maxlength="300"></label>
+    <label>Scan name <input name="scan_name" value="{{ (scans|selectattr('id','equalto',active_scan_id)|first).name if active_scan_id else 'Scan 1' }}" maxlength="120"></label>
+    <label>Scan label / note <input name="scan_label" value="{{ ((scans|selectattr('id','equalto',active_scan_id)|first).label or '') if active_scan_id else '' }}" placeholder="Optional" maxlength="300"></label>
+    <div class="actions">
+      {% if mirror %}
+        <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_update', mirror_id=mirror.id) }}" formnovalidate>Update mirror (name, label, stack)</button>
+        <button class="button" type="submit" formaction="{{ url_for('plane_mirror_save_scan', mirror_id=mirror.id) }}" formnovalidate>Save scan (same name overwrites)</button>
+      {% else %}
+        <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_create') }}" formnovalidate>Save plane mirror with this scan</button>
+      {% endif %}
+      <button class="button" type="submit" formaction="{{ url_for('plane_mirror_download') }}" formnovalidate>Download CSV</button>
+    </div>
+  </fieldset>
+
   <datalist id="material-suggestions">
     {% for material in materials %}
       <option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}">{{ material }}</option>
@@ -94,9 +146,13 @@
     <label data-grading-field="linear polynomial">Footprint sample points <input name="footprint_points" type="number" step="1" min="1" max="500" value="{{ defaults.footprint_points }}"></label>
   </fieldset>
 
-  <div class="actions">
-    <button class="button" type="submit">Download CSV</button>
-  </div>
 </form>
 
+{% if mirror %}
+<form class="form" method="post" action="{{ url_for('plane_mirror_delete', mirror_id=mirror.id) }}">
+  <div class="actions">
+    <button class="button danger" type="submit" data-confirm="Delete this plane mirror and all its scans? This cannot be undone.">Delete this plane mirror</button>
+  </div>
+</form>
+{% endif %}
 {% endblock %}

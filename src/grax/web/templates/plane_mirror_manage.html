@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Plane mirrors{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Plane mirrors</h1>
+    <p>Saved plane mirrors with their attached scans. Open one to view, edit or add scans; select several to delete them.</p>
+  </div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
+  </div>
+</section>
+
+{% if message %}
+  <section class="notice"><p>{{ message }}</p></section>
+{% endif %}
+
+{% if mirrors %}
+  <form class="form" method="post" action="{{ url_for('plane_mirror_manage_update') }}">
+    <div class="manage-actions">
+      <button class="button danger" type="submit" data-confirm="Delete the selected plane mirrors and all their scans? This cannot be undone.">
+        Delete selected
+      </button>
+    </div>
+    <div class="list">
+      {% for mirror in mirrors %}
+        <div class="row run-manage-row">
+          <div class="run-manage-main">
+            <a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}"><strong>{{ mirror.name }}</strong></a>
+            {% if mirror.label %}<p>{{ mirror.label }}</p>{% endif %}
+            <p class="subtle">{{ mirror.summary }} · {{ mirror.id }}</p>
+            {% if mirror.scans %}
+              <p class="subtle">
+                {% for scan in mirror.scans %}
+                  <a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">{{ scan.name }}</a>{% if scan.label %} ({{ scan.label }}){% endif %}{% if not loop.last %} · {% endif %}
+                {% endfor %}
+              </p>
+            {% endif %}
+          </div>
+          <label class="inline-check manage-delete">
+            <input type="checkbox" name="delete_mirror_id" value="{{ mirror.id }}">
+            <span>Delete</span>
+          </label>
+        </div>
+      {% endfor %}
+    </div>
+  </form>
+{% else %}
+  <p class="empty">No plane mirrors have been saved yet.</p>
+{% endif %}
+{% endblock %}

@@ -161,6 +161,14 @@
     fields override it.
   </p>
   <p>
+    <strong>Saving.</strong> Give the mirror a name (and an optional label) and use <em>Save plane mirror</em>
+    to keep the stack together with the current scan. On a saved mirror, <em>Save scan</em> attaches the
+    current scan settings under a scan name and label (saving under an existing name overwrites it),
+    <em>Update mirror</em> stores a changed stack, name or label, and each scan can be renamed, relabelled or
+    deleted. The <a href="{{ url_for('plane_mirror_index') }}">Plane mirrors</a> page lists all saved mirrors
+    and deletes several at once. Saved mirrors live in <code>saved_plane_mirrors/</code> in the workspace.
+  </p>
+  <p>
     <strong>Lateral grading</strong> varies every layer thickness along the mirror by a scale factor
     (linear in %/mm, or polynomial coefficients c0, c1, c2&hellip; in the position in mm from the mirror
     centre). The plot then shows the ungraded central curve and the average over sample points along the

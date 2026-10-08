@@ -1192,9 +1192,15 @@ function initPlaneMirror(form) {
     initLayerEditor(editor, form);
   }
   // Delegated, so layer rows added or removed later are covered too.
+  // Names and labels in the save controls never change the calculation.
+  const ignoreSaveControls = (handler) => (event) => {
+    if (!event.target.closest("[data-save-controls]")) {
+      handler(event);
+    }
+  };
   ["input", "change"].forEach((type) => {
-    form.addEventListener(type, update);
-    form.addEventListener(type, stackFieldChanged);
+    form.addEventListener(type, ignoreSaveControls(update));
+    form.addEventListener(type, ignoreSaveControls(stackFieldChanged));
   });
   update();
   updateStack();

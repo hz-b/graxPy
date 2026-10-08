@@ -110,6 +110,15 @@ def grating_to_spec(grating: BaseGrating, *, name: str) -> dict[str, Any]:
     raise TypeError("Only LaminarGrating and BlazedGrating are supported by the web MVP.")
 
 
+class PlaneMirrorStore(GratingStore):
+    """Store saved plane mirrors, each with its attached scans, as JSON files.
+
+    A plane-mirror spec holds a ``name``, the submitted stack form fields
+    (``stack_form``) and a list of ``scans``; every scan has an ``id``, a
+    ``name`` and its scan form fields (``form``).
+    """
+
+
 def build_stack_from_spec(stack_spec: dict[str, Any]) -> MultilayerStack | SingleLayerStack:
     """Build a single-layer or multilayer stack from a JSON-compatible stack spec."""
     stack_spec = dict(stack_spec)
@@ -287,6 +296,7 @@ def _slugify(value: str) -> str:
 
 __all__ = [
     "GratingStore",
+    "PlaneMirrorStore",
     "build_grating_from_spec",
     "build_stack_from_spec",
     "grating_to_spec",

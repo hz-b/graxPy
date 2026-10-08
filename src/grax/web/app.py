@@ -54,9 +54,14 @@ from .multilayer_design_studies import (
     survey_cell_count,
     survey_design_options,
 )
-from .persistence import GratingStore, build_grating_from_spec, build_stack_from_spec
+from .persistence import GratingStore, PlaneMirrorStore, build_grating_from_spec, build_stack_from_spec
 from .plane_mirror import (
     DEFAULT_CUSTOM_LAYERS,
+    clean_label,
+    clean_name,
+    plane_mirror_summary,
+    split_plane_mirror_form,
+    unique_scan_id,
     PLANE_MIRROR_DEFAULTS,
     PLANE_MIRROR_STACK_DEFAULTS,
     compute_plane_mirror,
@@ -199,6 +204,9 @@ def create_app(*, data_dir: str | Path | None = None):
     app.config["GRAx_DATA_DIR"] = Path(data_dir or Path.cwd() / ".grax-web").resolve()
     def store() -> GratingStore:
         return GratingStore(app.config["GRAx_DATA_DIR"] / "saved_gratings")
+
+    def plane_mirror_store() -> PlaneMirrorStore:
+        return PlaneMirrorStore(app.config["GRAx_DATA_DIR"] / "saved_plane_mirrors")
 
     def run_store() -> RunStore:
         return RunStore(app.config["GRAx_DATA_DIR"] / "runs")
@@ -913,14 +921,14 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         return redirect(url_for("multilayer_design_detail", study_id=study_id))
 
-    @app.get("/plane-mirror")
-    def plane_mirror_page():
-        defaults = _default_form_values()
-        defaults.update(PLANE_MIRROR_STACK_DEFAULTS)
-        defaults["material_a_density_g_cm3"] = _default_density_text(defaults["material_a"])
-        defaults["material_b_density_g_cm3"] = _default_density_text(defaults["material_b"])
-        defaults["top_material_density_g_cm3"] = _default_density_text(defaults["top_material"])
-        defaults.update(PLANE_MIRROR_DEFAULTS)
+    def render_plane_mirror_page(mirror: dict[str, Any] | None = None, scan_id: str | None = None):
+        stack_form: dict[str, Any] = {} if mirror is None else dict(mirror.get("stack_form", {}))
+        scans = [] if mirror is None else list(mirror.get("scans", []))
+        active_scan = next((scan for scan in scans if scan["id"] == scan_id), None)
+        if active_scan is None and scans and scan_id is None:
+            active_scan = scans[0]
+        defaults = _plane_mirror_page_defaults(stack_form, {} if active_scan is None else active_scan["form"])
+        custom_layers = _custom_layer_rows(stack_form)
         return render_template(
             "plane_mirror.html",
             materials=available_material_symbols(),
@@ -928,12 +936,136 @@ def create_app(*, data_dir: str | Path | None = None):
             defaults=defaults,
             density_placeholders=_material_density_placeholders(defaults),
             allow_custom=True,
-            custom_layers=[
-                {**layer, "density_g_cm3": _default_density_text(layer["material"])}
-                for layer in DEFAULT_CUSTOM_LAYERS
-            ],
+            custom_layers=custom_layers,
+            mirror=mirror,
+            scans=scans,
+            active_scan_id=None if active_scan is None else active_scan["id"],
+            message=str(request.args.get("message", "")).strip(),
             plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
         )
+
+    @app.get("/plane-mirror")
+    def plane_mirror_page():
+        return render_plane_mirror_page()
+
+    @app.get("/plane-mirrors")
+    def plane_mirror_index():
+        mirrors = [{**spec, "summary": plane_mirror_summary(spec)} for spec in plane_mirror_store().list()]
+        return render_template(
+            "plane_mirror_manage.html",
+            mirrors=mirrors,
+            message=str(request.args.get("message", "")).strip(),
+        )
+
+    @app.post("/plane-mirrors")
+    def plane_mirror_create():
+        try:
+            name = clean_name(request.form.get("mirror_name"), "Mirror name")
+            scan_name = clean_name(request.form.get("scan_name") or "Scan 1", "Scan name")
+            stack_form, scan_form = split_plane_mirror_form(request.form)
+            _plane_mirror_stack(request.form)
+            parse_plane_mirror_options(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        saved = plane_mirror_store().save(
+            {
+                "name": name,
+                "label": clean_label(request.form.get("mirror_label")),
+                "stack_form": stack_form,
+                "scans": [
+                    {
+                        "id": unique_scan_id(scan_name, set()),
+                        "name": scan_name,
+                        "label": clean_label(request.form.get("scan_label")),
+                        "form": scan_form,
+                    }
+                ],
+            }
+        )
+        return redirect(url_for("plane_mirror_detail", mirror_id=saved["id"]))
+
+    @app.post("/plane-mirrors/manage")
+    def plane_mirror_manage_update():
+        for mirror_id in request.form.getlist("delete_mirror_id"):
+            plane_mirror_store().delete(str(mirror_id))
+        return redirect(url_for("plane_mirror_index"))
+
+    @app.get("/plane-mirrors/<mirror_id>")
+    def plane_mirror_detail(mirror_id: str):
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        return render_plane_mirror_page(mirror, request.args.get("scan"))
+
+    @app.post("/plane-mirrors/<mirror_id>")
+    def plane_mirror_update(mirror_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        try:
+            mirror["name"] = clean_name(request.form.get("mirror_name"), "Mirror name")
+            mirror["label"] = clean_label(request.form.get("mirror_label"))
+            mirror["stack_form"], _ = split_plane_mirror_form(request.form)
+            _plane_mirror_stack(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        store.save(mirror)
+        return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, message="Plane mirror updated."))
+
+    @app.post("/plane-mirrors/<mirror_id>/scans")
+    def plane_mirror_save_scan(mirror_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        try:
+            scan_name = clean_name(request.form.get("scan_name"), "Scan name")
+            _, scan_form = split_plane_mirror_form(request.form)
+            parse_plane_mirror_options(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        scans = list(mirror.get("scans", []))
+        existing = next((scan for scan in scans if scan["name"] == scan_name), None)
+        scan_label = clean_label(request.form.get("scan_label"))
+        if existing is not None:
+            existing["form"] = scan_form
+            existing["label"] = scan_label
+            scan_id = existing["id"]
+        else:
+            scan_id = unique_scan_id(scan_name, {scan["id"] for scan in scans})
+            scans.append({"id": scan_id, "name": scan_name, "label": scan_label, "form": scan_form})
+        mirror["scans"] = scans
+        store.save(mirror)
+        return redirect(
+            url_for("plane_mirror_detail", mirror_id=mirror_id, scan=scan_id, message=f"Saved scan '{scan_name}'.")
+        )
+
+    @app.post("/plane-mirrors/<mirror_id>/scans/<scan_id>/rename")
+    def plane_mirror_rename_scan(mirror_id: str, scan_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        scan = next((scan for scan in mirror.get("scans", []) if scan["id"] == scan_id), None)
+        if scan is None:
+            abort(404)
+        try:
+            new_name = clean_name(request.form.get("scan_name"), "Scan name")
+        except ValueError as error:
+            abort(400, str(error))
+        if any(other["name"] == new_name and other["id"] != scan_id for other in mirror["scans"]):
+            abort(400, f"A scan named '{new_name}' already exists.")
+        scan["name"] = new_name
+        scan["label"] = clean_label(request.form.get("scan_label"))
+        store.save(mirror)
+        return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, scan=scan_id, message="Scan updated."))
+
+    @app.post("/plane-mirrors/<mirror_id>/scans/<scan_id>/delete")
+    def plane_mirror_delete_scan(mirror_id: str, scan_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        mirror["scans"] = [scan for scan in mirror.get("scans", []) if scan["id"] != scan_id]
+        store.save(mirror)
+        return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, message="Scan deleted."))
+
+    @app.post("/plane-mirrors/<mirror_id>/delete")
+    def plane_mirror_delete(mirror_id: str):
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        plane_mirror_store().delete(mirror_id)
+        return redirect(url_for("plane_mirror_index", message=f"Deleted plane mirror '{mirror['name']}'."))
 
     @app.post("/_preview/plane-mirror-stack")
     def plane_mirror_stack_preview():
@@ -1159,6 +1291,56 @@ def _build_grating_preview(
         "preview_id": preview_id,
         "preview_url": f"/_data/previews/live/{preview_id}.png",
     }
+
+
+def _load_plane_mirror(store: PlaneMirrorStore, mirror_id: str) -> dict[str, Any]:
+    """Load one saved plane mirror or answer 404."""
+    from flask import abort
+
+    try:
+        return store.load(mirror_id)
+    except (FileNotFoundError, ValueError):
+        abort(404)
+
+
+def _plane_mirror_page_defaults(stack_form: dict[str, Any], scan_form: dict[str, str]) -> dict[str, str]:
+    """Return template defaults for the plane-mirror page, overlaid with saved values."""
+    defaults = _default_form_values()
+    defaults.update(PLANE_MIRROR_STACK_DEFAULTS)
+    for field_name in ("material_a", "material_b", "top_material"):
+        defaults[f"{field_name}_density_g_cm3"] = _default_density_text(defaults[field_name])
+    defaults.update(PLANE_MIRROR_DEFAULTS)
+    defaults.update({key: value for key, value in stack_form.items() if isinstance(value, str)})
+    for field_name in (
+        "substrate_material",
+        "layer_material",
+        "material_a",
+        "material_b",
+        "top_material",
+        "top_cap_material",
+    ):
+        density_key = f"{field_name}_density_g_cm3"
+        if field_name in stack_form and density_key not in stack_form:
+            defaults[density_key] = _default_density_text(defaults[field_name])
+    defaults.update(scan_form)
+    return defaults
+
+
+def _custom_layer_rows(stack_form: dict[str, Any]) -> list[dict[str, str]]:
+    """Return the custom-layer table rows (top to bottom) for the page."""
+    if "cl_material" not in stack_form:
+        return [
+            {**layer, "density_g_cm3": _default_density_text(layer["material"])}
+            for layer in DEFAULT_CUSTOM_LAYERS
+        ]
+    columns = [
+        stack_form.get(key, [])
+        for key in ("cl_material", "cl_density_g_cm3", "cl_thickness_nm", "cl_roughness_sigma_nm")
+    ]
+    return [
+        {"material": m, "density_g_cm3": d, "thickness_nm": t, "roughness_sigma_nm": r}
+        for m, d, t, r in zip(*columns)
+    ]
 
 
 def _plane_mirror_result(form: Any) -> dict[str, Any]:
