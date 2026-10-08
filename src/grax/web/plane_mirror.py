@@ -21,13 +21,13 @@ SCHEMATIC_MAX_LAYERS = 40
 
 PLANE_MIRROR_DEFAULTS: dict[str, str] = {
     "scan_mode": "energy",
-    "energy_min": "150",
-    "energy_max": "400",
-    "energy_points": "300",
+    "energy_min": "100",
+    "energy_max": "6000",
+    "energy_points": "1000",
     "angle_min": "5",
     "angle_max": "40",
     "angle_points": "100",
-    "fixed_angle_deg": "20",
+    "fixed_angle_deg": "0.4",
     "fixed_energy_ev": "259",
     "polarization": "s",
     "roughness_sigma_nm": "0",

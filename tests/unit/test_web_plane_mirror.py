@@ -187,3 +187,9 @@ def test_stack_schematic_endpoint_and_custom_option_scope(client) -> None:
 
     assert b'value="custom"' in client.get("/plane-mirror").data
     assert b'value="custom"' not in client.get("/gratings/new").data
+
+
+def test_energy_scan_defaults(client) -> None:
+    page = client.get("/plane-mirror").get_data(as_text=True)
+    for name, value in (("energy_min", "100"), ("energy_max", "6000"), ("energy_points", "1000"), ("fixed_angle_deg", "0.4")):
+        assert f'name="{name}" type="number"' in page and f'value="{value}"' in page.split(f'name="{name}"')[1].split(">")[0]
