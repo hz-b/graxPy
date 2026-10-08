@@ -29,6 +29,8 @@ FORM = {
     "angle_min": "5",
     "angle_max": "30",
     "angle_points": "4",
+    "map_energy_points": "11",
+    "map_angle_points": "4",
     "fixed_angle_deg": "20",
     "fixed_energy_ev": "259",
     "polarization": "s",
@@ -187,6 +189,15 @@ def test_stack_schematic_endpoint_and_custom_option_scope(client) -> None:
 
     assert b'value="custom"' in client.get("/plane-mirror").data
     assert b'value="custom"' not in client.get("/gratings/new").data
+
+
+def test_map_defaults_stay_under_the_sample_cap(client) -> None:
+    from grax.web.plane_mirror import MAX_TOTAL_SAMPLES, PLANE_MIRROR_DEFAULTS, parse_plane_mirror_options
+
+    options = parse_plane_mirror_options({**PLANE_MIRROR_DEFAULTS, "scan_mode": "map"})
+    assert options.energy_points * options.angle_points <= MAX_TOTAL_SAMPLES
+    angle = parse_plane_mirror_options({**PLANE_MIRROR_DEFAULTS, "scan_mode": "angle"})
+    assert (angle.angle_min, angle.angle_max, angle.angle_points, angle.fixed_energy_ev) == (0.1, 8.0, 5000, 1000.0)
 
 
 def test_energy_scan_defaults(client) -> None:

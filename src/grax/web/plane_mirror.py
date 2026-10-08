@@ -24,11 +24,13 @@ PLANE_MIRROR_DEFAULTS: dict[str, str] = {
     "energy_min": "100",
     "energy_max": "6000",
     "energy_points": "1000",
-    "angle_min": "5",
-    "angle_max": "40",
-    "angle_points": "100",
+    "angle_min": "0.1",
+    "angle_max": "8",
+    "angle_points": "5000",
+    "map_energy_points": "300",
+    "map_angle_points": "200",
     "fixed_angle_deg": "0.4",
-    "fixed_energy_ev": "259",
+    "fixed_energy_ev": "1000",
     "polarization": "s",
     "roughness_sigma_nm": "0",
     "grading_mode": "none",
@@ -197,10 +199,12 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
         raise ValueError("scan_mode must be 'energy', 'angle' or 'map'.")
 
     def axis(prefix: str, label: str, upper: float | None = None) -> tuple[float, float, int]:
+        # Maps use their own (smaller) point counts; the ranges are shared.
+        points_field = f"map_{prefix}_points" if scan_mode == "map" else f"{prefix}_points"
         low, high = number(f"{prefix}_min"), number(f"{prefix}_max")
-        points = int(number(f"{prefix}_points"))
+        points = int(number(points_field))
         if not 1 <= points <= MAX_SCAN_POINTS:
-            raise ValueError(f"{prefix}_points must be between 1 and {MAX_SCAN_POINTS}.")
+            raise ValueError(f"{points_field} must be between 1 and {MAX_SCAN_POINTS}.")
         if low <= 0.0 or high < low:
             raise ValueError(f"The {label} range must be positive with max >= min.")
         if upper is not None and high > upper:

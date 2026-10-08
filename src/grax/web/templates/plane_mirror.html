@@ -61,10 +61,12 @@
     </label>
     <label data-scan-field="energy map">Energy from, eV <input name="energy_min" type="number" step="any" value="{{ defaults.energy_min }}"></label>
     <label data-scan-field="energy map">Energy to, eV <input name="energy_max" type="number" step="any" value="{{ defaults.energy_max }}"></label>
-    <label data-scan-field="energy map">Energy points <input name="energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.energy_points }}"></label>
+    <label data-scan-field="energy">Energy points <input name="energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.energy_points }}"></label>
     <label data-scan-field="angle map">Grazing angle from, deg <input name="angle_min" type="number" step="any" value="{{ defaults.angle_min }}"></label>
     <label data-scan-field="angle map">Grazing angle to, deg <input name="angle_max" type="number" step="any" value="{{ defaults.angle_max }}"></label>
-    <label data-scan-field="angle map">Angle points <input name="angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.angle_points }}"></label>
+    <label data-scan-field="angle">Angle points <input name="angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.angle_points }}"></label>
+    <label data-scan-field="map">Map energy points <input name="map_energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.map_energy_points }}"></label>
+    <label data-scan-field="map">Map angle points <input name="map_angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.map_angle_points }}"></label>
     <label data-scan-field="energy">Fixed grazing angle, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
     <label data-scan-field="angle">Fixed energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
     <label>Polarization
