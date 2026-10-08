@@ -51,9 +51,12 @@ a {
 }
 
 .shell {
-  max-width: 1180px;
+  /* Fluid: use the available width, with a cap so lines stay readable on huge screens. */
+  width: 100%;
+  max-width: 2000px;
   margin: 0 auto;
-  padding: 28px;
+  padding: 28px clamp(16px, 3vw, 56px);
+  box-sizing: border-box;
 }
 
 .footer {
@@ -588,4 +591,25 @@ td {
   .preview-panel {
     position: static;
   }
+}
+
+/* Plane mirror: plot first at full width, parameter groups in a responsive grid below. */
+.plane-mirror-plot {
+  position: static;
+  margin-bottom: 24px;
+}
+
+.plane-mirror-plot .plotly-stage {
+  height: clamp(420px, 72vh, 1000px);
+  margin-bottom: 0;
+}
+
+.plane-mirror-form {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  align-items: start;
+}
+
+.plane-mirror-form > .actions,
+.plane-mirror-form > datalist {
+  grid-column: 1 / -1;
 }

@@ -8,82 +8,81 @@
   </div>
 </section>
 
-<div class="workspace-grid">
-  <form
-    class="form"
-    method="post"
-    action="{{ url_for('plane_mirror_download') }}"
-    data-plane-mirror-form
-    data-compute-url="{{ url_for('plane_mirror_compute') }}"
-  >
-    <datalist id="material-suggestions">
-      {% for material in materials %}
-        <option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}">{{ material }}</option>
-      {% endfor %}
-    </datalist>
-
-    {% include "_stack_fields.html" %}
-
-    <fieldset>
-      <legend>Scan</legend>
-      <label>Scan
-        <select name="scan_mode" data-scan-mode>
-          <option value="energy" {% if defaults.scan_mode == "energy" %}selected{% endif %}>Energy scan at fixed grazing angle</option>
-          <option value="angle" {% if defaults.scan_mode == "angle" %}selected{% endif %}>Angle scan at fixed energy</option>
-          <option value="map" {% if defaults.scan_mode == "map" %}selected{% endif %}>Map: angle vs energy</option>
-        </select>
-      </label>
-      <label data-scan-field="energy map">Energy from, eV <input name="energy_min" type="number" step="any" value="{{ defaults.energy_min }}"></label>
-      <label data-scan-field="energy map">Energy to, eV <input name="energy_max" type="number" step="any" value="{{ defaults.energy_max }}"></label>
-      <label data-scan-field="energy map">Energy points <input name="energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.energy_points }}"></label>
-      <label data-scan-field="angle map">Grazing angle from, deg <input name="angle_min" type="number" step="any" value="{{ defaults.angle_min }}"></label>
-      <label data-scan-field="angle map">Grazing angle to, deg <input name="angle_max" type="number" step="any" value="{{ defaults.angle_max }}"></label>
-      <label data-scan-field="angle map">Angle points <input name="angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.angle_points }}"></label>
-      <label data-scan-field="energy">Fixed grazing angle, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
-      <label data-scan-field="angle">Fixed energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
-      <label>Polarization
-        <select name="polarization">
-          <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>s</option>
-          <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>p</option>
-          <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average of s and p</option>
-        </select>
-      </label>
-      <label>Default interface roughness &sigma;, nm <input name="roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.roughness_sigma_nm }}"></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>Lateral grading</legend>
-      <label>Grading
-        <select name="grading_mode" data-grading-mode>
-          <option value="none" {% if defaults.grading_mode == "none" %}selected{% endif %}>None</option>
-          <option value="linear" {% if defaults.grading_mode == "linear" %}selected{% endif %}>Linear</option>
-          <option value="polynomial" {% if defaults.grading_mode == "polynomial" %}selected{% endif %}>Polynomial</option>
-        </select>
-      </label>
-      <label data-grading-field="linear">Thickness change, %/mm <input name="grading_percent_per_mm" type="number" step="any" value="{{ defaults.grading_percent_per_mm }}"></label>
-      <label data-grading-field="polynomial">Scale coefficients c0, c1, c2, &hellip; (position in mm from centre) <input name="grading_coefficients" type="text" value="{{ defaults.grading_coefficients }}"></label>
-      <label data-grading-field="linear polynomial">Illuminated footprint length, mm <input name="footprint_length_mm" type="number" step="any" min="0" value="{{ defaults.footprint_length_mm }}"></label>
-      <label data-grading-field="linear polynomial">Footprint sample points <input name="footprint_points" type="number" step="1" min="1" max="500" value="{{ defaults.footprint_points }}"></label>
-    </fieldset>
-
-    <div class="actions">
-      <button class="button" type="submit">Download CSV</button>
+<section class="preview-panel plane-mirror-plot">
+  <div class="section-head preview-head">
+    <div>
+      <h2>Reflectivity</h2>
+      <p data-plane-mirror-status>Idle</p>
     </div>
-  </form>
+    <span class="preview-pill" data-plane-mirror-loading>Idle</span>
+  </div>
+  {% if plotly_bundle %}
+    <div class="plotly-stage" data-plane-mirror-figure></div>
+  {% else %}
+    <p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>
+  {% endif %}
+</section>
 
-  <section class="preview-panel">
-    <div class="section-head preview-head">
-      <div>
-        <h2>Reflectivity</h2>
-        <p data-plane-mirror-status>Idle</p>
-      </div>
-      <span class="preview-pill" data-plane-mirror-loading>Idle</span>
-    </div>
-    {% if plotly_bundle %}
-      <div class="plotly-stage" data-plane-mirror-figure></div>
-    {% else %}
-      <p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>
-    {% endif %}
-  </section>
-</div>
+<form
+  class="form plane-mirror-form"
+  method="post"
+  action="{{ url_for('plane_mirror_download') }}"
+  data-plane-mirror-form
+  data-compute-url="{{ url_for('plane_mirror_compute') }}"
+>
+  <datalist id="material-suggestions">
+    {% for material in materials %}
+      <option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}">{{ material }}</option>
+    {% endfor %}
+  </datalist>
+
+  {% include "_stack_fields.html" %}
+
+  <fieldset>
+    <legend>Scan</legend>
+    <label>Scan
+      <select name="scan_mode" data-scan-mode>
+        <option value="energy" {% if defaults.scan_mode == "energy" %}selected{% endif %}>Energy scan at fixed grazing angle</option>
+        <option value="angle" {% if defaults.scan_mode == "angle" %}selected{% endif %}>Angle scan at fixed energy</option>
+        <option value="map" {% if defaults.scan_mode == "map" %}selected{% endif %}>Map: angle vs energy</option>
+      </select>
+    </label>
+    <label data-scan-field="energy map">Energy from, eV <input name="energy_min" type="number" step="any" value="{{ defaults.energy_min }}"></label>
+    <label data-scan-field="energy map">Energy to, eV <input name="energy_max" type="number" step="any" value="{{ defaults.energy_max }}"></label>
+    <label data-scan-field="energy map">Energy points <input name="energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.energy_points }}"></label>
+    <label data-scan-field="angle map">Grazing angle from, deg <input name="angle_min" type="number" step="any" value="{{ defaults.angle_min }}"></label>
+    <label data-scan-field="angle map">Grazing angle to, deg <input name="angle_max" type="number" step="any" value="{{ defaults.angle_max }}"></label>
+    <label data-scan-field="angle map">Angle points <input name="angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.angle_points }}"></label>
+    <label data-scan-field="energy">Fixed grazing angle, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
+    <label data-scan-field="angle">Fixed energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
+    <label>Polarization
+      <select name="polarization">
+        <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>s</option>
+        <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>p</option>
+        <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average of s and p</option>
+      </select>
+    </label>
+    <label>Default interface roughness &sigma;, nm <input name="roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.roughness_sigma_nm }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Lateral grading</legend>
+    <label>Grading
+      <select name="grading_mode" data-grading-mode>
+        <option value="none" {% if defaults.grading_mode == "none" %}selected{% endif %}>None</option>
+        <option value="linear" {% if defaults.grading_mode == "linear" %}selected{% endif %}>Linear</option>
+        <option value="polynomial" {% if defaults.grading_mode == "polynomial" %}selected{% endif %}>Polynomial</option>
+      </select>
+    </label>
+    <label data-grading-field="linear">Thickness change, %/mm <input name="grading_percent_per_mm" type="number" step="any" value="{{ defaults.grading_percent_per_mm }}"></label>
+    <label data-grading-field="polynomial">Scale coefficients c0, c1, c2, &hellip; (position in mm from centre) <input name="grading_coefficients" type="text" value="{{ defaults.grading_coefficients }}"></label>
+    <label data-grading-field="linear polynomial">Illuminated footprint length, mm <input name="footprint_length_mm" type="number" step="any" min="0" value="{{ defaults.footprint_length_mm }}"></label>
+    <label data-grading-field="linear polynomial">Footprint sample points <input name="footprint_points" type="number" step="1" min="1" max="500" value="{{ defaults.footprint_points }}"></label>
+  </fieldset>
+
+  <div class="actions">
+    <button class="button" type="submit">Download CSV</button>
+  </div>
+</form>
+
 {% endblock %}
