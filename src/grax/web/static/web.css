@@ -644,7 +644,7 @@ td {
 
 .layer-row {
   display: grid;
-  grid-template-columns: 2.5ch minmax(90px, 1.4fr) minmax(70px, 1fr) minmax(70px, 1fr) minmax(70px, 1fr) auto;
+  grid-template-columns: 2.5ch minmax(70px, 1.4fr) minmax(56px, 1fr) minmax(56px, 1fr) minmax(56px, 1fr) auto;
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;

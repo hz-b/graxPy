@@ -4,7 +4,7 @@
   <input name="cl_material" list="material-suggestions" value="{{ material }}" placeholder="Material" aria-label="Layer material" data-material-select="cl_{{ key }}" autocomplete="off">
   <input name="cl_density_g_cm3" type="number" step="any" value="{{ density }}" placeholder="g/cm^3" aria-label="Layer density" data-material-density="cl_{{ key }}">
   <input name="cl_thickness_nm" type="number" step="any" min="0" value="{{ thickness }}" placeholder="nm" aria-label="Layer thickness, nm">
-  <input name="cl_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ sigma }}" placeholder="default" aria-label="Layer roughness sigma, nm">
+  <input name="cl_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ sigma }}" placeholder="-" title="Leave empty to use the default interface roughness" aria-label="Layer roughness sigma, nm">
   <span class="layer-row-actions">
     <button class="button" type="button" data-layer-up title="Move up" aria-label="Move layer up">&uarr;</button>
     <button class="button" type="button" data-layer-down title="Move down" aria-label="Move layer down">&darr;</button>
