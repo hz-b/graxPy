@@ -14,6 +14,8 @@ function syncGratingSections(select) {
 
 function syncStackSections(select) {
   const mode = select.value;
+  // The custom layer table needs room: let its fieldset span the whole form grid.
+  select.closest("fieldset")?.classList.toggle("is-wide", mode === "custom");
   document.querySelectorAll("[data-stack-controls]").forEach((section) => {
     toggleSectionFields(section, mode === "multilayer");
   });

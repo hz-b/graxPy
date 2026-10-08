@@ -665,3 +665,26 @@ td {
   padding: 2px 8px;
   min-height: 0;
 }
+
+/* Nested fieldsets default to min-content width and overflow their parent. */
+fieldset {
+  min-width: 0;
+}
+
+.layer-editor {
+  padding: 12px;
+}
+
+.layer-row input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.layer-row-actions .button {
+  padding: 2px 6px;
+}
+
+.plane-mirror-form > fieldset.is-wide {
+  grid-column: 1 / -1;
+}
