@@ -131,3 +131,59 @@ def test_csv_download(client) -> None:
     assert response.mimetype == "text/csv"
     assert lines[0].endswith("reflectivity_graded") and len(lines) == 12
     assert client.post("/plane-mirror/csv", data={**FORM, "energy_points": "0"}).status_code == 400
+
+
+CUSTOM_FORM = {
+    **FORM,
+    "stack_type": "custom",
+    "cl_material": ["C", "Pt", "Cr"],
+    "cl_density_g_cm3": ["", "", ""],
+    "cl_thickness_nm": ["2", "10", "3"],
+    "cl_roughness_sigma_nm": ["", "0.5", ""],
+}
+
+
+def test_custom_layers_match_direct_parratt_and_order_is_top_down(client) -> None:
+    from grax import LayerSpec, assemble_custom_stack
+
+    payload = client.post("/_compute/plane-mirror", data=CUSTOM_FORM).get_json()
+    stack = assemble_custom_stack(
+        substrate_material=MaterialSpec("Si"),
+        layers_bottom_up=[
+            LayerSpec(MaterialSpec("Cr"), 3.0),
+            LayerSpec(MaterialSpec("Pt"), 10.0, roughness_sigma_nm=0.5),
+            LayerSpec(MaterialSpec("C"), 2.0),
+        ],
+    )
+    expected = parratt_reflectivity(stack, np.linspace(200, 300, 11), 20.0, roughness_sigma_nm=0.2)[:, 0]
+    assert payload["ok"] is True
+    np.testing.assert_allclose(payload["reflectivity"], expected, rtol=1e-9)
+
+
+def test_single_custom_layer_is_allowed(client) -> None:
+    form = {**CUSTOM_FORM, "cl_material": ["Pt"], "cl_density_g_cm3": [""], "cl_thickness_nm": ["10"], "cl_roughness_sigma_nm": [""]}
+    assert client.post("/_compute/plane-mirror", data=form).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"cl_material": [], "cl_density_g_cm3": [], "cl_thickness_nm": [], "cl_roughness_sigma_nm": []},
+        {"cl_thickness_nm": ["2", "x", "3"]},
+        {"cl_thickness_nm": ["2", "-1", "3"]},
+        {"cl_material": ["C", "", "Cr"]},
+        {"cl_roughness_sigma_nm": ["", "-1", ""]},
+    ],
+)
+def test_bad_custom_layers_return_400(client, override) -> None:
+    assert client.post("/_compute/plane-mirror", data={**CUSTOM_FORM, **override}).status_code == 400
+
+
+def test_stack_schematic_endpoint_and_custom_option_scope(client) -> None:
+    for form in (CUSTOM_FORM, FORM):
+        payload = client.post("/_preview/plane-mirror-stack", data=form).get_json()
+        assert payload["ok"] is True and payload["image"].startswith("data:image/png;base64,")
+    assert client.post("/_preview/plane-mirror-stack", data={**FORM, "d_period_nm": "x"}).status_code == 400
+
+    assert b'value="custom"' in client.get("/plane-mirror").data
+    assert b'value="custom"' not in client.get("/gratings/new").data

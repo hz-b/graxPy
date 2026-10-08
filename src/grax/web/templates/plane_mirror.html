@@ -8,6 +8,7 @@
   </div>
 </section>
 
+<div class="plane-mirror-top">
 <section class="preview-panel plane-mirror-plot">
   <div class="section-head preview-head">
     <div>
@@ -22,6 +23,16 @@
     <p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>
   {% endif %}
 </section>
+<section class="preview-panel plane-mirror-schematic">
+  <div class="section-head preview-head">
+    <div>
+      <h2>Layer stack</h2>
+      <p data-plane-mirror-stack-status>Idle</p>
+    </div>
+  </div>
+  <img class="preview is-hidden" src="" alt="Layer stack schematic" data-plane-mirror-stack-image>
+</section>
+</div>
 
 <form
   class="form plane-mirror-form"
@@ -29,6 +40,7 @@
   action="{{ url_for('plane_mirror_download') }}"
   data-plane-mirror-form
   data-compute-url="{{ url_for('plane_mirror_compute') }}"
+  data-stack-preview-url="{{ url_for('plane_mirror_stack_preview') }}"
 >
   <datalist id="material-suggestions">
     {% for material in materials %}

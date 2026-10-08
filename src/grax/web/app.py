@@ -56,9 +56,12 @@ from .multilayer_design_studies import (
 )
 from .persistence import GratingStore, build_grating_from_spec, build_stack_from_spec
 from .plane_mirror import (
+    DEFAULT_CUSTOM_LAYERS,
     PLANE_MIRROR_DEFAULTS,
     PLANE_MIRROR_STACK_DEFAULTS,
     compute_plane_mirror,
+    custom_stack_from_form,
+    stack_schematic_data_uri,
     parse_plane_mirror_options,
     plane_mirror_csv,
 )
@@ -924,8 +927,20 @@ def create_app(*, data_dir: str | Path | None = None):
             material_density_map=dict(material_density_catalog()),
             defaults=defaults,
             density_placeholders=_material_density_placeholders(defaults),
+            allow_custom=True,
+            custom_layers=[
+                {**layer, "density_g_cm3": _default_density_text(layer["material"])}
+                for layer in DEFAULT_CUSTOM_LAYERS
+            ],
             plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
         )
+
+    @app.post("/_preview/plane-mirror-stack")
+    def plane_mirror_stack_preview():
+        try:
+            return jsonify({"ok": True, "image": stack_schematic_data_uri(_plane_mirror_stack(request.form))})
+        except (KeyError, TypeError, ValueError) as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
 
     @app.post("/_compute/plane-mirror")
     def plane_mirror_compute():
@@ -1148,8 +1163,14 @@ def _build_grating_preview(
 
 def _plane_mirror_result(form: Any) -> dict[str, Any]:
     """Validate the plane-mirror form and compute its reflectivity curves."""
-    stack = build_stack_from_spec(_stack_spec_from_form(form))
-    return compute_plane_mirror(stack, parse_plane_mirror_options(form))
+    return compute_plane_mirror(_plane_mirror_stack(form), parse_plane_mirror_options(form))
+
+
+def _plane_mirror_stack(form: Any) -> Any:
+    """Build the single-layer, multilayer or custom-layer stack from the form."""
+    if str(form.get("stack_type", "")) == "custom":
+        return custom_stack_from_form(form)
+    return build_stack_from_spec(_stack_spec_from_form(form))
 
 
 def _stack_spec_from_form(form: Any) -> dict[str, Any]:

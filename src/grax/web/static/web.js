@@ -13,13 +13,70 @@ function syncGratingSections(select) {
 }
 
 function syncStackSections(select) {
-  const isMultilayer = select.value === "multilayer";
+  const mode = select.value;
   document.querySelectorAll("[data-stack-controls]").forEach((section) => {
-    toggleSectionFields(section, isMultilayer);
+    toggleSectionFields(section, mode === "multilayer");
   });
   document.querySelectorAll("[data-single-layer-controls]").forEach((section) => {
-    toggleSectionFields(section, !isMultilayer);
+    toggleSectionFields(section, mode === "single_layer");
   });
+  document.querySelectorAll("[data-custom-layer-controls]").forEach((section) => {
+    toggleSectionFields(section, mode === "custom");
+  });
+}
+
+function initLayerEditor(editor, form) {
+  const rows = editor.querySelector("[data-layer-rows]");
+  const template = editor.querySelector("[data-layer-template]");
+  let nextKey = rows.querySelectorAll("[data-layer-row]").length;
+
+  const notify = () => form.dispatchEvent(new Event("change", { bubbles: true }));
+  const renumber = () => {
+    const all = rows.querySelectorAll("[data-layer-row]");
+    all.forEach((row, index) => {
+      row.querySelector("[data-layer-index]").textContent = String(index + 1);
+      row.querySelector("[data-layer-remove]").disabled = all.length === 1;
+      row.querySelector("[data-layer-up]").disabled = index === 0;
+      row.querySelector("[data-layer-down]").disabled = index === all.length - 1;
+    });
+  };
+
+  editor.querySelector("[data-layer-add]").addEventListener("click", () => {
+    const html = template.innerHTML.replaceAll("__KEY__", String(nextKey));
+    nextKey += 1;
+    rows.insertAdjacentHTML("beforeend", html);
+    renumber();
+    notify();
+  });
+
+  rows.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    const row = event.target.closest("[data-layer-row]");
+    if (!button || !row) {
+      return;
+    }
+    if (button.matches("[data-layer-remove]") && rows.children.length > 1) {
+      row.remove();
+    } else if (button.matches("[data-layer-up]") && row.previousElementSibling) {
+      rows.insertBefore(row, row.previousElementSibling);
+    } else if (button.matches("[data-layer-down]") && row.nextElementSibling) {
+      rows.insertBefore(row.nextElementSibling, row);
+    } else {
+      return;
+    }
+    renumber();
+    notify();
+  });
+
+  // Rows added later are not covered by initMaterialDensitySync, so delegate.
+  rows.addEventListener("input", (event) => {
+    if (event.target.matches("[data-material-select]")) {
+      syncMaterialDensity(event.target);
+    } else if (event.target.matches("[data-material-density]")) {
+      event.target.dataset.autoFilled = "false";
+    }
+  });
+  renumber();
 }
 
 function syncMaterialDensity(field) {
@@ -1017,7 +1074,34 @@ function initPlaneMirror(form) {
   const status = document.querySelector("[data-plane-mirror-status]");
   const loading = document.querySelector("[data-plane-mirror-loading]");
   const gradingMode = form.querySelector("[data-grading-mode]");
+  const stackPreviewUrl = form.dataset.stackPreviewUrl;
+  const stackImage = document.querySelector("[data-plane-mirror-stack-image]");
+  const stackStatus = document.querySelector("[data-plane-mirror-stack-status]");
   let requestId = 0;
+  let stackRequestId = 0;
+
+  const updateStack = debounce(async () => {
+    stackRequestId += 1;
+    const currentRequest = stackRequestId;
+    try {
+      const response = await fetch(stackPreviewUrl, { method: "POST", body: new FormData(form) });
+      const payload = await response.json();
+      if (currentRequest !== stackRequestId) {
+        return;
+      }
+      if (payload.ok) {
+        stackImage.src = payload.image;
+        stackImage.classList.remove("is-hidden");
+        stackStatus.textContent = "Ready";
+      } else {
+        stackStatus.textContent = payload.error || "Schematic unavailable.";
+      }
+    } catch (error) {
+      if (currentRequest === stackRequestId) {
+        stackStatus.textContent = "Schematic request failed.";
+      }
+    }
+  }, 400);
 
   const draw = (payload) => {
     if (!figure || !window.Plotly) {
@@ -1094,11 +1178,24 @@ function initPlaneMirror(form) {
     syncGradingFields(gradingMode);
     gradingMode.addEventListener("change", () => syncGradingFields(gradingMode));
   }
-  form.querySelectorAll("input, select, textarea").forEach((field) => {
-    field.addEventListener("input", update);
-    field.addEventListener("change", update);
+  const stackFieldChanged = (event) => {
+    // Scan, polarization and grading do not change the stack schematic.
+    if (!event.target.closest("[data-scan-field], [data-grading-field]") &&
+        !["scan_mode", "polarization", "grading_mode"].includes(event.target.name)) {
+      updateStack();
+    }
+  };
+  const editor = form.querySelector("[data-layer-editor]");
+  if (editor) {
+    initLayerEditor(editor, form);
+  }
+  // Delegated, so layer rows added or removed later are covered too.
+  ["input", "change"].forEach((type) => {
+    form.addEventListener(type, update);
+    form.addEventListener(type, stackFieldChanged);
   });
   update();
+  updateStack();
 }
 
 document.addEventListener("DOMContentLoaded", () => {

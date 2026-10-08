@@ -613,3 +613,55 @@ td {
 .plane-mirror-form > datalist {
   grid-column: 1 / -1;
 }
+
+.plane-mirror-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 26%);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+.plane-mirror-top .preview-panel {
+  margin-bottom: 0;
+}
+
+.plane-mirror-schematic .preview {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .plane-mirror-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.layer-editor {
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
+}
+
+.layer-row {
+  display: grid;
+  grid-template-columns: 2.5ch minmax(90px, 1.4fr) minmax(70px, 1fr) minmax(70px, 1fr) minmax(70px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.layer-head {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.layer-row-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.layer-row-actions .button {
+  padding: 2px 8px;
+  min-height: 0;
+}

@@ -1,3 +1,17 @@
+{% macro layer_row(key, material, density, thickness, sigma) %}
+<div class="layer-row" data-layer-row>
+  <span class="layer-index" data-layer-index></span>
+  <input name="cl_material" list="material-suggestions" value="{{ material }}" placeholder="Material" aria-label="Layer material" data-material-select="cl_{{ key }}" autocomplete="off">
+  <input name="cl_density_g_cm3" type="number" step="any" value="{{ density }}" placeholder="g/cm^3" aria-label="Layer density" data-material-density="cl_{{ key }}">
+  <input name="cl_thickness_nm" type="number" step="any" min="0" value="{{ thickness }}" placeholder="nm" aria-label="Layer thickness, nm">
+  <input name="cl_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ sigma }}" placeholder="default" aria-label="Layer roughness sigma, nm">
+  <span class="layer-row-actions">
+    <button class="button" type="button" data-layer-up title="Move up" aria-label="Move layer up">&uarr;</button>
+    <button class="button" type="button" data-layer-down title="Move down" aria-label="Move layer down">&darr;</button>
+    <button class="button" type="button" data-layer-remove title="Remove layer" aria-label="Remove layer">&times;</button>
+  </span>
+</div>
+{% endmacro %}
     <fieldset>
       <legend>Substrate</legend>
       <label>Substrate
@@ -15,6 +29,7 @@
         <select name="stack_type" data-stack-type>
           <option value="single_layer" {% if defaults.stack_type == "single_layer" %}selected{% endif %}>Single layer</option>
           <option value="multilayer" {% if defaults.stack_type == "multilayer" %}selected{% endif %}>Multilayer</option>
+          {% if allow_custom %}<option value="custom" {% if defaults.stack_type == "custom" %}selected{% endif %}>Custom layers (any number)</option>{% endif %}
         </select>
       </label>
       <fieldset data-single-layer-controls>
@@ -29,6 +44,25 @@
         <label>Layer roughness &sigma;, nm <input name="layer_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.layer_roughness_sigma_nm }}"></label>
       </fieldset>
 
+      {% if allow_custom %}
+      <fieldset class="layer-editor" data-custom-layer-controls data-layer-editor>
+        <legend>Custom layers, top to bottom</legend>
+        <div class="layer-table">
+          <div class="layer-row layer-head">
+            <span>#</span><span>Material</span><span>Density, g/cm^3</span><span>Thickness, nm</span><span>Roughness &sigma;, nm</span><span></span>
+          </div>
+          <div data-layer-rows>
+            {% for layer in custom_layers %}
+              {{ layer_row(loop.index0, layer.material, layer.density_g_cm3, layer.thickness_nm, layer.roughness_sigma_nm) }}
+            {% endfor %}
+          </div>
+        </div>
+        <template data-layer-template>{{ layer_row("__KEY__", "", "", "", "") }}</template>
+        <div class="actions">
+          <button class="button" type="button" data-layer-add>Add layer</button>
+        </div>
+      </fieldset>
+      {% endif %}
       <fieldset data-stack-controls>
         <legend>Multilayer stack</legend>
         <label>Material A

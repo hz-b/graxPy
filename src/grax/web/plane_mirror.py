@@ -9,12 +9,15 @@ from typing import Any
 
 import numpy as np
 
+from grax.materials import MaterialSpec, validate_material_input
 from grax.planar_mirror import LateralGrading, footprint_reflectivity, parratt_reflectivity
-from grax.stacks import BaseStack
+from grax.stacks import BaseStack, CustomStack, LayerSpec, assemble_custom_stack
 
 MAX_SCAN_POINTS = 5000
 MAX_FOOTPRINT_POINTS = 500
 MAX_TOTAL_SAMPLES = 2_000_000
+MAX_CUSTOM_LAYERS = 500
+SCHEMATIC_MAX_LAYERS = 40
 
 PLANE_MIRROR_DEFAULTS: dict[str, str] = {
     "scan_mode": "energy",
@@ -45,6 +48,108 @@ PLANE_MIRROR_STACK_DEFAULTS: dict[str, str] = {
     "n_bilayers": "20",
     "top_material": "C",
 }
+
+
+# Default custom stack, listed top to bottom as the form shows it.
+DEFAULT_CUSTOM_LAYERS: tuple[dict[str, str], ...] = (
+    {"material": "Pt", "thickness_nm": "10", "roughness_sigma_nm": ""},
+    {"material": "Cr", "thickness_nm": "3", "roughness_sigma_nm": ""},
+)
+
+
+def _material_from_text(name: str, density_text: str, label: str) -> MaterialSpec:
+    """Return a validated material from a name and an optional density text."""
+
+    name = name.strip()
+    if name == "":
+        raise ValueError(f"{label}: material is required.")
+    try:
+        density = None if density_text.strip() == "" else float(density_text)
+    except ValueError as error:
+        raise ValueError(f"{label}: density must be a number.") from error
+    material = MaterialSpec(name, density)
+    validate_material_input(material, field_name=label)
+    return material
+
+
+def _optional_sigma(text: str, label: str) -> float | None:
+    """Return an optional non-negative roughness sigma from form text."""
+
+    if text.strip() == "":
+        return None
+    try:
+        value = float(text)
+    except ValueError as error:
+        raise ValueError(f"{label}: roughness must be a number.") from error
+    if value < 0.0:
+        raise ValueError(f"{label}: roughness must be >= 0.")
+    return value
+
+
+def custom_stack_from_form(form: Any) -> CustomStack:
+    """Build an arbitrary layer stack from the repeated ``cl_*`` form fields.
+
+    The form lists layers top to bottom; the returned stack is bottom-up.
+
+    Raises:
+        ValueError: If there are no layers, too many layers, or a field is invalid.
+    """
+
+    materials = form.getlist("cl_material")
+    densities = form.getlist("cl_density_g_cm3")
+    thicknesses = form.getlist("cl_thickness_nm")
+    sigmas = form.getlist("cl_roughness_sigma_nm")
+    count = len(materials)
+    if count == 0:
+        raise ValueError("Add at least one layer.")
+    if count > MAX_CUSTOM_LAYERS:
+        raise ValueError(f"At most {MAX_CUSTOM_LAYERS} layers are supported.")
+    if not (len(densities) == len(thicknesses) == len(sigmas) == count):
+        raise ValueError("Every layer needs material, density, thickness and roughness fields.")
+
+    layers_top_down: list[LayerSpec] = []
+    for index in range(count):
+        label = f"Layer {index + 1}"
+        try:
+            thickness = float(thicknesses[index])
+        except ValueError as error:
+            raise ValueError(f"{label}: thickness must be a number.") from error
+        layers_top_down.append(
+            LayerSpec(
+                material=_material_from_text(materials[index], densities[index], label),
+                thickness_nm=thickness,
+                roughness_sigma_nm=_optional_sigma(sigmas[index], label),
+            )
+        )
+
+    cap_name = str(form.get("top_cap_material", "")).strip()
+    cap_thickness_text = str(form.get("top_cap_thickness_nm", "")).strip()
+    return assemble_custom_stack(
+        substrate_material=_material_from_text(
+            str(form.get("substrate_material", "")),
+            str(form.get("substrate_material_density_g_cm3", "")),
+            "Substrate",
+        ),
+        layers_bottom_up=layers_top_down[::-1],
+        top_cap_material=(
+            None
+            if cap_name == ""
+            else _material_from_text(cap_name, str(form.get("top_cap_material_density_g_cm3", "")), "Top cap")
+        ),
+        top_cap_thickness_nm=0.0 if cap_thickness_text == "" else float(cap_thickness_text),
+        substrate_roughness_sigma_nm=_optional_sigma(str(form.get("substrate_roughness_sigma_nm", "")), "Substrate"),
+        top_cap_roughness_sigma_nm=_optional_sigma(str(form.get("top_cap_roughness_sigma_nm", "")), "Top cap"),
+    )
+
+
+def stack_schematic_data_uri(stack: BaseStack) -> str:
+    """Render the stack schematic (``BaseStack.plot_schematic``) as a PNG data URI."""
+
+    import base64
+
+    buffer = io.BytesIO()
+    stack.plot_schematic(buffer, max_layers=SCHEMATIC_MAX_LAYERS)
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 @dataclass(frozen=True)
