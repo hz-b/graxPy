@@ -174,6 +174,35 @@ class PlaneMirrorOptions:
     footprint_points: int
 
 
+def _too_many_points_message(
+    scan_mode: str, energy_points: int, angle_points: int, footprint_points: int, positions: int
+) -> str:
+    """Explain a scan that exceeds the sample limit and suggest point counts that fit."""
+
+    max_points = MAX_TOTAL_SAMPLES // positions
+    per_position = f" per footprint position ({positions} positions)" if positions > 1 else ""
+    if scan_mode == "map":
+        total = energy_points * angle_points
+        factor = (max_points / total) ** 0.5
+        suggested_energy = max(1, min(MAX_SCAN_POINTS, int(energy_points * factor)))
+        suggested_angle = max(1, min(MAX_SCAN_POINTS, int(angle_points * factor)))
+        message = (
+            f"The map has {energy_points:,} x {angle_points:,} = {total:,} energy x angle points"
+            + (f", times {positions} footprint positions = {total * positions:,} samples" if positions > 1 else "")
+            + f". The limit is {MAX_TOTAL_SAMPLES:,} samples, i.e. at most {max_points:,} energy x angle points{per_position}. "
+            + f"For example use {suggested_energy:,} energy x {suggested_angle:,} angle points"
+        )
+        if positions > 1:
+            message += ", or reduce the footprint sample points or turn grading off"
+        return message + "."
+    points = energy_points if scan_mode == "energy" else angle_points
+    return (
+        f"{points:,} points x {positions} footprint positions = {points * positions:,} samples exceeds the limit of "
+        f"{MAX_TOTAL_SAMPLES:,}. With {positions} footprint positions use at most {min(max_points, MAX_SCAN_POINTS):,} points, "
+        "or reduce the footprint sample points."
+    )
+
+
 def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
     """Parse and validate plane-mirror settings from submitted form data.
 
@@ -204,7 +233,10 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
         low, high = number(f"{prefix}_min"), number(f"{prefix}_max")
         points = int(number(points_field))
         if not 1 <= points <= MAX_SCAN_POINTS:
-            raise ValueError(f"{points_field} must be between 1 and {MAX_SCAN_POINTS}.")
+            kind = "per axis of a map" if scan_mode == "map" else "per scan"
+            raise ValueError(
+                f"{label.capitalize()} points: {points:,} is out of range; use between 1 and {MAX_SCAN_POINTS:,} {kind}."
+            )
         if low <= 0.0 or high < low:
             raise ValueError(f"The {label} range must be positive with max >= min.")
         if upper is not None and high > upper:
@@ -237,7 +269,9 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
         raise ValueError("footprint_length_mm must be >= 0.")
     positions = footprint_points if grading is not None else 1
     if energy_points * angle_points * positions > MAX_TOTAL_SAMPLES:
-        raise ValueError("The scan is too large; reduce the number of energy, angle or footprint points.")
+        raise ValueError(
+            _too_many_points_message(scan_mode, energy_points, angle_points, footprint_points, positions)
+        )
 
     return PlaneMirrorOptions(
         scan_mode=scan_mode,

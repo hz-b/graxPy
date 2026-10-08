@@ -204,3 +204,27 @@ def test_energy_scan_defaults(client) -> None:
     page = client.get("/plane-mirror").get_data(as_text=True)
     for name, value in (("energy_min", "100"), ("energy_max", "6000"), ("energy_points", "1000"), ("fixed_angle_deg", "0.4")):
         assert f'name="{name}" type="number"' in page and f'value="{value}"' in page.split(f'name="{name}"')[1].split(">")[0]
+
+
+def test_too_many_points_messages_state_limits_and_suggest_counts() -> None:
+    from grax.web.plane_mirror import MAX_TOTAL_SAMPLES, PLANE_MIRROR_DEFAULTS, parse_plane_mirror_options
+
+    def error(**override: str) -> str:
+        with pytest.raises(ValueError) as caught:
+            parse_plane_mirror_options({**PLANE_MIRROR_DEFAULTS, **override})
+        return str(caught.value)
+
+    single = error(energy_points="6000")
+    assert "5,000" in single and "per scan" in single
+
+    axis = error(scan_mode="map", map_angle_points="9000")
+    assert "5,000" in axis and "per axis" in axis
+
+    graded_map = error(scan_mode="map", grading_mode="linear", footprint_points="41")
+    assert f"{MAX_TOTAL_SAMPLES:,}" in graded_map and "1,000 x 1,000 = 1,000,000" in graded_map
+    suggestion = graded_map.split("For example use ")[1].split(" energy x ")
+    energy, angle = int(suggestion[0].replace(",", "")), int(suggestion[1].split(" ")[0].replace(",", ""))
+    assert energy * angle * 41 <= MAX_TOTAL_SAMPLES and energy >= 100
+
+    graded_single = error(grading_mode="linear", energy_points="5000", footprint_points="500")
+    assert "at most 4,000 points" in graded_single
