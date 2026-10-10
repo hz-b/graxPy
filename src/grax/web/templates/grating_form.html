@@ -13,18 +13,31 @@
 <section class="preview-panel" data-afm-workflow data-grating-section="afm">
   <h2>Import AFM profile</h2>
   <p>Upload a two-column x/z scan and preprocess one period before using it as a profile grating.</p>
-  <form method="post" action="{{ url_for('process_afm') }}" enctype="multipart/form-data" data-afm-process-form>
-    <label>AFM file <input type="file" name="afm_file" accept=".csv,.tsv,.txt,text/plain" required></label>
+  <form method="post" action="{{ url_for('process_afm') }}" enctype="multipart/form-data" data-afm-process-form data-afm-preview-url="{{ url_for('preview_afm') }}">
+    <div class="afm-file-target-row">
+      <label>AFM file <input type="file" name="afm_file" accept=".csv,.tsv,.txt,text/plain" required></label>
+      <label>Target period, lines/mm <input name="afm_target_period_lpermm" type="number" min="1" step="1" value="{{ defaults.period_lpermm }}" data-afm-target-period></label>
+      <label>Profile <select name="afm_profile_type" data-afm-profile-type><option value="blazed">Blazed</option><option value="laminar">Laminar</option></select></label>
+    </div>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="raw"><figcaption>Uploaded scan</figcaption><svg role="img" aria-label="Uploaded AFM scan"></svg></figure>
     <label>Coordinate units <select name="afm_units"><option value="nm">nm</option><option value="um">µm</option><option value="m">m</option></select></label>
-    <label>Profile type <select name="afm_profile_type"><option value="blazed">Blazed</option><option value="laminar">Laminar</option></select></label>
-    <label>Expected period, nm <input name="afm_period_nm" type="number" min="0" step="any" required></label>
+    <p class="subtle is-hidden" data-afm-units-hint role="status"></p>
+    <label class="afm-check"><input type="checkbox" name="afm_reverse" value="1"> Reverse scan</label>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="reverse"><figcaption>Reversed scan</figcaption><svg role="img" aria-label="Reversed AFM scan"></svg></figure>
+    <label class="afm-check"><input type="checkbox" name="afm_zero_baseline" value="1" checked> Zero baseline</label>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="baseline"><figcaption>Zero-baseline scan</figcaption><svg role="img" aria-label="Zero-baseline AFM scan"></svg></figure>
+    <p class="subtle" data-afm-period-hint role="status">The AFM analysis uses the period from the Profile section below.</p>
     <label>Minimum separation fraction <input name="afm_min_separation" type="number" min="0" step="any" value="0.4"></label>
     <label>Minimum prominence fraction <input name="afm_min_prominence" type="number" min="0" step="any" value="0.1"></label>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="troughs"><figcaption>Detected troughs</figcaption><svg role="img" aria-label="AFM scan with detected troughs"></svg></figure>
     <label>Period index <input name="afm_period_index" type="number" min="0" step="1" value="0"></label>
-    <label><input type="checkbox" name="afm_average" value="1"> Average all detected periods</label>
-    <label><input type="checkbox" name="afm_reverse" value="1"> Reverse scan</label>
-    <label><input type="checkbox" name="afm_zero_baseline" value="1" checked> Zero baseline</label>
-    <label><input type="checkbox" name="afm_periodicity_ramp" value="1"> Apply periodicity-ramp correction</label>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="period"><figcaption>Selected period</figcaption><svg role="img" aria-label="Selected AFM period"></svg></figure>
+    <label class="afm-check"><input type="checkbox" name="afm_average" value="1" checked> Average all detected periods</label>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="average"><figcaption>Averaged period</figcaption><svg role="img" aria-label="Averaged AFM period"></svg></figure>
+    <label class="afm-check"><input type="checkbox" name="afm_periodicity_ramp" value="1"> Apply periodicity-ramp correction</label>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="ramp"><figcaption>Periodicity-ramp correction (before and after)</figcaption><svg role="img" aria-label="AFM period before and after ramp correction"></svg></figure>
+    <figure class="afm-stage-plot is-hidden" data-afm-plot="rescaled"><figcaption>Final profile at expected period</figcaption><svg role="img" aria-label="Final rescaled AFM profile"></svg></figure>
+    <p class="subtle is-hidden" data-afm-preview-message role="status"></p>
     <button class="button" type="submit">Process AFM profile</button>
     <p class="notice is-hidden" data-afm-result role="status"></p>
   </form>
@@ -40,6 +53,9 @@
   >
     <input type="hidden" name="afm_profile_path" data-afm-profile-path value="{{ defaults.afm_profile_path|default('') }}">
     <input type="hidden" name="afm_source_filename" data-afm-source-filename value="{{ defaults.afm_source_filename|default('') }}">
+    <input type="hidden" name="afm_units" data-afm-units value="{{ defaults.afm_units|default('nm') }}">
+    <input type="hidden" name="afm_profile_type" data-afm-profile-type value="{{ defaults.afm_profile_type|default('blazed') }}">
+    <input type="hidden" name="afm_period_nm" data-afm-period-nm value="{{ defaults.afm_period_nm|default('0') }}">
     {% if form_error %}<p role="alert" class="notice notice-error">Please correct the following: {{ form_error }}</p>{% endif %}
     <datalist id="material-suggestions">
       {% for material in materials %}
@@ -58,7 +74,7 @@
           <option value="blazed" {% if defaults.grating_type == "blazed" %}selected{% endif %}>Blazed</option>
         </select>
       </label>
-      <label>Period, lines/mm <input name="period_lpermm" type="number" step="1" value="{{ defaults.period_lpermm }}"></label>
+      <label data-afm-main-period>Period, lines/mm <input name="period_lpermm" type="number" step="1" value="{{ defaults.period_lpermm }}"></label>
       <label>X resolution, nm <input name="x_resolution_nm" type="number" step="0.01" value="{{ defaults.x_resolution_nm }}"></label>
       <label>Z resolution, nm <input name="z_resolution_nm" type="number" step="0.01" value="{{ defaults.z_resolution_nm }}"></label>
     </fieldset>
@@ -115,6 +131,10 @@
       <span class="preview-pill" data-grating-preview-loading>Idle</span>
     </div>
     {{ geometry_view("grating", bind="[data-grating-preview-form]") }}
+    <figure class="afm-stage-plot is-hidden" data-afm-live-preview>
+      <figcaption data-afm-live-caption>AFM averaged single-period profile</figcaption>
+      <svg role="img" aria-label="Live AFM single-period profile"></svg>
+    </figure>
     {% if preview and preview.preview_url %}
       <img class="preview" src="{{ preview.preview_url }}" alt="Live grating preview" data-grating-preview-image>
     {% else %}

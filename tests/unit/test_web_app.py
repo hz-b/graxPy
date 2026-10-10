@@ -1173,6 +1173,13 @@ def test_parameter_study_run_uses_selected_polarization(
     assert captured["polarization"] == "p"
     assert manifest["polarization"] == "p"
     assert manifest["run_input"]["polarization"] == "p"
+    assert manifest["completed_points"] == 3
+    status = client.get(f"/runs/{run_id}/status").get_json()
+    assert status["state"] == "completed"
+    assert status["completed_points"] == 3
+    assert status["remaining_points"] == 0
+    assert b"3 / 3" in client.get(f"/runs/{run_id}").data
+    assert b"completed \xc2\xb7 3 / 3 points" in client.get("/runs/manage").data
 
 
 def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
@@ -1198,6 +1205,114 @@ def test_parameter_study_artifacts_include_partial_csv_and_diagnostics(tmp_path:
         "parameter_study.png",
         "parameter_study_Fourier_orders_E100.0eV.csv",
     ]
+
+
+@pytest.mark.parametrize("completed_points", [0, 1])
+def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    completed_points: int,
+) -> None:
+    from grax.web.app import create_app
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_bytes(b"partial plot")
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        if completed_points:
+            run_dir = Path(kwargs["output_dir"])
+            (run_dir / "parameter_study_Fourier_orders_E100.0eV.csv").write_text(
+                "energy,efficiency\n100,0.1\n", encoding="utf-8"
+            )
+            kwargs["progress_callback"](1, 3, SimpleNamespace())
+        raise RuntimeError("controlled numerical failure")
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+
+    client = create_app(data_dir=tmp_path).test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Failure test grating",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+        },
+    )
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    run_dir = tmp_path / "runs" / run_id
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        if manifest["status"] == "failed":
+            break
+        time.sleep(0.02)
+
+    assert manifest["status"] == "failed"
+    assert manifest.get("completed_points", 0) == completed_points
+    assert "controlled numerical failure" in manifest["error_text"]
+    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text()
+    assert "error.txt" in manifest["artifacts"]
+    if completed_points:
+        assert "parameter_study.png" in manifest["artifacts"]
+        assert "parameter_study_Fourier_orders_E100.0eV.csv" in manifest["artifacts"]
+
+    status = client.get(f"/runs/{run_id}/status").get_json()
+    assert status["state"] == "failed"
+    assert status["completed_points"] == completed_points
+    assert status["remaining_points"] == 3 - completed_points
+    assert "controlled numerical failure" in status["error_text"]
+    detail = client.get(f"/runs/{run_id}").data
+    assert f"{completed_points} / 3".encode() in detail
+    assert b"error.txt" in detail
+    if completed_points:
+        assert b"parameter_study.png" in detail
+        assert b"parameter_study_Fourier_orders_E100.0eV.csv" in detail
+    manage = client.get("/runs/manage").data
+    assert f"failed · {completed_points} / 3 points".encode() in manage
+
+
+def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="legacy", display_name="Legacy run")
+    manifest_path = tmp_path / "runs" / "legacy" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(total_points=3, cases=[{}, {}])
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _write_checkpoint_fixture(tmp_path, run_id="checkpoint", status="paused")
+
+    client = create_app(data_dir=tmp_path).test_client()
+    legacy = client.get("/runs/legacy/status").get_json()
+    checkpoint = client.get("/runs/checkpoint/status").get_json()
+
+    assert legacy["completed_points"] == 2
+    assert checkpoint["completed_points"] == 2
+    manage = client.get("/runs/manage").data
+    assert b"ok \xc2\xb7 2 / 3 points" in manage
+    assert b"aborted \xc2\xb7 2 / 4 points" in manage
 
 
 def test_load_run_manifest_ignores_transient_invalid_json(tmp_path: Path) -> None:
@@ -1426,6 +1541,32 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     )
     assert delete_response.status_code == 200
     assert not (tmp_path / "runs" / "run-2").exists()
+
+
+def test_manage_runs_shows_available_run_plots_on_the_right(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="fixed", display_name="Fixed run")
+    _write_run_fixture(
+        tmp_path, run_id="study", display_name="Study run", workflow="parameter_study"
+    )
+    _write_run_fixture(tmp_path, run_id="partial", display_name="Partial run")
+    _write_run_fixture(tmp_path, run_id="empty", display_name="No plot run")
+    (tmp_path / "runs" / "fixed" / "selected_efficiency.png").write_bytes(b"plot")
+    (tmp_path / "runs" / "study" / "parameter_study.png").write_bytes(b"plot")
+    (tmp_path / "runs" / "partial" / "live_progress.png").write_bytes(b"plot")
+
+    client = create_app(data_dir=tmp_path).test_client()
+    page = client.get("/runs/manage")
+
+    assert page.status_code == 200
+    assert b'class="run-manage-preview"' in page.data
+    assert b'/_data/runs/fixed/selected_efficiency.png?v=' in page.data
+    assert b'/_data/runs/study/parameter_study.png?v=' in page.data
+    assert b'/_data/runs/partial/live_progress.png?v=' in page.data
+    assert b'alt="Simulation plot for Fixed run"' in page.data
+    assert b'alt="Simulation plot for Study run"' in page.data
+    assert b"No plot available" in page.data
 
 
 def test_manage_runs_warns_before_deleting_run_referenced_by_plot(tmp_path: Path) -> None:

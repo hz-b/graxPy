@@ -81,7 +81,7 @@ from .plane_mirror import (
     plane_mirror_csv,
 )
 from .runs import RunStore
-from .afm_workflow import process_afm_upload
+from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
 
 try:
     import psutil
@@ -282,6 +282,32 @@ def create_app(*, data_dir: str | Path | None = None):
             custom_layers=_grating_custom_layer_rows({}),
         )
 
+    @app.post("/gratings/afm/preview")
+    def preview_afm():
+        """Preview the raw scan and selected preprocessing stages without saving."""
+
+        upload = request.files.get("afm_file")
+        if upload is None or not upload.filename:
+            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
+        try:
+            period_text = str(request.form.get("afm_period_nm", "")).strip()
+            preview = preview_afm_upload(
+                upload.read(MAX_BYTES + 1),
+                units=str(request.form.get("afm_units", "nm")),
+                profile_type=str(request.form.get("afm_profile_type", "blazed")),
+                period_nm=float(period_text) if period_text else None,
+                min_separation_fraction=float(request.form.get("afm_min_separation") or "0.4"),
+                min_prominence_fraction=float(request.form.get("afm_min_prominence") or "0.1"),
+                period_index=int(request.form.get("afm_period_index") or "0"),
+                average=request.form.get("afm_average") == "1",
+                reverse=request.form.get("afm_reverse") == "1",
+                zero_baseline=request.form.get("afm_zero_baseline") == "1",
+                periodicity_ramp=request.form.get("afm_periodicity_ramp") == "1",
+            )
+            return jsonify({"ok": True, **preview})
+        except (TypeError, ValueError, OSError) as error:
+            return jsonify({"ok": False, "error": str(error)}), 422
+
     @app.post("/gratings/afm/process")
     def process_afm():
         """Process one uploaded AFM scan into a temporary profile workflow."""
@@ -292,7 +318,7 @@ def create_app(*, data_dir: str | Path | None = None):
         workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
         try:
             metadata = process_afm_upload(
-                upload.read(), workflow_dir, filename=upload.filename,
+                upload.read(MAX_BYTES + 1), workflow_dir, filename=upload.filename,
                 units=str(request.form.get("afm_units", "nm")),
                 profile_type=str(request.form.get("afm_profile_type", "blazed")),
                 period_nm=float(request.form.get("afm_period_nm", "0")),
@@ -1872,6 +1898,7 @@ def _execute_run_job(
                 run_id,
                 status="completed",
                 artifacts=_parameter_study_artifacts(run_dir),
+                completed_points=int(energies.size),
                 total_points=int(energies.size),
             )
             _finish_active_run(app, run_id, state="completed")
@@ -2013,6 +2040,11 @@ def _execute_run_job(
                 _parameter_study_artifacts(run_dir)
                 if workflow == "parameter_study"
                 else _run_artifacts_for_results(run_dir, include_plot=bool(results))
+            ),
+            completed_points=(
+                _run_completed_points(_load_run_manifest(data_dir, run_id) or {}, 0)
+                if workflow == "parameter_study"
+                else None
             ),
             total_points=int(energies.size) if workflow == "parameter_study" else None,
         )
@@ -2614,6 +2646,16 @@ def _checkpoint_counts(run_dir: Path) -> tuple[int, int]:
     return completed_points, total_points
 
 
+def _run_completed_points(manifest: dict[str, Any], checkpoint_completed_points: int) -> int:
+    """Combine persisted study progress with case-backed run progress."""
+
+    return max(
+        checkpoint_completed_points,
+        int(manifest.get("completed_points") or 0),
+        len(manifest.get("cases") or []),
+    )
+
+
 def _persist_aborted_run_state(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     """Persist the current checkpoint-backed state for one aborted run."""
 
@@ -3005,10 +3047,7 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
     if manifest is None:
         return None
     manifest_state = str(manifest.get("status", "completed"))
-    completed_points = max(
-        checkpoint_completed_points,
-        int(len(manifest.get("cases", [])) or 0),
-    )
+    completed_points = _run_completed_points(manifest, checkpoint_completed_points)
     total_points = int(manifest.get("total_points") or checkpoint_total_points or completed_points)
     normalized_state = "completed" if manifest_state == "ok" else manifest_state
     can_abort = manifest_state not in {"ok", "completed", "failed", "aborted"}
@@ -3449,9 +3488,16 @@ def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
         run_id = str(run["id"])
         input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
         artifacts = [str(name) for name in run.get("artifacts", [])]
+        plot_path = _preferred_run_plot_path(data_dir, run_id)
         run.update(
             {
                 "detail_url": f"/runs/{run_id}",
+                "plot_preview_url": _run_plot_url(
+                    data_dir=data_dir,
+                    run_id=run_id,
+                    relative_path=plot_path,
+                    token="",
+                ),
                 "artifacts": artifacts,
                 "artifact_links": [
                     {"name": name, "url": f"/_data/runs/{run_id}/{name}"}
@@ -3460,7 +3506,7 @@ def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
                 "related_plots": _plot_references_for_runs(data_dir, [run_id]),
                 "parameter_summary": _run_input_summary(input_data),
                 "progress_summary": (
-                    f"{run.get('checkpoint_completed_points', 0)} / "
+                    f"{_run_completed_points(run, run.get('checkpoint_completed_points', 0))} / "
                     f"{run.get('checkpoint_total_points') or run.get('total_points', 0)} points"
                 ),
             }

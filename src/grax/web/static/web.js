@@ -223,6 +223,24 @@ function initGratingPreview(form) {
   const updatePreview = debounce(async () => {
     requestId += 1;
     const currentRequest = requestId;
+    const afmPending = form.querySelector('[name="grating_type"]')?.value === "afm" &&
+      !form.querySelector("[data-afm-profile-path]")?.value;
+    if (afmPending) {
+      previewValid = false;
+      clearInvalidFields();
+      const afmError = form.dataset.afmProcessingError || "";
+      if (errorBox) {
+        errorBox.textContent = afmError;
+        errorBox.classList.toggle("is-hidden", !afmError);
+      }
+      image.classList.add("is-hidden");
+      if (roughImage) roughImage.classList.add("is-hidden");
+      if (warnings) warnings.textContent = "";
+      loading.textContent = "AFM preview";
+      status.textContent = afmError ? "AFM processing failed" :
+        "Review the AFM period. Save will process the current settings.";
+      return;
+    }
     loading.textContent = "Rendering";
     try {
       const response = await fetch(previewUrl, {
@@ -259,11 +277,24 @@ function initGratingPreview(form) {
   form.addEventListener("input", updatePreview);
   form.addEventListener("change", updatePreview);
   form.addEventListener("submit", (event) => {
+    if (form.querySelector('[name="grating_type"]')?.value === "afm") {
+      if (!form.querySelector("[data-afm-profile-path]")?.value) {
+        event.preventDefault();
+        form.dispatchEvent(new Event("grax:afm-save-requested"));
+      }
+      // The server validates the processed AFM profile and coating fields.
+      // A pending/previous live-preview request must not block a valid save.
+      return;
+    }
     if (!previewValid) {
       event.preventDefault();
       if (errorBox) errorBox.focus();
     }
   });
+  if (form.querySelector('[name="grating_type"]')?.value === "afm" &&
+      !form.querySelector("[data-afm-profile-path]")?.value) {
+    updatePreview();
+  }
 }
 
 function initMaterialDensitySync() {

@@ -58,6 +58,15 @@
               </ul>
             {% endif %}
           </div>
+          <div class="run-manage-preview">
+            {% if run.plot_preview_url %}
+              <a href="{{ run.plot_preview_url }}" target="_blank" rel="noopener" aria-label="Open plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}">
+                <img src="{{ run.plot_preview_url }}" alt="Simulation plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}" loading="lazy">
+              </a>
+            {% else %}
+              <span class="subtle">No plot available</span>
+            {% endif %}
+          </div>
           <label class="inline-check manage-delete">
             <input type="checkbox" name="delete_run_id" value="{{ run.id }}">
             <span>Delete</span>

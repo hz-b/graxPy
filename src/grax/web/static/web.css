@@ -327,6 +327,62 @@ select {
   background: linear-gradient(180deg, #fbfcfd 0%, #f4f7f8 100%);
 }
 
+[data-afm-process-form] {
+  display: grid;
+  gap: 12px;
+}
+
+.afm-file-target-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.afm-file-target-row output {
+  display: block;
+  min-height: 1.2em;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f5f7f9;
+}
+
+[data-afm-workflow] {
+  position: static;
+  margin-bottom: 24px;
+}
+
+[data-afm-process-form] .afm-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-afm-process-form] .afm-check input {
+  width: auto;
+  min-height: 0;
+}
+
+.afm-stage-plot {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.afm-stage-plot figcaption {
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.afm-stage-plot svg {
+  display: block;
+  width: 100%;
+  height: 210px;
+}
+
 .plot-stage-panel {
   position: static;
 }
@@ -400,12 +456,33 @@ select {
 
 .run-manage-row {
   align-items: start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px) auto;
 }
 
 .run-manage-main {
-  flex: 1;
   min-width: 0;
+}
+
+.run-manage-preview {
+  display: grid;
+  place-items: center;
+  min-height: 150px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  text-align: center;
+}
+
+.run-manage-preview a,
+.run-manage-preview img {
+  display: block;
+  width: 100%;
+}
+
+.run-manage-preview img {
+  height: 150px;
+  object-fit: contain;
 }
 
 .manage-delete {
@@ -592,6 +669,10 @@ td {
 
   .row {
     flex-direction: column;
+  }
+
+  .run-manage-row {
+    grid-template-columns: 1fr;
   }
 
   .preview-panel {
