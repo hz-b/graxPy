@@ -458,10 +458,10 @@
       const f = profile.feet;
       const leftArc = arc(sx(f.xRise), sy(0), 30, 0, -deg(Math.atan2(pz(profile.height), px(f.xTopLeft - f.xRise))), "geo-arc geo-wall-arc");
       add("angles", "wall_left", leftArc.path);
-      add("angles", "wall_left", label(sx(f.xRise) - 6, sy(0) + 20, `left wall ${fmt(p.leftWallDeg)}°`, "geo-angle-text", "end"));
+      add("angles", "wall_left", label(sx((f.xRise + f.xTopLeft) / 2), sy(profile.height / 2) + 22, `left wall ${fmt(p.leftWallDeg)}°`, "geo-angle-text"));
       const rightArc = arc(sx(f.xFall), sy(0), 30, 180, 180 + deg(Math.atan2(pz(profile.height), px(f.xFall - f.xTopRight))), "geo-arc geo-wall-arc");
       add("angles", "wall_right", rightArc.path);
-      add("angles", "wall_right", label(sx(f.xFall) + 6, sy(0) + 20, `right wall ${fmt(p.rightWallDeg)}°`, "geo-angle-text", "start"));
+      add("angles", "wall_right", label(sx((f.xTopRight + f.xFall) / 2), sy(profile.height / 2) + 22, `right wall ${fmt(p.rightWallDeg)}°`, "geo-angle-text"));
       const dimX = sx(f.xRise) - 34;
       add("lengths", "depth", line(dimX, sy(profile.height), sx(f.xTopLeft), sy(profile.height), "geo-ref"));
       dimension(add, "lengths", "depth", dimX, sy(0), dimX, sy(profile.height), `depth = ${fmt(profile.height)} nm`, -8, "end");
