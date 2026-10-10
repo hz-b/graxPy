@@ -456,16 +456,32 @@
       dimension(add, "lengths", "depth", sx(apexX) + 14, sy(0), sx(apexX) + 14, sy(profile.height), `h = ${fmt(profile.height)} nm`, 8);
     } else if (p.type === "laminar") {
       const f = profile.feet;
-      const leftArc = arc(sx(f.xRise), sy(0), 30, 0, -deg(Math.atan2(pz(profile.height), px(f.xTopLeft - f.xRise))), "geo-arc geo-wall-arc");
-      add("angles", "wall_left", leftArc.path);
-      add("angles", "wall_left", label(sx((f.xRise + f.xTopLeft) / 2), sy(profile.height / 2) + 22, `left wall ${fmt(p.leftWallDeg)}°`, "geo-angle-text"));
-      const rightArc = arc(sx(f.xFall), sy(0), 30, 180, 180 + deg(Math.atan2(pz(profile.height), px(f.xFall - f.xTopRight))), "geo-arc geo-wall-arc");
-      add("angles", "wall_right", rightArc.path);
-      add("angles", "wall_right", label(sx((f.xTopRight + f.xFall) / 2), sy(profile.height / 2) + 22, `right wall ${fmt(p.rightWallDeg)}°`, "geo-angle-text"));
+      // The drawn wall angle is exaggerated along with the height. Point to
+      // the actual wall and put its real angle below the profile, outside the
+      // narrow plateau where two full labels cannot fit side by side.
+      const leftWallX = sx((f.xRise + f.xTopLeft) / 2);
+      const rightWallX = sx((f.xTopRight + f.xFall) / 2);
+      const wallY = sy(profile.height / 2);
+      const leftLabelX = Math.max(130, leftWallX - 10);
+      const rightLabelX = Math.min(W - 150, rightWallX + 10);
+      const leftDrawnAngle = deg(Math.atan2(pz(profile.height), px(f.xTopLeft - f.xRise)));
+      const rightDrawnAngle = deg(Math.atan2(pz(profile.height), px(f.xFall - f.xTopRight)));
+      // Small arcs touch the two wall feet. The dashed rays provide the
+      // horizontal reference from which each wall angle is defined.
+      add("angles", "wall_left", line(sx(f.xRise), sy(0), sx(f.xRise) + 16, sy(0), "geo-ref"));
+      add("angles", "wall_left", arc(sx(f.xRise), sy(0), 14, 0, -leftDrawnAngle, "geo-arc geo-wall-arc").path);
+      add("angles", "wall_left", line(leftWallX, wallY, leftLabelX, BASE_Y + 11, "geo-wall-leader"));
+      add("angles", "wall_left", el("circle", {cx: leftWallX, cy: wallY, r: 3, class: "geo-wall-marker"}));
+      add("angles", "wall_left", label(leftLabelX, BASE_Y + 29, `left wall ${fmt(p.leftWallDeg)}°`, "geo-angle-text", "end"));
+      add("angles", "wall_right", line(sx(f.xFall), sy(0), sx(f.xFall) - 16, sy(0), "geo-ref"));
+      add("angles", "wall_right", arc(sx(f.xFall), sy(0), 14, 180, 180 + rightDrawnAngle, "geo-arc geo-wall-arc").path);
+      add("angles", "wall_right", line(rightWallX, wallY, rightLabelX, BASE_Y + 11, "geo-wall-leader"));
+      add("angles", "wall_right", el("circle", {cx: rightWallX, cy: wallY, r: 3, class: "geo-wall-marker"}));
+      add("angles", "wall_right", label(rightLabelX, BASE_Y + 29, `right wall ${fmt(p.rightWallDeg)}°`, "geo-angle-text", "start"));
       const dimX = sx(f.xRise) - 34;
       add("lengths", "depth", line(dimX, sy(profile.height), sx(f.xTopLeft), sy(profile.height), "geo-ref"));
       dimension(add, "lengths", "depth", dimX, sy(0), dimX, sy(profile.height), `depth = ${fmt(profile.height)} nm`, -8, "end");
-      dimension(add, "lengths", "width", sx(f.xTopLeft), sy(profile.height) - 14, sx(f.xTopRight), sy(profile.height) - 14, `plateau (1−r)·d = ${fmt(f.floor)} nm`, -6);
+      dimension(add, "lengths", "width", sx(f.xTopLeft), sy(profile.height) - 14, sx(f.xTopRight), sy(profile.height) - 14, `groove width (1−r)·d = ${fmt(f.floor)} nm`, -6);
     } else {
       dimension(add, "lengths", "depth", sx(p.periodNm / 2) + 14, sy(0), sx(p.periodNm / 2) + 14, sy(profile.height), `depth = ${fmt(profile.height)} nm`, 8);
       add("angles", null, label(sx(p.periodNm / 2), sy(profile.height) - 18, "sinusoidal profile", "geo-angle-text"));
