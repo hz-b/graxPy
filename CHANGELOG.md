@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5 - Unreleased
 
 - **Breaking:** diffraction-order signs now follow the standard grating equation; positive orders are the inside orders.
 - Updated examples, validation data, checkpoints, and documentation for the new order-sign convention.
