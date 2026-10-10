@@ -877,6 +877,8 @@ def test_grating_form_includes_live_preview_panel(tmp_path: Path) -> None:
     assert b'data-grating-preview-form' in response.data
     assert b'data-grating-preview-image' in response.data
     assert b'data-grating-preview-status' in response.data
+    assert b'data-grating-preview-error' in response.data
+    assert b'tabindex="-1"' in response.data
 
 
 def test_grating_preview_endpoint_returns_preview_and_validation(tmp_path: Path) -> None:
@@ -1183,6 +1185,37 @@ def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) ->
     assert manifest["run_input"]["polarization"] == "s"
 
 
+def test_parameter_study_artifacts_include_partial_csv_and_diagnostics(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "parameter_study_Fourier_orders_E100.0eV.csv").write_text("partial", encoding="utf-8")
+    (run_dir / "parameter_study.png").write_bytes(b"png")
+    (run_dir / "error.txt").write_text("traceback", encoding="utf-8")
+    (run_dir / "parameter_study.tmp.png").write_bytes(b"incomplete")
+
+    assert web_app_module._parameter_study_artifacts(run_dir) == [
+        "error.txt",
+        "parameter_study.png",
+        "parameter_study_Fourier_orders_E100.0eV.csv",
+    ]
+
+
+def test_load_run_manifest_ignores_transient_invalid_json(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text('{"status":', encoding="utf-8")
+
+    assert web_app_module._load_run_manifest(tmp_path, "run-1") is None
+
+
+def test_write_text_atomically_replaces_existing_diagnostic(tmp_path: Path) -> None:
+    path = tmp_path / "runs" / "run-1" / "error.txt"
+    web_app_module._write_text_atomically(path, "new traceback")
+
+    assert path.read_text(encoding="utf-8") == "new traceback"
+    assert list(path.parent.glob("error.txt.*.tmp")) == []
+
+
 def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -1393,6 +1426,43 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     )
     assert delete_response.status_code == 200
     assert not (tmp_path / "runs" / "run-2").exists()
+
+
+def test_manage_runs_warns_before_deleting_run_referenced_by_plot(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run")
+    plot_dir = tmp_path / "plots" / "plot-1"
+    plot_dir.mkdir(parents=True)
+    (plot_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": "plot-1",
+                "title": "Comparison",
+                "created_at": "2026-06-10T14:00:00",
+                "selected_runs": [{"id": "run-1", "name": "Alpha run", "orders": [1]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    client = create_app(data_dir=tmp_path).test_client()
+
+    warning = client.post("/runs/manage", data={"action": "delete", "delete_run_id": "run-1"})
+    assert warning.status_code == 200
+    assert b"referenced by saved comparison plots" in warning.data
+    assert b"Comparison" in warning.data
+    assert (tmp_path / "runs" / "run-1").exists()
+
+    deleted = client.post(
+        "/runs/manage",
+        data={"action": "delete", "delete_run_id": "run-1", "confirm_delete": "1"},
+    )
+    assert deleted.status_code == 302
+    assert not (tmp_path / "runs" / "run-1").exists()
+    assert (plot_dir / "manifest.json").exists()
+    plot_page = client.get("/plots/plot-1")
+    assert plot_page.status_code == 200
+    assert b"Run unavailable" in plot_page.data
 
 
 def test_manage_gratings_page_bulk_deletes_selected_gratings(tmp_path: Path) -> None:
@@ -2524,3 +2594,30 @@ def test_run_form_rejects_an_unknown_solver(tmp_path: Path) -> None:
     assert _normalized_solver("  RCWA  ") == "rcwa"
     with pytest.raises(ValueError, match="solver must be"):
         _normalized_solver("differential")
+
+
+def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    grating = client.get("/gratings/new").get_data(as_text=True)
+    mirror = client.get("/plane-mirror").get_data(as_text=True)
+    design = client.get("/multilayer-design/new").get_data(as_text=True)
+
+    assert 'data-geometry-kind="grating"' in grating
+    assert 'data-geometry-bind="[data-grating-preview-form]"' in grating
+    assert 'data-geometry-kind="mirror"' in mirror
+    assert 'data-geometry-bind="[data-plane-mirror-form]"' in mirror
+    assert 'data-geometry-bind="closest"' in design
+    assert "geometry.js" in grating
+    assert "Beams" not in grating  # controls are created safely by the deferred script
+
+
+def test_geometry_static_script_and_switch_hooks_are_available() -> None:
+    geometry = Path("src/grax/web/static/geometry.js").read_text()
+    assert "window.GraxGeometry" in geometry
+    assert "geometryGroup" in geometry
+    assert "applyGroups" in geometry
+    assert "focusin" in geometry
+    assert "profilePoints" in geometry

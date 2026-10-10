@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_geometry_view.html" import geometry_view %}
 {% block title %}{{ grating.name }}{% endblock %}
 {% block body %}
 <section class="section-head">
@@ -13,6 +14,8 @@
 </section>
 
 <h2>Nominal geometry — three periods</h2>
+{{ geometry_view("grating", bind=".run-form", static=grating) }}
+
 <img class="preview" src="{{ preview_url }}" alt="Nominal grating profile and material stack over three aligned periods">
 {% if roughness_preview_url %}
 <h2>Random roughness — {{ roughness_periods }} simulated period{{ 's' if roughness_periods != 1 else '' }}</h2>

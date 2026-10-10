@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_multilayer_design_macros.html" import render_field, material_datalist %}
+{% from "_geometry_view.html" import geometry_view %}
 {% set editing = study is defined %}
 {% block title %}{% if editing %}Edit {{ study.display_name }}{% else %}New multilayer design{% endif %}{% endblock %}
 {% block body %}
@@ -44,6 +45,11 @@
              {% if editing and study.auto_energy_scan == "best" %}checked{% endif %}>
       <span>When the survey finishes, scan the best design over energy automatically</span>
     </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Geometry</legend>
+    {{ geometry_view("grating", bind="closest") }}
   </fieldset>
 
   {% for section, rows in basic_sections %}

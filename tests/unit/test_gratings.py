@@ -122,6 +122,37 @@ def test_laminar_grating_profile_points_match_current_slag_geometry() -> None:
     assert positions[3] - positions[2] == pytest.approx(expected_width_nm)
 
 
+def test_laminar_grating_reports_wall_overlap_details() -> None:
+    grating = LaminarGrating(
+        period_lpermm=1000,
+        width_to_period_ratio=0.5,
+        depth_nm=251.0,
+        left_wall_angle_deg=45.0,
+        right_wall_angle_deg=45.0,
+    )
+
+    with pytest.raises(ValueError, match="depth=251.000 nm") as error_info:
+        grating.profile_points()
+
+    message = str(error_info.value)
+    assert "wall footprint=502.000 nm" in message
+    assert "available land=-2.000 nm" in message
+    assert "Reduce depth" in message
+
+
+def test_laminar_grating_accepts_walls_touching_at_period_boundary() -> None:
+    grating = LaminarGrating(
+        period_lpermm=1000,
+        width_to_period_ratio=0.5,
+        depth_nm=250.0,
+        left_wall_angle_deg=45.0,
+        right_wall_angle_deg=45.0,
+    )
+
+    positions, _ = grating.profile_points()
+    assert positions[-1] == pytest.approx(grating.period_nm)
+
+
 def test_roughness_spec_validates_inputs() -> None:
     assert RoughnessSpec(kind="debye-waller", sigma_nm=0.5).kind == "debye-waller"
 

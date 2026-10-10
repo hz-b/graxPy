@@ -12,6 +12,7 @@ import os
 import shutil
 import threading
 import time
+import traceback
 import webbrowser
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -80,6 +81,7 @@ from .plane_mirror import (
     plane_mirror_csv,
 )
 from .runs import RunStore
+from .afm_workflow import process_afm_upload
 
 try:
     import psutil
@@ -272,19 +274,42 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         defaults = _default_form_values()
         return render_template(
-            "grating_form.html",
-            materials=available_material_symbols(),
-            material_density_map=dict(material_density_catalog()),
-            defaults=defaults,
+            "grating_form.html", materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()), defaults=defaults,
             density_placeholders=_material_density_placeholders(defaults),
-            action_url=url_for("create_grating"),
-            submit_label="Save grating",
-            preview=preview,
-            allow_custom=True,
-            allow_bare=True,
+            action_url=url_for("create_grating"), submit_label="Save grating",
+            preview=preview, allow_custom=True, allow_bare=True,
             custom_layers=_grating_custom_layer_rows({}),
         )
 
+    @app.post("/gratings/afm/process")
+    def process_afm():
+        """Process one uploaded AFM scan into a temporary profile workflow."""
+        upload = request.files.get("afm_file")
+        if upload is None or not upload.filename:
+            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
+        workflow_id = uuid4().hex
+        workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
+        try:
+            metadata = process_afm_upload(
+                upload.read(), workflow_dir, filename=upload.filename,
+                units=str(request.form.get("afm_units", "nm")),
+                profile_type=str(request.form.get("afm_profile_type", "blazed")),
+                period_nm=float(request.form.get("afm_period_nm", "0")),
+                min_separation_fraction=float(request.form.get("afm_min_separation", "0.4")),
+                min_prominence_fraction=float(request.form.get("afm_min_prominence", "0.1")),
+                period_index=int(request.form.get("afm_period_index", "0")),
+                average=request.form.get("afm_average") == "1",
+                reverse=request.form.get("afm_reverse") == "1",
+                zero_baseline=request.form.get("afm_zero_baseline", "1") == "1",
+                periodicity_ramp=request.form.get("afm_periodicity_ramp") == "1",
+            )
+            metadata["workflow_id"] = workflow_id
+            metadata["profile_path"] = str((workflow_dir / "profile.csv").resolve())
+            (workflow_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            return jsonify({"ok": True, **metadata})
+        except (TypeError, ValueError, OSError) as error:
+            return jsonify({"ok": False, "error": str(error), "workflow_id": workflow_id}), 422
     def invalid_grating_form(error, grating_id=None):
         """Keep submitted values visible when validation fails."""
         defaults = _default_form_values()
@@ -471,7 +496,7 @@ def create_app(*, data_dir: str | Path | None = None):
     def manage_runs():
         return render_template(
             "run_manage.html",
-            runs=_list_plot_runs(active_data_dir() / "runs"),
+            runs=_manage_run_entries(app.config["GRAx_DATA_DIR"]),
         )
 
     @app.post("/runs/manage")
@@ -479,7 +504,16 @@ def create_app(*, data_dir: str | Path | None = None):
         action = str(request.form.get("action", "save"))
         store = run_store()
         if action == "delete":
-            store.delete_many(request.form.getlist("delete_run_id"))
+            run_ids = request.form.getlist("delete_run_id")
+            if request.form.get("confirm_delete") != "1":
+                references = _plot_references_for_runs(active_data_dir(), run_ids)
+                if references:
+                    return render_template(
+                        "run_delete_confirm.html",
+                        run_ids=run_ids,
+                        plots=references,
+                    )
+            store.delete_many(run_ids)
             return redirect(url_for("manage_runs"))
 
         for run in store.list():
@@ -501,6 +535,7 @@ def create_app(*, data_dir: str | Path | None = None):
         return render_template(
             "run_detail.html",
             run=manifest,
+            related_plots=_plot_references_for_runs(app.config["GRAx_DATA_DIR"], [run_id]),
             initial_status=_run_status_payload(app=app, data_dir=app.config["GRAx_DATA_DIR"], run_id=run_id),
             status_url=url_for("run_status", run_id=run_id),
             memory_url=url_for("system_memory"),
@@ -667,6 +702,7 @@ def create_app(*, data_dir: str | Path | None = None):
             "plot_detail.html",
             plot=manifest,
             plotly_bundle=_plotly_bundle_text() if manifest.get("figure_json") else None,
+            selected_runs=_plot_selected_run_entries(app.config["GRAx_DATA_DIR"], manifest),
         )
 
     @app.get("/plots/<plot_id>/delete")
@@ -1344,6 +1380,18 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
             }
         )
         return spec
+    if grating_type == "afm":
+        profile_path = str(form.get("afm_profile_path", "")).strip()
+        if not profile_path or not Path(profile_path).is_file():
+            raise ValueError("A processed AFM profile is required before saving.")
+        spec["profile"] = {
+            "profile_path": profile_path,
+            "source_filename": str(form.get("afm_source_filename", "")),
+            "units": str(form.get("afm_units", "nm")),
+            "profile_type": str(form.get("afm_profile_type", "blazed")),
+            "period_nm": float(form.get("afm_period_nm", "0")),
+        }
+        return spec
     if grating_type == "sinusoidal":
         try:
             depth_nm = float(form["sinusoidal_depth_nm"])
@@ -1402,13 +1450,32 @@ def _build_grating_preview(
         rough_path, notices = _render_grating_previews(grating, preview_path)
         rough_url = f"/_data/previews/live/{rough_path.name}" if rough_path else None
         return {
-            "ok": True, "error": "", "preview_id": preview_id,
+            "ok": True, "error": "", "error_category": None, "error_fields": [], "preview_id": preview_id,
             "preview_url": f"/_data/previews/live/{preview_id}.png",
             "roughness_preview_url": rough_url, "warnings": notices,
         }
     except (KeyError, TypeError, ValueError, OverflowError) as error:
-        return {"ok": False, "error": str(error), "preview_id": None,
-                "preview_url": None, "roughness_preview_url": None, "warnings": []}
+        message = str(error)
+        is_geometry_error = "LaminarGrating walls overlap" in message
+        return {
+            "ok": False,
+            "error": message,
+            "error_category": "geometry" if is_geometry_error else "inputs",
+            "error_fields": (
+                [
+                    "depth_nm",
+                    "left_wall_angle_deg",
+                    "right_wall_angle_deg",
+                    "width_to_period_ratio",
+                ]
+                if is_geometry_error
+                else []
+            ),
+            "preview_id": None,
+            "preview_url": None,
+            "roughness_preview_url": None,
+            "warnings": [],
+        }
 
 
 def _load_plane_mirror(store: PlaneMirrorStore, mirror_id: str) -> dict[str, Any]:
@@ -1746,6 +1813,33 @@ def _execute_run_job(
         if workflow == "parameter_study":
             run_x_resolution_nm = float(form_data.get("run_x_resolution_nm") or grating.x_resolution_nm)
             run_z_resolution_nm = float(form_data.get("run_z_resolution_nm") or grating.z_resolution_nm)
+
+            def _parameter_study_progress(completed: int, total: int, partial_result: Any) -> None:
+                """Persist visible progress and a partial plot after each energy."""
+
+                _update_active_run(app, run_id, completed_points=completed)
+                _update_manifest_fields(
+                    data_dir,
+                    run_id,
+                    status="running",
+                    completed_points=completed,
+                    total_points=total,
+                    artifacts=_parameter_study_artifacts(run_dir),
+                )
+                temporary_plot_path = run_dir / "parameter_study.tmp.png"
+                partial_plot_path = run_dir / "parameter_study.png"
+                parameter_sweep.plot_parameter_study(
+                    partial_result,
+                    output_filename=temporary_plot_path,
+                )
+                temporary_plot_path.replace(partial_plot_path)
+                _update_active_run(
+                    app,
+                    run_id,
+                    plot_relative_path=partial_plot_path.name,
+                    bump_plot_token=True,
+                )
+
             result = parameter_sweep.run_parameter_study(
                 grating=grating,
                 energies_ev=energies,
@@ -1759,9 +1853,13 @@ def _execute_run_job(
                 output_dir=run_dir,
                 save_csv=True,
                 show_progress=False,
+                progress_callback=_parameter_study_progress,
             )
             plot_path = run_dir / "parameter_study.png"
-            parameter_sweep.plot_parameter_study(result, output_filename=plot_path)
+            if not plot_path.exists():
+                temporary_plot_path = run_dir / "parameter_study.tmp.png"
+                parameter_sweep.plot_parameter_study(result, output_filename=temporary_plot_path)
+                temporary_plot_path.replace(plot_path)
             _update_active_run(
                 app,
                 run_id,
@@ -1773,7 +1871,7 @@ def _execute_run_job(
                 data_dir,
                 run_id,
                 status="completed",
-                artifacts=["parameter_study.png"],
+                artifacts=_parameter_study_artifacts(run_dir),
                 total_points=int(energies.size),
             )
             _finish_active_run(app, run_id, state="completed")
@@ -1895,23 +1993,35 @@ def _execute_run_job(
         )
     except Exception as error:  # pragma: no cover - exercised by integration behavior.
         results = _load_checkpoint_results(run_dir)
-        _persist_run_outputs(
-            data_dir=data_dir,
-            run_id=run_id,
-            results=results,
-            diffraction_order=diffraction_order,
-            title=f"{grating_name} {workflow}",
-            include_plot=bool(results),
-        )
+        if workflow != "parameter_study":
+            _persist_run_outputs(
+                data_dir=data_dir,
+                run_id=run_id,
+                results=results,
+                diffraction_order=diffraction_order,
+                title=f"{grating_name} {workflow}",
+                include_plot=bool(results),
+            )
+        _write_text_atomically(run_dir / "error.txt", traceback.format_exc())
         _update_manifest_fields(
             data_dir,
             run_id,
             status="failed",
-            error_text=str(error),
+            error_text=_run_error_summary(workflow, error),
             cases=_manifest_cases(results),
-            artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
+            artifacts=(
+                _parameter_study_artifacts(run_dir)
+                if workflow == "parameter_study"
+                else _run_artifacts_for_results(run_dir, include_plot=bool(results))
+            ),
+            total_points=int(energies.size) if workflow == "parameter_study" else None,
         )
-        _finish_active_run(app, run_id, state="failed", error_text=str(error))
+        _finish_active_run(
+            app,
+            run_id,
+            state="failed",
+            error_text=_run_error_summary(workflow, error),
+        )
     finally:
         release_workers(run_id)
 
@@ -2579,6 +2689,37 @@ def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str
     return artifact_names
 
 
+def _parameter_study_artifacts(run_dir: Path) -> list[str]:
+    """Return complete parameter-study artifacts currently present."""
+
+    return sorted(
+        path.name
+        for path in run_dir.iterdir()
+        if path.is_file()
+        and (
+            path.name in {"parameter_study.png", "error.txt"}
+            or (path.name.startswith("parameter_study_") and path.suffix == ".csv")
+        )
+    )
+
+
+def _write_text_atomically(path: Path, text: str) -> None:
+    """Write diagnostic text through a temporary file and replace."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _run_error_summary(workflow: str, error: Exception) -> str:
+    """Return concise user-facing text for a failed run."""
+
+    if workflow == "parameter_study":
+        return f"Parameter study failed: {error}"
+    return str(error)
+
+
 def _persist_run_outputs(
     *,
     data_dir: Path,
@@ -2716,8 +2857,13 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     manifest_path = data_dir / "runs" / run_id / "manifest.json"
     if not manifest_path.exists():
         return None
-    with manifest_path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+    try:
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        # Polling may race an atomic manifest replacement. A transiently
+        # unavailable manifest must not turn the status endpoint into a 500.
+        return None
     payload.setdefault("id", run_id)
     payload.setdefault("display_name", f"{payload.get('grating_name', 'Run')} · {payload.get('workflow', 'run')}")
     payload.setdefault("polarization", _normalized_polarization(payload.get("run_input", {}).get("polarization", "s")))
@@ -3247,9 +3393,93 @@ def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
         return []
     plots = []
     for path in plot_dir.glob("*/manifest.json"):
-        with path.open("r", encoding="utf-8") as handle:
-            plots.append(json.load(handle))
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                plot = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        plot["unavailable_run_count"] = sum(
+            1
+            for run in plot.get("selected_runs", [])
+            if not (plot_dir.parent / "runs" / str(run.get("id", "")) / "manifest.json").exists()
+        )
+        plots.append(plot)
     return sorted(plots, key=lambda plot: str(plot.get("created_at", "")), reverse=True)
+
+
+def _plot_selected_run_entries(data_dir: Path, plot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Annotate saved-plot run references without changing their manifest."""
+
+    entries: list[dict[str, Any]] = []
+    for selected in plot.get("selected_runs", []):
+        entry = dict(selected)
+        run_id = str(entry.get("id", ""))
+        entry["id"] = run_id
+        entry["available"] = _load_run_manifest(data_dir, run_id) is not None
+        entry["url"] = f"/runs/{run_id}" if entry["available"] else None
+        entries.append(entry)
+    return entries
+
+
+def _plot_references_for_runs(data_dir: Path, run_ids: list[str]) -> list[dict[str, Any]]:
+    """Return saved plots that reference any requested run IDs."""
+
+    wanted = {str(run_id) for run_id in run_ids}
+    references: list[dict[str, Any]] = []
+    for plot in _list_plots(data_dir / "plots"):
+        selected = plot.get("selected_runs", [])
+        matches = [run for run in selected if str(run.get("id", "")) in wanted]
+        if matches:
+            references.append(
+                {
+                    "id": plot.get("id", ""),
+                    "title": plot.get("title", "Saved plot"),
+                    "url": f"/plots/{plot.get('id', '')}",
+                    "runs": matches,
+                }
+            )
+    return references
+
+
+def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
+    """Build the derived view model used by Manage Runs."""
+
+    entries: list[dict[str, Any]] = []
+    for run in _list_plot_runs(data_dir / "runs"):
+        run_id = str(run["id"])
+        input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
+        artifacts = [str(name) for name in run.get("artifacts", [])]
+        run.update(
+            {
+                "detail_url": f"/runs/{run_id}",
+                "artifacts": artifacts,
+                "artifact_links": [
+                    {"name": name, "url": f"/_data/runs/{run_id}/{name}"}
+                    for name in artifacts
+                ],
+                "related_plots": _plot_references_for_runs(data_dir, [run_id]),
+                "parameter_summary": _run_input_summary(input_data),
+                "progress_summary": (
+                    f"{run.get('checkpoint_completed_points', 0)} / "
+                    f"{run.get('checkpoint_total_points') or run.get('total_points', 0)} points"
+                ),
+            }
+        )
+        entries.append(run)
+    return entries
+
+
+def _run_input_summary(run_input: dict[str, Any]) -> str:
+    """Return compact, stable run parameters for the management list."""
+
+    fields = []
+    if run_input.get("energy_start_ev") is not None and run_input.get("energy_stop_ev") is not None:
+        fields.append(f"energy {run_input['energy_start_ev']}–{run_input['energy_stop_ev']} eV")
+    if run_input.get("grazing_angle_deg") is not None:
+        fields.append(f"grazing {run_input['grazing_angle_deg']}°")
+    if run_input.get("diffraction_order") is not None:
+        fields.append(f"order {run_input['diffraction_order']}")
+    return " · ".join(fields) or "Parameters unavailable"
 
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:

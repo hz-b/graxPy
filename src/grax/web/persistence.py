@@ -18,6 +18,7 @@ from grax.gratings import (
     LaminarGrating,
     SinusoidalGrating,
 )
+from grax.afm_grating import AFMGrating
 from grax.materials import MaterialSpec, material_density_g_cm3, material_label, validate_material_input
 from grax.stacks import (
     BareStack, BaseStack, CustomStack, LayerSpec, MultilayerStack, SingleLayerStack,
@@ -261,6 +262,17 @@ def _build_grating_from_spec(
             depth_nm=float(spec["depth_nm"]),
             left_wall_angle_deg=float(spec["left_wall_angle_deg"]),
             right_wall_angle_deg=float(spec["right_wall_angle_deg"]),
+        )
+    if spec["grating_type"] == "afm":
+        profile = spec.get("profile") or {}
+        profile_path = Path(str(profile.get("profile_path", "")))
+        if not profile_path.is_file():
+            raise ValueError("AFM profile artifact is missing.")
+        values = __import__("numpy").loadtxt(profile_path, delimiter=",", skiprows=1)
+        return AFMGrating(
+            **common,
+            x_points_nm=values[:, 0],
+            z_points_nm=values[:, 1],
         )
     if spec["grating_type"] == "sinusoidal":
         return SinusoidalGrating(

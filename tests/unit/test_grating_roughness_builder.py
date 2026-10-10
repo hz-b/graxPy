@@ -151,6 +151,32 @@ def test_builder_save_preview_reload_and_run_settings(tmp_path, kind):
     assert b'at least 0 nm' in invalid.data
 
 
+def test_grating_preview_reports_laminar_geometry_fields(tmp_path):
+    client = create_app(data_dir=tmp_path).test_client()
+    form = _default_form_values()
+    form.update(
+        grating_type="laminar",
+        period_lpermm="3600",
+        width_to_period_ratio="0.67",
+        depth_nm="12",
+        left_wall_angle_deg="5",
+        right_wall_angle_deg="5",
+    )
+
+    payload = client.post("/_preview/grating", data=form).json
+
+    assert payload["ok"] is False
+    assert payload["error_category"] == "geometry"
+    assert payload["error_fields"] == [
+        "depth_nm",
+        "left_wall_angle_deg",
+        "right_wall_angle_deg",
+        "width_to_period_ratio",
+    ]
+    assert "wall footprint" in payload["error"]
+    assert "depth=12.000 nm" in payload["error"]
+
+
 def test_legacy_no_model_and_python_round_trip():
     grating = make_grating('sinusoidal', 'custom')
     # Use catalog symbols for JSON persistence.

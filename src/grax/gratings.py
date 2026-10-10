@@ -1397,11 +1397,26 @@ class LaminarGrating(BaseGrating):
         right_wall_foot_nm = self.depth_nm / np.tan(np.deg2rad(self.right_wall_angle_deg))
         land_nm = self.period_nm - groove_floor_nm - left_wall_foot_nm - right_wall_foot_nm
 
-        if land_nm < 0.0:
+        boundary_tolerance_nm = 1e-12 * max(self.period_nm, self.depth_nm, 1.0)
+        if land_nm < -boundary_tolerance_nm:
             raise ValueError(
-                "LaminarGrating walls overlap. Reduce depth, increase wall angles, "
-                "or reduce width_to_period_ratio."
+                "LaminarGrating walls overlap: depth={depth:.3f} nm, "
+                "left wall angle={left:.3f} deg, right wall angle={right:.3f} deg, "
+                "period={period:.3f} nm, groove width={groove:.3f} nm, "
+                "wall footprint={footprint:.3f} nm, available land={land:.3f} nm. "
+                "Reduce depth, increase either wall angle, or adjust "
+                "width_to_period_ratio."
+                .format(
+                    depth=self.depth_nm,
+                    left=self.left_wall_angle_deg,
+                    right=self.right_wall_angle_deg,
+                    period=self.period_nm,
+                    groove=groove_floor_nm,
+                    footprint=left_wall_foot_nm + right_wall_foot_nm,
+                    land=land_nm,
+                )
             )
+        land_nm = max(land_nm, 0.0)
 
         left_land_nm = land_nm / 2.0
         x_land_r = left_land_nm

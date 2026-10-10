@@ -1,5 +1,6 @@
 {% from "_roughness_help.html" import roughness_help %}
 {% extends "base.html" %}
+{% from "_geometry_view.html" import geometry_view %}
 {% block title %}New grating{% endblock %}
 {% block body %}
 <section class="section-head">
@@ -7,6 +8,26 @@
     <h1>New grating</h1>
     <p>Etched grating profiles with optional coating layers</p>
   </div>
+</section>
+
+<section class="preview-panel" data-afm-workflow>
+  <h2>Import AFM profile</h2>
+  <p>Upload a two-column x/z scan and preprocess one period before using it as a profile grating.</p>
+  <form method="post" action="{{ url_for('process_afm') }}" enctype="multipart/form-data" data-afm-process-form>
+    <label>AFM file <input type="file" name="afm_file" accept=".csv,.tsv,.txt,text/plain" required></label>
+    <label>Coordinate units <select name="afm_units"><option value="nm">nm</option><option value="um">µm</option><option value="m">m</option></select></label>
+    <label>Profile type <select name="afm_profile_type"><option value="blazed">Blazed</option><option value="laminar">Laminar</option></select></label>
+    <label>Expected period, nm <input name="afm_period_nm" type="number" min="0" step="any" required></label>
+    <label>Minimum separation fraction <input name="afm_min_separation" type="number" min="0" step="any" value="0.4"></label>
+    <label>Minimum prominence fraction <input name="afm_min_prominence" type="number" min="0" step="any" value="0.1"></label>
+    <label>Period index <input name="afm_period_index" type="number" min="0" step="1" value="0"></label>
+    <label><input type="checkbox" name="afm_average" value="1"> Average all detected periods</label>
+    <label><input type="checkbox" name="afm_reverse" value="1"> Reverse scan</label>
+    <label><input type="checkbox" name="afm_zero_baseline" value="1" checked> Zero baseline</label>
+    <label><input type="checkbox" name="afm_periodicity_ramp" value="1"> Apply periodicity-ramp correction</label>
+    <button class="button" type="submit">Process AFM profile</button>
+    <p class="notice is-hidden" data-afm-result role="status"></p>
+  </form>
 </section>
 
 <div class="workspace-grid">
@@ -17,6 +38,8 @@
     data-grating-preview-form
     data-preview-url="{{ url_for('preview_grating') }}"
   >
+    <input type="hidden" name="afm_profile_path" data-afm-profile-path value="{{ defaults.afm_profile_path|default('') }}">
+    <input type="hidden" name="afm_source_filename" data-afm-source-filename value="{{ defaults.afm_source_filename|default('') }}">
     {% if form_error %}<p role="alert" class="notice notice-error">Please correct the following: {{ form_error }}</p>{% endif %}
     <datalist id="material-suggestions">
       {% for material in materials %}
@@ -31,6 +54,7 @@
         <select name="grating_type" data-grating-type>
           <option value="laminar" {% if defaults.grating_type == "laminar" %}selected{% endif %}>Laminar</option>
           <option value="sinusoidal" {% if defaults.grating_type == "sinusoidal" %}selected{% endif %}>Sinusoidal</option>
+          <option value="afm" {% if defaults.grating_type == "afm" %}selected{% endif %}>AFM profile</option>
           <option value="blazed" {% if defaults.grating_type == "blazed" %}selected{% endif %}>Blazed</option>
         </select>
       </label>
@@ -90,11 +114,13 @@
       </div>
       <span class="preview-pill" data-grating-preview-loading>Idle</span>
     </div>
+    {{ geometry_view("grating", bind="[data-grating-preview-form]") }}
     {% if preview and preview.preview_url %}
       <img class="preview" src="{{ preview.preview_url }}" alt="Live grating preview" data-grating-preview-image>
     {% else %}
       <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
     {% endif %}
+    <p class="notice notice-error is-hidden" role="alert" tabindex="-1" data-grating-preview-error></p>
     <p data-roughness-warnings role="status">{{ (preview.warnings|default([]))|join(' ') if preview else '' }}</p>
     <img class="preview{% if not preview or not preview.roughness_preview_url %} is-hidden{% endif %}" src="{{ preview.roughness_preview_url|default('') or '' if preview else '' }}" alt="Random roughness interfaces and material map" data-roughness-preview-image>
   </section>

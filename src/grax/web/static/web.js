@@ -182,7 +182,43 @@ function initGratingPreview(form) {
   const image = document.querySelector("[data-grating-preview-image]");
   const status = document.querySelector("[data-grating-preview-status]");
   const loading = document.querySelector("[data-grating-preview-loading]");
+  const errorBox = document.querySelector("[data-grating-preview-error]");
+  let previewValid = true;
   let requestId = 0;
+
+  function clearInvalidFields() {
+    form.querySelectorAll(".is-invalid").forEach((field) => {
+      field.classList.remove("is-invalid");
+      field.removeAttribute("aria-invalid");
+    });
+  }
+
+  function showPreviewError(payload) {
+    previewValid = false;
+    const fields = payload.error_fields || [];
+    clearInvalidFields();
+    fields.forEach((name) => {
+      const field = form.querySelector(`[name="${name}"]`);
+      if (field) {
+        field.classList.add("is-invalid");
+        field.setAttribute("aria-invalid", "true");
+      }
+    });
+    if (errorBox) {
+      errorBox.textContent = payload.error || "Preview inputs are invalid.";
+      errorBox.classList.remove("is-hidden");
+    }
+    status.textContent = payload.error_category === "geometry" ? "Invalid geometry" : "Validation error";
+  }
+
+  function clearPreviewError() {
+    previewValid = true;
+    clearInvalidFields();
+    if (errorBox) {
+      errorBox.textContent = "";
+      errorBox.classList.add("is-hidden");
+    }
+  }
 
   const updatePreview = debounce(async () => {
     requestId += 1;
@@ -204,11 +240,12 @@ function initGratingPreview(form) {
       }
       if (warnings) warnings.textContent = (payload.warnings || []).join(" ");
       if (payload.ok) {
+        clearPreviewError();
         image.src = payload.preview_url;
         image.classList.remove("is-hidden");
         status.textContent = "Ready";
       } else {
-        status.textContent = payload.error || "Preview unavailable.";
+        showPreviewError(payload);
       }
     } catch (error) {
       if (currentRequest !== requestId) {
@@ -221,6 +258,12 @@ function initGratingPreview(form) {
 
   form.addEventListener("input", updatePreview);
   form.addEventListener("change", updatePreview);
+  form.addEventListener("submit", (event) => {
+    if (!previewValid) {
+      event.preventDefault();
+      if (errorBox) errorBox.focus();
+    }
+  });
 }
 
 function initMaterialDensitySync() {
