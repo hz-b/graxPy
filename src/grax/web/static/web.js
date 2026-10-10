@@ -12,6 +12,12 @@ function syncGratingSections(select) {
   });
 }
 
+function defaultStackForGrating(select) {
+  const stackSelect = select.closest("form")?.querySelector("[data-stack-type]");
+  if (!stackSelect) return;
+  syncStackSections(stackSelect);
+}
+
 function syncStackSections(select) {
   const mode = select.value;
   // The custom layer table needs room: let its fieldset span the whole form grid.
@@ -24,6 +30,9 @@ function syncStackSections(select) {
   });
   document.querySelectorAll("[data-custom-layer-controls]").forEach((section) => {
     toggleSectionFields(section, mode === "custom");
+  });
+  document.querySelectorAll("[data-top-cap-controls]").forEach((section) => {
+    toggleSectionFields(section, mode !== "bare");
   });
 }
 
@@ -43,12 +52,23 @@ function initLayerEditor(editor, form) {
     });
   };
 
-  editor.querySelector("[data-layer-add]").addEventListener("click", () => {
-    const html = template.innerHTML.replaceAll("__KEY__", String(nextKey));
-    nextKey += 1;
-    rows.insertAdjacentHTML("beforeend", html);
-    renumber();
-    notify();
+  editor.querySelectorAll("[data-layer-add]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const html = template.innerHTML.replaceAll("__KEY__", String(nextKey));
+      nextKey += 1;
+      rows.insertAdjacentHTML("beforeend", html);
+      const row = rows.lastElementChild;
+      row.querySelector("[data-layer-kind]").value = button.dataset.layerAdd || "single";
+      row.querySelector("[data-bilayer-fields]").classList.toggle("is-hidden", button.dataset.layerAdd !== "multilayer");
+      renumber();
+      notify();
+    });
+  });
+  rows.addEventListener("change", (event) => {
+    if (event.target.matches("[data-layer-kind]")) {
+      event.target.closest("[data-layer-row]").querySelector("[data-bilayer-fields]")
+        .classList.toggle("is-hidden", event.target.value !== "multilayer");
+    }
   });
 
   rows.addEventListener("click", (event) => {
@@ -145,7 +165,19 @@ function debounce(fn, delayMs) {
   };
 }
 
+function syncGratingRoughness(form) {
+  const model = form.querySelector("[data-roughness-model]");
+  if (!model) return;
+  form.querySelectorAll("[data-interface-sigma]").forEach((label) => label.classList.toggle("is-hidden", model.value === "none"));
+  form.querySelectorAll("[data-interface-correlation], [data-random-settings]").forEach((label) => label.classList.toggle("is-hidden", model.value !== "random-interface"));
+  form.querySelectorAll("[data-debye-explanation]").forEach((label) => label.classList.toggle("is-hidden", model.value !== "debye-waller"));
+}
+
 function initGratingPreview(form) {
+  syncGratingRoughness(form);
+  form.addEventListener("change", () => syncGratingRoughness(form));
+  const roughImage = document.querySelector("[data-roughness-preview-image]");
+  const warnings = document.querySelector("[data-roughness-warnings]");
   const previewUrl = form.dataset.previewUrl;
   const image = document.querySelector("[data-grating-preview-image]");
   const status = document.querySelector("[data-grating-preview-status]");
@@ -165,7 +197,12 @@ function initGratingPreview(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = "Ready";
+      loading.textContent = payload.ok ? "Ready" : "Invalid inputs";
+      if (roughImage) {
+        roughImage.classList.toggle("is-hidden", !payload.ok || !payload.roughness_preview_url);
+        if (payload.roughness_preview_url) roughImage.src = payload.roughness_preview_url;
+      }
+      if (warnings) warnings.textContent = (payload.warnings || []).join(" ");
       if (payload.ok) {
         image.src = payload.preview_url;
         image.classList.remove("is-hidden");
@@ -182,10 +219,8 @@ function initGratingPreview(form) {
     }
   }, 250);
 
-  form.querySelectorAll("input, select, textarea").forEach((field) => {
-    field.addEventListener("input", updatePreview);
-    field.addEventListener("change", updatePreview);
-  });
+  form.addEventListener("input", updatePreview);
+  form.addEventListener("change", updatePreview);
 }
 
 function initMaterialDensitySync() {
@@ -995,7 +1030,10 @@ function initDesignPicker(form) {
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
-    select.addEventListener("change", () => syncGratingSections(select));
+    select.addEventListener("change", () => {
+      syncGratingSections(select);
+      defaultStackForGrating(select);
+    });
   });
 
   document.querySelectorAll("[data-stack-type]").forEach((select) => {
@@ -1024,6 +1062,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const gratingPreviewForm = document.querySelector("[data-grating-preview-form]");
   if (gratingPreviewForm) {
+    const editor = gratingPreviewForm.querySelector("[data-layer-editor]");
+    if (editor) initLayerEditor(editor, gratingPreviewForm);
     initGratingPreview(gratingPreviewForm);
   }
 

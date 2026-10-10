@@ -12,7 +12,14 @@
   </div>
 </section>
 
-<img class="preview" src="{{ preview_url }}" alt="Grating profile preview">
+<h2>Nominal geometry — three periods</h2>
+<img class="preview" src="{{ preview_url }}" alt="Nominal grating profile and material stack over three aligned periods">
+{% if roughness_preview_url %}
+<h2>Random roughness — {{ roughness_periods }} simulated period{{ 's' if roughness_periods != 1 else '' }}</h2>
+<p>First simulation realization. Both panels show the same simulation span.</p>
+{% for warning in preview_warnings %}<p class="notice" role="status">{{ warning }}</p>{% endfor %}
+<img class="preview" src="{{ roughness_preview_url }}" alt="Random roughness interfaces and material map over the simulation span">
+{% endif %}
 
 <form
   class="form run-form"
@@ -74,13 +81,19 @@
         <option value="neviere">Nevi&egrave;re (differential)</option>
       </select>
     </label>
-    <label>Roughness
-      <select name="roughness_kind">
-        <option value="none" selected>None</option>
-        <option value="debye-waller">Debye-Waller</option>
-        <option value="random-interface">Random interface</option>
-      </select>
-    </label>
+    <div>
+      {% set roughness_kind = grating.roughness.kind if grating.roughness else 'none' %}
+      <label>Roughness model
+        <select name="roughness_kind">
+          <option value="none"{% if roughness_kind == 'none' %} selected{% endif %}>None</option>
+          <option value="debye-waller"{% if roughness_kind == 'debye-waller' %} selected{% endif %}>Debye–Waller</option>
+          <option value="random-interface"{% if roughness_kind == 'random-interface' %} selected{% endif %}>Random interface</option>
+        </select>
+      </label>
+      <small>Applies to this run using the saved interface parameters.
+        <a href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit grating roughness</a>
+      </small>
+    </div>
     <label>X resolution, nm <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
     <label>Z resolution, nm <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
   </fieldset>

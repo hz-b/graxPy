@@ -1,0 +1,11 @@
+{% macro roughness_help(key, kind) -%}
+{% set explanations = {
+'model': 'None uses smooth interfaces. Debye–Waller leaves the geometry smooth and applies an effective RMS damping correction to diffraction efficiencies. Random interface generates rough surfaces used by the geometry and solvers, and shows an additional preview.',
+'sigma': 'RMS height σ measures the vertical roughness of this upper interface, in nm. Larger σ gives larger height variations in Random interface mode and stronger effective damping in Debye–Waller mode. Zero or blank means smooth. Large values can make neighboring coating interfaces cross, which is rejected; small features need a finer simulation grid. In multilayers, A/B values repeat but the random interface shapes are independent.',
+'xi': 'Correlation length ξ sets the lateral size of surface variations, in nm. Larger ξ produces smoother, more slowly varying roughness; smaller ξ produces finer variations and can require finer x spacing. It changes the surface shape and scattering, not the specified RMS height. Blank uses period / 10; zero gives uncorrelated noise. Used only by Random interface.',
+'seed': 'The seed selects a reproducible set of random surfaces. Keeping it and the other settings unchanged reproduces the same grating across previews and simulations. Changing it generates different shapes without changing the requested RMS heights or correlation lengths. Use a nonnegative integer; default 0.',
+'periods': 'Number of grating periods in the simulated random-roughness supercell. More periods allow variation across neighboring periods and additional diffraction orders. The solver uses a larger fundamental period, so computation and memory can grow sharply. Use a positive integer; start with 1.',
+'realizations': 'Number of independent random surfaces whose diffraction efficiencies are averaged at each simulation point. More realizations reduce sensitivity to one random draw, but computation grows approximately in proportion to this count. The preview shows only the first realization. Use a positive integer; default 1.'
+} %}
+<button type="button" class="roughness-help" aria-label="Help: {{ kind }}" aria-describedby="roughness-help-{{ key }}">?</button><span class="roughness-tip" role="tooltip" id="roughness-help-{{ key }}">{{ explanations[kind] }}</span>
+{%- endmacro %}

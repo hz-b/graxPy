@@ -19,7 +19,13 @@ from .materials import (
     material_density_catalog,
     material_density_g_cm3,
 )
-from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
+from .gratings import (
+    BaseGrating,
+    BlazedGrating,
+    LaminarGrating,
+    ProfileGrating,
+    SinusoidalGrating,
+)
 from .simulation.core import normalize_polarization
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
@@ -33,6 +39,7 @@ from .solvers import NeviereOptions, res0, res1, res2, res2_dm
 from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,
+    BareStack,
     CustomStack,
     LayerSpec,
     MultilayerStack,
@@ -78,6 +85,7 @@ __all__ = [
     "AFMPreprocessing",
     "BaseGrating",
     "BaseStack",
+    "BareStack",
     "BatchSimulationRunner",
     "BlazedGrating",
     "CaseExecutionResult",
@@ -98,6 +106,7 @@ __all__ = [
     "ParameterSweepSeries",
     "ProfileGrating",
     "RoughnessSpec",
+    "SinusoidalGrating",
     "SingleLayerStack",
     "SingleSimulationResult",
     "SlagConfig",

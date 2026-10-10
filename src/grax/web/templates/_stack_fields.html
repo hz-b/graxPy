@@ -1,33 +1,44 @@
-{% macro layer_row(key, material, density, thickness, sigma) %}
-<div class="layer-row" data-layer-row>
-  <span class="layer-index" data-layer-index></span>
-  <input name="cl_material" list="material-suggestions" value="{{ material }}" placeholder="Material" aria-label="Layer material" data-material-select="cl_{{ key }}" autocomplete="off">
-  <input name="cl_density_g_cm3" type="number" step="any" value="{{ density }}" placeholder="g/cm^3" aria-label="Layer density" data-material-density="cl_{{ key }}">
-  <input name="cl_thickness_nm" type="number" step="any" min="0" value="{{ thickness }}" placeholder="nm" aria-label="Layer thickness, nm">
-  <input name="cl_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ sigma }}" placeholder="-" title="Leave empty to use the default interface roughness" aria-label="Layer roughness sigma, nm">
-  <span class="layer-row-actions">
-    <button class="button" type="button" data-layer-up title="Move up" aria-label="Move layer up">&uarr;</button>
-    <button class="button" type="button" data-layer-down title="Move down" aria-label="Move layer down">&darr;</button>
-    <button class="button" type="button" data-layer-remove title="Remove layer" aria-label="Remove layer">&times;</button>
-  </span>
+{% from "_roughness_help.html" import roughness_help %}
+{% macro layer_row(key, layer) %}
+<div class="layer-row layer-block" data-layer-row>
+  <div class="layer-block-head">
+    <span class="layer-index" data-layer-index></span>
+    <select name="cl_kind" data-layer-kind aria-label="Block type">
+      <option value="single" {% if layer.kind|default('single') == 'single' %}selected{% endif %}>Single layer</option>
+      <option value="multilayer" {% if layer.kind == 'multilayer' %}selected{% endif %}>Multilayer (A / B)</option>
+    </select>
+    <span class="layer-row-actions">
+      <button class="button" type="button" data-layer-up title="Move up" aria-label="Move block up">&uarr;</button>
+      <button class="button" type="button" data-layer-down title="Move down" aria-label="Move block down">&darr;</button>
+      <button class="button" type="button" data-layer-remove title="Remove block" aria-label="Remove block">&times;</button>
+    </span>
+  </div>
+  <div class="layer-block-fields">
+    <label>Material / A <input name="cl_material" list="material-suggestions" value="{{ layer.material|default('') }}" data-material-select="cl_{{ key }}" autocomplete="off"></label>
+    <label>Density, g/cm³ <input name="cl_density_g_cm3" type="number" step="any" value="{{ layer.density_g_cm3|default('') }}" data-material-density="cl_{{ key }}"></label>
+    <label>Thickness / A, nm <input name="cl_thickness_nm" type="number" step="any" min="0" value="{{ layer.thickness_nm|default('') }}"></label>
+    <label data-interface-sigma><span class="parameter-label">Roughness / A, nm {% if allow_bare %}{{ roughness_help('cl_roughness_sigma_nm_' ~ key, 'sigma') }}{% endif %}</span> <input aria-label="Roughness / A, nm" name="cl_roughness_sigma_nm" type="number" step="any" min="0" value="{{ layer.roughness_sigma_nm|default('') }}"></label>
+    {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">A correlation ξ, nm {% if allow_bare %}{{ roughness_help('cl_correlation_length_nm_' ~ key, 'xi') }}{% endif %}</span> <input aria-label="A correlation ξ, nm" name="cl_correlation_length_nm" type="number" min="0" step="any" value="{{ layer.correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
+  </div>
+  <div class="layer-block-fields{% if layer.kind != 'multilayer' %} is-hidden{% endif %}" data-bilayer-fields>
+    <label>Material B <input name="cl_material_b" list="material-suggestions" value="{{ layer.material_b|default('') }}" data-material-select="cl_b_{{ key }}" autocomplete="off"></label>
+    <label>B density, g/cm³ <input name="cl_density_b_g_cm3" type="number" step="any" value="{{ layer.density_b_g_cm3|default('') }}" data-material-density="cl_b_{{ key }}"></label>
+    <label>B thickness, nm <input name="cl_thickness_b_nm" type="number" step="any" min="0" value="{{ layer.thickness_b_nm|default('') }}"></label>
+    <label data-interface-sigma><span class="parameter-label">B roughness, nm {% if allow_bare %}{{ roughness_help('cl_roughness_b_sigma_nm_' ~ key, 'sigma') }}{% endif %}</span> <input aria-label="B roughness, nm" name="cl_roughness_b_sigma_nm" type="number" step="any" min="0" value="{{ layer.roughness_b_sigma_nm|default('') }}"></label>
+    {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">B correlation ξ, nm {% if allow_bare %}{{ roughness_help('cl_correlation_b_length_nm_' ~ key, 'xi') }}{% endif %}</span> <input aria-label="B correlation ξ, nm" name="cl_correlation_b_length_nm" type="number" min="0" step="any" value="{{ layer.correlation_b_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
+    <label>Bilayer repeats <input name="cl_repeats" type="number" step="1" min="1" max="250" value="{{ layer.repeats|default('1') }}"></label>
+    <p>Top to bottom: A, B, repeated. Period = A thickness + B thickness.</p>
+  </div>
 </div>
 {% endmacro %}
-    <fieldset>
-      <legend>Substrate</legend>
-      <label>Substrate
-        <input name="substrate_material" list="material-suggestions" value="{{ defaults.substrate_material|default('', true) }}" data-material-select="substrate_material" autocomplete="off">
-      </label>
-      <label>Substrate density, g/cm^3
-        <input name="substrate_material_density_g_cm3" type="number" step="any" value="{{ defaults.substrate_material_density_g_cm3 }}" placeholder="{{ density_placeholders['substrate_material'] }}" data-material-density="substrate_material">
-      </label>
-      <label>Substrate roughness &sigma;, nm <input name="substrate_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.substrate_roughness_sigma_nm }}"></label>
-    </fieldset>
+    {% if not substrate_rendered %}{% include "_substrate_fields.html" %}{% endif %}
 
     <fieldset>
       <legend>Layer stack</legend>
       <label>Stack type
         <select name="stack_type" data-stack-type>
           <option value="single_layer" {% if defaults.stack_type == "single_layer" %}selected{% endif %}>Single layer</option>
+          {% if allow_bare %}<option value="bare" {% if defaults.stack_type == "bare" %}selected{% endif %}>No coating</option>{% endif %}
           <option value="multilayer" {% if defaults.stack_type == "multilayer" %}selected{% endif %}>Multilayer</option>
           {% if allow_custom %}<option value="custom" {% if defaults.stack_type == "custom" %}selected{% endif %}>Custom layers (any number)</option>{% endif %}
         </select>
@@ -41,25 +52,25 @@
           <input name="layer_material_density_g_cm3" type="number" step="any" value="{{ defaults.layer_material_density_g_cm3 }}" placeholder="{{ density_placeholders['layer_material'] }}" data-material-density="layer_material">
         </label>
         <label>Layer thickness, nm <input name="layer_thickness_nm" type="number" step="0.01" value="{{ defaults.layer_thickness_nm }}"></label>
-        <label>Layer roughness &sigma;, nm <input name="layer_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.layer_roughness_sigma_nm }}"></label>
+        <label data-interface-sigma><span class="parameter-label">Layer roughness &sigma;, nm {% if allow_bare %}{{ roughness_help('layer_roughness_sigma_nm', 'sigma') }}{% endif %}</span> <input aria-label="Layer roughness &sigma;, nm" name="layer_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.layer_roughness_sigma_nm }}"></label>
+      {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">Layer correlation ξ, nm {% if allow_bare %}{{ roughness_help('layer_correlation_length_nm', 'xi') }}{% endif %}</span> <input aria-label="Layer correlation ξ, nm" name="layer_correlation_length_nm" type="number" min="0" step="any" value="{{ defaults.layer_correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
       </fieldset>
 
       {% if allow_custom %}
       <fieldset class="layer-editor" data-custom-layer-controls data-layer-editor>
         <legend>Custom layers, top to bottom</legend>
         <div class="layer-table">
-          <div class="layer-row layer-head">
-            <span>#</span><span>Material</span><span>Density, g/cm^3</span><span>Thickness, nm</span><span>Roughness &sigma;, nm</span><span></span>
-          </div>
+          <p>Blocks are ordered top to bottom. Move whole layers or multilayers with the arrows.</p>
           <div data-layer-rows>
             {% for layer in custom_layers %}
-              {{ layer_row(loop.index0, layer.material, layer.density_g_cm3, layer.thickness_nm, layer.roughness_sigma_nm) }}
+              {{ layer_row(loop.index0, layer) }}
             {% endfor %}
           </div>
         </div>
-        <template data-layer-template>{{ layer_row("__KEY__", "", "", "", "") }}</template>
+        <template data-layer-template>{{ layer_row("__KEY__", {}) }}</template>
         <div class="actions">
-          <button class="button" type="button" data-layer-add>Add layer</button>
+          <button class="button" type="button" data-layer-add="single">Add single layer</button>
+          <button class="button" type="button" data-layer-add="multilayer">Add multilayer</button>
         </div>
       </fieldset>
       {% endif %}
@@ -71,14 +82,16 @@
         <label>Material A density, g/cm^3
           <input name="material_a_density_g_cm3" type="number" step="any" value="{{ defaults.material_a_density_g_cm3 }}" placeholder="{{ density_placeholders['material_a'] }}" data-material-density="material_a">
         </label>
-        <label>Material A roughness &sigma;, nm <input name="material_a_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_a_roughness_sigma_nm }}"></label>
+        <label data-interface-sigma><span class="parameter-label">Material A roughness &sigma;, nm {% if allow_bare %}{{ roughness_help('material_a_roughness_sigma_nm', 'sigma') }}{% endif %}</span> <input aria-label="Material A roughness &sigma;, nm" name="material_a_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_a_roughness_sigma_nm }}"></label>
+      {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">Material A correlation ξ, nm {% if allow_bare %}{{ roughness_help('material_a_correlation_length_nm', 'xi') }}{% endif %}</span> <input aria-label="Material A correlation ξ, nm" name="material_a_correlation_length_nm" type="number" min="0" step="any" value="{{ defaults.material_a_correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
         <label>Material B
           <input name="material_b" list="material-suggestions" value="{{ defaults.material_b|default('', true) }}" data-material-select="material_b" autocomplete="off">
         </label>
         <label>Material B density, g/cm^3
           <input name="material_b_density_g_cm3" type="number" step="any" value="{{ defaults.material_b_density_g_cm3 }}" placeholder="{{ density_placeholders['material_b'] }}" data-material-density="material_b">
         </label>
-        <label>Material B roughness &sigma;, nm <input name="material_b_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_b_roughness_sigma_nm }}"></label>
+        <label data-interface-sigma><span class="parameter-label">Material B roughness &sigma;, nm {% if allow_bare %}{{ roughness_help('material_b_roughness_sigma_nm', 'sigma') }}{% endif %}</span> <input aria-label="Material B roughness &sigma;, nm" name="material_b_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_b_roughness_sigma_nm }}"></label>
+      {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">Material B correlation ξ, nm {% if allow_bare %}{{ roughness_help('material_b_correlation_length_nm', 'xi') }}{% endif %}</span> <input aria-label="Material B correlation ξ, nm" name="material_b_correlation_length_nm" type="number" min="0" step="any" value="{{ defaults.material_b_correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
         <label>Bilayer period, nm <input name="d_period_nm" type="number" step="0.01" value="{{ defaults.d_period_nm }}"></label>
         <label>Gamma <input name="gamma" type="number" step="0.01" value="{{ defaults.gamma }}"></label>
         <label>Bilayers <input name="n_bilayers" type="number" step="1" value="{{ defaults.n_bilayers }}"></label>
@@ -91,7 +104,7 @@
       </fieldset>
     </fieldset>
 
-    <fieldset>
+    <fieldset data-top-cap-controls>
       <legend>Top cap</legend>
       <label>Top cap material
         <input name="top_cap_material" list="material-suggestions" value="{{ defaults.top_cap_material|default('', true) }}" data-material-select="top_cap_material" autocomplete="off">
@@ -100,5 +113,6 @@
         <input name="top_cap_material_density_g_cm3" type="number" step="any" value="{{ defaults.top_cap_material_density_g_cm3 }}" placeholder="{{ density_placeholders['top_cap_material'] }}" data-material-density="top_cap_material">
       </label>
       <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
-      <label>Top cap roughness &sigma;, nm <input name="top_cap_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.top_cap_roughness_sigma_nm }}"></label>
+      <label data-interface-sigma><span class="parameter-label">Top cap roughness &sigma;, nm {% if allow_bare %}{{ roughness_help('top_cap_roughness_sigma_nm', 'sigma') }}{% endif %}</span> <input aria-label="Top cap roughness &sigma;, nm" name="top_cap_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.top_cap_roughness_sigma_nm }}"></label>
+      {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">Top cap correlation ξ, nm {% if allow_bare %}{{ roughness_help('top_cap_correlation_length_nm', 'xi') }}{% endif %}</span> <input aria-label="Top cap correlation ξ, nm" name="top_cap_correlation_length_nm" type="number" min="0" step="any" value="{{ defaults.top_cap_correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
     </fieldset>

@@ -188,7 +188,7 @@ def test_stack_schematic_endpoint_and_custom_option_scope(client) -> None:
     assert client.post("/_preview/plane-mirror-stack", data={**FORM, "d_period_nm": "x"}).status_code == 400
 
     assert b'value="custom"' in client.get("/plane-mirror").data
-    assert b'value="custom"' not in client.get("/gratings/new").data
+    assert b'value="custom"' in client.get("/gratings/new").data
 
 
 def test_map_defaults_stay_under_the_sample_cap(client) -> None:

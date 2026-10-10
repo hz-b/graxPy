@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -109,20 +109,58 @@ def custom_stack_from_form(form: Any) -> CustomStack:
     if not (len(densities) == len(thicknesses) == len(sigmas) == count):
         raise ValueError("Every layer needs material, density, thickness and roughness fields.")
 
-    layers_top_down: list[LayerSpec] = []
-    for index in range(count):
-        label = f"Layer {index + 1}"
+    kinds = form.getlist("cl_kind") or ["single"] * count
+    if len(kinds) != count:
+        raise ValueError("Every custom block needs a type.")
+    extra = {key: form.getlist("cl_" + key) for key in (
+        "material_b", "density_b_g_cm3", "thickness_b_nm", "roughness_b_sigma_nm", "repeats"
+    )}
+
+    def layer(material, density, thickness_text, sigma_text, label):
         try:
-            thickness = float(thicknesses[index])
-        except ValueError as error:
-            raise ValueError(f"{label}: thickness must be a number.") from error
-        layers_top_down.append(
-            LayerSpec(
-                material=_material_from_text(materials[index], densities[index], label),
-                thickness_nm=thickness,
-                roughness_sigma_nm=_optional_sigma(sigmas[index], label),
-            )
-        )
+            thickness = float(thickness_text)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{label}: thickness must be a finite number greater than 0 nm.") from error
+        if not np.isfinite(thickness) or thickness <= 0:
+            raise ValueError(f"{label}: thickness must be a finite number greater than 0 nm.")
+        sigma = _optional_sigma(sigma_text, label)
+        if sigma is not None and not np.isfinite(sigma):
+            raise ValueError(f"{label}: roughness must be finite and at least 0 nm.")
+        return LayerSpec(_material_from_text(material, density, label), thickness, sigma)
+
+    def with_correlation(item, index, field):
+        values = form.getlist(field)
+        if not values:
+            return item
+        if len(values) != count:
+            raise ValueError("Every block needs a correlation-length field.")
+        from .grating_roughness import optional_nonnegative
+        return replace(item, correlation_length_nm=optional_nonnegative(values[index], f"Block {index + 1} correlation length"))
+
+    layers_top_down: list[LayerSpec] = []
+    for index, kind in enumerate(kinds):
+        label = f"Block {index + 1}"
+        a = layer(materials[index], densities[index], thicknesses[index], sigmas[index], label + " A")
+        a = with_correlation(a, index, "cl_correlation_length_nm")
+        if kind == "single":
+            layers_top_down.append(a)
+        elif kind == "multilayer":
+            if any(len(values) != count for values in extra.values()):
+                raise ValueError(f"{label}: supply both materials, thicknesses and a repeat count.")
+            try:
+                repeats = int(extra["repeats"][index])
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"{label}: bilayer repeats must be a whole number from 1 to 250.") from error
+            if not 1 <= repeats <= 250:
+                raise ValueError(f"{label}: bilayer repeats must be a whole number from 1 to 250.")
+            b = layer(extra["material_b"][index], extra["density_b_g_cm3"][index],
+                      extra["thickness_b_nm"][index], extra["roughness_b_sigma_nm"][index], label + " B")
+            b = with_correlation(b, index, "cl_correlation_b_length_nm")
+            layers_top_down.extend([a, b] * repeats)
+        else:
+            raise ValueError(f"{label}: choose Single layer or Multilayer.")
+        if len(layers_top_down) > MAX_CUSTOM_LAYERS:
+            raise ValueError(f"Custom stack may contain at most {MAX_CUSTOM_LAYERS} layers after expanding multilayers.")
 
     cap_name = str(form.get("top_cap_material", "")).strip()
     cap_thickness_text = str(form.get("top_cap_thickness_nm", "")).strip()

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from grax import RoughnessSpec
-from grax.gratings import BlazedGrating, LaminarGrating
+from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import material_label
 from grax.stacks import (
     LayerSpec,
@@ -24,6 +24,79 @@ PT = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Pt_cxro.txt", "Pt")
 C = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_C_cxro.txt", "C")
 CR = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Cr_cxro.txt", "Cr")
 AU = load_optical_constants_table(OPTICAL_CONSTANTS_DIR / "n_Au_cxro.txt", "Au")
+
+
+def test_sinusoidal_grating_profile_has_requested_depth_and_phase() -> None:
+    grating = SinusoidalGrating(
+        period_lpermm=500,
+        depth_nm=24.0,
+        x_resolution_nm=7.0,
+        substrate_material=SI,
+        layer_material=PT,
+    )
+
+    positions, heights = grating.profile_points()
+
+    assert positions[0] == 0.0
+    assert positions[-1] == pytest.approx(grating.period_nm)
+    assert positions[len(positions) // 2] == pytest.approx(grating.period_nm / 2.0)
+    assert heights[0] == pytest.approx(0.0)
+    assert heights[-1] == pytest.approx(0.0)
+    assert np.max(heights) == pytest.approx(24.0)
+    assert grating.profile_depth_nm() == pytest.approx(24.0)
+    assert np.max(np.diff(positions)) <= grating.x_resolution_nm
+
+
+@pytest.mark.parametrize("depth_nm", [0.0, -1.0, np.inf, np.nan])
+def test_sinusoidal_grating_rejects_invalid_depth(depth_nm: float) -> None:
+    with pytest.raises(ValueError, match="depth_nm"):
+        SinusoidalGrating(depth_nm=depth_nm)
+
+
+def test_sinusoidal_grating_tiles_continuously_and_plots(tmp_path: Path) -> None:
+    grating = SinusoidalGrating(
+        period_lpermm=1000,
+        depth_nm=10.0,
+        x_resolution_nm=20.0,
+        z_resolution_nm=1.0,
+        coating_stack=SingleLayerStack(
+            substrate_material=SI,
+            layer_material=PT,
+            layer_thickness_nm=5.0,
+        ),
+    )
+
+    positions, heights = grating._tiled_profile_points(num_periods=3)
+    output = tmp_path / "sinusoidal.png"
+    grating.plot_profile(output)
+
+    assert positions[0] == 0.0
+    assert positions[-1] == pytest.approx(3.0 * grating.period_nm)
+    for boundary in (grating.period_nm, 2.0 * grating.period_nm):
+        assert heights[np.argmin(np.abs(positions - boundary))] == pytest.approx(0.0)
+    assert output.is_file()
+
+
+def test_sinusoidal_grating_builds_dense_and_low_memory_textures() -> None:
+    grating = SinusoidalGrating(
+        period_lpermm=10_000,
+        depth_nm=6.0,
+        x_resolution_nm=10.0,
+        z_resolution_nm=2.0,
+        substrate_material=SI,
+        layer_material=PT,
+        layer_thickness_nm=4.0,
+    )
+
+    dense = grating.build_textures(100.0, _memory_mode="legacy_dense")
+    low_memory = grating.build_textures(100.0, _memory_mode="low_memory")
+
+    assert len(dense[0]) > 1
+    assert len(low_memory[0]) > 1
+    assert dense[1][0].ndim == dense[1][1].ndim == 1
+    assert low_memory[1][0].ndim == low_memory[1][1].ndim == 1
+    assert dense[1][0].size == dense[1][1].size
+    assert low_memory[1][0].size == low_memory[1][1].size
 
 
 def test_laminar_grating_profile_points_match_current_slag_geometry() -> None:

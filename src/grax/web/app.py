@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import warnings
+from copy import copy
+from .grating_roughness import (roughness_from_form, optional_nonnegative, realization_grating, validate_roughness_geometry)
 import csv
 import json
 import os
@@ -10,7 +13,7 @@ import shutil
 import threading
 import time
 import webbrowser
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,7 +57,13 @@ from .multilayer_design_studies import (
     survey_cell_count,
     survey_design_options,
 )
-from .persistence import GratingStore, PlaneMirrorStore, build_grating_from_spec, build_stack_from_spec
+from .persistence import (
+    GratingStore,
+    PlaneMirrorStore,
+    build_grating_from_spec,
+    build_stack_from_spec,
+    stack_to_spec,
+)
 from .plane_mirror import (
     DEFAULT_CUSTOM_LAYERS,
     clean_label,
@@ -271,15 +280,34 @@ def create_app(*, data_dir: str | Path | None = None):
             action_url=url_for("create_grating"),
             submit_label="Save grating",
             preview=preview,
+            allow_custom=True,
+            allow_bare=True,
+            custom_layers=_grating_custom_layer_rows({}),
         )
+
+    def invalid_grating_form(error, grating_id=None):
+        """Keep submitted values visible when validation fails."""
+        defaults = _default_form_values()
+        defaults.update(request.form.to_dict())
+        return render_template(
+            "grating_form.html", defaults=defaults,
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            density_placeholders=_material_density_placeholders(defaults),
+            action_url=url_for("update_grating", grating_id=grating_id) if grating_id else url_for("create_grating"),
+            submit_label="Update grating" if grating_id else "Save grating",
+            preview={"ok": False, "error": str(error)}, form_error=str(error),
+            allow_custom=True, allow_bare=True,
+            custom_layers=_custom_layer_rows(request.form.to_dict(flat=False)),
+        ), 422
 
     @app.post("/gratings")
     def create_grating():
-        spec = _spec_from_form(request.form)
         try:
-            build_grating_from_spec(spec)
-        except (TypeError, ValueError) as error:
-            abort(400, str(error))
+            spec = _spec_from_form(request.form)
+            validate_roughness_geometry(build_grating_from_spec(spec))
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            return invalid_grating_form(error)
         saved = store().save(spec)
         return redirect(url_for("grating_detail", grating_id=saved["id"]))
 
@@ -327,11 +355,16 @@ def create_app(*, data_dir: str | Path | None = None):
             abort(400, str(error))
         preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
         preview_path.parent.mkdir(parents=True, exist_ok=True)
-        grating.plot_profile(preview_path)
+        rough_path, notices = _render_grating_previews(grating, preview_path)
+        version = uuid4().hex
         return render_template(
             "grating_detail.html",
             grating=spec,
-            preview_url=url_for("data_file", filename=f"previews/{grating_id}.png"),
+            preview_url=url_for("data_file", filename=f"previews/{grating_id}.png", v=version),
+            roughness_preview_url=(url_for("data_file", filename=f"previews/{rough_path.name}", v=version)
+                                   if rough_path else None),
+            preview_warnings=notices,
+            roughness_periods=grating._roughness_num_supercells(),
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -378,6 +411,7 @@ def create_app(*, data_dir: str | Path | None = None):
         preview = _build_grating_preview(
             data_dir=app.config["GRAx_DATA_DIR"],
             form_data=defaults,
+            spec=spec,
         )
         return render_template(
             "grating_form.html",
@@ -388,19 +422,22 @@ def create_app(*, data_dir: str | Path | None = None):
             action_url=url_for("update_grating", grating_id=grating_id),
             submit_label="Update grating",
             preview=preview,
+            allow_custom=True,
+            allow_bare=True,
+            custom_layers=_grating_custom_layer_rows(spec),
         )
 
     @app.post("/gratings/<grating_id>")
     def update_grating(grating_id: str):
         grating_store = store()
         previous = grating_store.load(grating_id)
-        spec = _spec_from_form(request.form)
-        spec["id"] = grating_id
-        spec["created_at"] = previous.get("created_at")
         try:
-            build_grating_from_spec(spec)
-        except (TypeError, ValueError) as error:
-            abort(400, str(error))
+            spec = _spec_from_form(request.form)
+            spec["id"] = grating_id
+            spec["created_at"] = previous.get("created_at")
+            validate_roughness_geometry(build_grating_from_spec(spec))
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            return invalid_grating_form(error, grating_id)
         grating_store.save(spec)
         return redirect(url_for("grating_detail", grating_id=grating_id))
 
@@ -1136,12 +1173,19 @@ def _maybe_open_browser(host: str, port: int) -> None:
 def _default_form_values() -> dict[str, str]:
     """Return display defaults for the create-grating form."""
     return {
+        "name": "Untitled grating",
+        "roughness_kind": "none",
+        "roughness_seed": "0",
+        "roughness_num_supercells": "1",
+        "roughness_num_realizations": "1",
+        **{prefix + "_correlation_length_nm": "" for prefix in ("substrate", "layer", "material_a", "material_b", "top_cap")},
         "period_lpermm": "400",
         "grating_type": "laminar",
         "x_resolution_nm": "1.0",
         "z_resolution_nm": "1.0",
         "width_to_period_ratio": "0.67",
         "depth_nm": "14.9",
+        "sinusoidal_depth_nm": "20.0",
         "left_wall_angle_deg": "15.0",
         "right_wall_angle_deg": "15.0",
         "blaze_angle_deg": "0.75",
@@ -1205,9 +1249,18 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
     """Return form defaults populated from a saved grating spec."""
     values = _default_form_values()
     values.update({key: "" if value is None else str(value) for key, value in spec.items()})
+    roughness = spec.get("roughness") or {}
+    values["roughness_kind"] = roughness.get("kind", "none")
+    for field in ("seed", "num_supercells", "num_realizations"):
+        if field in roughness:
+            values["roughness_" + field] = str(roughness[field])
+    if spec.get("grating_type") == "sinusoidal":
+        values["sinusoidal_depth_nm"] = str(spec.get("depth_nm", "20.0"))
     stack = dict(spec.get("stack", {}))
     values["stack_type"] = str(stack.get("type", "single_layer"))
     for key, value in stack.items():
+        if key == "layers_bottom_up":
+            continue
         if isinstance(value, dict):
             values[key] = "" if value.get("name") is None else str(value.get("name"))
             density_key = f"{key}_density_g_cm3"
@@ -1231,9 +1284,47 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
     return values
 
 
+def _grating_custom_layer_rows(spec: dict[str, Any]) -> list[dict[str, str]]:
+    """Return saved custom coating layers in form display order."""
+    stack = dict(spec.get("stack", {}))
+    if "blocks_top_down" in stack:
+        return stack["blocks_top_down"]
+    rows = []
+    for layer in reversed(stack.get("layers_bottom_up", [])):
+        material = layer.get("material", {})
+        if isinstance(material, dict):
+            name = str(material.get("name", ""))
+            density = material.get("density_g_cm3")
+        else:
+            name = str(material)
+            density = None
+        sigma = layer.get("roughness_sigma_nm")
+        rows.append({
+            "material": name,
+            "density_g_cm3": _default_density_text(name) if density in (None, "") else str(density),
+            "thickness_nm": str(layer.get("thickness_nm", "")),
+            "roughness_sigma_nm": "" if sigma is None else str(sigma),
+            "correlation_length_nm": "" if layer.get("correlation_length_nm") is None else str(layer["correlation_length_nm"]),
+        })
+    return rows or [{
+        "material": "", "density_g_cm3": "", "thickness_nm": "", "roughness_sigma_nm": ""
+    }]
+
+
 def _spec_from_form(form: Any) -> dict[str, Any]:
     """Build a saved grating spec from submitted form data."""
     grating_type = str(form["grating_type"])
+    for key, label in (("period_lpermm", "Period (lines/mm)"),
+                       ("x_resolution_nm", "X resolution (nm)"),
+                       ("z_resolution_nm", "Z resolution (nm)")):
+        try:
+            value = float(form[key])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"{label} must be a finite number greater than 0.") from None
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f"{label} must be a finite number greater than 0.")
+        if key == "period_lpermm" and not value.is_integer():
+            raise ValueError("Period (lines/mm) must be a whole number of at least 1.")
     spec: dict[str, Any] = {
         "name": str(form["name"]).strip() or "Untitled grating",
         "grating_type": grating_type,
@@ -1241,6 +1332,7 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
         "x_resolution_nm": float(form["x_resolution_nm"]),
         "z_resolution_nm": float(form["z_resolution_nm"]),
         "stack": _stack_spec_from_form(form),
+        "roughness": roughness_from_form(form),
     }
     if grating_type == "laminar":
         spec.update(
@@ -1251,6 +1343,19 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
                 "right_wall_angle_deg": float(form["right_wall_angle_deg"]),
             }
         )
+        return spec
+    if grating_type == "sinusoidal":
+        try:
+            depth_nm = float(form["sinusoidal_depth_nm"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(
+                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm."
+            ) from None
+        if not np.isfinite(depth_nm) or depth_nm <= 0:
+            raise ValueError(
+                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm."
+            )
+        spec["depth_nm"] = depth_nm
         return spec
     if grating_type == "blazed":
         anti_blaze_text = str(form.get("anti_blaze_angle_deg", "")).strip()
@@ -1264,33 +1369,46 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
     raise ValueError("Unsupported grating_type.")
 
 
+def _render_grating_previews(grating: Any, preview_path: Path) -> tuple[Path | None, list[str]]:
+    """Keep the three-period nominal plot separate from the simulation realization."""
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    nominal = copy(grating)
+    nominal.roughness = None
+    nominal.plot_profile(preview_path)
+    rough_path = None
+    notices = []
+    if grating._random_interface_active():
+        sample = realization_grating(grating)
+        rough_path = preview_path.with_name(f"{preview_path.stem}-rough.png")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sample._warn_if_roughness_underresolved()
+            sample.plot_roughness(rough_path)
+        notices = [str(item.message) for item in caught if "underresolved" in str(item.message)]
+    return rough_path, notices
+
+
 def _build_grating_preview(
     *,
     data_dir: Path,
     form_data: Any,
+    spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a live grating preview payload from form data."""
     try:
-        spec = _spec_from_form(form_data)
-        grating = build_grating_from_spec(spec)
-    except (KeyError, TypeError, ValueError) as error:
+        grating = build_grating_from_spec(_spec_from_form(form_data) if spec is None else spec)
+        preview_id = uuid4().hex
+        preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
+        rough_path, notices = _render_grating_previews(grating, preview_path)
+        rough_url = f"/_data/previews/live/{rough_path.name}" if rough_path else None
         return {
-            "ok": False,
-            "error": str(error),
-            "preview_id": None,
-            "preview_url": None,
+            "ok": True, "error": "", "preview_id": preview_id,
+            "preview_url": f"/_data/previews/live/{preview_id}.png",
+            "roughness_preview_url": rough_url, "warnings": notices,
         }
-
-    preview_id = uuid4().hex
-    preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
-    preview_path.parent.mkdir(parents=True, exist_ok=True)
-    grating.plot_profile(preview_path)
-    return {
-        "ok": True,
-        "error": "",
-        "preview_id": preview_id,
-        "preview_url": f"/_data/previews/live/{preview_id}.png",
-    }
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        return {"ok": False, "error": str(error), "preview_id": None,
+                "preview_url": None, "roughness_preview_url": None, "warnings": []}
 
 
 def _load_plane_mirror(store: PlaneMirrorStore, mirror_id: str) -> dict[str, Any]:
@@ -1333,14 +1451,18 @@ def _custom_layer_rows(stack_form: dict[str, Any]) -> list[dict[str, str]]:
             {**layer, "density_g_cm3": _default_density_text(layer["material"])}
             for layer in DEFAULT_CUSTOM_LAYERS
         ]
-    columns = [
-        stack_form.get(key, [])
-        for key in ("cl_material", "cl_density_g_cm3", "cl_thickness_nm", "cl_roughness_sigma_nm")
-    ]
-    return [
-        {"material": m, "density_g_cm3": d, "thickness_nm": t, "roughness_sigma_nm": r}
-        for m, d, t, r in zip(*columns)
-    ]
+    names = ("material", "density_g_cm3", "thickness_nm", "roughness_sigma_nm",
+             "kind", "material_b", "density_b_g_cm3", "thickness_b_nm",
+             "roughness_b_sigma_nm", "repeats", "correlation_length_nm", "correlation_b_length_nm")
+    rows = []
+    for index in range(len(stack_form["cl_material"])):
+        row = {}
+        for name in names:
+            values = stack_form.get("cl_" + name, [])
+            default = "single" if name == "kind" else "1" if name == "repeats" else ""
+            row[name] = values[index] if index < len(values) else default
+        rows.append(row)
+    return rows
 
 
 def _plane_mirror_result(form: Any) -> dict[str, Any]:
@@ -1356,8 +1478,27 @@ def _plane_mirror_stack(form: Any) -> Any:
 
 
 def _stack_spec_from_form(form: Any) -> dict[str, Any]:
+    spec = _stack_spec_from_form_base(form)
+    for prefix in ("substrate", "layer", "material_a", "material_b", "top_cap"):
+        key = prefix + "_correlation_length_nm"
+        if key in form:
+            spec[key] = optional_nonnegative(form.get(key), prefix.replace("_", " ") + " correlation length")
+    return spec
+
+
+def _stack_spec_from_form_base(form: Any) -> dict[str, Any]:
     """Build a stack spec from submitted form data."""
     stack_type = str(form["stack_type"])
+    if stack_type == "bare":
+        return {
+            "type": "bare",
+            "substrate_material": _material_spec_from_form(form, "substrate_material"),
+            "substrate_roughness_sigma_nm": _optional_float(form, "substrate_roughness_sigma_nm"),
+        }
+    if stack_type == "custom":
+        spec = stack_to_spec(custom_stack_from_form(form))
+        spec["blocks_top_down"] = _custom_layer_rows(form.to_dict(flat=False))
+        return spec
     top_cap_thickness = float(form.get("top_cap_thickness_nm", 0.0) or 0.0)
     if stack_type == "multilayer":
         return {
@@ -2913,20 +3054,25 @@ def _cleanup_finished_runs(app: Any, *, retention_seconds: float = 300.0) -> Non
 
 
 def _attach_roughness(grating: Any, form_data: Any) -> None:
-    """Attach a run-time roughness kind to the grating from the run form.
-
-    The per-layer sigma magnitudes live on the grating's coating stack. The kind
-    is chosen per run; ``sigma_nm=0.0`` is the fallback for any interface left
-    unset. ``"none"`` (or blank) leaves the grating unroughened.
-    """
-
-    kind = str(form_data.get("roughness_kind", "none") or "none").strip()
-    if kind in {"none", ""}:
-        grating.roughness = None
+    """Apply a run-only model override, retaining saved interface parameters."""
+    if "roughness_kind" not in form_data:
         return
-    from grax import RoughnessSpec
-
-    grating.roughness = RoughnessSpec(kind=kind, sigma_nm=0.0, seed=0)
+    kind = str(form_data.get("roughness_kind", "none") or "none").strip()
+    if kind == "none":
+        grating.roughness = None
+    else:
+        from grax import RoughnessSpec
+        saved = grating.roughness
+        if saved is not None and saved.kind == kind:
+            return
+        if saved is None:
+            grating.roughness = RoughnessSpec(
+                kind=kind, sigma_nm=0.0, seed=0, num_realizations=1,
+            )
+        else:
+            grating.roughness = replace(
+                saved, kind=kind, num_supercells=1, num_realizations=1,
+            )
 
 
 def _cases_for_workflow(

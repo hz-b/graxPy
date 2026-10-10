@@ -12,6 +12,10 @@ stack that sits on the substrate.
 ```
 
 ```{eval-rst}
+.. autoclass:: grax.SinusoidalGrating
+```
+
+```{eval-rst}
 .. autoclass:: grax.BlazedGrating
 ```
 
