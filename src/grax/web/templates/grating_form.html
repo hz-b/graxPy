@@ -1,11 +1,33 @@
+{% from "_roughness_help.html" import roughness_help %}
 {% extends "base.html" %}
+{% from "_geometry_view.html" import geometry_view %}
 {% block title %}New grating{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
     <h1>New grating</h1>
-    <p>Laminar or blazed profile with an optional multilayer stack</p>
+    <p>Etched grating profiles with optional coating layers</p>
   </div>
+</section>
+
+<section class="preview-panel" data-afm-workflow>
+  <h2>Import AFM profile</h2>
+  <p>Upload a two-column x/z scan and preprocess one period before using it as a profile grating.</p>
+  <form method="post" action="{{ url_for('process_afm') }}" enctype="multipart/form-data" data-afm-process-form>
+    <label>AFM file <input type="file" name="afm_file" accept=".csv,.tsv,.txt,text/plain" required></label>
+    <label>Coordinate units <select name="afm_units"><option value="nm">nm</option><option value="um">µm</option><option value="m">m</option></select></label>
+    <label>Profile type <select name="afm_profile_type"><option value="blazed">Blazed</option><option value="laminar">Laminar</option></select></label>
+    <label>Expected period, nm <input name="afm_period_nm" type="number" min="0" step="any" required></label>
+    <label>Minimum separation fraction <input name="afm_min_separation" type="number" min="0" step="any" value="0.4"></label>
+    <label>Minimum prominence fraction <input name="afm_min_prominence" type="number" min="0" step="any" value="0.1"></label>
+    <label>Period index <input name="afm_period_index" type="number" min="0" step="1" value="0"></label>
+    <label><input type="checkbox" name="afm_average" value="1"> Average all detected periods</label>
+    <label><input type="checkbox" name="afm_reverse" value="1"> Reverse scan</label>
+    <label><input type="checkbox" name="afm_zero_baseline" value="1" checked> Zero baseline</label>
+    <label><input type="checkbox" name="afm_periodicity_ramp" value="1"> Apply periodicity-ramp correction</label>
+    <button class="button" type="submit">Process AFM profile</button>
+    <p class="notice is-hidden" data-afm-result role="status"></p>
+  </form>
 </section>
 
 <div class="workspace-grid">
@@ -16,6 +38,9 @@
     data-grating-preview-form
     data-preview-url="{{ url_for('preview_grating') }}"
   >
+    <input type="hidden" name="afm_profile_path" data-afm-profile-path value="{{ defaults.afm_profile_path|default('') }}">
+    <input type="hidden" name="afm_source_filename" data-afm-source-filename value="{{ defaults.afm_source_filename|default('') }}">
+    {% if form_error %}<p role="alert" class="notice notice-error">Please correct the following: {{ form_error }}</p>{% endif %}
     <datalist id="material-suggestions">
       {% for material in materials %}
         <option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}">{{ material }}</option>
@@ -28,6 +53,8 @@
       <label>Type
         <select name="grating_type" data-grating-type>
           <option value="laminar" {% if defaults.grating_type == "laminar" %}selected{% endif %}>Laminar</option>
+          <option value="sinusoidal" {% if defaults.grating_type == "sinusoidal" %}selected{% endif %}>Sinusoidal</option>
+          <option value="afm" {% if defaults.grating_type == "afm" %}selected{% endif %}>AFM profile</option>
           <option value="blazed" {% if defaults.grating_type == "blazed" %}selected{% endif %}>Blazed</option>
         </select>
       </label>
@@ -44,6 +71,11 @@
       <label>Right wall angle, deg <input name="right_wall_angle_deg" type="number" step="0.01" value="{{ defaults.right_wall_angle_deg }}"></label>
     </fieldset>
 
+    <fieldset data-grating-section="sinusoidal">
+      <legend>Sinusoidal fields</legend>
+      <label>Peak-to-valley depth, nm <input name="sinusoidal_depth_nm" type="number" step="any" min="0" value="{{ defaults.sinusoidal_depth_nm }}"></label>
+    </fieldset>
+
     <fieldset data-grating-section="blazed">
       <legend>Blazed fields</legend>
       <label>Blaze angle, deg <input name="blaze_angle_deg" type="number" step="0.001" value="{{ defaults.blaze_angle_deg }}"></label>
@@ -51,75 +83,26 @@
     </fieldset>
 
     <fieldset>
-      <legend>Substrate</legend>
-      <label>Substrate
-        <input name="substrate_material" list="material-suggestions" value="{{ defaults.substrate_material|default('', true) }}" data-material-select="substrate_material" autocomplete="off">
-      </label>
-      <label>Substrate density, g/cm^3
-        <input name="substrate_material_density_g_cm3" type="number" step="any" value="{{ defaults.substrate_material_density_g_cm3 }}" placeholder="{{ density_placeholders['substrate_material'] }}" data-material-density="substrate_material">
-      </label>
-      <label>Substrate roughness &sigma;, nm <input name="substrate_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.substrate_roughness_sigma_nm }}"></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>Layer stack</legend>
-      <label>Stack type
-        <select name="stack_type" data-stack-type>
-          <option value="single_layer" {% if defaults.stack_type == "single_layer" %}selected{% endif %}>Single layer</option>
-          <option value="multilayer" {% if defaults.stack_type == "multilayer" %}selected{% endif %}>Multilayer</option>
+      <legend>Roughness model</legend>
+      <label><span class="parameter-label">Model {{ roughness_help('model', 'model') }}</span>
+        <select aria-label="Roughness model" name="roughness_kind" data-roughness-model>
+          {% for value, label in [('none', 'None'), ('debye-waller', 'Debye–Waller'), ('random-interface', 'Random interface')] %}
+          <option value="{{ value }}" {% if defaults.roughness_kind == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
       </label>
-      <fieldset data-single-layer-controls>
-        <legend>Single layer</legend>
-        <label>Layer material
-          <input name="layer_material" list="material-suggestions" value="{{ defaults.layer_material|default('', true) }}" data-material-select="layer_material" autocomplete="off">
-        </label>
-        <label>Layer density, g/cm^3
-          <input name="layer_material_density_g_cm3" type="number" step="any" value="{{ defaults.layer_material_density_g_cm3 }}" placeholder="{{ density_placeholders['layer_material'] }}" data-material-density="layer_material">
-        </label>
-        <label>Layer thickness, nm <input name="layer_thickness_nm" type="number" step="0.01" value="{{ defaults.layer_thickness_nm }}"></label>
-        <label>Layer roughness &sigma;, nm <input name="layer_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.layer_roughness_sigma_nm }}"></label>
-      </fieldset>
-
-      <fieldset data-stack-controls>
-        <legend>Multilayer stack</legend>
-        <label>Material A
-          <input name="material_a" list="material-suggestions" value="{{ defaults.material_a|default('', true) }}" data-material-select="material_a" autocomplete="off">
-        </label>
-        <label>Material A density, g/cm^3
-          <input name="material_a_density_g_cm3" type="number" step="any" value="{{ defaults.material_a_density_g_cm3 }}" placeholder="{{ density_placeholders['material_a'] }}" data-material-density="material_a">
-        </label>
-        <label>Material A roughness &sigma;, nm <input name="material_a_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_a_roughness_sigma_nm }}"></label>
-        <label>Material B
-          <input name="material_b" list="material-suggestions" value="{{ defaults.material_b|default('', true) }}" data-material-select="material_b" autocomplete="off">
-        </label>
-        <label>Material B density, g/cm^3
-          <input name="material_b_density_g_cm3" type="number" step="any" value="{{ defaults.material_b_density_g_cm3 }}" placeholder="{{ density_placeholders['material_b'] }}" data-material-density="material_b">
-        </label>
-        <label>Material B roughness &sigma;, nm <input name="material_b_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.material_b_roughness_sigma_nm }}"></label>
-        <label>Bilayer period, nm <input name="d_period_nm" type="number" step="0.01" value="{{ defaults.d_period_nm }}"></label>
-        <label>Gamma <input name="gamma" type="number" step="0.01" value="{{ defaults.gamma }}"></label>
-        <label>Bilayers <input name="n_bilayers" type="number" step="1" value="{{ defaults.n_bilayers }}"></label>
-        <label>Top material
-          <input name="top_material" list="material-suggestions" value="{{ defaults.top_material|default('', true) }}" data-material-select="top_material" autocomplete="off">
-        </label>
-        <label>Top material density, g/cm^3
-          <input name="top_material_density_g_cm3" type="number" step="any" value="{{ defaults.top_material_density_g_cm3 }}" placeholder="{{ density_placeholders['top_material'] }}" data-material-density="top_material">
-        </label>
-      </fieldset>
+      <p>Each layer's parameters describe its upper interface. RMS σ controls height variation; correlation length ξ controls its lateral scale. Blank σ means 0 nm; blank ξ means period / 10.</p>
+      <p data-debye-explanation>Debye–Waller applies an effective damping correction to efficiencies; geometry remains smooth.</p>
+      <div data-random-settings>
+        <label><span class="parameter-label">Seed {{ roughness_help('roughness_seed', 'seed') }}</span> <input aria-label="Seed" name="roughness_seed" type="number" min="0" step="1" value="{{ defaults.roughness_seed }}"></label>
+        <label><span class="parameter-label">Simulated periods {{ roughness_help('roughness_num_supercells', 'periods') }}</span> <input aria-label="Simulated periods" name="roughness_num_supercells" type="number" min="1" step="1" value="{{ defaults.roughness_num_supercells }}"></label>
+        <label><span class="parameter-label">Realizations {{ roughness_help('roughness_num_realizations', 'realizations') }}</span> <input aria-label="Realizations" name="roughness_num_realizations" type="number" min="1" step="1" value="{{ defaults.roughness_num_realizations }}"></label>
+        <p>Interfaces have independent random shapes. More periods and realizations increase simulation cost. Preview shows realization 1.</p>
+      </div>
     </fieldset>
-
-    <fieldset>
-      <legend>Top cap</legend>
-      <label>Top cap material
-        <input name="top_cap_material" list="material-suggestions" value="{{ defaults.top_cap_material|default('', true) }}" data-material-select="top_cap_material" autocomplete="off">
-      </label>
-      <label>Top cap density, g/cm^3
-        <input name="top_cap_material_density_g_cm3" type="number" step="any" value="{{ defaults.top_cap_material_density_g_cm3 }}" placeholder="{{ density_placeholders['top_cap_material'] }}" data-material-density="top_cap_material">
-      </label>
-      <label>Top cap thickness, nm <input name="top_cap_thickness_nm" type="number" step="0.01" value="{{ defaults.top_cap_thickness_nm }}"></label>
-      <label>Top cap roughness &sigma;, nm <input name="top_cap_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.top_cap_roughness_sigma_nm }}"></label>
-    </fieldset>
+    {% include "_substrate_fields.html" %}
+    {% set substrate_rendered = true %}
+    {% include "_stack_fields.html" %}
     <button class="button primary" type="submit">{{ submit_label }}</button>
   </form>
 
@@ -127,15 +110,19 @@
     <div class="section-head preview-head">
       <div>
         <h2>Live preview</h2>
-        <p data-grating-preview-status>{% if preview and preview.ok %}Ready{% else %}Preview unavailable{% endif %}</p>
+        <p data-grating-preview-status>{% if preview and preview.ok %}Ready{% else %}{{ preview.error if preview else "Preview unavailable" }}{% endif %}</p>
       </div>
       <span class="preview-pill" data-grating-preview-loading>Idle</span>
     </div>
+    {{ geometry_view("grating", bind="[data-grating-preview-form]") }}
     {% if preview and preview.preview_url %}
       <img class="preview" src="{{ preview.preview_url }}" alt="Live grating preview" data-grating-preview-image>
     {% else %}
       <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
     {% endif %}
+    <p class="notice notice-error is-hidden" role="alert" tabindex="-1" data-grating-preview-error></p>
+    <p data-roughness-warnings role="status">{{ (preview.warnings|default([]))|join(' ') if preview else '' }}</p>
+    <img class="preview{% if not preview or not preview.roughness_preview_url %} is-hidden{% endif %}" src="{{ preview.roughness_preview_url|default('') or '' if preview else '' }}" alt="Random roughness interfaces and material map" data-roughness-preview-image>
   </section>
 </div>
 {% endblock %}

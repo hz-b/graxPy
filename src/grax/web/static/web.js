@@ -12,14 +12,93 @@ function syncGratingSections(select) {
   });
 }
 
+function defaultStackForGrating(select) {
+  const stackSelect = select.closest("form")?.querySelector("[data-stack-type]");
+  if (!stackSelect) return;
+  syncStackSections(stackSelect);
+}
+
 function syncStackSections(select) {
-  const isMultilayer = select.value === "multilayer";
+  const mode = select.value;
+  // The custom layer table needs room: let its fieldset span the whole form grid.
+  select.closest("fieldset")?.classList.toggle("is-wide", mode === "custom");
   document.querySelectorAll("[data-stack-controls]").forEach((section) => {
-    toggleSectionFields(section, isMultilayer);
+    toggleSectionFields(section, mode === "multilayer");
   });
   document.querySelectorAll("[data-single-layer-controls]").forEach((section) => {
-    toggleSectionFields(section, !isMultilayer);
+    toggleSectionFields(section, mode === "single_layer");
   });
+  document.querySelectorAll("[data-custom-layer-controls]").forEach((section) => {
+    toggleSectionFields(section, mode === "custom");
+  });
+  document.querySelectorAll("[data-top-cap-controls]").forEach((section) => {
+    toggleSectionFields(section, mode !== "bare");
+  });
+}
+
+function initLayerEditor(editor, form) {
+  const rows = editor.querySelector("[data-layer-rows]");
+  const template = editor.querySelector("[data-layer-template]");
+  let nextKey = rows.querySelectorAll("[data-layer-row]").length;
+
+  const notify = () => form.dispatchEvent(new Event("change", { bubbles: true }));
+  const renumber = () => {
+    const all = rows.querySelectorAll("[data-layer-row]");
+    all.forEach((row, index) => {
+      row.querySelector("[data-layer-index]").textContent = String(index + 1);
+      row.querySelector("[data-layer-remove]").disabled = all.length === 1;
+      row.querySelector("[data-layer-up]").disabled = index === 0;
+      row.querySelector("[data-layer-down]").disabled = index === all.length - 1;
+    });
+  };
+
+  editor.querySelectorAll("[data-layer-add]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const html = template.innerHTML.replaceAll("__KEY__", String(nextKey));
+      nextKey += 1;
+      rows.insertAdjacentHTML("beforeend", html);
+      const row = rows.lastElementChild;
+      row.querySelector("[data-layer-kind]").value = button.dataset.layerAdd || "single";
+      row.querySelector("[data-bilayer-fields]").classList.toggle("is-hidden", button.dataset.layerAdd !== "multilayer");
+      renumber();
+      notify();
+    });
+  });
+  rows.addEventListener("change", (event) => {
+    if (event.target.matches("[data-layer-kind]")) {
+      event.target.closest("[data-layer-row]").querySelector("[data-bilayer-fields]")
+        .classList.toggle("is-hidden", event.target.value !== "multilayer");
+    }
+  });
+
+  rows.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    const row = event.target.closest("[data-layer-row]");
+    if (!button || !row) {
+      return;
+    }
+    if (button.matches("[data-layer-remove]") && rows.children.length > 1) {
+      row.remove();
+    } else if (button.matches("[data-layer-up]") && row.previousElementSibling) {
+      rows.insertBefore(row, row.previousElementSibling);
+    } else if (button.matches("[data-layer-down]") && row.nextElementSibling) {
+      rows.insertBefore(row.nextElementSibling, row);
+    } else {
+      return;
+    }
+    renumber();
+    notify();
+  });
+
+  // Rows added later are not covered by initMaterialDensitySync, so delegate.
+  rows.addEventListener("input", (event) => {
+    if (event.target.matches("[data-material-select]")) {
+      syncMaterialDensity(event.target);
+    } else if (event.target.matches("[data-material-density]")) {
+      event.target.dataset.autoFilled = "false";
+    }
+  });
+  renumber();
 }
 
 function syncMaterialDensity(field) {
@@ -86,12 +165,60 @@ function debounce(fn, delayMs) {
   };
 }
 
+function syncGratingRoughness(form) {
+  const model = form.querySelector("[data-roughness-model]");
+  if (!model) return;
+  form.querySelectorAll("[data-interface-sigma]").forEach((label) => label.classList.toggle("is-hidden", model.value === "none"));
+  form.querySelectorAll("[data-interface-correlation], [data-random-settings]").forEach((label) => label.classList.toggle("is-hidden", model.value !== "random-interface"));
+  form.querySelectorAll("[data-debye-explanation]").forEach((label) => label.classList.toggle("is-hidden", model.value !== "debye-waller"));
+}
+
 function initGratingPreview(form) {
+  syncGratingRoughness(form);
+  form.addEventListener("change", () => syncGratingRoughness(form));
+  const roughImage = document.querySelector("[data-roughness-preview-image]");
+  const warnings = document.querySelector("[data-roughness-warnings]");
   const previewUrl = form.dataset.previewUrl;
   const image = document.querySelector("[data-grating-preview-image]");
   const status = document.querySelector("[data-grating-preview-status]");
   const loading = document.querySelector("[data-grating-preview-loading]");
+  const errorBox = document.querySelector("[data-grating-preview-error]");
+  let previewValid = true;
   let requestId = 0;
+
+  function clearInvalidFields() {
+    form.querySelectorAll(".is-invalid").forEach((field) => {
+      field.classList.remove("is-invalid");
+      field.removeAttribute("aria-invalid");
+    });
+  }
+
+  function showPreviewError(payload) {
+    previewValid = false;
+    const fields = payload.error_fields || [];
+    clearInvalidFields();
+    fields.forEach((name) => {
+      const field = form.querySelector(`[name="${name}"]`);
+      if (field) {
+        field.classList.add("is-invalid");
+        field.setAttribute("aria-invalid", "true");
+      }
+    });
+    if (errorBox) {
+      errorBox.textContent = payload.error || "Preview inputs are invalid.";
+      errorBox.classList.remove("is-hidden");
+    }
+    status.textContent = payload.error_category === "geometry" ? "Invalid geometry" : "Validation error";
+  }
+
+  function clearPreviewError() {
+    previewValid = true;
+    clearInvalidFields();
+    if (errorBox) {
+      errorBox.textContent = "";
+      errorBox.classList.add("is-hidden");
+    }
+  }
 
   const updatePreview = debounce(async () => {
     requestId += 1;
@@ -106,13 +233,19 @@ function initGratingPreview(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = "Ready";
+      loading.textContent = payload.ok ? "Ready" : "Invalid inputs";
+      if (roughImage) {
+        roughImage.classList.toggle("is-hidden", !payload.ok || !payload.roughness_preview_url);
+        if (payload.roughness_preview_url) roughImage.src = payload.roughness_preview_url;
+      }
+      if (warnings) warnings.textContent = (payload.warnings || []).join(" ");
       if (payload.ok) {
+        clearPreviewError();
         image.src = payload.preview_url;
         image.classList.remove("is-hidden");
         status.textContent = "Ready";
       } else {
-        status.textContent = payload.error || "Preview unavailable.";
+        showPreviewError(payload);
       }
     } catch (error) {
       if (currentRequest !== requestId) {
@@ -123,9 +256,13 @@ function initGratingPreview(form) {
     }
   }, 250);
 
-  form.querySelectorAll("input, select, textarea").forEach((field) => {
-    field.addEventListener("input", updatePreview);
-    field.addEventListener("change", updatePreview);
+  form.addEventListener("input", updatePreview);
+  form.addEventListener("change", updatePreview);
+  form.addEventListener("submit", (event) => {
+    if (!previewValid) {
+      event.preventDefault();
+      if (errorBox) errorBox.focus();
+    }
   });
 }
 
@@ -936,7 +1073,10 @@ function initDesignPicker(form) {
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
-    select.addEventListener("change", () => syncGratingSections(select));
+    select.addEventListener("change", () => {
+      syncGratingSections(select);
+      defaultStackForGrating(select);
+    });
   });
 
   document.querySelectorAll("[data-stack-type]").forEach((select) => {
@@ -965,6 +1105,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const gratingPreviewForm = document.querySelector("[data-grating-preview-form]");
   if (gratingPreviewForm) {
+    const editor = gratingPreviewForm.querySelector("[data-layer-editor]");
+    if (editor) initLayerEditor(editor, gratingPreviewForm);
     initGratingPreview(gratingPreviewForm);
   }
 
@@ -995,5 +1137,160 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll("[data-live-run-monitor]").forEach((runMonitor) => {
     initRunMonitor(runMonitor);
+  });
+});
+
+function syncGradingFields(select) {
+  document.querySelectorAll("[data-grading-field]").forEach((label) => {
+    const modes = label.dataset.gradingField.split(" ");
+    toggleSectionFields(label, modes.includes(select.value));
+  });
+}
+
+function syncScanFields(select) {
+  document.querySelectorAll("[data-scan-field]").forEach((label) => {
+    toggleSectionFields(label, label.dataset.scanField.split(" ").includes(select.value));
+  });
+}
+
+function initPlaneMirror(form) {
+  const computeUrl = form.dataset.computeUrl;
+  const figure = document.querySelector("[data-plane-mirror-figure]");
+  const status = document.querySelector("[data-plane-mirror-status]");
+  const loading = document.querySelector("[data-plane-mirror-loading]");
+  const gradingMode = form.querySelector("[data-grading-mode]");
+  const stackPreviewUrl = form.dataset.stackPreviewUrl;
+  const stackImage = document.querySelector("[data-plane-mirror-stack-image]");
+  const stackStatus = document.querySelector("[data-plane-mirror-stack-status]");
+  let requestId = 0;
+  let stackRequestId = 0;
+
+  const updateStack = debounce(async () => {
+    stackRequestId += 1;
+    const currentRequest = stackRequestId;
+    try {
+      const response = await fetch(stackPreviewUrl, { method: "POST", body: new FormData(form) });
+      const payload = await response.json();
+      if (currentRequest !== stackRequestId) {
+        return;
+      }
+      if (payload.ok) {
+        stackImage.src = payload.image;
+        stackImage.classList.remove("is-hidden");
+        stackStatus.textContent = "Ready";
+      } else {
+        stackStatus.textContent = payload.error || "Schematic unavailable.";
+      }
+    } catch (error) {
+      if (currentRequest === stackRequestId) {
+        stackStatus.textContent = "Schematic request failed.";
+      }
+    }
+  }, 400);
+
+  const draw = (payload) => {
+    if (!figure || !window.Plotly) {
+      return;
+    }
+    const config = { responsive: true, displaylogo: false };
+    if (payload.mode === "map") {
+      window.Plotly.react(figure, [{
+        type: "heatmap",
+        x: payload.x,
+        y: payload.y,
+        z: payload.z,
+        zmin: 0,
+        zmax: 1,
+        colorscale: "Viridis",
+        colorbar: { title: { text: payload.graded ? "Reflectivity (footprint avg)" : "Reflectivity" } },
+      }], {
+        xaxis: { title: { text: "Photon energy (eV)" } },
+        yaxis: { title: { text: "Grazing angle (deg)" } },
+        margin: { t: 20 },
+      }, config);
+      return;
+    }
+    const traces = [{
+      x: payload.x,
+      y: payload.reflectivity,
+      mode: "lines",
+      name: payload.graded ? "Ungraded (centre)" : "Reflectivity",
+    }];
+    if (payload.graded) {
+      traces.push({ x: payload.x, y: payload.graded, mode: "lines", name: "Footprint average" });
+    }
+    window.Plotly.react(figure, traces, {
+      xaxis: { title: { text: payload.x_label } },
+      yaxis: { title: { text: "Reflectivity" }, range: [0, 1] },
+      margin: { t: 20 },
+      legend: { orientation: "h", y: -0.3 },
+    }, config);
+  };
+
+  const update = debounce(async () => {
+    requestId += 1;
+    const currentRequest = requestId;
+    loading.textContent = "Computing";
+    try {
+      const response = await fetch(computeUrl, { method: "POST", body: new FormData(form) });
+      const payload = await response.json();
+      if (currentRequest !== requestId) {
+        return;
+      }
+      if (payload.ok) {
+        loading.textContent = "Ready";
+        status.textContent = "Ready";
+        draw(payload);
+      } else {
+        loading.textContent = "Error";
+        status.textContent = payload.error || "Calculation failed.";
+      }
+    } catch (error) {
+      if (currentRequest !== requestId) {
+        return;
+      }
+      loading.textContent = "Error";
+      status.textContent = "Calculation request failed.";
+    }
+  }, 300);
+
+  const scanMode = form.querySelector("[data-scan-mode]");
+  if (scanMode) {
+    syncScanFields(scanMode);
+    scanMode.addEventListener("change", () => syncScanFields(scanMode));
+  }
+  if (gradingMode) {
+    syncGradingFields(gradingMode);
+    gradingMode.addEventListener("change", () => syncGradingFields(gradingMode));
+  }
+  const stackFieldChanged = (event) => {
+    // Scan, polarization and grading do not change the stack schematic.
+    if (!event.target.closest("[data-scan-field], [data-grading-field]") &&
+        !["scan_mode", "polarization", "grading_mode"].includes(event.target.name)) {
+      updateStack();
+    }
+  };
+  const editor = form.querySelector("[data-layer-editor]");
+  if (editor) {
+    initLayerEditor(editor, form);
+  }
+  // Delegated, so layer rows added or removed later are covered too.
+  // Names and labels in the save controls never change the calculation.
+  const ignoreSaveControls = (handler) => (event) => {
+    if (!event.target.closest("[data-save-controls]")) {
+      handler(event);
+    }
+  };
+  ["input", "change"].forEach((type) => {
+    form.addEventListener(type, ignoreSaveControls(update));
+    form.addEventListener(type, ignoreSaveControls(stackFieldChanged));
+  });
+  update();
+  updateStack();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-plane-mirror-form]").forEach((form) => {
+    initPlaneMirror(form);
   });
 });

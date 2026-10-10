@@ -87,12 +87,12 @@ class RoughnessSpec:
             raise ValueError(
                 "roughness kind must be 'debye-waller' or 'random-interface'."
             )
-        if self.sigma_nm < 0.0:
-            raise ValueError("roughness sigma_nm must be >= 0.")
-        if self.resolution_factor <= 0.0:
+        if not np.isfinite(self.sigma_nm) or self.sigma_nm < 0.0:
+            raise ValueError("roughness sigma_nm must be finite and >= 0.")
+        if not np.isfinite(self.resolution_factor) or self.resolution_factor <= 0.0:
             raise ValueError("roughness resolution_factor must be > 0.")
-        if self.correlation_length_nm is not None and self.correlation_length_nm < 0.0:
-            raise ValueError("roughness correlation_length_nm must be >= 0 when provided.")
+        if self.correlation_length_nm is not None and (not np.isfinite(self.correlation_length_nm) or self.correlation_length_nm < 0.0):
+            raise ValueError("roughness correlation_length_nm must be finite and >= 0 when provided.")
         if isinstance(self.num_supercells, bool) or not isinstance(self.num_supercells, int):
             raise ValueError("roughness num_supercells must be an int.")
         if self.num_supercells < 1:
@@ -116,6 +116,8 @@ class RoughnessSpec:
             raise ValueError(
                 "roughness num_realizations > 1 is only meaningful for kind='random-interface'."
             )
+        if self.seed is not None and (isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0):
+            raise ValueError("Roughness seed must be a nonnegative integer.")
         if self.seed is None:
             # Resolve real entropy once, at construction time, so the
             # surface (or ensemble) stays fixed across an entire energy

@@ -19,6 +19,7 @@
             {{ plot.created_at }}
             {% if plot.selected_runs %}
               &middot; {{ plot.selected_runs | length }} run{% if plot.selected_runs | length != 1 %}s{% endif %}
+              {% if plot.unavailable_run_count %}&middot; {{ plot.unavailable_run_count }} unavailable{% endif %}
             {% endif %}
           </p>
         </div>

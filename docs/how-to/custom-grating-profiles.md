@@ -10,6 +10,10 @@ A custom profile must implement:
 
 ## Sinusoidal profile example
 
+grax includes `grax.SinusoidalGrating` for the common depth-only sinusoidal
+geometry. The subclass below is intentionally retained to demonstrate how to
+implement and sample a custom profile yourself.
+
 ```python
 import numpy as np
 import grax

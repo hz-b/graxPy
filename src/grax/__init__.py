@@ -19,7 +19,13 @@ from .materials import (
     material_density_catalog,
     material_density_g_cm3,
 )
-from .gratings import BaseGrating, BlazedGrating, LaminarGrating, ProfileGrating
+from .gratings import (
+    BaseGrating,
+    BlazedGrating,
+    LaminarGrating,
+    ProfileGrating,
+    SinusoidalGrating,
+)
 from .simulation.core import normalize_polarization
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
@@ -33,6 +39,7 @@ from .solvers import NeviereOptions, res0, res1, res2, res2_dm
 from .roughness import RoughnessSpec
 from .stacks import (
     BaseStack,
+    BareStack,
     CustomStack,
     LayerSpec,
     MultilayerStack,
@@ -62,6 +69,7 @@ from .simulation import (
     write_all_orders_csv,
 )
 from .multilayer_reflectivity import MultilayerReflectivity
+from .planar_mirror import LateralGrading, footprint_reflectivity, parratt_reflectivity
 from .multilayer_design import (
     EnergyScanResult,
     MultilayerDesignConfig,
@@ -77,11 +85,13 @@ __all__ = [
     "AFMPreprocessing",
     "BaseGrating",
     "BaseStack",
+    "BareStack",
     "BatchSimulationRunner",
     "BlazedGrating",
     "CaseExecutionResult",
     "CustomStack",
     "EnergyScanResult",
+    "LateralGrading",
     "LayerSpec",
     "MaterialSpec",
     "LaminarGrating",
@@ -96,6 +106,7 @@ __all__ = [
     "ParameterSweepSeries",
     "ProfileGrating",
     "RoughnessSpec",
+    "SinusoidalGrating",
     "SingleLayerStack",
     "SingleSimulationResult",
     "SlagConfig",
@@ -111,6 +122,7 @@ __all__ = [
     "efficiency_for_order",
     "energy_angle_cases",
     "estimate_multilayer_bragg_angle_deg",
+    "footprint_reflectivity",
     "fixed_angle_cases",
     "get_default_parameter_study_ranges",
     "load_experimental_csv",
@@ -119,6 +131,7 @@ __all__ = [
     "multilayer_theta_search_cases",
     "monochromator_cases",
     "normalize_polarization",
+    "parratt_reflectivity",
     "monochromator_grazing_angles_deg",
     "plot_parameter_study",
     "plot_order_subset",

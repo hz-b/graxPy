@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_multilayer_design_macros.html" import stage_monitor %}
+{% from "_geometry_view.html" import geometry_view %}
 {% block title %}{{ study.display_name }}{% endblock %}
 {% block body %}
 {% set survey = stages[0] %}
@@ -21,6 +22,13 @@
               data-confirm="Delete this study and all its results?">Delete study</button>
     </form>
   </div>
+</section>
+
+<section class="stage-card">
+  <details>
+    <summary>Grating geometry</summary>
+    {{ geometry_view("grating", static=study.config) }}
+  </details>
 </section>
 
 <section class="notice">

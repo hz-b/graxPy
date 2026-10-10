@@ -441,7 +441,7 @@ def build_grating_epsilon_sampler(
     # The solver z grid runs from the top of the modelled stack down to zero, so
     # its first entry is the stack depth. Reading it here rather than summing a
     # z-sliced profile keeps the continuous mode independent of z_resolution_nm.
-    return EpsilonSampler(total_depth_nm=z_top_nm, sample=sampler)
+    return EpsilonSampler(total_depth_nm=z_top_nm - float(z_grid[-1]), sample=sampler)
 
 
 def _spectral_scale_from_texture(texture: Texture1D) -> float:

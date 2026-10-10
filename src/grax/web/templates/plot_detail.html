@@ -37,9 +37,9 @@
   <h2>Selected runs</h2>
   {% if plot.selected_runs %}
     <div class="list compact">
-      {% for run in plot.selected_runs %}
+      {% for run in selected_runs %}
         <div class="row">
-          <strong>{{ run.name }}</strong>
+          {% if run.available %}<strong><a href="{{ run.url }}">{{ run.name }}</a></strong>{% else %}<strong>Run unavailable: {{ run.name }}</strong>{% endif %}
           <span>Orders: {{ run.orders | join(', ') }}</span>
         </div>
       {% endfor %}

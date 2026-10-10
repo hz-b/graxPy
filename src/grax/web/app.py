@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import warnings
+from copy import copy
+from .grating_roughness import (roughness_from_form, optional_nonnegative, realization_grating, validate_roughness_geometry)
 import csv
 import json
 import os
 import shutil
 import threading
 import time
+import traceback
 import webbrowser
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,8 +58,30 @@ from .multilayer_design_studies import (
     survey_cell_count,
     survey_design_options,
 )
-from .persistence import GratingStore, build_grating_from_spec
+from .persistence import (
+    GratingStore,
+    PlaneMirrorStore,
+    build_grating_from_spec,
+    build_stack_from_spec,
+    stack_to_spec,
+)
+from .plane_mirror import (
+    DEFAULT_CUSTOM_LAYERS,
+    clean_label,
+    clean_name,
+    plane_mirror_summary,
+    split_plane_mirror_form,
+    unique_scan_id,
+    PLANE_MIRROR_DEFAULTS,
+    PLANE_MIRROR_STACK_DEFAULTS,
+    compute_plane_mirror,
+    custom_stack_from_form,
+    stack_schematic_data_uri,
+    parse_plane_mirror_options,
+    plane_mirror_csv,
+)
 from .runs import RunStore
+from .afm_workflow import process_afm_upload
 
 try:
     import psutil
@@ -190,6 +216,9 @@ def create_app(*, data_dir: str | Path | None = None):
     def store() -> GratingStore:
         return GratingStore(app.config["GRAx_DATA_DIR"] / "saved_gratings")
 
+    def plane_mirror_store() -> PlaneMirrorStore:
+        return PlaneMirrorStore(app.config["GRAx_DATA_DIR"] / "saved_plane_mirrors")
+
     def run_store() -> RunStore:
         return RunStore(app.config["GRAx_DATA_DIR"] / "runs")
 
@@ -245,23 +274,65 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         defaults = _default_form_values()
         return render_template(
-            "grating_form.html",
+            "grating_form.html", materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()), defaults=defaults,
+            density_placeholders=_material_density_placeholders(defaults),
+            action_url=url_for("create_grating"), submit_label="Save grating",
+            preview=preview, allow_custom=True, allow_bare=True,
+            custom_layers=_grating_custom_layer_rows({}),
+        )
+
+    @app.post("/gratings/afm/process")
+    def process_afm():
+        """Process one uploaded AFM scan into a temporary profile workflow."""
+        upload = request.files.get("afm_file")
+        if upload is None or not upload.filename:
+            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
+        workflow_id = uuid4().hex
+        workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
+        try:
+            metadata = process_afm_upload(
+                upload.read(), workflow_dir, filename=upload.filename,
+                units=str(request.form.get("afm_units", "nm")),
+                profile_type=str(request.form.get("afm_profile_type", "blazed")),
+                period_nm=float(request.form.get("afm_period_nm", "0")),
+                min_separation_fraction=float(request.form.get("afm_min_separation", "0.4")),
+                min_prominence_fraction=float(request.form.get("afm_min_prominence", "0.1")),
+                period_index=int(request.form.get("afm_period_index", "0")),
+                average=request.form.get("afm_average") == "1",
+                reverse=request.form.get("afm_reverse") == "1",
+                zero_baseline=request.form.get("afm_zero_baseline", "1") == "1",
+                periodicity_ramp=request.form.get("afm_periodicity_ramp") == "1",
+            )
+            metadata["workflow_id"] = workflow_id
+            metadata["profile_path"] = str((workflow_dir / "profile.csv").resolve())
+            (workflow_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            return jsonify({"ok": True, **metadata})
+        except (TypeError, ValueError, OSError) as error:
+            return jsonify({"ok": False, "error": str(error), "workflow_id": workflow_id}), 422
+    def invalid_grating_form(error, grating_id=None):
+        """Keep submitted values visible when validation fails."""
+        defaults = _default_form_values()
+        defaults.update(request.form.to_dict())
+        return render_template(
+            "grating_form.html", defaults=defaults,
             materials=available_material_symbols(),
             material_density_map=dict(material_density_catalog()),
-            defaults=defaults,
             density_placeholders=_material_density_placeholders(defaults),
-            action_url=url_for("create_grating"),
-            submit_label="Save grating",
-            preview=preview,
-        )
+            action_url=url_for("update_grating", grating_id=grating_id) if grating_id else url_for("create_grating"),
+            submit_label="Update grating" if grating_id else "Save grating",
+            preview={"ok": False, "error": str(error)}, form_error=str(error),
+            allow_custom=True, allow_bare=True,
+            custom_layers=_custom_layer_rows(request.form.to_dict(flat=False)),
+        ), 422
 
     @app.post("/gratings")
     def create_grating():
-        spec = _spec_from_form(request.form)
         try:
-            build_grating_from_spec(spec)
-        except (TypeError, ValueError) as error:
-            abort(400, str(error))
+            spec = _spec_from_form(request.form)
+            validate_roughness_geometry(build_grating_from_spec(spec))
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            return invalid_grating_form(error)
         saved = store().save(spec)
         return redirect(url_for("grating_detail", grating_id=saved["id"]))
 
@@ -309,11 +380,16 @@ def create_app(*, data_dir: str | Path | None = None):
             abort(400, str(error))
         preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
         preview_path.parent.mkdir(parents=True, exist_ok=True)
-        grating.plot_profile(preview_path)
+        rough_path, notices = _render_grating_previews(grating, preview_path)
+        version = uuid4().hex
         return render_template(
             "grating_detail.html",
             grating=spec,
-            preview_url=url_for("data_file", filename=f"previews/{grating_id}.png"),
+            preview_url=url_for("data_file", filename=f"previews/{grating_id}.png", v=version),
+            roughness_preview_url=(url_for("data_file", filename=f"previews/{rough_path.name}", v=version)
+                                   if rough_path else None),
+            preview_warnings=notices,
+            roughness_periods=grating._roughness_num_supercells(),
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -360,6 +436,7 @@ def create_app(*, data_dir: str | Path | None = None):
         preview = _build_grating_preview(
             data_dir=app.config["GRAx_DATA_DIR"],
             form_data=defaults,
+            spec=spec,
         )
         return render_template(
             "grating_form.html",
@@ -370,19 +447,22 @@ def create_app(*, data_dir: str | Path | None = None):
             action_url=url_for("update_grating", grating_id=grating_id),
             submit_label="Update grating",
             preview=preview,
+            allow_custom=True,
+            allow_bare=True,
+            custom_layers=_grating_custom_layer_rows(spec),
         )
 
     @app.post("/gratings/<grating_id>")
     def update_grating(grating_id: str):
         grating_store = store()
         previous = grating_store.load(grating_id)
-        spec = _spec_from_form(request.form)
-        spec["id"] = grating_id
-        spec["created_at"] = previous.get("created_at")
         try:
-            build_grating_from_spec(spec)
-        except (TypeError, ValueError) as error:
-            abort(400, str(error))
+            spec = _spec_from_form(request.form)
+            spec["id"] = grating_id
+            spec["created_at"] = previous.get("created_at")
+            validate_roughness_geometry(build_grating_from_spec(spec))
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            return invalid_grating_form(error, grating_id)
         grating_store.save(spec)
         return redirect(url_for("grating_detail", grating_id=grating_id))
 
@@ -416,7 +496,7 @@ def create_app(*, data_dir: str | Path | None = None):
     def manage_runs():
         return render_template(
             "run_manage.html",
-            runs=_list_plot_runs(active_data_dir() / "runs"),
+            runs=_manage_run_entries(app.config["GRAx_DATA_DIR"]),
         )
 
     @app.post("/runs/manage")
@@ -424,7 +504,16 @@ def create_app(*, data_dir: str | Path | None = None):
         action = str(request.form.get("action", "save"))
         store = run_store()
         if action == "delete":
-            store.delete_many(request.form.getlist("delete_run_id"))
+            run_ids = request.form.getlist("delete_run_id")
+            if request.form.get("confirm_delete") != "1":
+                references = _plot_references_for_runs(active_data_dir(), run_ids)
+                if references:
+                    return render_template(
+                        "run_delete_confirm.html",
+                        run_ids=run_ids,
+                        plots=references,
+                    )
+            store.delete_many(run_ids)
             return redirect(url_for("manage_runs"))
 
         for run in store.list():
@@ -446,6 +535,7 @@ def create_app(*, data_dir: str | Path | None = None):
         return render_template(
             "run_detail.html",
             run=manifest,
+            related_plots=_plot_references_for_runs(app.config["GRAx_DATA_DIR"], [run_id]),
             initial_status=_run_status_payload(app=app, data_dir=app.config["GRAx_DATA_DIR"], run_id=run_id),
             status_url=url_for("run_status", run_id=run_id),
             memory_url=url_for("system_memory"),
@@ -612,6 +702,7 @@ def create_app(*, data_dir: str | Path | None = None):
             "plot_detail.html",
             plot=manifest,
             plotly_bundle=_plotly_bundle_text() if manifest.get("figure_json") else None,
+            selected_runs=_plot_selected_run_entries(app.config["GRAx_DATA_DIR"], manifest),
         )
 
     @app.get("/plots/<plot_id>/delete")
@@ -903,6 +994,178 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         return redirect(url_for("multilayer_design_detail", study_id=study_id))
 
+    def render_plane_mirror_page(mirror: dict[str, Any] | None = None, scan_id: str | None = None):
+        stack_form: dict[str, Any] = {} if mirror is None else dict(mirror.get("stack_form", {}))
+        scans = [] if mirror is None else list(mirror.get("scans", []))
+        active_scan = next((scan for scan in scans if scan["id"] == scan_id), None)
+        if active_scan is None and scans and scan_id is None:
+            active_scan = scans[0]
+        defaults = _plane_mirror_page_defaults(stack_form, {} if active_scan is None else active_scan["form"])
+        custom_layers = _custom_layer_rows(stack_form)
+        return render_template(
+            "plane_mirror.html",
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            defaults=defaults,
+            density_placeholders=_material_density_placeholders(defaults),
+            allow_custom=True,
+            custom_layers=custom_layers,
+            mirror=mirror,
+            scans=scans,
+            active_scan_id=None if active_scan is None else active_scan["id"],
+            message=str(request.args.get("message", "")).strip(),
+            plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
+        )
+
+    @app.get("/plane-mirror")
+    def plane_mirror_page():
+        return render_plane_mirror_page()
+
+    @app.get("/plane-mirrors")
+    def plane_mirror_index():
+        mirrors = [{**spec, "summary": plane_mirror_summary(spec)} for spec in plane_mirror_store().list()]
+        return render_template(
+            "plane_mirror_manage.html",
+            mirrors=mirrors,
+            message=str(request.args.get("message", "")).strip(),
+        )
+
+    @app.post("/plane-mirrors")
+    def plane_mirror_create():
+        try:
+            name = clean_name(request.form.get("mirror_name"), "Mirror name")
+            scan_name = clean_name(request.form.get("scan_name") or "Scan 1", "Scan name")
+            stack_form, scan_form = split_plane_mirror_form(request.form)
+            _plane_mirror_stack(request.form)
+            parse_plane_mirror_options(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        saved = plane_mirror_store().save(
+            {
+                "name": name,
+                "label": clean_label(request.form.get("mirror_label")),
+                "stack_form": stack_form,
+                "scans": [
+                    {
+                        "id": unique_scan_id(scan_name, set()),
+                        "name": scan_name,
+                        "label": clean_label(request.form.get("scan_label")),
+                        "form": scan_form,
+                    }
+                ],
+            }
+        )
+        return redirect(url_for("plane_mirror_detail", mirror_id=saved["id"]))
+
+    @app.post("/plane-mirrors/manage")
+    def plane_mirror_manage_update():
+        for mirror_id in request.form.getlist("delete_mirror_id"):
+            plane_mirror_store().delete(str(mirror_id))
+        return redirect(url_for("plane_mirror_index"))
+
+    @app.get("/plane-mirrors/<mirror_id>")
+    def plane_mirror_detail(mirror_id: str):
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        return render_plane_mirror_page(mirror, request.args.get("scan"))
+
+    @app.post("/plane-mirrors/<mirror_id>")
+    def plane_mirror_update(mirror_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        try:
+            mirror["name"] = clean_name(request.form.get("mirror_name"), "Mirror name")
+            mirror["label"] = clean_label(request.form.get("mirror_label"))
+            mirror["stack_form"], _ = split_plane_mirror_form(request.form)
+            _plane_mirror_stack(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        store.save(mirror)
+        return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, message="Plane mirror updated."))
+
+    @app.post("/plane-mirrors/<mirror_id>/scans")
+    def plane_mirror_save_scan(mirror_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        try:
+            scan_name = clean_name(request.form.get("scan_name"), "Scan name")
+            _, scan_form = split_plane_mirror_form(request.form)
+            parse_plane_mirror_options(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        scans = list(mirror.get("scans", []))
+        existing = next((scan for scan in scans if scan["name"] == scan_name), None)
+        scan_label = clean_label(request.form.get("scan_label"))
+        if existing is not None:
+            existing["form"] = scan_form
+            existing["label"] = scan_label
+            scan_id = existing["id"]
+        else:
+            scan_id = unique_scan_id(scan_name, {scan["id"] for scan in scans})
+            scans.append({"id": scan_id, "name": scan_name, "label": scan_label, "form": scan_form})
+        mirror["scans"] = scans
+        store.save(mirror)
+        return redirect(
+            url_for("plane_mirror_detail", mirror_id=mirror_id, scan=scan_id, message=f"Saved scan '{scan_name}'.")
+        )
+
+    @app.post("/plane-mirrors/<mirror_id>/scans/<scan_id>/rename")
+    def plane_mirror_rename_scan(mirror_id: str, scan_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        scan = next((scan for scan in mirror.get("scans", []) if scan["id"] == scan_id), None)
+        if scan is None:
+            abort(404)
+        try:
+            new_name = clean_name(request.form.get("scan_name"), "Scan name")
+        except ValueError as error:
+            abort(400, str(error))
+        if any(other["name"] == new_name and other["id"] != scan_id for other in mirror["scans"]):
+            abort(400, f"A scan named '{new_name}' already exists.")
+        scan["name"] = new_name
+        scan["label"] = clean_label(request.form.get("scan_label"))
+        store.save(mirror)
+        return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, scan=scan_id, message="Scan updated."))
+
+    @app.post("/plane-mirrors/<mirror_id>/scans/<scan_id>/delete")
+    def plane_mirror_delete_scan(mirror_id: str, scan_id: str):
+        store = plane_mirror_store()
+        mirror = _load_plane_mirror(store, mirror_id)
+        mirror["scans"] = [scan for scan in mirror.get("scans", []) if scan["id"] != scan_id]
+        store.save(mirror)
+        return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, message="Scan deleted."))
+
+    @app.post("/plane-mirrors/<mirror_id>/delete")
+    def plane_mirror_delete(mirror_id: str):
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        plane_mirror_store().delete(mirror_id)
+        return redirect(url_for("plane_mirror_index", message=f"Deleted plane mirror '{mirror['name']}'."))
+
+    @app.post("/_preview/plane-mirror-stack")
+    def plane_mirror_stack_preview():
+        try:
+            return jsonify({"ok": True, "image": stack_schematic_data_uri(_plane_mirror_stack(request.form))})
+        except (KeyError, TypeError, ValueError) as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+
+    @app.post("/_compute/plane-mirror")
+    def plane_mirror_compute():
+        try:
+            return jsonify({"ok": True, **_plane_mirror_result(request.form)})
+        except (KeyError, TypeError, ValueError) as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+
+    @app.post("/plane-mirror/csv")
+    def plane_mirror_download():
+        try:
+            result = _plane_mirror_result(request.form)
+        except (KeyError, TypeError, ValueError) as error:
+            abort(400, str(error))
+        return Response(
+            plane_mirror_csv(result),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=plane_mirror_reflectivity.csv"},
+        )
+
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
         return send_from_directory(app.config["GRAx_DATA_DIR"], filename)
@@ -946,12 +1209,19 @@ def _maybe_open_browser(host: str, port: int) -> None:
 def _default_form_values() -> dict[str, str]:
     """Return display defaults for the create-grating form."""
     return {
+        "name": "Untitled grating",
+        "roughness_kind": "none",
+        "roughness_seed": "0",
+        "roughness_num_supercells": "1",
+        "roughness_num_realizations": "1",
+        **{prefix + "_correlation_length_nm": "" for prefix in ("substrate", "layer", "material_a", "material_b", "top_cap")},
         "period_lpermm": "400",
         "grating_type": "laminar",
         "x_resolution_nm": "1.0",
         "z_resolution_nm": "1.0",
         "width_to_period_ratio": "0.67",
         "depth_nm": "14.9",
+        "sinusoidal_depth_nm": "20.0",
         "left_wall_angle_deg": "15.0",
         "right_wall_angle_deg": "15.0",
         "blaze_angle_deg": "0.75",
@@ -1015,9 +1285,18 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
     """Return form defaults populated from a saved grating spec."""
     values = _default_form_values()
     values.update({key: "" if value is None else str(value) for key, value in spec.items()})
+    roughness = spec.get("roughness") or {}
+    values["roughness_kind"] = roughness.get("kind", "none")
+    for field in ("seed", "num_supercells", "num_realizations"):
+        if field in roughness:
+            values["roughness_" + field] = str(roughness[field])
+    if spec.get("grating_type") == "sinusoidal":
+        values["sinusoidal_depth_nm"] = str(spec.get("depth_nm", "20.0"))
     stack = dict(spec.get("stack", {}))
     values["stack_type"] = str(stack.get("type", "single_layer"))
     for key, value in stack.items():
+        if key == "layers_bottom_up":
+            continue
         if isinstance(value, dict):
             values[key] = "" if value.get("name") is None else str(value.get("name"))
             density_key = f"{key}_density_g_cm3"
@@ -1041,9 +1320,47 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
     return values
 
 
+def _grating_custom_layer_rows(spec: dict[str, Any]) -> list[dict[str, str]]:
+    """Return saved custom coating layers in form display order."""
+    stack = dict(spec.get("stack", {}))
+    if "blocks_top_down" in stack:
+        return stack["blocks_top_down"]
+    rows = []
+    for layer in reversed(stack.get("layers_bottom_up", [])):
+        material = layer.get("material", {})
+        if isinstance(material, dict):
+            name = str(material.get("name", ""))
+            density = material.get("density_g_cm3")
+        else:
+            name = str(material)
+            density = None
+        sigma = layer.get("roughness_sigma_nm")
+        rows.append({
+            "material": name,
+            "density_g_cm3": _default_density_text(name) if density in (None, "") else str(density),
+            "thickness_nm": str(layer.get("thickness_nm", "")),
+            "roughness_sigma_nm": "" if sigma is None else str(sigma),
+            "correlation_length_nm": "" if layer.get("correlation_length_nm") is None else str(layer["correlation_length_nm"]),
+        })
+    return rows or [{
+        "material": "", "density_g_cm3": "", "thickness_nm": "", "roughness_sigma_nm": ""
+    }]
+
+
 def _spec_from_form(form: Any) -> dict[str, Any]:
     """Build a saved grating spec from submitted form data."""
     grating_type = str(form["grating_type"])
+    for key, label in (("period_lpermm", "Period (lines/mm)"),
+                       ("x_resolution_nm", "X resolution (nm)"),
+                       ("z_resolution_nm", "Z resolution (nm)")):
+        try:
+            value = float(form[key])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"{label} must be a finite number greater than 0.") from None
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f"{label} must be a finite number greater than 0.")
+        if key == "period_lpermm" and not value.is_integer():
+            raise ValueError("Period (lines/mm) must be a whole number of at least 1.")
     spec: dict[str, Any] = {
         "name": str(form["name"]).strip() or "Untitled grating",
         "grating_type": grating_type,
@@ -1051,6 +1368,7 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
         "x_resolution_nm": float(form["x_resolution_nm"]),
         "z_resolution_nm": float(form["z_resolution_nm"]),
         "stack": _stack_spec_from_form(form),
+        "roughness": roughness_from_form(form),
     }
     if grating_type == "laminar":
         spec.update(
@@ -1061,6 +1379,31 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
                 "right_wall_angle_deg": float(form["right_wall_angle_deg"]),
             }
         )
+        return spec
+    if grating_type == "afm":
+        profile_path = str(form.get("afm_profile_path", "")).strip()
+        if not profile_path or not Path(profile_path).is_file():
+            raise ValueError("A processed AFM profile is required before saving.")
+        spec["profile"] = {
+            "profile_path": profile_path,
+            "source_filename": str(form.get("afm_source_filename", "")),
+            "units": str(form.get("afm_units", "nm")),
+            "profile_type": str(form.get("afm_profile_type", "blazed")),
+            "period_nm": float(form.get("afm_period_nm", "0")),
+        }
+        return spec
+    if grating_type == "sinusoidal":
+        try:
+            depth_nm = float(form["sinusoidal_depth_nm"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(
+                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm."
+            ) from None
+        if not np.isfinite(depth_nm) or depth_nm <= 0:
+            raise ValueError(
+                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm."
+            )
+        spec["depth_nm"] = depth_nm
         return spec
     if grating_type == "blazed":
         anti_blaze_text = str(form.get("anti_blaze_angle_deg", "")).strip()
@@ -1074,38 +1417,155 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
     raise ValueError("Unsupported grating_type.")
 
 
+def _render_grating_previews(grating: Any, preview_path: Path) -> tuple[Path | None, list[str]]:
+    """Keep the three-period nominal plot separate from the simulation realization."""
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    nominal = copy(grating)
+    nominal.roughness = None
+    nominal.plot_profile(preview_path)
+    rough_path = None
+    notices = []
+    if grating._random_interface_active():
+        sample = realization_grating(grating)
+        rough_path = preview_path.with_name(f"{preview_path.stem}-rough.png")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sample._warn_if_roughness_underresolved()
+            sample.plot_roughness(rough_path)
+        notices = [str(item.message) for item in caught if "underresolved" in str(item.message)]
+    return rough_path, notices
+
+
 def _build_grating_preview(
     *,
     data_dir: Path,
     form_data: Any,
+    spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a live grating preview payload from form data."""
     try:
-        spec = _spec_from_form(form_data)
-        grating = build_grating_from_spec(spec)
-    except (KeyError, TypeError, ValueError) as error:
+        grating = build_grating_from_spec(_spec_from_form(form_data) if spec is None else spec)
+        preview_id = uuid4().hex
+        preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
+        rough_path, notices = _render_grating_previews(grating, preview_path)
+        rough_url = f"/_data/previews/live/{rough_path.name}" if rough_path else None
+        return {
+            "ok": True, "error": "", "error_category": None, "error_fields": [], "preview_id": preview_id,
+            "preview_url": f"/_data/previews/live/{preview_id}.png",
+            "roughness_preview_url": rough_url, "warnings": notices,
+        }
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        message = str(error)
+        is_geometry_error = "LaminarGrating walls overlap" in message
         return {
             "ok": False,
-            "error": str(error),
+            "error": message,
+            "error_category": "geometry" if is_geometry_error else "inputs",
+            "error_fields": (
+                [
+                    "depth_nm",
+                    "left_wall_angle_deg",
+                    "right_wall_angle_deg",
+                    "width_to_period_ratio",
+                ]
+                if is_geometry_error
+                else []
+            ),
             "preview_id": None,
             "preview_url": None,
+            "roughness_preview_url": None,
+            "warnings": [],
         }
 
-    preview_id = uuid4().hex
-    preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
-    preview_path.parent.mkdir(parents=True, exist_ok=True)
-    grating.plot_profile(preview_path)
-    return {
-        "ok": True,
-        "error": "",
-        "preview_id": preview_id,
-        "preview_url": f"/_data/previews/live/{preview_id}.png",
-    }
+
+def _load_plane_mirror(store: PlaneMirrorStore, mirror_id: str) -> dict[str, Any]:
+    """Load one saved plane mirror or answer 404."""
+    from flask import abort
+
+    try:
+        return store.load(mirror_id)
+    except (FileNotFoundError, ValueError):
+        abort(404)
+
+
+def _plane_mirror_page_defaults(stack_form: dict[str, Any], scan_form: dict[str, str]) -> dict[str, str]:
+    """Return template defaults for the plane-mirror page, overlaid with saved values."""
+    defaults = _default_form_values()
+    defaults.update(PLANE_MIRROR_STACK_DEFAULTS)
+    for field_name in ("material_a", "material_b", "top_material"):
+        defaults[f"{field_name}_density_g_cm3"] = _default_density_text(defaults[field_name])
+    defaults.update(PLANE_MIRROR_DEFAULTS)
+    defaults.update({key: value for key, value in stack_form.items() if isinstance(value, str)})
+    for field_name in (
+        "substrate_material",
+        "layer_material",
+        "material_a",
+        "material_b",
+        "top_material",
+        "top_cap_material",
+    ):
+        density_key = f"{field_name}_density_g_cm3"
+        if field_name in stack_form and density_key not in stack_form:
+            defaults[density_key] = _default_density_text(defaults[field_name])
+    defaults.update(scan_form)
+    return defaults
+
+
+def _custom_layer_rows(stack_form: dict[str, Any]) -> list[dict[str, str]]:
+    """Return the custom-layer table rows (top to bottom) for the page."""
+    if "cl_material" not in stack_form:
+        return [
+            {**layer, "density_g_cm3": _default_density_text(layer["material"])}
+            for layer in DEFAULT_CUSTOM_LAYERS
+        ]
+    names = ("material", "density_g_cm3", "thickness_nm", "roughness_sigma_nm",
+             "kind", "material_b", "density_b_g_cm3", "thickness_b_nm",
+             "roughness_b_sigma_nm", "repeats", "correlation_length_nm", "correlation_b_length_nm")
+    rows = []
+    for index in range(len(stack_form["cl_material"])):
+        row = {}
+        for name in names:
+            values = stack_form.get("cl_" + name, [])
+            default = "single" if name == "kind" else "1" if name == "repeats" else ""
+            row[name] = values[index] if index < len(values) else default
+        rows.append(row)
+    return rows
+
+
+def _plane_mirror_result(form: Any) -> dict[str, Any]:
+    """Validate the plane-mirror form and compute its reflectivity curves."""
+    return compute_plane_mirror(_plane_mirror_stack(form), parse_plane_mirror_options(form))
+
+
+def _plane_mirror_stack(form: Any) -> Any:
+    """Build the single-layer, multilayer or custom-layer stack from the form."""
+    if str(form.get("stack_type", "")) == "custom":
+        return custom_stack_from_form(form)
+    return build_stack_from_spec(_stack_spec_from_form(form))
 
 
 def _stack_spec_from_form(form: Any) -> dict[str, Any]:
+    spec = _stack_spec_from_form_base(form)
+    for prefix in ("substrate", "layer", "material_a", "material_b", "top_cap"):
+        key = prefix + "_correlation_length_nm"
+        if key in form:
+            spec[key] = optional_nonnegative(form.get(key), prefix.replace("_", " ") + " correlation length")
+    return spec
+
+
+def _stack_spec_from_form_base(form: Any) -> dict[str, Any]:
     """Build a stack spec from submitted form data."""
     stack_type = str(form["stack_type"])
+    if stack_type == "bare":
+        return {
+            "type": "bare",
+            "substrate_material": _material_spec_from_form(form, "substrate_material"),
+            "substrate_roughness_sigma_nm": _optional_float(form, "substrate_roughness_sigma_nm"),
+        }
+    if stack_type == "custom":
+        spec = stack_to_spec(custom_stack_from_form(form))
+        spec["blocks_top_down"] = _custom_layer_rows(form.to_dict(flat=False))
+        return spec
     top_cap_thickness = float(form.get("top_cap_thickness_nm", 0.0) or 0.0)
     if stack_type == "multilayer":
         return {
@@ -1353,6 +1813,33 @@ def _execute_run_job(
         if workflow == "parameter_study":
             run_x_resolution_nm = float(form_data.get("run_x_resolution_nm") or grating.x_resolution_nm)
             run_z_resolution_nm = float(form_data.get("run_z_resolution_nm") or grating.z_resolution_nm)
+
+            def _parameter_study_progress(completed: int, total: int, partial_result: Any) -> None:
+                """Persist visible progress and a partial plot after each energy."""
+
+                _update_active_run(app, run_id, completed_points=completed)
+                _update_manifest_fields(
+                    data_dir,
+                    run_id,
+                    status="running",
+                    completed_points=completed,
+                    total_points=total,
+                    artifacts=_parameter_study_artifacts(run_dir),
+                )
+                temporary_plot_path = run_dir / "parameter_study.tmp.png"
+                partial_plot_path = run_dir / "parameter_study.png"
+                parameter_sweep.plot_parameter_study(
+                    partial_result,
+                    output_filename=temporary_plot_path,
+                )
+                temporary_plot_path.replace(partial_plot_path)
+                _update_active_run(
+                    app,
+                    run_id,
+                    plot_relative_path=partial_plot_path.name,
+                    bump_plot_token=True,
+                )
+
             result = parameter_sweep.run_parameter_study(
                 grating=grating,
                 energies_ev=energies,
@@ -1366,9 +1853,13 @@ def _execute_run_job(
                 output_dir=run_dir,
                 save_csv=True,
                 show_progress=False,
+                progress_callback=_parameter_study_progress,
             )
             plot_path = run_dir / "parameter_study.png"
-            parameter_sweep.plot_parameter_study(result, output_filename=plot_path)
+            if not plot_path.exists():
+                temporary_plot_path = run_dir / "parameter_study.tmp.png"
+                parameter_sweep.plot_parameter_study(result, output_filename=temporary_plot_path)
+                temporary_plot_path.replace(plot_path)
             _update_active_run(
                 app,
                 run_id,
@@ -1380,7 +1871,7 @@ def _execute_run_job(
                 data_dir,
                 run_id,
                 status="completed",
-                artifacts=["parameter_study.png"],
+                artifacts=_parameter_study_artifacts(run_dir),
                 total_points=int(energies.size),
             )
             _finish_active_run(app, run_id, state="completed")
@@ -1502,23 +1993,35 @@ def _execute_run_job(
         )
     except Exception as error:  # pragma: no cover - exercised by integration behavior.
         results = _load_checkpoint_results(run_dir)
-        _persist_run_outputs(
-            data_dir=data_dir,
-            run_id=run_id,
-            results=results,
-            diffraction_order=diffraction_order,
-            title=f"{grating_name} {workflow}",
-            include_plot=bool(results),
-        )
+        if workflow != "parameter_study":
+            _persist_run_outputs(
+                data_dir=data_dir,
+                run_id=run_id,
+                results=results,
+                diffraction_order=diffraction_order,
+                title=f"{grating_name} {workflow}",
+                include_plot=bool(results),
+            )
+        _write_text_atomically(run_dir / "error.txt", traceback.format_exc())
         _update_manifest_fields(
             data_dir,
             run_id,
             status="failed",
-            error_text=str(error),
+            error_text=_run_error_summary(workflow, error),
             cases=_manifest_cases(results),
-            artifacts=_run_artifacts_for_results(run_dir, include_plot=bool(results)),
+            artifacts=(
+                _parameter_study_artifacts(run_dir)
+                if workflow == "parameter_study"
+                else _run_artifacts_for_results(run_dir, include_plot=bool(results))
+            ),
+            total_points=int(energies.size) if workflow == "parameter_study" else None,
         )
-        _finish_active_run(app, run_id, state="failed", error_text=str(error))
+        _finish_active_run(
+            app,
+            run_id,
+            state="failed",
+            error_text=_run_error_summary(workflow, error),
+        )
     finally:
         release_workers(run_id)
 
@@ -2186,6 +2689,37 @@ def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str
     return artifact_names
 
 
+def _parameter_study_artifacts(run_dir: Path) -> list[str]:
+    """Return complete parameter-study artifacts currently present."""
+
+    return sorted(
+        path.name
+        for path in run_dir.iterdir()
+        if path.is_file()
+        and (
+            path.name in {"parameter_study.png", "error.txt"}
+            or (path.name.startswith("parameter_study_") and path.suffix == ".csv")
+        )
+    )
+
+
+def _write_text_atomically(path: Path, text: str) -> None:
+    """Write diagnostic text through a temporary file and replace."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _run_error_summary(workflow: str, error: Exception) -> str:
+    """Return concise user-facing text for a failed run."""
+
+    if workflow == "parameter_study":
+        return f"Parameter study failed: {error}"
+    return str(error)
+
+
 def _persist_run_outputs(
     *,
     data_dir: Path,
@@ -2323,8 +2857,13 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     manifest_path = data_dir / "runs" / run_id / "manifest.json"
     if not manifest_path.exists():
         return None
-    with manifest_path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+    try:
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        # Polling may race an atomic manifest replacement. A transiently
+        # unavailable manifest must not turn the status endpoint into a 500.
+        return None
     payload.setdefault("id", run_id)
     payload.setdefault("display_name", f"{payload.get('grating_name', 'Run')} · {payload.get('workflow', 'run')}")
     payload.setdefault("polarization", _normalized_polarization(payload.get("run_input", {}).get("polarization", "s")))
@@ -2661,20 +3200,25 @@ def _cleanup_finished_runs(app: Any, *, retention_seconds: float = 300.0) -> Non
 
 
 def _attach_roughness(grating: Any, form_data: Any) -> None:
-    """Attach a run-time roughness kind to the grating from the run form.
-
-    The per-layer sigma magnitudes live on the grating's coating stack. The kind
-    is chosen per run; ``sigma_nm=0.0`` is the fallback for any interface left
-    unset. ``"none"`` (or blank) leaves the grating unroughened.
-    """
-
-    kind = str(form_data.get("roughness_kind", "none") or "none").strip()
-    if kind in {"none", ""}:
-        grating.roughness = None
+    """Apply a run-only model override, retaining saved interface parameters."""
+    if "roughness_kind" not in form_data:
         return
-    from grax import RoughnessSpec
-
-    grating.roughness = RoughnessSpec(kind=kind, sigma_nm=0.0, seed=0)
+    kind = str(form_data.get("roughness_kind", "none") or "none").strip()
+    if kind == "none":
+        grating.roughness = None
+    else:
+        from grax import RoughnessSpec
+        saved = grating.roughness
+        if saved is not None and saved.kind == kind:
+            return
+        if saved is None:
+            grating.roughness = RoughnessSpec(
+                kind=kind, sigma_nm=0.0, seed=0, num_realizations=1,
+            )
+        else:
+            grating.roughness = replace(
+                saved, kind=kind, num_supercells=1, num_realizations=1,
+            )
 
 
 def _cases_for_workflow(
@@ -2849,9 +3393,93 @@ def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
         return []
     plots = []
     for path in plot_dir.glob("*/manifest.json"):
-        with path.open("r", encoding="utf-8") as handle:
-            plots.append(json.load(handle))
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                plot = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        plot["unavailable_run_count"] = sum(
+            1
+            for run in plot.get("selected_runs", [])
+            if not (plot_dir.parent / "runs" / str(run.get("id", "")) / "manifest.json").exists()
+        )
+        plots.append(plot)
     return sorted(plots, key=lambda plot: str(plot.get("created_at", "")), reverse=True)
+
+
+def _plot_selected_run_entries(data_dir: Path, plot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Annotate saved-plot run references without changing their manifest."""
+
+    entries: list[dict[str, Any]] = []
+    for selected in plot.get("selected_runs", []):
+        entry = dict(selected)
+        run_id = str(entry.get("id", ""))
+        entry["id"] = run_id
+        entry["available"] = _load_run_manifest(data_dir, run_id) is not None
+        entry["url"] = f"/runs/{run_id}" if entry["available"] else None
+        entries.append(entry)
+    return entries
+
+
+def _plot_references_for_runs(data_dir: Path, run_ids: list[str]) -> list[dict[str, Any]]:
+    """Return saved plots that reference any requested run IDs."""
+
+    wanted = {str(run_id) for run_id in run_ids}
+    references: list[dict[str, Any]] = []
+    for plot in _list_plots(data_dir / "plots"):
+        selected = plot.get("selected_runs", [])
+        matches = [run for run in selected if str(run.get("id", "")) in wanted]
+        if matches:
+            references.append(
+                {
+                    "id": plot.get("id", ""),
+                    "title": plot.get("title", "Saved plot"),
+                    "url": f"/plots/{plot.get('id', '')}",
+                    "runs": matches,
+                }
+            )
+    return references
+
+
+def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
+    """Build the derived view model used by Manage Runs."""
+
+    entries: list[dict[str, Any]] = []
+    for run in _list_plot_runs(data_dir / "runs"):
+        run_id = str(run["id"])
+        input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
+        artifacts = [str(name) for name in run.get("artifacts", [])]
+        run.update(
+            {
+                "detail_url": f"/runs/{run_id}",
+                "artifacts": artifacts,
+                "artifact_links": [
+                    {"name": name, "url": f"/_data/runs/{run_id}/{name}"}
+                    for name in artifacts
+                ],
+                "related_plots": _plot_references_for_runs(data_dir, [run_id]),
+                "parameter_summary": _run_input_summary(input_data),
+                "progress_summary": (
+                    f"{run.get('checkpoint_completed_points', 0)} / "
+                    f"{run.get('checkpoint_total_points') or run.get('total_points', 0)} points"
+                ),
+            }
+        )
+        entries.append(run)
+    return entries
+
+
+def _run_input_summary(run_input: dict[str, Any]) -> str:
+    """Return compact, stable run parameters for the management list."""
+
+    fields = []
+    if run_input.get("energy_start_ev") is not None and run_input.get("energy_stop_ev") is not None:
+        fields.append(f"energy {run_input['energy_start_ev']}–{run_input['energy_stop_ev']} eV")
+    if run_input.get("grazing_angle_deg") is not None:
+        fields.append(f"grazing {run_input['grazing_angle_deg']}°")
+    if run_input.get("diffraction_order") is not None:
+        fields.append(f"order {run_input['diffraction_order']}")
+    return " · ".join(fields) or "Parameters unavailable"
 
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:

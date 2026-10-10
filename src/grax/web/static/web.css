@@ -51,9 +51,12 @@ a {
 }
 
 .shell {
-  max-width: 1180px;
+  /* Fluid: use the available width, with a cap so lines stay readable on huge screens. */
+  width: 100%;
+  max-width: 2000px;
   margin: 0 auto;
-  padding: 28px;
+  padding: 28px clamp(16px, 3vw, 56px);
+  box-sizing: border-box;
 }
 
 .footer {
@@ -221,6 +224,12 @@ p {
 .notice.notice-error {
   border-color: #f1b5b0;
   background: #fff5f4;
+}
+
+input.is-invalid,
+select.is-invalid {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
 }
 
 .form {
@@ -589,3 +598,169 @@ td {
     position: static;
   }
 }
+
+/* Plane mirror: plot first at full width, parameter groups in a responsive grid below. */
+.plane-mirror-plot {
+  position: static;
+  margin-bottom: 24px;
+}
+
+.plane-mirror-plot .plotly-stage {
+  height: clamp(420px, 72vh, 1000px);
+  margin-bottom: 0;
+}
+
+.plane-mirror-form {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  align-items: start;
+}
+
+.plane-mirror-form > .actions,
+.plane-mirror-form > datalist {
+  grid-column: 1 / -1;
+}
+
+.plane-mirror-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 26%);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+.plane-mirror-top .preview-panel {
+  margin-bottom: 0;
+}
+
+.plane-mirror-schematic .preview {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .plane-mirror-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.layer-editor {
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
+}
+
+.layer-row {
+  display: grid;
+  grid-template-columns: 2.5ch minmax(70px, 1.4fr) minmax(56px, 1fr) minmax(56px, 1fr) minmax(56px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.layer-head {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.layer-row-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.layer-row-actions .button {
+  padding: 2px 8px;
+  min-height: 0;
+}
+
+/* Nested fieldsets default to min-content width and overflow their parent. */
+fieldset {
+  min-width: 0;
+}
+
+.layer-editor {
+  padding: 12px;
+}
+
+.layer-row input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.layer-row-actions .button {
+  padding: 2px 6px;
+}
+
+.plane-mirror-form > fieldset.is-wide {
+  grid-column: 1 / -1;
+}
+
+.plane-mirror-save {
+  grid-column: 1 / -1;
+}
+
+.scan-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(0, 2fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.scan-row.is-active {
+  background: #eef5f2;
+}
+
+.scan-edit {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scan-edit input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.layer-block { display: block; padding: 12px; border: 1px solid var(--muted); border-radius: 8px; margin-bottom: 12px; }
+.layer-block-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.layer-block-head select { flex: 1; min-width: 0; }
+.layer-block-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.layer-block-fields.is-hidden { display: none; }
+.layer-block-fields p { grid-column: 1 / -1; }
+
+.parameter-label { position: relative; display: inline-block; }
+.roughness-help { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; padding: 0; margin-left: 4px; border: 1px solid currentColor; border-radius: 50%; color: var(--muted); background: transparent; font: inherit; font-size: 0.8rem; cursor: help; }
+.roughness-tip { display: none; position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 20; width: min(320px, 75vw); padding: 12px; border: 1px solid #b6c2cf; border-radius: 8px; background: #fff; color: #243447; box-shadow: 0 4px 16px #0002; font-size: 0.85rem; line-height: 1.5; font-weight: normal; pointer-events: none; }
+.roughness-help:hover + .roughness-tip,
+.roughness-help:focus-visible + .roughness-tip { display: block; }
+
+/* Geometry schematics (static/geometry.js) */
+.geo-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0; }
+.geo-svg { width: 100%; height: auto; max-height: 420px; background: #fbfcfd; border: 1px solid var(--line); border-radius: 8px; }
+.geo-item { display: none; }
+.geo-base { display: inline; }
+.show-beams .geo-beams, .show-angles .geo-angles, .show-lengths .geo-lengths { display: inline; }
+.geo-item.is-focused { display: inline; }
+.geo-substrate { fill: #e6eaee; stroke: none; }
+.geo-coating { fill: #b8c7e0; }
+.geo-surface { fill: none; stroke: #4b5563; stroke-width: 2; }
+.geo-ray, .geo-ray-range { fill: none; stroke-width: 2.2; }
+.geo-incident { stroke: #1d4ed8; }
+.geo-specular { stroke: #0f766e; }
+.geo-order { stroke: #b45309; stroke-dasharray: 7 4; }
+.geo-ray-range { stroke: #1d4ed8; stroke-width: 1.2; stroke-dasharray: 3 4; opacity: 0.7; }
+.geo-arrow-head { fill: context-stroke; }
+.geo-arc { fill: none; stroke: #6b21a8; stroke-width: 1.6; }
+.geo-order-arc { stroke: #b45309; }
+.geo-ref { stroke: #9ca3af; stroke-width: 1; stroke-dasharray: 4 3; }
+.geo-dim, .geo-grading { stroke: #374151; stroke-width: 1.3; }
+.geo-grading { stroke-width: 2; }
+.geo-tick-mark { stroke: #374151; stroke-width: 1.5; }
+.geo-text { font: 15px system-ui, sans-serif; fill: #1f2937; }
+.geo-ray-text { fill: #1f2937; font-weight: 600; }
+.geo-order-text { fill: #b45309; }
+.geo-angle-text { fill: #6b21a8; }
+.geo-dim-text { fill: #374151; }
+.geo-ref-text, .geo-note { fill: #6b7280; font-size: 13px; }
+.geo-item.is-focused { stroke-width: 3.2; }
+text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
