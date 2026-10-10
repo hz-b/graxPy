@@ -86,6 +86,44 @@ def test_run_parameter_study_returns_expected_shapes(
     assert "error_message" in csv_text
 
 
+def test_run_parameter_study_reports_progress_after_each_energy(monkeypatch) -> None:
+    def fake_run_single(self, photon_energy_ev: float) -> dict[str, object]:
+        efficiency = float(photon_energy_ev) / 1000.0
+        return {
+            "orders": np.asarray([-1, 0, 1], dtype=int),
+            "efficiency": efficiency,
+            "diffraction_angle_deg": 1.0,
+            "efficiency_all": np.asarray([efficiency, 0.5, 0.0]),
+            "diffraction_angle_all": np.asarray([1.0, 2.0, 3.0]),
+        }
+
+    monkeypatch.setattr(GratingSimulation, "run_single", fake_run_single)
+    progress: list[tuple[int, int, int]] = []
+    grating = BlazedGrating(
+        period_lpermm=600,
+        blaze_angle_deg=0.75,
+        x_resolution_nm=0.5,
+        z_resolution_nm=0.1,
+    )
+
+    result = run_parameter_study(
+        grating=grating,
+        energies_ev=[100.0, 110.0],
+        grazing_angle_deg=1.5,
+        fourier_orders_values=[5],
+        x_resolution_values=[0.5],
+        z_resolution_values=[0.1],
+        save_csv=False,
+        show_progress=False,
+        progress_callback=lambda completed, total, partial: progress.append(
+            (completed, total, len(partial.results))
+        ),
+    )
+
+    assert len(result.results) == 2
+    assert progress == [(1, 2, 1), (2, 2, 2)]
+
+
 def test_run_parameter_study_preserves_error_messages_in_csv(
     monkeypatch,
     tmp_path: Path,

@@ -63,7 +63,7 @@ roughness_only_fit_simulation = (
 def extract_m1_curve(frame: pd.DataFrame, path: Path) -> tuple[pd.Series, pd.Series]:
     if "order" not in frame.columns or "efficiency" not in frame.columns:
         raise KeyError(f"Missing long-format order/efficiency columns in {path}.")
-    m1 = frame[frame["order"] == -1].sort_values("energy_ev")
+    m1 = frame[frame["order"] == 1].sort_values("energy_ev")
     return m1["energy_ev"], m1["efficiency"]
 
 design_energy, design_eff = extract_m1_curve(design_simulation, design_simulation_path)
@@ -90,7 +90,7 @@ plt.plot(
 plt.plot(
     design_energy,
     design_eff,
-    label="Reticolopy design parameters (order -1)",
+    label="Reticolopy design parameters (order +1)",
     linewidth=LINE_WIDTH,
 )
 plt.plot(

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Confirm run deletion{% endblock %}
+{% block body %}
+<section class="section-head">
+  <h1>Confirm run deletion</h1>
+</section>
+<section class="notice notice-error">
+  <p>The selected run{% if run_ids|length != 1 %}s{% endif %} is referenced by saved comparison plots.</p>
+  <p>The run files will be deleted, but the saved plots will be preserved and will show the run as unavailable.</p>
+  <ul>
+    {% for plot in plots %}
+      <li><a href="{{ plot.url }}">{{ plot.title }}</a></li>
+    {% endfor %}
+  </ul>
+</section>
+<form class="form" method="post" action="{{ url_for('update_runs') }}">
+  {% for run_id in run_ids %}<input type="hidden" name="delete_run_id" value="{{ run_id }}">{% endfor %}
+  <input type="hidden" name="action" value="delete">
+  <input type="hidden" name="confirm_delete" value="1">
+  <div class="actions">
+    <a class="button" href="{{ url_for('manage_runs') }}">Cancel</a>
+    <button class="button danger" type="submit">Confirm delete</button>
+  </div>
+</form>
+{% endblock %}

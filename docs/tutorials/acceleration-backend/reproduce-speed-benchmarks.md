@@ -44,6 +44,6 @@ Interpretation:
   supported.
 
 ```{image} ../images/numba_speed/multi_energy_multilayer_numba_vs_legacy_plots.png
-:alt: Baseline vs Numba multilayer multi-energy runtime, speedup, memory, and -1 order efficiency comparison
+:alt: Baseline vs Numba multilayer multi-energy runtime, speedup, memory, and +1 order efficiency comparison
 :width: 100%
 ```

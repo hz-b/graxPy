@@ -113,9 +113,9 @@ def _load_first_order_series(csv_path: Path) -> tuple[list[float], list[float]]:
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
-            # order may be a fractional "physical order" string (e.g. "-0.9") when
+            # order may be a fractional "physical order" string (e.g. "0.9") when
             # the run used a supercell, so compare as float, not int.
-            if abs(float(row["order"]) - (-1.0)) > 1e-6:
+            if abs(float(row["order"]) - 1.0) > 1e-6:
                 continue
             samples.append((float(row["energy_ev"]), float(row["efficiency"])))
     samples.sort(key=lambda item: item[0])

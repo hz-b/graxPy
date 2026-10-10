@@ -31,8 +31,8 @@ def main() -> None:
     fitted_parameters = json.loads(fitted_parameters_path.read_text(encoding="utf-8"))
     evaluation_energies_ev = [float(v) for v in fitted_parameters.get("evaluation_energies_ev", [])]
 
-    initial_m1 = initial_frame[initial_frame["order"] == -1].sort_values("energy_ev")
-    fitted_m1 = fitted_frame[fitted_frame["order"] == -1].sort_values("energy_ev")
+    initial_m1 = initial_frame[initial_frame["order"] == 1].sort_values("energy_ev")
+    fitted_m1 = fitted_frame[fitted_frame["order"] == 1].sort_values("energy_ev")
 
     figure, axis = plt.subplots(figsize=(11, 7))
     axis.plot(measurement["energy_ev"], measurement["efficiency"], "o", label="Measurement", markersize=2.5)

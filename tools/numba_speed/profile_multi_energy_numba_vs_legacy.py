@@ -101,8 +101,8 @@ for energy_ev in tqdm(energies, desc="Multi-energy RCWA comparison", unit="energ
     numpy_peak_mb = float(summary_numpy["peak_memory_bytes"]) / (1024.0 * 1024.0)
     numba_peak_mb = float(summary_numba["peak_memory_bytes"]) / (1024.0 * 1024.0)
     speedup = numpy_total / numba_total if numba_total > 0.0 else 0.0
-    numpy_eff_m1 = _efficiency_for_exact_order(numpy_result, order=-1)
-    numba_eff_m1 = _efficiency_for_exact_order(numba_result, order=-1)
+    numpy_eff_m1 = _efficiency_for_exact_order(numpy_result, order=1)
+    numba_eff_m1 = _efficiency_for_exact_order(numba_result, order=1)
 
     rows.append(
         {

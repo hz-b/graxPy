@@ -37,10 +37,10 @@ df_meas = pd.read_csv(
     names=["Energy_eV", "Intensity"]
 ).dropna()
 # =========================
-# Reticolopy simulation (-1 order)
+# Reticolopy simulation (+1 order)
 # =========================
 df_sim = pd.read_csv(sim_file)
-df_sim_m1 = df_sim[df_sim["order"] == -1].sort_values("energy_ev")
+df_sim_m1 = df_sim[df_sim["order"] == 1].sort_values("energy_ev")
 energy_sim = df_sim_m1["energy_ev"]
 eff_m1 = df_sim_m1["efficiency"]
 

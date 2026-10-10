@@ -195,7 +195,9 @@ def _validate_reflected_efficiencies(
     wavelength_nm = 1239.8 / photon_energy_ev
     k0 = 2.0 * np.pi / wavelength_nm
     k_parallel = np.sin(np.deg2rad(90.0 - grazing_angle_deg))
-    kx = k0 * k_parallel + (2.0 * np.pi * orders / period_nm)
+    # ``orders`` carries the public sign (inside orders positive); the solver's
+    # kx_n = k0*cos(theta) + 2*pi*n/d uses n = -order.
+    kx = k0 * k_parallel - (2.0 * np.pi * orders / period_nm)
     propagating_mask = np.abs(kx) <= k0 * (1.0 + 1e-9)
     total_reflected_efficiency = float(np.sum(efficiency_all[propagating_mask]))
     if total_reflected_efficiency > max_total_reflected_efficiency:
@@ -307,12 +309,22 @@ def _run_single_realization(
         )
 
     with _profiler.record("postprocessing") if _profiler is not None else _nullcontext():
-        orders = np.asarray(ef.inc_top_reflected.order, dtype=float) / float(num_supercells)
+        # Public order sign: positive orders are the inside orders (diffracted
+        # toward the grating normal from the specular beam), as in the usual
+        # grating equation m*lambda = d*(sin(alpha) + sin(beta)). The solvers
+        # use kx_n = k0*cos(theta) + 2*pi*n/d, where inside orders are n < 0,
+        # so the sign is flipped here (``+ 0.0`` turns -0.0 into 0.0) and the
+        # arrays are re-sorted so orders stay in ascending order.
+        orders = -np.asarray(ef.inc_top_reflected.order, dtype=float) / float(num_supercells) + 0.0
         all_efficiency = np.asarray(
             np.real_if_close(ef.inc_top_reflected.efficiency),
             dtype=float,
         )
         all_diffraction_angle_deg = np.asarray(90.0 - ef.inc_top_reflected.theta, dtype=float)
+        ascending = np.argsort(orders, kind="stable")
+        orders = orders[ascending]
+        all_efficiency = all_efficiency[ascending]
+        all_diffraction_angle_deg = all_diffraction_angle_deg[ascending]
     return orders, all_efficiency, all_diffraction_angle_deg
 
 
@@ -479,7 +491,7 @@ def run_simulation(
                 solver_options=resolved_solver_options,
             )
 
-        order_index = np.where(np.isclose(orders, -float(diffraction_order)))[0]
+        order_index = np.where(np.isclose(orders, float(diffraction_order)))[0]
         if len(order_index) != 1:
             raise ValueError(f"Unable to locate diffraction order {diffraction_order}")
         idx = int(order_index[0])
@@ -602,7 +614,7 @@ def efficiency_for_order(
 
     orders_array = np.asarray(orders, dtype=float)
     efficiency_array = np.asarray(efficiency_all, dtype=float)
-    order_index = np.where(np.isclose(orders_array, -diffraction_order))[0]
+    order_index = np.where(np.isclose(orders_array, diffraction_order))[0]
     if order_index.size == 0:
         return float("nan")
     return float(efficiency_array[int(order_index[0])])

@@ -20,7 +20,7 @@ ENERGIES_EV = np.arange(500.0, 5000.0 + 1.0, 500.0, dtype=float)
 FOURIER_ORDERS = 20
 X_RESOLUTION_NM = 0.1
 Z_RESOLUTION_NM = 0.1
-DIFFRACTION_ORDER = -1
+DIFFRACTION_ORDER = 1
 OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5 - Unreleased
+
+- **Breaking:** diffraction-order signs now follow the standard grating equation; positive orders are the inside orders.
+- Improved web run monitoring with reliable progress counts, clearer failures, diagnostics, and retained partial results.
+- Added richer run management with artifact links, saved-plot relationships, previews, and safer deletion warnings.
+- Added geometry sketches and clearer live validation for grating profiles and wall-angle overlap.
+- Added a guided AFM profile workflow with upload, preprocessing, period detection, diagnostics, live profile previews, and layered grating previews.
+- Added sinusoidal and AFM preview fixes, including correct profile switching and automatic refresh when inputs change.
+- Expanded web regression coverage for parameter studies, grating previews, AFM workflows, and saved runs.
+
 ## 0.4.9 - 2026-09-12
 
 - Added a two-step multilayer-grating design workflow with survey and energy-scan stages, resumable evaluation from saved artifacts, progress callbacks, cooperative cancellation, and a runnable Ru/B4C example. This replaces the earlier three-stage optimization workflow.

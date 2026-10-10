@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,8 @@ class BaseStack(ABC):
     top_cap_material: Any | None = None
     top_cap_thickness_nm: float = 0.0
     substrate_roughness_sigma_nm: float | None = None
+    substrate_correlation_length_nm: float | None = field(default=None, kw_only=True)
+    top_cap_correlation_length_nm: float | None = field(default=None, kw_only=True)
 
     @abstractmethod
     def layer_sequence_bottom_up(self) -> list[tuple[Any, float]]:
@@ -65,9 +68,32 @@ class BaseStack(ABC):
             else float(self.substrate_roughness_sigma_nm)
         )
         layer_sigmas = self._layer_roughness_sigmas_bottom_up()
-        return [substrate_sigma] + [
+        resolved = [substrate_sigma] + [
             default if sigma is None else float(sigma) for sigma in layer_sigmas
         ]
+        if any(not math.isfinite(value) or value < 0 for value in resolved):
+            raise ValueError("Interface RMS roughness must be finite and at least 0 nm.")
+        return resolved
+
+    def interface_correlation_lengths_bottom_up(self, default: float) -> list[float]:
+        """Return lateral correlation lengths in the same order as interface RMS values."""
+        values = [self.substrate_correlation_length_nm]
+        if isinstance(self, CustomStack):
+            values.extend(layer.correlation_length_nm for layer in self.layers_bottom_up)
+        elif isinstance(self, MultilayerStack):
+            bottom, _ = self.bilayer_materials_bottom_up
+            pair = [self.material_a_correlation_length_nm, self.material_b_correlation_length_nm]
+            if _same_material(bottom, self.material_b):
+                pair.reverse()
+            values.extend(pair * self.n_bilayers)
+        elif isinstance(self, SingleLayerStack):
+            values.append(self.layer_correlation_length_nm)
+        if self.top_cap_material is not None and self.top_cap_thickness_nm > 0:
+            values.append(self.top_cap_correlation_length_nm)
+        resolved = [default if value is None else float(value) for value in values]
+        if any(not math.isfinite(value) or value < 0 for value in resolved):
+            raise ValueError("Correlation length must be finite and at least 0 nm.")
+        return resolved
 
     def has_per_layer_roughness(self) -> bool:
         """Return whether any layer or the substrate specifies its own roughness sigma."""
@@ -314,6 +340,8 @@ class SingleLayerStack(BaseStack):
     layer_roughness_sigma_nm: float | None = None
     top_cap_roughness_sigma_nm: float | None = None
 
+    layer_correlation_length_nm: float | None = field(default=None, kw_only=True)
+
     def layer_sequence_bottom_up(self) -> list[tuple[Any, float]]:
         """Return the single-layer sequence above the substrate."""
 
@@ -332,6 +360,25 @@ class SingleLayerStack(BaseStack):
 
 
 @dataclass
+class BareStack(BaseStack):
+    """A substrate with no conformal coating layers."""
+
+    def __post_init__(self) -> None:
+        """Reject a top cap on a stack declared uncoated."""
+        if self.top_cap_material is not None or self.top_cap_thickness_nm != 0.0:
+            raise ValueError("BareStack cannot have a top cap.")
+
+    def layer_sequence_bottom_up(self) -> list[tuple[Any, float]]:
+        """Return an empty coating sequence."""
+        return []
+
+    def _schematic_layers_and_summary(
+        self, *, max_layers: int | None = None
+    ) -> tuple[list[tuple[Any, float]], list[str], _SchematicRepeatUnit | None]:
+        return [], ["No conformal coating"], None
+
+
+@dataclass
 class MultilayerStack(BaseStack):
     """Multilayer coating stack described by period, gamma, and bilayer count."""
 
@@ -344,6 +391,9 @@ class MultilayerStack(BaseStack):
     material_a_roughness_sigma_nm: float | None = None
     material_b_roughness_sigma_nm: float | None = None
     top_cap_roughness_sigma_nm: float | None = None
+
+    material_a_correlation_length_nm: float | None = field(default=None, kw_only=True)
+    material_b_correlation_length_nm: float | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         """Validate multilayer parameters."""
@@ -472,6 +522,8 @@ class LayerSpec:
     material: Any
     thickness_nm: float
     roughness_sigma_nm: float | None = None
+
+    correlation_length_nm: float | None = None
 
     def __post_init__(self) -> None:
         """Validate layer parameters."""

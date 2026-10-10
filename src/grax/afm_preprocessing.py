@@ -104,8 +104,6 @@ class AFMPreprocessing:
             zero_baseline: Shift z so the global minimum is zero.
         """
 
-        import matplotlib.pyplot as plt
-
         x_before = self.x_nm.copy()
         z_before = self.z_nm.copy()
 
@@ -115,6 +113,10 @@ class AFMPreprocessing:
             self.x_nm = self.x_nm[0] - self.x_nm
         if zero_baseline:
             self.z_nm = self.z_nm - float(np.min(self.z_nm))
+
+        if not (self.save_plots or self.show_plots):
+            return
+        import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=False)
         y_max = float(max(np.max(z_before), np.max(self.z_nm)))
@@ -156,7 +158,6 @@ class AFMPreprocessing:
         """
 
         from scipy.signal import find_peaks
-        import matplotlib.pyplot as plt
 
         if period_nm <= 0.0:
             raise ValueError("period_nm must be > 0.")
@@ -186,6 +187,10 @@ class AFMPreprocessing:
                 prominence=prominence_nm,
             )
         self.trough_indices = trough_indices
+
+        if not (self.save_plots or self.show_plots):
+            return
+        import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(12, 4))
         ax.plot(self.x_nm * 1e-3, self.z_nm, color="tab:blue", lw=0.8, label="scan")
@@ -344,8 +349,6 @@ class AFMPreprocessing:
     def _extract_single_period(self, *, period_index: int) -> None:
         """Extract one trough-to-trough segment."""
 
-        import matplotlib.pyplot as plt
-
         assert self.trough_indices is not None
         n_segments = len(self.trough_indices) - 1
         if period_index < 0 or period_index >= n_segments:
@@ -362,6 +365,10 @@ class AFMPreprocessing:
         self.period_x = (x_segment - x_segment[0]) / span
         self.period_z = z_segment.copy()
 
+        if not (self.save_plots or self.show_plots):
+            return
+        import matplotlib.pyplot as plt
+
         fig, ax = plt.subplots(figsize=(12, 4))
         ax.plot(self.x_nm * 1e-3, self.z_nm, color="tab:blue", lw=0.8, label="full scan")
         ax.axvspan(self.x_nm[start] * 1e-3, self.x_nm[stop] * 1e-3, color="tab:orange", alpha=0.2)
@@ -374,8 +381,6 @@ class AFMPreprocessing:
 
     def _extract_averaged_period(self) -> None:
         """Average all trough-to-trough segments onto one normalized grid."""
-
-        import matplotlib.pyplot as plt
 
         assert self.trough_indices is not None
         x_norm_segments: list[np.ndarray] = []
@@ -398,6 +403,10 @@ class AFMPreprocessing:
         stacked = np.vstack([np.interp(common_x, x_norm, z) for x_norm, z in zip(x_norm_segments, z_segments)])
         self.period_x = common_x
         self.period_z = np.mean(stacked, axis=0)
+
+        if not (self.save_plots or self.show_plots):
+            return
+        import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(7, 4))
         colors = plt.cm.tab10(np.linspace(0.0, 1.0, stacked.shape[0], endpoint=False))
@@ -422,8 +431,6 @@ class AFMPreprocessing:
     def apply_periodicity_ramp(self) -> None:
         """Apply a linear correction so the extracted period endpoints match."""
 
-        import matplotlib.pyplot as plt
-
         if self.period_x is None or self.period_z is None:
             raise RuntimeError("Call extract_period() before apply_periodicity_ramp().")
 
@@ -433,6 +440,10 @@ class AFMPreprocessing:
         self.period_z = self.period_z - correction
         self.period_x_nm = None
         self.period_z_nm = None
+
+        if not (self.save_plots or self.show_plots):
+            return
+        import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(7, 4))
         ax.plot(self.period_x, before, color="tab:blue", lw=1.0, label="before")

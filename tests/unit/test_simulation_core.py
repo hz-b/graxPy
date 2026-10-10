@@ -298,6 +298,42 @@ def test_run_simulation_num_supercells_produces_fractional_orders() -> None:
     assert np.isfinite(efficiency)
 
 
+def test_run_simulation_orders_follow_inside_positive_grating_equation() -> None:
+    """Positive orders are inside orders: cos(beta_m) = cos(alpha) - m*lambda/d."""
+
+    grating = build_test_grating()
+    energy_ev = 100.0
+    grazing_angle_deg = 4.0
+    result = run_simulation(
+        grating=grating,
+        energy_ev=energy_ev,
+        grazing_angle_deg=grazing_angle_deg,
+        fourier_orders=5,
+        diffraction_order=1,
+    )
+
+    assert np.all(np.diff(result.orders) > 0)
+    wavelength_nm = 1239.8 / energy_ev
+    expected_cos = (
+        np.cos(np.deg2rad(grazing_angle_deg)) - result.orders * wavelength_nm / grating.period_nm
+    )
+    propagating = expected_cos < 1.0 - 1e-9
+    assert propagating.any() and (~propagating).any()
+    assert np.allclose(
+        np.cos(np.deg2rad(result.diffraction_angle_all[propagating])),
+        expected_cos[propagating],
+    )
+    assert np.all(result.efficiency_all[~propagating] == 0.0)
+    # The inside orders (positive) are the ones that carry the light here.
+    assert result.efficiency_all[result.orders > 0].sum() > result.efficiency_all[result.orders < 0].sum()
+    assert result.selected_efficiency == efficiency_for_order(
+        result.orders, result.efficiency_all, diffraction_order=1
+    )
+    assert result.selected_diffraction_angle_deg == pytest.approx(
+        result.diffraction_angle_all[np.isclose(result.orders, 1.0)][0]
+    )
+
+
 def test_run_simulation_warns_when_effective_fourier_orders_is_large() -> None:
     grating = LaminarGrating(
         substrate_material=build_test_grating().substrate_material,
@@ -394,7 +430,7 @@ def test_run_simulation_averages_efficiency_across_realizations() -> None:
     expected_mean = np.mean(individual_efficiencies, axis=0)
     assert np.allclose(averaged_result.efficiency_all, expected_mean)
     assert averaged_result.selected_efficiency == pytest.approx(
-        expected_mean[np.where(np.isclose(averaged_result.orders, -1.0))[0][0]]
+        expected_mean[np.where(np.isclose(averaged_result.orders, 1.0))[0][0]]
     )
 
 
@@ -1563,7 +1599,7 @@ def test_batch_runner_live_plot_uses_requested_x_axis_and_order_count(
         return fake_single_result(
             energy_ev=float(kwargs["energy_ev"]),
             grazing_angle_deg=float(kwargs["grazing_angle_deg"]),
-            orders=np.asarray([-3, -2, -1, 0], dtype=int),
+            orders=np.asarray([0, 1, 2, 3], dtype=int),
             selected_efficiency=0.3,
         )
 
@@ -1589,8 +1625,8 @@ def test_batch_runner_live_plot_uses_requested_x_axis_and_order_count(
     lines = runner._live_axis.get_lines()
     assert len(lines) == 2
     assert np.allclose(lines[0].get_xdata(), np.array([100.0, 150.0]))
-    assert np.allclose(lines[0].get_ydata(), np.array([0.23333333333333334, 0.23333333333333334]))
-    assert np.allclose(lines[1].get_ydata(), np.array([0.16666666666666669, 0.16666666666666669]))
+    assert np.allclose(lines[0].get_ydata(), np.array([0.16666666666666669, 0.16666666666666669]))
+    assert np.allclose(lines[1].get_ydata(), np.array([0.23333333333333334, 0.23333333333333334]))
     plt.close("all")
 
 

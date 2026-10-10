@@ -69,10 +69,10 @@ def main() -> None:
         for energy_ev in tied_wall_fitted_parameters.get("evaluation_energies_ev", [])
     ]
 
-    initial_m1 = initial_frame[initial_frame["order"] == -1].sort_values("energy_ev")
-    fitted_m1 = fitted_frame[fitted_frame["order"] == -1].sort_values("energy_ev")
+    initial_m1 = initial_frame[initial_frame["order"] == 1].sort_values("energy_ev")
+    fitted_m1 = fitted_frame[fitted_frame["order"] == 1].sort_values("energy_ev")
     tied_wall_fitted_m1 = (
-        tied_wall_fitted_frame[tied_wall_fitted_frame["order"] == -1]
+        tied_wall_fitted_frame[tied_wall_fitted_frame["order"] == 1]
         .sort_values("energy_ev")
     )
 

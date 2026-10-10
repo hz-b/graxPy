@@ -6,7 +6,7 @@ fourier_orders=20
 x_resolution_nm=0.1
 z_resolution_nm=0.1
 angle_strategy=nearest_reference_alpha_from_DiffractMod_CrC_d4.8_N60.dat
-efficiency_order=-1
+efficiency_order=1
 
 aggregates
 - mean_numpy_total_s: 5.813039

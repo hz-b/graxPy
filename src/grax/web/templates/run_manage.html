@@ -38,11 +38,33 @@
                 placeholder="Optional note for this run"
               >
             </label>
-            <p class="subtle">
-              {{ run.summary_meta }}
-            </p>
-            {% if run.checkpoint_completed_points %}
-              <p class="subtle">Checkpointed {{ run.checkpoint_completed_points }} / {{ run.checkpoint_total_points }} points.</p>
+            <p class="subtle">{{ run.workflow }} · {{ run.status }} · {{ run.progress_summary }}</p>
+            <p class="subtle">{{ run.parameter_summary }}</p>
+            <p><a href="{{ run.detail_url }}">View run details</a></p>
+            {% if run.artifact_links %}
+              <p class="subtle">Artifacts:</p>
+              <ul class="compact-list">
+                {% for artifact in run.artifact_links %}
+                  <li><a href="{{ artifact.url }}">{{ artifact.name }}</a></li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if run.related_plots %}
+              <p class="subtle">Related plots:</p>
+              <ul class="compact-list">
+                {% for plot in run.related_plots %}
+                  <li><a href="{{ plot.url }}">{{ plot.title }}</a></li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+          <div class="run-manage-preview">
+            {% if run.plot_preview_url %}
+              <a href="{{ run.plot_preview_url }}" target="_blank" rel="noopener" aria-label="Open plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}">
+                <img src="{{ run.plot_preview_url }}" alt="Simulation plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}" loading="lazy">
+              </a>
+            {% else %}
+              <span class="subtle">No plot available</span>
             {% endif %}
           </div>
           <label class="inline-check manage-delete">

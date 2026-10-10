@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -134,6 +134,7 @@ def run_parameter_study(
     solver: str = "rcwa",
     solver_options: object | None = None,
     backend: str = "numba",
+    progress_callback: Callable[[int, int, "ParameterStudyResult"], None] | None = None,
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
 
@@ -278,6 +279,20 @@ def run_parameter_study(
                     sweep=sweep,
                 )
         progress_bar.update(3)
+        if progress_callback is not None:
+            progress_callback(
+                len(results),
+                len(energies),
+                ParameterStudyResult(
+                    energies_ev=energies[: len(results)],
+                    grazing_angle_deg=float(grazing_angle_deg),
+                    diffraction_order=int(diffraction_order),
+                    fourier_orders_values=fourier_values,
+                    x_resolution_values=x_values,
+                    z_resolution_values=z_values,
+                    results=list(results),
+                ),
+            )
 
     progress_bar.close()
 

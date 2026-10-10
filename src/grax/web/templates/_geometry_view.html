@@ -1,0 +1,9 @@
+{# Side-on sketch with switchable beam, angle and length indicators.
+   kind: "grating" or "mirror". bind: CSS selectors of the forms to follow
+   ("closest" = the form around the view). static: a dict of values for pages
+   without a live form. See static/geometry.js. #}
+{% macro geometry_view(kind, bind="", static=None) %}
+  <div class="geometry-view" data-geometry-view data-geometry-kind="{{ kind }}"
+       {% if bind %}data-geometry-bind="{{ bind }}"{% endif %}
+       {% if static is not none %}data-geometry-static="{{ static | tojson | forceescape }}"{% endif %}></div>
+{% endmacro %}
