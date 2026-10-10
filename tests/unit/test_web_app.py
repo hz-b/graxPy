@@ -12,7 +12,8 @@ from types import SimpleNamespace
 import pytest
 from werkzeug.datastructures import MultiDict
 
-from grax.gratings import BlazedGrating, LaminarGrating
+from grax import RoughnessSpec
+from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
@@ -274,6 +275,42 @@ def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
     assert loaded.coating_stack.substrate_material.density_g_cm3 == pytest.approx(2.329)
 
 
+def test_saved_grating_round_trips_sinusoidal_stack_and_roughness(tmp_path: Path) -> None:
+    grating = SinusoidalGrating(
+        period_lpermm=600,
+        depth_nm=30.0,
+        coating_stack=SingleLayerStack(
+            substrate_material=MaterialSpec("Si", density_g_cm3=2.329),
+            layer_material=MaterialSpec("Au", density_g_cm3=19.3),
+            layer_thickness_nm=12.0,
+            substrate_roughness_sigma_nm=0.4,
+            layer_roughness_sigma_nm=0.8,
+        ),
+        roughness=RoughnessSpec(
+            kind="random-interface",
+            sigma_nm=0.0,
+            seed=9,
+            num_supercells=2,
+        ),
+        x_resolution_nm=2.0,
+        z_resolution_nm=0.5,
+    )
+    store = GratingStore(tmp_path / "gratings")
+
+    saved = store.save(grating_to_spec(grating, name="Sinusoidal Au"))
+    payload = store.load(saved["id"])
+    loaded = build_grating_from_spec(payload)
+
+    assert payload["grating_type"] == "sinusoidal"
+    assert payload["depth_nm"] == pytest.approx(30.0)
+    assert isinstance(loaded, SinusoidalGrating)
+    assert loaded.depth_nm == pytest.approx(30.0)
+    assert loaded.roughness is not None
+    assert loaded.roughness.kind == "random-interface"
+    assert loaded.roughness.seed == 9
+    assert loaded.resolved_stack().interface_roughness_sigmas_bottom_up(0.0) == [0.4, 0.8]
+
+
 def test_saved_grating_round_trips_per_layer_roughness(tmp_path: Path) -> None:
     grating = LaminarGrating(
         period_lpermm=400,
@@ -348,10 +385,32 @@ def test_attach_roughness_sets_and_clears_grating_kind() -> None:
     web_app_module._attach_roughness(grating, {"roughness_kind": "none"})
     assert grating.roughness is None
 
-    # Missing field defaults to no roughness.
-    grating.roughness = object()  # type: ignore[assignment]
+    # Missing run field preserves the grating configuration.
+    from grax import RoughnessSpec
+    saved = RoughnessSpec(kind="debye-waller", sigma_nm=0.2)
+    grating.roughness = saved
     web_app_module._attach_roughness(grating, {})
-    assert grating.roughness is None
+    assert grating.roughness is saved
+
+    web_app_module._attach_roughness(grating, {"roughness_kind": "random-interface"})
+    assert grating.roughness.num_realizations == 1
+    assert grating.roughness.sigma_nm == 0.2
+
+    saved = RoughnessSpec(kind="random-interface", sigma_nm=0.4, seed=17,
+                          correlation_length_nm=25, num_supercells=3, num_realizations=2)
+    grating.roughness = saved
+    grating._saved_roughness_configuration = True
+    web_app_module._attach_roughness(grating, {"roughness_kind": "random-interface"})
+    assert grating.roughness is saved
+    web_app_module._attach_roughness(grating, {"roughness_kind": "debye-waller"})
+    assert grating.roughness.num_supercells == 1
+    assert grating.roughness.num_realizations == 1
+    assert grating.roughness.sigma_nm == saved.sigma_nm
+    assert grating.roughness.seed == saved.seed
+    assert grating.roughness.correlation_length_nm == saved.correlation_length_nm
+    assert saved.num_supercells == 3
+    assert saved.num_realizations == 2
+    assert grating.resolved_stack().layer_roughness_sigma_nm == 1.0
 
 
 def test_saved_grating_round_trips_blazed_single_layer(tmp_path: Path) -> None:
@@ -432,7 +491,7 @@ def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text())
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 4
     assert payload["id"] == saved["id"]
     assert payload["name"] == "Demo"
 
@@ -471,6 +530,77 @@ def test_flask_app_creates_grating_and_lists_it(tmp_path: Path) -> None:
     assert len(GratingStore(tmp_path / "saved_gratings").list()) == 1
 
 
+def test_flask_sinusoidal_create_edit_preview_and_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    form = {
+        "name": "Sinusoidal Au",
+        "grating_type": "sinusoidal",
+        "period_lpermm": "600",
+        "x_resolution_nm": "5.0",
+        "z_resolution_nm": "1.0",
+        "sinusoidal_depth_nm": "30.0",
+        "stack_type": "single_layer",
+        "substrate_material": "Si",
+        "layer_material": "Au",
+        "layer_thickness_nm": "12.0",
+        "roughness_kind": "none",
+    }
+
+    preview_response = client.post("/_preview/grating", data=form)
+    assert preview_response.status_code == 200
+    assert preview_response.get_json()["ok"] is True
+
+    create_response = client.post("/gratings", data=form, follow_redirects=True)
+    assert create_response.status_code == 200
+    assert b"sinusoidal" in create_response.data
+    assert b"Run sweep" in create_response.data
+
+    grating_store = GratingStore(tmp_path / "saved_gratings")
+    grating_id = grating_store.list()[0]["id"]
+    saved = grating_store.load(grating_id)
+    assert saved["grating_type"] == "sinusoidal"
+    assert saved["depth_nm"] == pytest.approx(30.0)
+
+    edit_response = client.get(f"/gratings/{grating_id}/edit")
+    assert edit_response.status_code == 200
+    assert b'<option value="sinusoidal" selected' in edit_response.data
+    assert b'name="sinusoidal_depth_nm"' in edit_response.data
+    assert b'value="30.0"' in edit_response.data
+
+    invalid_form = {**form, "sinusoidal_depth_nm": "0"}
+    invalid_response = client.post(f"/gratings/{grating_id}", data=invalid_form)
+    assert invalid_response.status_code == 422
+    assert b"greater than 0 nm" in invalid_response.data
+    assert grating_store.load(grating_id)["depth_nm"] == pytest.approx(30.0)
+
+    update_form = {**form, "sinusoidal_depth_nm": "18.5"}
+    update_response = client.post(
+        f"/gratings/{grating_id}", data=update_form, follow_redirects=True
+    )
+    assert update_response.status_code == 200
+    assert grating_store.load(grating_id)["depth_nm"] == pytest.approx(18.5)
+
+    captured: dict[str, object] = {}
+
+    def fake_queue_run(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return {"id": "sinusoidal-run"}
+
+    monkeypatch.setattr(web_app_module, "_queue_run", fake_queue_run)
+    run_response = client.post(f"/gratings/{grating_id}/runs", data={})
+
+    assert run_response.status_code == 302
+    assert isinstance(captured["grating"], SinusoidalGrating)
+
+
 def test_index_mentions_result_locations(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -497,6 +627,8 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b"<legend>Top cap</legend>" in response.data
     assert b"<legend>Coating</legend>" not in response.data
     assert b'data-grating-section="laminar"' in response.data
+    assert b'data-grating-section="sinusoidal"' in response.data
+    assert b'<option value="sinusoidal"' in response.data
     assert b'data-grating-section="blazed"' in response.data
     assert b'data-stack-controls' in response.data
     assert b'data-single-layer-controls' in response.data
@@ -600,7 +732,8 @@ def test_flask_app_rejects_unknown_material_names_before_save(tmp_path: Path) ->
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
+    assert b'role="alert"' in response.data
     assert b"Unknown element" in response.data
 
 

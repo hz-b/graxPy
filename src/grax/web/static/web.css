@@ -51,9 +51,12 @@ a {
 }
 
 .shell {
-  max-width: 1180px;
+  /* Fluid: use the available width, with a cap so lines stay readable on huge screens. */
+  width: 100%;
+  max-width: 2000px;
   margin: 0 auto;
-  padding: 28px;
+  padding: 28px clamp(16px, 3vw, 56px);
+  box-sizing: border-box;
 }
 
 .footer {
@@ -589,3 +592,138 @@ td {
     position: static;
   }
 }
+
+/* Plane mirror: plot first at full width, parameter groups in a responsive grid below. */
+.plane-mirror-plot {
+  position: static;
+  margin-bottom: 24px;
+}
+
+.plane-mirror-plot .plotly-stage {
+  height: clamp(420px, 72vh, 1000px);
+  margin-bottom: 0;
+}
+
+.plane-mirror-form {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  align-items: start;
+}
+
+.plane-mirror-form > .actions,
+.plane-mirror-form > datalist {
+  grid-column: 1 / -1;
+}
+
+.plane-mirror-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 26%);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+.plane-mirror-top .preview-panel {
+  margin-bottom: 0;
+}
+
+.plane-mirror-schematic .preview {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .plane-mirror-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.layer-editor {
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
+}
+
+.layer-row {
+  display: grid;
+  grid-template-columns: 2.5ch minmax(70px, 1.4fr) minmax(56px, 1fr) minmax(56px, 1fr) minmax(56px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.layer-head {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.layer-row-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.layer-row-actions .button {
+  padding: 2px 8px;
+  min-height: 0;
+}
+
+/* Nested fieldsets default to min-content width and overflow their parent. */
+fieldset {
+  min-width: 0;
+}
+
+.layer-editor {
+  padding: 12px;
+}
+
+.layer-row input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.layer-row-actions .button {
+  padding: 2px 6px;
+}
+
+.plane-mirror-form > fieldset.is-wide {
+  grid-column: 1 / -1;
+}
+
+.plane-mirror-save {
+  grid-column: 1 / -1;
+}
+
+.scan-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(0, 2fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.scan-row.is-active {
+  background: #eef5f2;
+}
+
+.scan-edit {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scan-edit input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.layer-block { display: block; padding: 12px; border: 1px solid var(--muted); border-radius: 8px; margin-bottom: 12px; }
+.layer-block-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.layer-block-head select { flex: 1; min-width: 0; }
+.layer-block-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.layer-block-fields.is-hidden { display: none; }
+.layer-block-fields p { grid-column: 1 / -1; }
+
+.parameter-label { position: relative; display: inline-block; }
+.roughness-help { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; padding: 0; margin-left: 4px; border: 1px solid currentColor; border-radius: 50%; color: var(--muted); background: transparent; font: inherit; font-size: 0.8rem; cursor: help; }
+.roughness-tip { display: none; position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 20; width: min(320px, 75vw); padding: 12px; border: 1px solid #b6c2cf; border-radius: 8px; background: #fff; color: #243447; box-shadow: 0 4px 16px #0002; font-size: 0.85rem; line-height: 1.5; font-weight: normal; pointer-events: none; }
+.roughness-help:hover + .roughness-tip,
+.roughness-help:focus-visible + .roughness-tip { display: block; }

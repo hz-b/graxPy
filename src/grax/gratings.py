@@ -102,6 +102,11 @@ class BaseGrating(ABC):
             top_cap_thickness_nm=self.top_cap_thickness_nm,
         )
 
+    def _material_labels(self, *, include_incident_medium: bool) -> list[str]:
+        return self.resolved_stack().material_names(
+            include_incident_medium=include_incident_medium
+        )
+
     def _material_plot_data(
         self,
         num_periods: int = 1,
@@ -116,10 +121,12 @@ class BaseGrating(ABC):
         """
 
         coating_stack = self.resolved_stack()
+        if self._random_interface_active():
+            num_periods = self._roughness_num_supercells()
         x_grid = self._build_x_grid(num_periods=num_periods)
         z_grid = self._build_plot_z_grid(coating_stack)
         surface = self._surface_profile_on_grid(x_grid, num_periods=num_periods)
-        material_labels = coating_stack.plot_material_names()
+        material_labels = self._material_labels(include_incident_medium=False)
         material_codes = {label: index for index, label in enumerate(material_labels)}
         material_map = self._build_material_code_grid(
             x_grid=x_grid,
@@ -164,6 +171,7 @@ class BaseGrating(ABC):
         profile_axis.set_title(f"{self.__class__.__name__} Profile (Three Periods)")
         profile_axis.grid(True, alpha=0.3)
         profile_axis.legend(loc="best")
+        self._annotate_profile(profile_axis)
 
         material_colors = self._plot_material_colors(coating_stack=self.resolved_stack(), material_labels=material_labels)
         color_map = plt.matplotlib.colors.ListedColormap(material_colors)
@@ -193,6 +201,65 @@ class BaseGrating(ABC):
         figure.savefig(output_filename, dpi=150, bbox_inches="tight")
         plt.close(figure)
 
+    def plot_roughness(self, output_filename: str | Path) -> None:
+        """Render the actual interfaces and material map for this realization."""
+        import matplotlib.pyplot as plt
+        span = self._roughness_num_supercells()
+        x, z, codes, labels = self._material_plot_data(num_periods=span)
+        surface = self._surface_profile_on_grid(x, num_periods=span)
+        substrate, layers, top = self._rough_geometry(x, surface, self.resolved_stack())
+        fig, (interfaces, materials) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+        interfaces.plot(x, substrate, label="Substrate", linewidth=1)
+        for index, (material, _, upper) in enumerate(layers, 1):
+            interfaces.plot(x, upper, linewidth=0.8,
+                            label=f"{index}: {material_label(material)}" if len(layers) <= 10 else None)
+        interfaces.set_title(f"Random interfaces — realization 1, seed {self.roughness.seed}")
+        interfaces.set_ylabel("z (nm)")
+        interfaces.legend(loc="best", fontsize=8)
+        colors = self._plot_material_colors(coating_stack=self.resolved_stack(), material_labels=labels)
+        cmap = plt.matplotlib.colors.ListedColormap(colors).with_extremes(bad="white")
+        materials.imshow(np.ma.masked_less(codes, 0), origin="lower", aspect="auto",
+                         extent=[x[0], x[-1], z[0], z[-1]], interpolation="nearest",
+                         cmap=cmap, vmin=0, vmax=max(len(labels) - 1, 1))
+        materials.set_title("Material map — same realization")
+        materials.set_xlabel("x (nm)")
+        materials.set_ylabel("z (nm)")
+        materials.legend(handles=[plt.matplotlib.patches.Patch(color=colors[i], label=label)
+                                  for i, label in enumerate(labels)], fontsize=8)
+        fig.tight_layout()
+        fig.savefig(output_filename, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    def _annotate_profile(self, axes: Any) -> None:
+        """Add geometry annotations when the profile provides them."""
+
+    def _annotate_facet_angles(
+        self, axes: Any, *, left_foot: float, left_run: float,
+        right_foot: float, right_run: float, left_label: str, right_label: str,
+        width_nm: float,
+    ) -> None:
+        """Draw angle arcs from the horizontal reference to each plotted facet."""
+        height = self.profile_depth_nm()
+        if height <= 0:
+            return
+        axes.set_ylim(-0.24 * height, 1.55 * height)
+        radius_x, radius_z = 0.22 * width_nm, 0.35 * height
+        color = "#9c3b10"
+        for foot, run, direction in ((left_foot, left_run, 1), (right_foot, right_run, -1)):
+            sweep = np.arctan2(height * radius_x, run * radius_z)
+            angles = np.linspace(0.0, sweep, 80)
+            axes.plot(foot + direction * radius_x * np.cos(angles),
+                      radius_z * np.sin(angles), color=color, linewidth=1.8, zorder=5)
+            axes.plot([foot, foot + direction * radius_x * 1.3], [0, 0],
+                      linestyle="--", color=color, linewidth=1.1, zorder=5)
+        box = dict(facecolor="white", edgecolor="none", alpha=0.85)
+        axes.text(left_foot + radius_x * 1.1, height * 0.08,
+                  left_label, color=color, bbox=box)
+        axes.text(right_foot - radius_x * 1.4, height * 0.43,
+                  right_label, color=color, ha="center", bbox=box)
+        axes.text(0.02, 0.93, "Angles relative to horizontal (axes use different scales)",
+                  transform=axes.transAxes, fontsize=9, color="#555555")
+
     def save_structure_debug_data(
         self,
         photon_energy_ev: float,
@@ -214,10 +281,12 @@ class BaseGrating(ABC):
         output_path.mkdir(parents=True, exist_ok=True)
 
         coating_stack = self.resolved_stack()
+        if self._random_interface_active():
+            num_periods = self._roughness_num_supercells()
         x_grid = self._build_x_grid(num_periods=num_periods)
         z_grid = self._build_solver_z_grid(coating_stack)
         surface = self._surface_profile_on_grid(x_grid, num_periods=num_periods)
-        material_labels = coating_stack.material_names(include_incident_medium=True)
+        material_labels = self._material_labels(include_incident_medium=True)
         material_codes = {label: index for index, label in enumerate(material_labels)}
         material_map = self._build_material_code_grid(
             x_grid=x_grid,
@@ -476,8 +545,10 @@ class BaseGrating(ABC):
     ) -> np.ndarray:
         """Return refractive indices for one solver row."""
 
+        if self._random_interface_active():
+            return self._rough_value_row(z_value, x_grid, surface, coating_stack, complex(n_sub), complex(n_inc),
+                                         lambda material: resolve_refractive_index(material, photon_energy_ev))
         row_values = np.full(surface.shape, n_sub, dtype=complex)
-
         if isinstance(coating_stack, MultilayerStack):
             n_material_a = resolve_refractive_index(coating_stack.material_a, photon_energy_ev)
             n_material_b = resolve_refractive_index(coating_stack.material_b, photon_energy_ev)
@@ -552,6 +623,64 @@ class BaseGrating(ABC):
         x_span_nm = num_periods * self.period_nm
         return np.linspace(0.0, x_span_nm, int(round(x_span_nm / self.x_resolution_nm)) + 1)
 
+    def _random_interface_active(self) -> bool:
+        return self.roughness is not None and self.roughness.kind == "random-interface"
+
+    def _rough_geometry(self, x_grid: np.ndarray, surface: np.ndarray, stack: BaseStack):
+        """Build and validate one shared realization for plotting and all solver paths."""
+        sigmas = stack.interface_roughness_sigmas_bottom_up(self.roughness.sigma_nm)
+        xis = stack.interface_correlation_lengths_bottom_up(self._roughness_correlation_length_nm())
+        sequence = stack.layer_sequence_bottom_up()
+        key = (x_grid.tobytes(), surface.tobytes(), repr(self.roughness), tuple(sigmas),
+               tuple(xis), tuple((id(material), float(t)) for material, t in sequence),
+               )
+        cached = self.__dict__.get("_rough_geometry_cache")
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        if any(not np.isfinite(sigma) or sigma < 0 for sigma in sigmas):
+            raise ValueError("Interface RMS roughness must be finite and at least 0 nm.")
+
+        def offset(sigma, xi, index):
+            if sigma == 0:
+                return np.zeros_like(x_grid)
+            if xi is None:
+                xi = self._roughness_correlation_length_nm()
+            if not np.isfinite(xi) or xi < 0:
+                raise ValueError("Correlation length must be finite and at least 0 nm.")
+            rng = np.random.default_rng(int(self.roughness.seed) + index)
+            values = self._roughness_random_field(x_grid, rng, xi)
+            values -= np.mean(values)
+            rms = np.sqrt(np.mean(values ** 2))
+            return values * (sigma / rms) if rms > 0 else np.zeros_like(values)
+
+        nominal = surface + (1.0 if isinstance(stack, MultilayerStack) else 0)
+        base = nominal + offset(sigmas[0], xis[0], 0)
+        substrate = base
+        layers = []
+        lower = base
+        thickness = 0.0
+        for index, (material, depth) in enumerate(sequence, 1):
+            thickness += depth
+            upper = nominal + thickness + offset(sigmas[index], xis[index], index)
+            if np.any(upper < lower):
+                raise ValueError(
+                    f"Coating interfaces {index - 1} and {index} cross in realization seed "
+                    f"{self.roughness.seed}. Reduce their RMS roughness or increase layer {index} thickness."
+                )
+            layers.append((material, lower, upper))
+            lower = upper
+        result = (substrate, layers, lower)
+        self.__dict__["_rough_geometry_cache"] = (key, result)
+        return result
+
+    def _rough_value_row(self, z_value, x_grid, surface, stack, substrate_value, incident_value, resolve):
+        substrate, layers, top = self._rough_geometry(x_grid, surface, stack)
+        row = np.full(x_grid.size, substrate_value)
+        for material, lower, upper in layers:
+            row[(z_value >= lower) & (z_value < upper)] = resolve(material)
+        row[z_value >= top] = incident_value
+        return row
+
     def _build_solver_z_grid(self, coating_stack: BaseStack) -> np.ndarray:
         """Return the solver z grid, matching the Octave helper orientation."""
 
@@ -560,6 +689,16 @@ class BaseGrating(ABC):
             thickness_nm += coating_stack.top_cap_thickness_nm + 25.0 * self.z_resolution_nm
         else:
             thickness_nm = self.profile_depth_nm() + coating_stack.total_thickness_nm + 5.0
+        if self._random_interface_active():
+            x = self._build_x_grid(num_periods=self._roughness_num_supercells())
+            surface = self._surface_profile_on_grid(x, num_periods=self._roughness_num_supercells())
+            substrate, layers, top = self._rough_geometry(x, surface, coating_stack)
+            lower = min(0.0, float(np.min(substrate)))
+            upper = max(thickness_nm, float(np.max(top)) + self.z_resolution_nm)
+            if lower < 0 or upper > thickness_nm:
+                bottom = np.floor(lower / self.z_resolution_nm) * self.z_resolution_nm
+                top_z = np.ceil(upper / self.z_resolution_nm) * self.z_resolution_nm
+                return np.arange(top_z, bottom - self.z_resolution_nm * 0.5, -self.z_resolution_nm)
         return np.linspace(thickness_nm, 0.0, int(round(thickness_nm / self.z_resolution_nm)) + 1)
 
     def _build_plot_z_grid(self, coating_stack: BaseStack) -> np.ndarray:
@@ -579,24 +718,18 @@ class BaseGrating(ABC):
 
         Interface 0 is the substrate boundary; interface ``j + 1`` is the top of
         layer ``j``. Layers without an explicit sigma fall back to the
-        grating-level ``roughness.sigma_nm``. The result is cached because it is
-        consulted once per interface per solver row.
+        grating-level ``roughness.sigma_nm``.
         """
 
-        cached = self.__dict__.get("_interface_sigmas_cache")
-        if cached is not None:
-            return cached
         default = float(self.roughness.sigma_nm) if self.roughness is not None else 0.0
-        sigmas = self.resolved_stack().interface_roughness_sigmas_bottom_up(default)
-        self.__dict__["_interface_sigmas_cache"] = sigmas
-        return sigmas
+        return self.resolved_stack().interface_roughness_sigmas_bottom_up(default)
 
     def _warn_if_roughness_underresolved(self) -> None:
         """Warn when enabled roughness is finer than the configured grid."""
 
         if self.roughness is None:
             return
-        max_sigma_nm = max(self._interface_sigmas(), default=0.0)
+        max_sigma_nm = max(self._interface_sigmas())
         if max_sigma_nm == 0.0:
             return
         threshold_nm = max_sigma_nm / self.roughness.resolution_factor
@@ -660,7 +793,8 @@ class BaseGrating(ABC):
         if sigma_nm == 0.0:
             return np.zeros_like(x_grid, dtype=float)
         rng = np.random.default_rng(int(self.roughness.seed) + int(interface_index))
-        correlation_length_nm = self._roughness_correlation_length_nm()
+        correlation_length_nm = self.resolved_stack().interface_correlation_lengths_bottom_up(
+            self._roughness_correlation_length_nm())[interface_index]
         offsets = self._roughness_random_field(x_grid, rng, correlation_length_nm)
         offsets = offsets - float(np.mean(offsets))
         rms = float(np.sqrt(np.mean(offsets**2)))
@@ -768,6 +902,14 @@ class BaseGrating(ABC):
     ) -> np.ndarray:
         """Return the discretized material-code grid for plotting."""
 
+        if self._random_interface_active():
+            return np.asarray([
+                self._rough_value_row(z, x_grid, surface, coating_stack,
+                    material_codes[material_label(coating_stack.substrate_material)],
+                    material_codes["Incident Medium"] if include_incident_medium else -1,
+                    lambda material: material_codes[material_label(material)])
+                for z in z_grid
+            ])
         substrate_code = material_codes[material_label(coating_stack.substrate_material)]
         z_mesh = np.repeat(z_grid[:, None], x_grid.size, axis=1)
         material_map = np.full((z_grid.size, x_grid.size), substrate_code, dtype=int)
@@ -882,13 +1024,19 @@ class BaseGrating(ABC):
     ) -> np.ndarray:
         """Return the refractive-index grid used to derive the textures."""
 
+        if self._random_interface_active():
+            substrate = complex(resolve_refractive_index(coating_stack.substrate_material, photon_energy_ev))
+            return np.asarray([
+                self._rough_value_row(z, x_grid, surface, coating_stack, substrate, complex(n_inc),
+                    lambda material: resolve_refractive_index(material, photon_energy_ev))
+                for z in z_grid
+            ])
         n_sub = resolve_refractive_index(
             coating_stack.substrate_material,
             photon_energy_ev,
         )
         z_mesh = np.repeat(z_grid[:, None], x_grid.size, axis=1)
         index_grid = np.full((z_grid.size, x_grid.size), n_sub, dtype=complex)
-
         if isinstance(coating_stack, MultilayerStack):
             n_material_a = resolve_refractive_index(
                 coating_stack.material_a,
@@ -1149,6 +1297,62 @@ class ProfileGrating(BaseGrating):
 
 
 @dataclass
+class SinusoidalGrating(BaseGrating):
+    """Sinusoidally profiled substrate with optional conformal coatings.
+
+    ``depth_nm`` is the peak-to-valley depth. One period starts and ends at
+    zero depth, with the maximum depth centered in the period.
+    """
+
+    depth_nm: float = 20.0
+
+    def __post_init__(self) -> None:
+        """Validate the geometry and discretization inputs."""
+
+        if not np.isfinite(self.period_lpermm) or self.period_lpermm <= 0:
+            raise ValueError("period_lpermm must be finite and greater than 0.")
+        if not np.isfinite(self.depth_nm) or self.depth_nm <= 0:
+            raise ValueError("depth_nm must be finite and greater than 0 nm.")
+        if not np.isfinite(self.x_resolution_nm) or self.x_resolution_nm <= 0:
+            raise ValueError("x_resolution_nm must be finite and greater than 0 nm.")
+
+    def profile_points(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return one smoothly sampled sinusoidal period."""
+
+        segment_count = max(64, int(np.ceil(self.period_nm / self.x_resolution_nm)))
+        if segment_count % 2:
+            segment_count += 1
+        positions = np.linspace(0.0, self.period_nm, segment_count + 1, dtype=float)
+        heights = 0.5 * self.depth_nm * (
+            1.0 - np.cos(2.0 * np.pi * positions / self.period_nm)
+        )
+        return positions, heights
+
+    def _annotate_profile(self, axes: Any) -> None:
+        """Mark the peak-to-valley depth in the centered plotted period."""
+
+        center_x = 1.5 * self.period_nm
+        axes.annotate(
+            "",
+            xy=(center_x, 0.0),
+            xytext=(center_x, self.depth_nm),
+            arrowprops={"arrowstyle": "<->", "color": "black", "linewidth": 1.0},
+        )
+        axes.annotate(
+            f"Depth = {self.depth_nm:g} nm",
+            xy=(center_x, 0.5 * self.depth_nm),
+            xytext=(center_x + 0.08 * self.period_nm, 0.5 * self.depth_nm),
+            va="center",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85},
+        )
+
+    def profile_depth_nm(self) -> float:
+        """Return the configured peak-to-valley depth."""
+
+        return float(self.depth_nm)
+
+
+@dataclass
 class LaminarGrating(BaseGrating):
     """Laminar or trapezoidal grating profile.
 
@@ -1211,6 +1415,17 @@ class LaminarGrating(BaseGrating):
         )
         heights = np.array([0.0, 0.0, self.depth_nm, self.depth_nm, 0.0, 0.0], dtype=float)
         return positions, heights
+
+    def _annotate_profile(self, axes: Any) -> None:
+        """Mark the two sidewall angles relative to the horizontal."""
+        positions, _ = self.profile_points()
+        self._annotate_facet_angles(
+            axes, left_foot=positions[1], left_run=positions[2] - positions[1],
+            right_foot=self.period_nm + positions[4], right_run=positions[4] - positions[3],
+            left_label=f"Left wall = {self.left_wall_angle_deg:g}°",
+            right_label=f"Right wall = {self.right_wall_angle_deg:g}°",
+            width_nm=self.period_nm,
+        )
 
     def profile_depth_nm(self) -> float:
         """Return the laminar groove depth."""
@@ -1283,6 +1498,18 @@ class BlazedGrating(BaseGrating):
         positions = np.array([0.0, x_peak, self.period_nm], dtype=float)
         heights = np.array([0.0, self.depth_nm, 0.0], dtype=float)
         return positions, heights
+
+    def _annotate_profile(self, axes: Any) -> None:
+        """Mark the blaze and anti-blaze angles, including the legacy reset."""
+        positions, _ = self.profile_points()
+        anti_blaze = 90.0 if self.anti_blaze_angle_deg is None else self.anti_blaze_angle_deg
+        self._annotate_facet_angles(
+            axes, left_foot=0.0, left_run=positions[1],
+            right_foot=2.0 * self.period_nm, right_run=self.period_nm - positions[1],
+            left_label=f"Blaze = {self.blaze_angle_deg:g}°",
+            right_label=f"Anti-blaze = {anti_blaze:g}°" + (" (reset)" if self.anti_blaze_angle_deg is None else ""),
+            width_nm=self.period_nm,
+        )
 
     def profile_depth_nm(self) -> float:
         """Return the blazed groove depth derived from blaze geometry."""

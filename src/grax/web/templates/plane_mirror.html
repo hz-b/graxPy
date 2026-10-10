@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}{{ mirror.name if mirror else "New plane mirror" }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ mirror.name if mirror else "New plane mirror" }}</h1>
+    {% if mirror and mirror.label %}<p><strong>{{ mirror.label }}</strong></p>{% endif %}
+    <p>Specular reflectivity of a single layer or multilayer on a flat substrate (Parratt recursion), with optional lateral grading of the layer thickness along the footprint</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plane_mirror_index') }}">All plane mirrors</a>
+  </div>
+</section>
+
+{% if message %}
+  <section class="notice"><p>{{ message }}</p></section>
+{% endif %}
+
+{% if mirror %}
+<section class="notice plane-mirror-scans">
+  <h2>Scans of this mirror</h2>
+  {% if scans %}
+    <div class="list compact">
+      {% for scan in scans %}
+        <div class="row scan-row {% if scan.id == active_scan_id %}is-active{% endif %}">
+          <a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">
+            <strong>{{ scan.name }}</strong>{% if scan.id == active_scan_id %} (shown){% endif %}
+          </a>
+          <form class="scan-edit" method="post" action="{{ url_for('plane_mirror_rename_scan', mirror_id=mirror.id, scan_id=scan.id) }}">
+            <input name="scan_name" value="{{ scan.name }}" aria-label="Scan name" required>
+            <input name="scan_label" value="{{ scan.label or '' }}" placeholder="Label / note" aria-label="Scan label">
+            <button class="button" type="submit">Rename / relabel</button>
+          </form>
+          <form method="post" action="{{ url_for('plane_mirror_delete_scan', mirror_id=mirror.id, scan_id=scan.id) }}">
+            <button class="button danger" type="submit" data-confirm="Delete scan '{{ scan.name }}'?">Delete scan</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">No scans saved yet. Set up a scan below and use "Save scan".</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<div class="plane-mirror-top">
+<section class="preview-panel plane-mirror-plot">
+  <div class="section-head preview-head">
+    <div>
+      <h2>Reflectivity</h2>
+      <p data-plane-mirror-status>Idle</p>
+    </div>
+    <span class="preview-pill" data-plane-mirror-loading>Idle</span>
+  </div>
+  {% if plotly_bundle %}
+    <div class="plotly-stage" data-plane-mirror-figure></div>
+  {% else %}
+    <p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>
+  {% endif %}
+</section>
+<section class="preview-panel plane-mirror-schematic">
+  <div class="section-head preview-head">
+    <div>
+      <h2>Layer stack</h2>
+      <p data-plane-mirror-stack-status>Idle</p>
+    </div>
+  </div>
+  <img class="preview is-hidden" src="" alt="Layer stack schematic" data-plane-mirror-stack-image>
+</section>
+</div>
+
+<form
+  class="form plane-mirror-form"
+  method="post"
+  action="{{ url_for('plane_mirror_download') }}"
+  data-plane-mirror-form
+  data-compute-url="{{ url_for('plane_mirror_compute') }}"
+  data-stack-preview-url="{{ url_for('plane_mirror_stack_preview') }}"
+>
+  <fieldset class="plane-mirror-save" data-save-controls>
+    <legend>{% if mirror %}Saved plane mirror{% else %}Save{% endif %}</legend>
+    <label>Mirror name <input name="mirror_name" value="{{ mirror.name if mirror else '' }}" placeholder="e.g. Pt mirror on Si" maxlength="120"></label>
+    <label>Mirror label / note <input name="mirror_label" value="{{ mirror.label if mirror and mirror.label else '' }}" placeholder="Optional" maxlength="300"></label>
+    <label>Scan name <input name="scan_name" value="{{ (scans|selectattr('id','equalto',active_scan_id)|first).name if active_scan_id else 'Scan 1' }}" maxlength="120"></label>
+    <label>Scan label / note <input name="scan_label" value="{{ ((scans|selectattr('id','equalto',active_scan_id)|first).label or '') if active_scan_id else '' }}" placeholder="Optional" maxlength="300"></label>
+    <div class="actions">
+      {% if mirror %}
+        <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_update', mirror_id=mirror.id) }}" formnovalidate>Update mirror (name, label, stack)</button>
+        <button class="button" type="submit" formaction="{{ url_for('plane_mirror_save_scan', mirror_id=mirror.id) }}" formnovalidate>Save scan (same name overwrites)</button>
+      {% else %}
+        <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_create') }}" formnovalidate>Save plane mirror with this scan</button>
+      {% endif %}
+      <button class="button" type="submit" formaction="{{ url_for('plane_mirror_download') }}" formnovalidate>Download CSV</button>
+    </div>
+  </fieldset>
+
+  <datalist id="material-suggestions">
+    {% for material in materials %}
+      <option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}">{{ material }}</option>
+    {% endfor %}
+  </datalist>
+
+  {% include "_stack_fields.html" %}
+
+  <fieldset>
+    <legend>Scan</legend>
+    <label>Scan
+      <select name="scan_mode" data-scan-mode>
+        <option value="energy" {% if defaults.scan_mode == "energy" %}selected{% endif %}>Energy scan at fixed grazing angle</option>
+        <option value="angle" {% if defaults.scan_mode == "angle" %}selected{% endif %}>Angle scan at fixed energy</option>
+        <option value="map" {% if defaults.scan_mode == "map" %}selected{% endif %}>Map: angle vs energy</option>
+      </select>
+    </label>
+    <label data-scan-field="energy map">Energy from, eV <input name="energy_min" type="number" step="any" value="{{ defaults.energy_min }}"></label>
+    <label data-scan-field="energy map">Energy to, eV <input name="energy_max" type="number" step="any" value="{{ defaults.energy_max }}"></label>
+    <label data-scan-field="energy">Energy points <input name="energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.energy_points }}"></label>
+    <label data-scan-field="angle map">Grazing angle from, deg <input name="angle_min" type="number" step="any" value="{{ defaults.angle_min }}"></label>
+    <label data-scan-field="angle map">Grazing angle to, deg <input name="angle_max" type="number" step="any" value="{{ defaults.angle_max }}"></label>
+    <label data-scan-field="angle">Angle points <input name="angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.angle_points }}"></label>
+    <label data-scan-field="map">Map energy points <input name="map_energy_points" type="number" step="1" min="1" max="5000" value="{{ defaults.map_energy_points }}"></label>
+    <label data-scan-field="map">Map angle points <input name="map_angle_points" type="number" step="1" min="1" max="5000" value="{{ defaults.map_angle_points }}"></label>
+    <label data-scan-field="energy">Fixed grazing angle, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
+    <label data-scan-field="angle">Fixed energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
+    <label>Polarization
+      <select name="polarization">
+        <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>s</option>
+        <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>p</option>
+        <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average of s and p</option>
+      </select>
+    </label>
+    <label>Default interface roughness &sigma;, nm <input name="roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.roughness_sigma_nm }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Lateral grading</legend>
+    <label>Grading
+      <select name="grading_mode" data-grading-mode>
+        <option value="none" {% if defaults.grading_mode == "none" %}selected{% endif %}>None</option>
+        <option value="linear" {% if defaults.grading_mode == "linear" %}selected{% endif %}>Linear</option>
+        <option value="polynomial" {% if defaults.grading_mode == "polynomial" %}selected{% endif %}>Polynomial</option>
+      </select>
+    </label>
+    <label data-grading-field="linear">Thickness change, %/mm <input name="grading_percent_per_mm" type="number" step="any" value="{{ defaults.grading_percent_per_mm }}"></label>
+    <label data-grading-field="polynomial">Scale coefficients c0, c1, c2, &hellip; (position in mm from centre) <input name="grading_coefficients" type="text" value="{{ defaults.grading_coefficients }}"></label>
+    <label data-grading-field="linear polynomial">Illuminated footprint length, mm <input name="footprint_length_mm" type="number" step="any" min="0" value="{{ defaults.footprint_length_mm }}"></label>
+    <label data-grading-field="linear polynomial">Footprint sample points <input name="footprint_points" type="number" step="1" min="1" max="500" value="{{ defaults.footprint_points }}"></label>
+  </fieldset>
+
+</form>
+
+{% if mirror %}
+<form class="form" method="post" action="{{ url_for('plane_mirror_delete', mirror_id=mirror.id) }}">
+  <div class="actions">
+    <button class="button danger" type="submit" data-confirm="Delete this plane mirror and all its scans? This cannot be undone.">Delete this plane mirror</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

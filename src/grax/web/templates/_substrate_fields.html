@@ -1,0 +1,12 @@
+{% from "_roughness_help.html" import roughness_help %}
+    <fieldset>
+      <legend>Substrate</legend>
+      <label>Substrate
+        <input name="substrate_material" list="material-suggestions" value="{{ defaults.substrate_material|default('', true) }}" data-material-select="substrate_material" autocomplete="off">
+      </label>
+      <label>Substrate density, g/cm^3
+        <input name="substrate_material_density_g_cm3" type="number" step="any" value="{{ defaults.substrate_material_density_g_cm3 }}" placeholder="{{ density_placeholders['substrate_material'] }}" data-material-density="substrate_material">
+      </label>
+      <label data-interface-sigma><span class="parameter-label">Substrate roughness &sigma;, nm {% if allow_bare %}{{ roughness_help('substrate_roughness_sigma_nm', 'sigma') }}{% endif %}</span> <input aria-label="Substrate roughness &sigma;, nm" name="substrate_roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.substrate_roughness_sigma_nm }}"></label>
+      {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">Substrate correlation ξ, nm {% if allow_bare %}{{ roughness_help('substrate_correlation_length_nm', 'xi') }}{% endif %}</span> <input aria-label="Substrate correlation ξ, nm" name="substrate_correlation_length_nm" type="number" min="0" step="any" value="{{ defaults.substrate_correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
+    </fieldset>

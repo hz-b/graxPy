@@ -12,7 +12,7 @@ import pytest
 
 import grax
 from grax import rcwa_1d
-from grax.gratings import BlazedGrating, LaminarGrating, ProfileGrating
+from grax.gratings import BlazedGrating, LaminarGrating, ProfileGrating, SinusoidalGrating
 from grax.simulation import (
     BatchSimulationRunner,
     energy_angle_cases,
@@ -224,10 +224,18 @@ def test_neviere_matches_rcwa_for_blazed_grating(polarization: str) -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("polarization", ["s", "p"])
 def test_neviere_matches_rcwa_for_sinusoidal_grating(polarization: str) -> None:
-    """Verify the differential method reproduces RCWA on a sinusoidal profile."""
+    """Verify both solvers accept and agree on the built-in sinusoidal profile."""
 
     _assert_solvers_agree(
-        _sinusoidal_grating(),
+        SinusoidalGrating(
+            period_lpermm=2000,
+            depth_nm=10.0,
+            substrate_material=SI,
+            layer_material=SI,
+            layer_thickness_nm=5.0,
+            x_resolution_nm=2.0,
+            z_resolution_nm=0.25,
+        ),
         energy_ev=300.0,
         grazing_angle_deg=5.0,
         polarization=polarization,
