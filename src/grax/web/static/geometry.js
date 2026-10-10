@@ -115,6 +115,18 @@
         feet: {xRise, xTopLeft, xTopRight, xFall, floor},
       };
     }
+    if (p.type === "sinusoidal") {
+      if (!(p.depthNm > 0)) {
+        return null;
+      }
+      const points = [];
+      const samples = 64;
+      for (let index = 0; index <= samples; index += 1) {
+        const x = (period * index) / samples;
+        points.push([x, 0.5 * p.depthNm * (1 - Math.cos((2 * Math.PI * x) / period))]);
+      }
+      return {points, height: p.depthNm, apex: null, feet: null};
+    }
     if (!(p.blazeDeg > 0 && p.blazeDeg < 90)) {
       return null;
     }
@@ -198,7 +210,7 @@
     const grazingFixed = workflow === undefined || workflow === "fixed_angle" || workflow === "parameter_study";
     return {
       kind: "grating",
-      type: type === "laminar" ? "laminar" : "blazed",
+      type: ["laminar", "sinusoidal"].includes(type) ? type : "blazed",
       periodNm: lines && lines > 0 ? 1e6 / lines : null,
       lpermm: lines,
       depthNm:
@@ -442,7 +454,7 @@
         add("angles", "anti", label(sx(p.periodNm) - 6, sy(0) - 18, "sawtooth (abrupt drop)", "geo-angle-text", "end"));
       }
       dimension(add, "lengths", "depth", sx(apexX) + 14, sy(0), sx(apexX) + 14, sy(profile.height), `h = ${fmt(profile.height)} nm`, 8);
-    } else {
+    } else if (p.type === "laminar") {
       const f = profile.feet;
       const leftArc = arc(sx(f.xRise), sy(0), 30, 0, -deg(Math.atan2(pz(profile.height), px(f.xTopLeft - f.xRise))), "geo-arc geo-wall-arc");
       add("angles", "wall_left", leftArc.path);
@@ -454,6 +466,9 @@
       add("lengths", "depth", line(dimX, sy(profile.height), sx(f.xTopLeft), sy(profile.height), "geo-ref"));
       dimension(add, "lengths", "depth", dimX, sy(0), dimX, sy(profile.height), `depth = ${fmt(profile.height)} nm`, -8, "end");
       dimension(add, "lengths", "width", sx(f.xTopLeft), sy(profile.height) - 14, sx(f.xTopRight), sy(profile.height) - 14, `plateau (1−r)·d = ${fmt(f.floor)} nm`, -6);
+    } else {
+      dimension(add, "lengths", "depth", sx(p.periodNm / 2) + 14, sy(0), sx(p.periodNm / 2) + 14, sy(profile.height), `depth = ${fmt(profile.height)} nm`, 8);
+      add("angles", null, label(sx(p.periodNm / 2), sy(profile.height) - 18, "sinusoidal profile", "geo-angle-text"));
     }
 
     dimension(add, "lengths", "period", sx(0), BASE_Y + 64, sx(p.periodNm), BASE_Y + 64, `d = ${fmt(p.periodNm)} nm (${fmt(p.lpermm)} l/mm)`, 16);
