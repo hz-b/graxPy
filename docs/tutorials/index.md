@@ -9,6 +9,7 @@ execution.
 
 materials
 gratings
+pulse-picker
 simulations
 choosing-a-solver
 solver-difference-examples

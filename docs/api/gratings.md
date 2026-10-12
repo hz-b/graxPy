@@ -30,3 +30,19 @@ stack that sits on the substrate.
 ```{eval-rst}
 .. autoclass:: grax.AFMGrating
 ```
+
+```{eval-rst}
+.. autoclass:: grax.PulsePickerGrating
+```
+
+```{eval-rst}
+.. autofunction:: grax.pulse_picker_rcwa_amplitudes
+```
+
+```{eval-rst}
+.. autofunction:: grax.simulate_pulse_picker_rocking_curve
+```
+
+```{eval-rst}
+.. autofunction:: grax.simulate_pulse_picker_timing
+```

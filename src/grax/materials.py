@@ -645,7 +645,12 @@ def _load_henke_scattering_factors(symbol: str) -> HenkeScatteringFactors:
             parts = line.split()
             if len(parts) < 3:
                 continue
-            energy_ev = float(parts[0])
+            try:
+                energy_ev = float(parts[0])
+            except ValueError:
+                # A few upstream Henke files start with a free-text provenance
+                # line instead of the usual E(eV)/f1/f2 column header.
+                continue
             f1 = float(parts[1])
             f2 = float(parts[2])
             if f1 <= -9998.0:

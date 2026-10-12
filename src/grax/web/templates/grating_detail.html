@@ -14,7 +14,9 @@
 </section>
 
 <h2>Nominal geometry — three periods</h2>
+{% if grating.grating_type != "pulse_picker" %}
 {{ geometry_view("grating", bind=".run-form", static=grating) }}
+{% endif %}
 
 <img class="preview" src="{{ preview_url }}" alt="Nominal grating profile and material stack over three aligned periods">
 {% if roughness_preview_url %}
@@ -29,6 +31,35 @@
   method="post"
   action="{{ url_for('create_run', grating_id=grating.id) }}"
 >
+  {% if grating.grating_type == "pulse_picker" %}
+  <fieldset>
+    <legend>Pulse-picker calculation</legend>
+    <label>Workflow
+      <select name="workflow">
+        <option value="pulse_picker_rocking">Rocking curve — crystalline Bragg model</option>
+        <option value="pulse_picker_rcwa">RCWA — continuous-index geometry</option>
+      </select>
+    </label>
+    <label>Photon energy, eV <input name="energy_ev" type="number" min="1" step="any" value="8000"></label>
+    <label>Applied voltage, V <input name="voltage_v" type="number" min="0" step="any" value="9"></label>
+    <label>Displacement / volt, nm/V <input name="displacement_per_volt_nm" type="number" min="0" step="any" value="{{ grating.displacement_per_volt_nm }}"></label>
+    <label>Polarization
+      <select name="polarization"><option value="s">s (TE)</option><option value="p">p (TM)</option></select>
+    </label>
+    <label>Fourier orders <input name="fourier_orders" type="number" min="2" max="30" step="1" value="8"></label>
+    <label>Max plotted satellite order <input name="max_order" type="number" min="1" max="8" step="1" value="4"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Rocking scan and instrument</legend>
+    <label>Angle range around Bragg, deg <input name="angle_half_width_deg" type="number" min="0.001" step="any" value="0.02"></label>
+    <label>Angle samples <input name="angle_points" type="number" min="51" max="2001" step="1" value="401"></label>
+    <label>Effective energy bandwidth FWHM, eV <input name="energy_bandwidth_fwhm_ev" type="number" min="0" step="any" value="0.85"></label>
+    <label>Angular divergence FWHM, deg <input name="divergence_fwhm_deg" type="number" min="0" step="any" value="0"></label>
+    <label>Detector aperture, deg <input name="aperture_width_deg" type="number" min="0" step="any" value="0"></label>
+  </fieldset>
+  <p class="subtle">LNB 104 is calculated with xrt. The 0.85 eV bandwidth and 0.0104 nm/V response are effective fits to rasterized Fig. 4, not measured instrument or piezoelectric parameters. LGS rocking scans need an external complex Bragg-reference curve.</p>
+  <div class="actions"><button class="button primary" type="submit">Run pulse picker</button></div>
+  {% else %}
   <fieldset>
     <legend>Run sweep</legend>
     <label>Workflow
@@ -103,5 +134,6 @@
   <div class="actions">
     <button class="button primary" type="submit">Run sweep</button>
   </div>
+  {% endif %}
 </form>
 {% endblock %}

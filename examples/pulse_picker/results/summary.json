@@ -1,0 +1,53 @@
+{
+  "branch_model": "xrt LiNbO3 104 Bragg kernel + RCWA-derived Al thin screen",
+  "displacement_harmonics": [],
+  "experimental_data": "raster-digitized Fig. 4, not raw measurements",
+  "fitted_9v_displacement_peak_to_valley_nm": 0.09368020394945036,
+  "fitted_displacement_per_volt_nm": 0.010408911549938928,
+  "fitted_effective_bandwidth_fwhm_ev": 0.8500000000000001,
+  "fitted_angle_origin_shift_deg": -0.0018813536688927837,
+  "off_rms_normalized": 0.016995186437036347,
+  "on_rms_normalized": 0.11114560013641665,
+  "on_peak_windows": {
+    "first_negative": {
+      "digitized_9v": 0.506053,
+      "model_9v": 0.2698490308569429,
+      "model_minus_digitized": -0.23620396914305708
+    },
+    "central": {
+      "digitized_9v": 0.694431,
+      "model_9v": 0.5556318666266137,
+      "model_minus_digitized": -0.13879913337338634
+    },
+    "first_positive": {
+      "digitized_9v": 0.509685,
+      "model_9v": 0.23136865217634434,
+      "model_minus_digitized": -0.2783163478236557
+    }
+  },
+  "full_fig4_reproduction": false,
+  "limitation": "Pure sinusoidal thin-screen model underestimates ON satellites.",
+  "satellite_spacing_deg": 0.003919371375161291,
+  "rcwa_energy_totals": {
+    "deformation": {
+      "R": 7.370888273911337e-09,
+      "T": 0.999990751298998
+    },
+    "aluminium": {
+      "R": 3.2255666475021154e-09,
+      "T": 0.9977320026486607
+    },
+    "combined": {
+      "R": 3.2673013762004303e-09,
+      "T": 0.9977227821560799
+    }
+  },
+  "timing": {
+    "gate_fwhm_ns": 1.0,
+    "bunch_spacing_ns": 2.0,
+    "selected_intensity": 0.15238477282626778,
+    "neighbour_leakage": 3.4984728092268824e-07,
+    "rejection_ratio": 435575.1241638001,
+    "note": "Effective Gaussian gate; not a measured electrode voltage trace."
+  }
+}

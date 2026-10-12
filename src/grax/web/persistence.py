@@ -18,6 +18,7 @@ from grax.gratings import (
     LaminarGrating,
     SinusoidalGrating,
 )
+from grax.pulse_picker import PulsePickerGrating
 from grax.afm_grating import AFMGrating
 from grax.materials import MaterialSpec, material_density_g_cm3, material_label, validate_material_input
 from grax.stacks import (
@@ -103,6 +104,21 @@ def grating_to_spec(grating: BaseGrating, *, name: str) -> dict[str, Any]:
         "stack": stack_to_spec(grating.resolved_stack()),
         "roughness": None if grating.roughness is None else asdict(grating.roughness),
     }
+    if isinstance(grating, PulsePickerGrating):
+        return {
+            **common,
+            "grating_type": "pulse_picker",
+            "sample": grating.sample,
+            "electrode_pitch_nm": grating.electrode_pitch_nm,
+            "finger_width_nm": grating.finger_width_nm,
+            "aluminium_thickness_nm": grating.aluminium_thickness_nm,
+            "electrode_offset_nm": grating.electrode_offset_nm,
+            "displacement_pv_nm": grating.displacement_pv_nm,
+            "voltage_v": grating.voltage_v,
+            "displacement_per_volt_nm": grating.displacement_per_volt_nm,
+            "displacement_harmonics": list(grating.displacement_harmonics),
+            "component": grating.component,
+        }
     if isinstance(grating, LaminarGrating):
         return {
             **common,
@@ -232,7 +248,10 @@ def _build_grating_from_spec(
     """Build a supported grating from a saved JSON-compatible spec."""
     stack_spec = dict(spec["stack"])
     common = {
-        "period_lpermm": int(spec["period_lpermm"]),
+        "period_lpermm": (
+            float(spec["period_lpermm"])
+            if spec["grating_type"] == "pulse_picker" else int(spec["period_lpermm"])
+        ),
         "x_resolution_nm": float(spec["x_resolution_nm"]),
         "z_resolution_nm": float(spec["z_resolution_nm"]),
         "roughness": RoughnessSpec(**spec["roughness"]) if spec.get("roughness") else None,
@@ -262,6 +281,20 @@ def _build_grating_from_spec(
             depth_nm=float(spec["depth_nm"]),
             left_wall_angle_deg=float(spec["left_wall_angle_deg"]),
             right_wall_angle_deg=float(spec["right_wall_angle_deg"]),
+        )
+    if spec["grating_type"] == "pulse_picker":
+        return PulsePickerGrating(
+            **common,
+            sample=str(spec.get("sample", "LNB")),
+            electrode_pitch_nm=float(spec["electrode_pitch_nm"]),
+            finger_width_nm=float(spec["finger_width_nm"]),
+            aluminium_thickness_nm=float(spec["aluminium_thickness_nm"]),
+            electrode_offset_nm=float(spec.get("electrode_offset_nm", 0.0)),
+            displacement_pv_nm=float(spec.get("displacement_pv_nm", 0.0)),
+            voltage_v=float(spec.get("voltage_v", 0.0)),
+            displacement_per_volt_nm=float(spec.get("displacement_per_volt_nm", 0.0)),
+            displacement_harmonics=tuple(float(v) for v in spec.get("displacement_harmonics", [])),
+            component=str(spec.get("component", "combined")),
         )
     if spec["grating_type"] == "afm":
         profile = spec.get("profile") or {}

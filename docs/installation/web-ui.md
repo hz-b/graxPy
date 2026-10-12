@@ -12,6 +12,13 @@ Python API, and each material field is prefilled with the built-in default
 density for the selected element. Edit the value only when your coating or film
 uses a different measured density.
 
+For the X-ray pulse picker, choose **Piezoelectric pulse picker** when creating
+a grating. The default LNB geometry follows the cited paper. Its saved detail
+page offers separate **Rocking curve** (crystalline Bragg approximation) and
+**RCWA** (continuous-index geometry) workflows, each with a plot, CSV, and
+summary download. See the {doc}`../tutorials/pulse-picker` tutorial for the
+model's assumptions and Fig. 4 comparison.
+
 Saved run comparison plots now render as interactive Plotly views inside the
 browser. From the `Plots` page you can change each series color, marker type,
 marker size, and the x/y axis scale before saving the comparison.

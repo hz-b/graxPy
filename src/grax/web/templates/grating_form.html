@@ -70,6 +70,7 @@
         <select name="grating_type" data-grating-type>
           <option value="laminar" {% if defaults.grating_type == "laminar" %}selected{% endif %}>Laminar</option>
           <option value="sinusoidal" {% if defaults.grating_type == "sinusoidal" %}selected{% endif %}>Sinusoidal</option>
+          <option value="pulse_picker" {% if defaults.grating_type == "pulse_picker" %}selected{% endif %}>Piezoelectric pulse picker</option>
           <option value="afm" {% if defaults.grating_type == "afm" %}selected{% endif %}>AFM profile</option>
           <option value="blazed" {% if defaults.grating_type == "blazed" %}selected{% endif %}>Blazed</option>
         </select>
@@ -92,12 +93,32 @@
       <label>Peak-to-valley depth, nm <input name="sinusoidal_depth_nm" type="number" step="any" min="0" value="{{ defaults.sinusoidal_depth_nm }}"></label>
     </fieldset>
 
+    <fieldset data-grating-section="pulse_picker">
+      <legend>Pulse picker — paper geometry</legend>
+      <label>Sample
+        <select name="pulse_sample" data-pulse-sample>
+          <option value="LNB" {% if defaults.pulse_sample == "LNB" %}selected{% endif %}>LiNbO₃ (104), Fig. 4</option>
+          <option value="LGS" {% if defaults.pulse_sample == "LGS" %}selected{% endif %}>Langasite (020)</option>
+        </select>
+      </label>
+      <label>Deformation period, nm <input name="grating_period_nm" type="number" step="any" min="0" value="{{ defaults.grating_period_nm }}"></label>
+      <label>Al electrode pitch, nm <input name="electrode_pitch_nm" type="number" step="any" min="0" value="{{ defaults.electrode_pitch_nm }}"></label>
+      <label>Al finger width, nm <input name="finger_width_nm" type="number" step="any" min="0" value="{{ defaults.finger_width_nm }}"></label>
+      <label>Al thickness, nm <input name="aluminium_thickness_nm" type="number" step="any" min="0" value="{{ defaults.aluminium_thickness_nm }}"></label>
+      <label>Electrode offset, nm <input name="electrode_offset_nm" type="number" step="any" value="{{ defaults.electrode_offset_nm }}"></label>
+      <label>Static displacement peak-to-valley, nm <input name="displacement_pv_nm" type="number" step="any" min="0" value="{{ defaults.displacement_pv_nm }}"></label>
+      <label>Displacement / volt, nm/V <input name="displacement_per_volt_nm" type="number" step="any" min="0" value="{{ defaults.displacement_per_volt_nm }}"></label>
+      <label>Higher harmonics (2nd, 3rd…), comma-separated <input name="displacement_harmonics" value="{{ defaults.displacement_harmonics }}"></label>
+      <p>The default 0.0104 nm/V is an effective fit to the rasterized Fig. 4 for this reduced model, not a displacement measured in the paper. Zero displacement means OFF.</p>
+    </fieldset>
+
     <fieldset data-grating-section="blazed">
       <legend>Blazed fields</legend>
       <label>Blaze angle, deg <input name="blaze_angle_deg" type="number" step="0.001" value="{{ defaults.blaze_angle_deg }}"></label>
       <label>Anti-blaze angle, deg <input name="anti_blaze_angle_deg" type="number" step="0.001" value="{{ defaults.anti_blaze_angle_deg }}"></label>
     </fieldset>
 
+    <div data-pulse-picker-standard-fields>
     <fieldset>
       <legend>Roughness model</legend>
       <label><span class="parameter-label">Model {{ roughness_help('model', 'model') }}</span>
@@ -119,6 +140,7 @@
     {% include "_substrate_fields.html" %}
     {% set substrate_rendered = true %}
     {% include "_stack_fields.html" %}
+    </div>
     <button class="button primary" type="submit">{{ submit_label }}</button>
   </form>
 
@@ -130,7 +152,9 @@
       </div>
       <span class="preview-pill" data-grating-preview-loading>Idle</span>
     </div>
-    {{ geometry_view("grating", bind="[data-grating-preview-form]") }}
+    <div data-pulse-picker-legacy-geometry{% if defaults.grating_type == "pulse_picker" %} class="is-hidden"{% endif %}>
+      {{ geometry_view("grating", bind="[data-grating-preview-form]") }}
+    </div>
     <figure class="afm-stage-plot is-hidden" data-afm-live-preview>
       <figcaption data-afm-live-caption>AFM averaged single-period profile</figcaption>
       <svg role="img" aria-label="Live AFM single-period profile"></svg>

@@ -39,6 +39,8 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime
 
 from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
 from grax.simulation.core import normalize_polarization
+from grax.pulse_picker import PulsePickerGrating
+from grax.materials import MaterialSpec
 
 from .multilayer_design_studies import (
     STAGE_LABELS,
@@ -499,15 +501,18 @@ def create_app(*, data_dir: str | Path | None = None):
             grating = build_grating_from_spec(spec)
         except (TypeError, ValueError) as error:
             abort(400, str(error))
-        run = _queue_run(
-            app=app,
-            data_dir=app.config["GRAx_DATA_DIR"],
-            grating_id=grating_id,
-            grating_name=str(spec["name"]),
-            grating_spec=spec,
-            grating=grating,
-            form=request.form,
-        )
+        try:
+            run = _queue_run(
+                app=app,
+                data_dir=app.config["GRAx_DATA_DIR"],
+                grating_id=grating_id,
+                grating_name=str(spec["name"]),
+                grating_spec=spec,
+                grating=grating,
+                form=request.form,
+            )
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
         return redirect(url_for("run_detail", run_id=run["id"]))
 
     @app.post("/_preview/grating")
@@ -1248,6 +1253,15 @@ def _default_form_values() -> dict[str, str]:
         "width_to_period_ratio": "0.67",
         "depth_nm": "14.9",
         "sinusoidal_depth_nm": "20.0",
+        "pulse_sample": "LNB",
+        "grating_period_nm": "4000.0",
+        "electrode_pitch_nm": "2000.0",
+        "finger_width_nm": "1000.0",
+        "aluminium_thickness_nm": "100.0",
+        "electrode_offset_nm": "0.0",
+        "displacement_pv_nm": "0.0",
+        "displacement_per_volt_nm": "0.0104",
+        "displacement_harmonics": "",
         "left_wall_angle_deg": "15.0",
         "right_wall_angle_deg": "15.0",
         "blaze_angle_deg": "0.75",
@@ -1318,6 +1332,12 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
             values["roughness_" + field] = str(roughness[field])
     if spec.get("grating_type") == "sinusoidal":
         values["sinusoidal_depth_nm"] = str(spec.get("depth_nm", "20.0"))
+    if spec.get("grating_type") == "pulse_picker":
+        values["pulse_sample"] = str(spec.get("sample", "LNB"))
+        values["grating_period_nm"] = str(1e6 / float(spec["period_lpermm"]))
+        values["displacement_harmonics"] = ",".join(
+            str(value) for value in spec.get("displacement_harmonics", [])
+        )
     stack = dict(spec.get("stack", {}))
     values["stack_type"] = str(stack.get("type", "single_layer"))
     for key, value in stack.items():
@@ -1376,6 +1396,38 @@ def _grating_custom_layer_rows(spec: dict[str, Any]) -> list[dict[str, str]]:
 def _spec_from_form(form: Any) -> dict[str, Any]:
     """Build a saved grating spec from submitted form data."""
     grating_type = str(form["grating_type"])
+    if grating_type == "pulse_picker":
+        from .persistence import grating_to_spec
+
+        sample = str(form.get("pulse_sample", "LNB"))
+        if sample not in {"LNB", "LGS"}:
+            raise ValueError("Pulse-picker sample must be LNB or LGS.")
+        period_nm = float(form["grating_period_nm"])
+        if not np.isfinite(period_nm) or period_nm <= 0:
+            raise ValueError("Grating period must be finite and positive.")
+        harmonics_text = str(form.get("displacement_harmonics", "")).strip()
+        harmonics = tuple(
+            float(value.strip()) for value in harmonics_text.split(",") if value.strip()
+        )
+        substrate = (
+            MaterialSpec("LiNbO3", density_g_cm3=4.64)
+            if sample == "LNB" else MaterialSpec("La3Ga5SiO14", density_g_cm3=5.75)
+        )
+        grating = PulsePickerGrating(
+            sample=sample,
+            period_lpermm=1e6 / period_nm,
+            substrate_material=substrate,
+            electrode_pitch_nm=float(form["electrode_pitch_nm"]),
+            finger_width_nm=float(form["finger_width_nm"]),
+            aluminium_thickness_nm=float(form["aluminium_thickness_nm"]),
+            electrode_offset_nm=float(form.get("electrode_offset_nm", 0.0)),
+            displacement_pv_nm=float(form.get("displacement_pv_nm", 0.0)),
+            displacement_per_volt_nm=float(form.get("displacement_per_volt_nm", 0.0)),
+            displacement_harmonics=harmonics,
+            x_resolution_nm=float(form.get("x_resolution_nm", 20.0)),
+            z_resolution_nm=float(form.get("z_resolution_nm", 0.025)),
+        )
+        return grating_to_spec(grating, name=str(form.get("name", "Pulse picker")).strip() or "Pulse picker")
     for key, label in (("period_lpermm", "Period (lines/mm)"),
                        ("x_resolution_nm", "X resolution (nm)"),
                        ("z_resolution_nm", "Z resolution (nm)")):
@@ -1660,6 +1712,32 @@ def _queue_run(
     """Create a queued run manifest and start background execution."""
 
     workflow = str(form["workflow"])
+    if workflow in {"pulse_picker_rocking", "pulse_picker_rcwa"}:
+        if not isinstance(grating, PulsePickerGrating):
+            raise ValueError("Pulse-picker workflows require a pulse-picker grating.")
+        from .pulse_picker_runs import run_pulse_picker_web
+
+        run_id = _run_id(workflow, grating_id)
+        run_dir = data_dir / "runs" / run_id
+        artifacts = run_pulse_picker_web(grating, workflow, form, run_dir)
+        manifest = {
+            "id": run_id,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "workflow": workflow,
+            "grating_id": grating_id,
+            "grating_name": grating_name,
+            "grating_spec": dict(grating_spec),
+            "display_name": f"{grating_name} · {workflow}",
+            "comment": str(form.get("comment", "")).strip(),
+            "polarization": _normalized_polarization(form.get("polarization", "s")),
+            "solver": "xrt Bragg + RCWA screen" if workflow == "pulse_picker_rocking" else "RCWA",
+            "status": "completed",
+            "artifacts": artifacts,
+            "total_points": 1,
+            "completed_points": 1,
+            "run_input": dict(form),
+        }
+        return RunStore(data_dir / "runs").save(manifest)
     run_id = _run_id(workflow, grating_id)
     run_dir = data_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -3198,7 +3276,10 @@ def _preferred_run_plot_path(data_dir: Path, run_id: str) -> str | None:
     """Return the best available plot file for one run."""
 
     run_dir = data_dir / "runs" / run_id
-    for candidate in ("selected_efficiency.png", "parameter_study.png", "live_progress.png"):
+    for candidate in (
+        "rocking_curve.png", "rcwa_orders.png", "selected_efficiency.png",
+        "parameter_study.png", "live_progress.png",
+    ):
         if (run_dir / candidate).exists():
             return candidate
     return None

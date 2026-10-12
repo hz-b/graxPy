@@ -10,15 +10,38 @@ function syncGratingSections(select) {
   document.querySelectorAll("[data-grating-section]").forEach((section) => {
     toggleSectionFields(section, section.dataset.gratingSection === selected);
   });
+  const form = select.closest("form");
+  const standard = form?.querySelector("[data-pulse-picker-standard-fields]");
+  if (standard) {
+    const isPicker = selected === "pulse_picker";
+    document.querySelector("[data-pulse-picker-legacy-geometry]")?.classList.toggle("is-hidden", isPicker);
+    standard.classList.toggle("is-hidden", isPicker);
+    standard.querySelectorAll("input, select, textarea").forEach((field) => {
+      field.disabled = isPicker;
+    });
+    if (!isPicker) {
+      const stack = form.querySelector("[data-stack-type]");
+      if (stack) syncStackSections(stack);
+    }
+    form.querySelector("[data-afm-main-period]")?.classList.toggle("is-hidden", isPicker);
+  }
 }
 
 function defaultStackForGrating(select) {
+  if (select.value === "pulse_picker") return;
   const stackSelect = select.closest("form")?.querySelector("[data-stack-type]");
   if (!stackSelect) return;
   syncStackSections(stackSelect);
 }
 
 function syncStackSections(select) {
+  const hiddenPickerFields = select.closest("[data-pulse-picker-standard-fields]");
+  if (hiddenPickerFields?.classList.contains("is-hidden")) {
+    hiddenPickerFields.querySelectorAll("input, select, textarea").forEach((field) => {
+      field.disabled = true;
+    });
+    return;
+  }
   const mode = select.value;
   // The custom layer table needs room: let its fieldset span the whole form grid.
   select.closest("fieldset")?.classList.toggle("is-wide", mode === "custom");
@@ -1105,8 +1128,30 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
     select.addEventListener("change", () => {
+      if (select.value === "pulse_picker") {
+        const form = select.closest("form");
+        const x = form?.elements.x_resolution_nm;
+        const z = form?.elements.z_resolution_nm;
+        if (x && Number(x.value) === 1) x.value = "20";
+        if (z && Number(z.value) === 1) z.value = "0.025";
+      }
       syncGratingSections(select);
       defaultStackForGrating(select);
+    });
+  });
+  document.querySelectorAll("[data-pulse-sample]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const form = select.closest("form");
+      const values = select.value === "LGS"
+        ? {grating_period_nm: 2800, electrode_pitch_nm: 1400, finger_width_nm: 700}
+        : {grating_period_nm: 4000, electrode_pitch_nm: 2000, finger_width_nm: 1000};
+      Object.entries(values).forEach(([name, value]) => {
+        const field = form?.elements[name];
+        if (field) field.value = value;
+      });
+      const response = form?.elements.displacement_per_volt_nm;
+      if (response) response.value = select.value === "LGS" ? "0" : "0.0104";
+      form?.dispatchEvent(new Event("change", {bubbles: true}));
     });
   });
 

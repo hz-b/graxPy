@@ -26,6 +26,14 @@ from .gratings import (
     ProfileGrating,
     SinusoidalGrating,
 )
+from .pulse_picker import (
+    PulsePickerGrating,
+    PulsePickerRockingResult,
+    PulsePickerTimingResult,
+    pulse_picker_rcwa_amplitudes,
+    simulate_pulse_picker_rocking_curve,
+    simulate_pulse_picker_timing,
+)
 from .simulation.core import normalize_polarization
 from .parameter_sweep import (
     ParameterStudyEnergyResult,
@@ -105,6 +113,9 @@ __all__ = [
     "ParameterStudyResult",
     "ParameterSweepSeries",
     "ProfileGrating",
+    "PulsePickerGrating",
+    "PulsePickerRockingResult",
+    "PulsePickerTimingResult",
     "RoughnessSpec",
     "SinusoidalGrating",
     "SingleLayerStack",
@@ -144,6 +155,9 @@ __all__ = [
     "run_multilayer_theta_search",
     "run_multilayer_theta_search_sweep",
     "run_simulation",
+    "pulse_picker_rcwa_amplitudes",
+    "simulate_pulse_picker_rocking_curve",
+    "simulate_pulse_picker_timing",
     "setup_logging",
     "simulate_single_energy",
     "write_all_orders_csv",
