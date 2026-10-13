@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.2 - 2026-10-13
 
 - Added persistent navigation back to the Saved gratings home page from the web interface and grating-management page.
 - Added a Custom grid run workflow for Cartesian parameter axes, row-coupled parameter groups, and complete run-local structural variants. Custom runs validate typed parameter overrides, preview exact integer ranges and case counts, preserve resolved case metadata for resume/export, snapshot AFM profiles, and generate dynamic CSV/DAT/YAML exports plus a simple live result plot.
