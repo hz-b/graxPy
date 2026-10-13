@@ -27,7 +27,7 @@
     <div class="section-head preview-head">
       <div>
         <h2>Live plot preview</h2>
-        <p data-plot-preview-status>Select saved runs and orders to see the interactive combined plot.</p>
+        <p data-plot-preview-status role="status" aria-live="polite">Select saved runs and orders to see the interactive combined plot.</p>
       </div>
       <div class="actions">
         <span class="preview-pill" data-plot-preview-loading>Idle</span>
@@ -89,7 +89,7 @@
 
     <fieldset>
       <legend>Series styling</legend>
-      <p class="hint">Each selected run and diffraction order gets its own line and marker controls.</p>
+      <p class="hint">Each selected run and diffraction order gets its own legend, line, and marker controls.</p>
       <div class="list compact" data-series-style-list></div>
     </fieldset>
   </section>
@@ -111,7 +111,11 @@
 <template data-plot-series-style-template>
   <fieldset class="plot-series-style" data-series-style-item>
     <legend data-series-style-title></legend>
-    <div class="form-grid three-column">
+    <div class="form-grid two-column">
+      <label class="plot-series-legend-name">
+        Legend name
+        <input type="text" maxlength="160" placeholder="Use the standard series label" data-series-legend-label>
+      </label>
       <label>
         Line and marker color
         <input type="color" value="#1f77b4" data-series-color>

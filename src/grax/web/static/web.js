@@ -723,6 +723,22 @@ function initPlotWorkspace(form) {
   const seriesStyleList = document.querySelector("[data-series-style-list]");
   let requestId = 0;
 
+  function setPreviewFeedback(state, message) {
+    const labels = {
+      idle: "Idle",
+      rendering: "Rendering",
+      ready: "Ready",
+      error: "Error",
+    };
+    loading.textContent = labels[state];
+    loading.dataset.state = state;
+    loading.classList.toggle("is-rendering", state === "rendering");
+    loading.classList.toggle("is-ready", state === "ready");
+    loading.classList.toggle("is-error", state === "error");
+    previewStatus.classList.toggle("is-error", state === "error");
+    previewStatus.textContent = message;
+  }
+
   function summarizeRuns(selectedRuns) {
     selectedRunSummary.replaceChildren();
     selectedRuns.forEach((run) => {
@@ -750,6 +766,10 @@ function initPlotWorkspace(form) {
       const item = seriesTemplate.content.firstElementChild.cloneNode(true);
       item.querySelector("[data-series-style-title]").textContent = series.label;
 
+      const legendLabelInput = item.querySelector("[data-series-legend-label]");
+      legendLabelInput.name = `legend_label_${series.series_token}`;
+      legendLabelInput.value = series.legend_label;
+
       const colorInput = item.querySelector("[data-series-color]");
       colorInput.name = `color_${series.series_token}`;
       colorInput.value = series.color;
@@ -770,7 +790,8 @@ function initPlotWorkspace(form) {
   const refreshPreview = debounce(async () => {
     requestId += 1;
     const currentRequest = requestId;
-    loading.textContent = "Rendering";
+    setPreviewFeedback("rendering", "Updating the live preview…");
+    saveButton.disabled = true;
     try {
       const response = await fetch(previewUrl, {
         method: "POST",
@@ -780,15 +801,14 @@ function initPlotWorkspace(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = payload.ok ? "Ready" : "Idle";
       if (payload.ok) {
         renderPlotlyFigure(previewContainer, payload.figure_json);
-        previewStatus.textContent = "Ready";
+        setPreviewFeedback("ready", "Preview is up to date.");
         saveButton.disabled = false;
         summarizeRuns(payload.selected_runs || []);
         syncSeriesControls(payload.series_controls || []);
       } else {
-        previewStatus.textContent = payload.error || "Select runs and orders.";
+        setPreviewFeedback("error", payload.error || "Select runs and orders.");
         saveButton.disabled = true;
         seriesStyleList.replaceChildren();
       }
@@ -796,8 +816,7 @@ function initPlotWorkspace(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = "Error";
-      previewStatus.textContent = "Preview request failed.";
+      setPreviewFeedback("error", "The preview could not be updated. Try again.");
       saveButton.disabled = true;
       seriesStyleList.replaceChildren();
     }

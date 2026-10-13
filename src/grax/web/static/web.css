@@ -426,6 +426,43 @@ select {
   background: #fff;
 }
 
+.preview-pill.is-rendering {
+  border-color: #b5860b;
+  color: #735606;
+  background: #fff8e6;
+}
+
+.preview-pill.is-rendering::before {
+  content: "";
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: preview-spin 0.7s linear infinite;
+}
+
+.preview-pill.is-ready {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  background: #f0f9f4;
+}
+
+.preview-pill.is-error,
+[data-plot-preview-status].is-error {
+  color: #b42318;
+}
+
+.preview-pill.is-error {
+  border-color: #b42318;
+  background: #fff4f2;
+}
+
+@keyframes preview-spin {
+  to { transform: rotate(360deg); }
+}
+
 .plot-preview {
   margin-top: 8px;
 }

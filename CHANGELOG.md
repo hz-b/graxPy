@@ -2,6 +2,7 @@
 
 ## 0.5.1 - Unreleased
 
+- Plot comparisons can now use optional per-series legend names, while blank names retain the standard run-and-order label. The live preview now clearly distinguishes rendering, ready, and error states and prevents saving while it refreshes.
 - Restored database-folder selection in the web interface, so users can choose where saved gratings, runs, and plots are stored.
 - Added X- and Z-resolution help tooltips explaining their role in the numerical simulation.
 - Reworked parameter studies into dedicated numerical-stability checks that compare Fourier orders, X resolution, and Z resolution at a selected energy and grazing angle.

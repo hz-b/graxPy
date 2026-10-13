@@ -4021,6 +4021,7 @@ def _build_combined_plot(
             "y_axis_type": plot_options["y_axis_type"],
             "series_styles": {
                 item["series_key"]: {
+                    "legend_label": item["legend_label"],
                     "color": item["color"],
                     "marker_symbol": item["marker_symbol"],
                     "marker_size": item["marker_size"],
@@ -4063,7 +4064,9 @@ def _plot_options_from_form(
             except (TypeError, ValueError):
                 marker_size = 3
             marker_size = max(1, min(marker_size, 24))
+            legend_label = str(form_data.get(f"legend_label_{token}", "")).strip()
             plot_options["series_styles"][series_key] = {
+                "legend_label": legend_label,
                 "color": _normalize_hex_color(form_data.get(f"color_{token}")),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,
@@ -4196,13 +4199,16 @@ def _series_controls_for_selected_series(
         except (TypeError, ValueError):
             marker_size = int(default_style["marker_size"])
         marker_size = max(1, min(marker_size, 24))
+        default_label = f"{series['label']} · order: {series['order']}"
+        legend_label = str(saved_style.get("legend_label", "")).strip()
         series_controls.append(
             {
                 "series_key": str(series["series_key"]),
                 "series_token": str(series["series_token"]),
                 "run_id": str(series["run_id"]),
                 "order": int(series["order"]),
-                "label": f"{series['label']} · order: {series['order']}",
+                "label": legend_label or default_label,
+                "legend_label": legend_label,
                 "color": _normalize_hex_color(saved_style.get("color")) or str(default_style["color"]),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,

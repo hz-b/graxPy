@@ -982,6 +982,8 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert b'name="x_axis_type"' in response.data
     assert b'name="y_axis_type"' in response.data
     assert b'data-series-style-list' in response.data
+    assert b'data-series-legend-label' in response.data
+    assert b'aria-live="polite"' in response.data
     assert b"name: Alpha grating" in response.data
     assert b"grating type: laminar" in response.data
     assert b"sweep type: fixed_angle" in response.data
@@ -1368,6 +1370,8 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert figure["layout"]["xaxis"]["type"] == "linear"
     assert figure["layout"]["yaxis"]["type"] == "linear"
     assert figure["data"][0]["marker"]["size"] == 3
+    assert figure["data"][0]["name"] == payload["series_controls"][0]["label"]
+    assert payload["series_controls"][0]["legend_label"] == ""
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
     assert invalid_response.status_code == 200
@@ -1394,6 +1398,7 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
             "color_run_1__order_0": "#123abc",
             "marker_symbol_run_1__order_0": "diamond",
             "marker_size_run_1__order_0": "13",
+            "legend_label_run_1__order_0": "Diamond reference",
         },
     )
     preview_payload = preview_response.get_json()
@@ -1404,6 +1409,8 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
     assert figure["data"][0]["line"]["color"] == "#123abc"
     assert figure["data"][0]["marker"]["symbol"] == "diamond"
     assert figure["data"][0]["marker"]["size"] == 13
+    assert figure["data"][0]["name"] == "Diamond reference"
+    assert preview_payload["series_controls"][0]["legend_label"] == "Diamond reference"
 
 
 def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) -> None:
@@ -1427,6 +1434,7 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
             "color_run_1__order_0": "#ff0000",
             "marker_symbol_run_1__order_0": "square",
             "marker_size_run_1__order_0": "11",
+            "legend_label_run_1__order_0": "Reference scan",
         },
         follow_redirects=False,
     )
@@ -1439,6 +1447,10 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["color"] == "#ff0000"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_symbol"] == "square"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_size"] == 11
+    assert (
+        manifest["plot_config"]["series_styles"]["run-1::order::0"]["legend_label"]
+        == "Reference scan"
+    )
     assert manifest["figure_json"]
 
     detail_response = client.get(location)
@@ -1447,6 +1459,7 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert b'data-saved-plot-figure' in detail_response.data
     assert b"square" in detail_response.data
     assert b"#ff0000" in detail_response.data
+    assert b"Reference scan" in detail_response.data
 
 
 def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:
