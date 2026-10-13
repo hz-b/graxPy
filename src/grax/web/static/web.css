@@ -814,6 +814,9 @@ fieldset {
 .roughness-tip { display: none; position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 20; width: min(320px, 75vw); padding: 12px; border: 1px solid #b6c2cf; border-radius: 8px; background: #fff; color: #243447; box-shadow: 0 4px 16px #0002; font-size: 0.85rem; line-height: 1.5; font-weight: normal; pointer-events: none; }
 .roughness-help:hover + .roughness-tip,
 .roughness-help:focus-visible + .roughness-tip { display: block; }
+.parameter-range { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(150px, 1fr) repeat(3, minmax(120px, 1fr)); gap: 10px; align-items: end; padding-top: 8px; border-top: 1px solid var(--line); }
+.parameter-range strong { align-self: center; }
+.parameter-range-warning { grid-column: 2 / -1; color: #9a3412; }
 
 /* Geometry schematics (static/geometry.js) */
 .geo-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0; }

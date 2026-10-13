@@ -31,11 +31,13 @@
 <section class="notice">
   <form class="form" method="post" action="{{ url_for('switch_workspace') }}">
     <label>
-      Active workspace root
+      Active database folder
       <input name="workspace_root" type="text" value="{{ active_workspace }}">
     </label>
+    <p class="subtle">Grax Web stores saved gratings, runs, and plots in this database folder.</p>
     <div class="actions">
       <button class="button" type="submit">Switch workspace</button>
+      <a class="button" href="{{ url_for('browse_workspace', path=active_workspace) }}">Select database folder</a>
     </div>
   </form>
 </section>

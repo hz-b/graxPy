@@ -149,10 +149,62 @@ function syncWorkerFields(select) {
 
 function syncRunWorkflow(select) {
   const workflow = select.value;
+  if (workflow === "parameter_study") {
+    const form = select.closest("form");
+    const energy = form?.querySelector('[name="energy_start_ev"]');
+    const studyEnergy = form?.querySelector('[name="study_energy_ev"]');
+    const angle = form?.querySelector('[name="grazing_angle_deg"]');
+    const studyAngle = form?.querySelector('[name="study_grazing_angle_deg"]');
+    if (energy && studyEnergy && energy.value) studyEnergy.value = energy.value;
+    if (angle && studyAngle && angle.value) studyAngle.value = angle.value;
+  }
   document.querySelectorAll("[data-workflow-fields]").forEach((section) => {
     const allowed = (section.dataset.workflowFields || "").split(/\s+/).filter(Boolean);
     toggleSectionFields(section, allowed.includes(workflow));
   });
+  syncFourierRangeWarning(select.closest("form"));
+}
+
+function syncFourierRangeWarning(form) {
+  if (!form) return;
+  const minimum = Number(form.querySelector('[name="study_fourier_min"]')?.value);
+  const maximum = Number(form.querySelector('[name="study_fourier_max"]')?.value);
+  const requested = Number(form.querySelector('[name="study_fourier_points"]')?.value);
+  const warning = form.querySelector("[data-fourier-range-warning]");
+  if (!warning || !Number.isFinite(minimum) || !Number.isFinite(maximum) || !Number.isFinite(requested)) return;
+  const available = Math.max(0, Math.floor(maximum) - Math.ceil(minimum) + 1);
+  if (maximum < minimum || available === 0) {
+    warning.textContent = "The Fourier-order maximum must be at least the minimum, with integer bounds.";
+    return;
+  }
+  const lower = Math.ceil(minimum);
+  const upper = Math.floor(maximum);
+  const roundLikeBackend = (value) => {
+    const floor = Math.floor(value);
+    const fraction = value - floor;
+    return fraction > 0.5 || (fraction === 0.5 && floor % 2 !== 0) ? floor + 1 : floor;
+  };
+  const effectiveCount = Math.min(Math.max(1, Math.floor(requested)), available);
+  const values = [];
+  if (effectiveCount === available) {
+    for (let value = lower; value <= upper; value += 1) values.push(value);
+  } else if (effectiveCount > 1) {
+    for (let index = 0; index < effectiveCount; index += 1) {
+      values.push(roundLikeBackend(lower + (upper - lower) * index / (effectiveCount - 1)));
+    }
+  } else if (effectiveCount === 1) {
+    values.push(lower);
+  }
+  const distinctValues = [...new Set(values)];
+  const fractionalSpacing = requested > 1 && !Number.isInteger((maximum - minimum) / (requested - 1));
+  const messages = [];
+  if (requested > available) {
+    messages.push(`Only ${available} distinct integer values are available; the requested ${requested} values will be reduced to ${available}.`);
+  }
+  if (fractionalSpacing) {
+    messages.push(`The requested spacing is fractional; Fourier orders will be rounded to: ${distinctValues.join(", ")}.`);
+  }
+  warning.textContent = messages.join(" ");
 }
 
 function debounce(fn, delayMs) {
@@ -1123,6 +1175,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-run-workflow]").forEach((select) => {
     syncRunWorkflow(select);
     select.addEventListener("change", () => syncRunWorkflow(select));
+  });
+
+  document.querySelectorAll('[name="study_fourier_min"], [name="study_fourier_max"], [name="study_fourier_points"]').forEach((field) => {
+    field.addEventListener("input", () => syncFourierRangeWarning(field.closest("form")));
   });
 
   document.querySelectorAll("[data-confirm]").forEach((button) => {

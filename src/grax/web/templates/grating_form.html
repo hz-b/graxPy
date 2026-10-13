@@ -75,8 +75,8 @@
         </select>
       </label>
       <label data-afm-main-period>Period, lines/mm <input name="period_lpermm" type="number" step="1" value="{{ defaults.period_lpermm }}"></label>
-      <label>X resolution, nm <input name="x_resolution_nm" type="number" step="0.01" value="{{ defaults.x_resolution_nm }}"></label>
-      <label>Z resolution, nm <input name="z_resolution_nm" type="number" step="0.01" value="{{ defaults.z_resolution_nm }}"></label>
+      <label><span class="parameter-label">X resolution, nm {{ roughness_help('grating_x_resolution_nm', 'x_resolution') }}</span> <input name="x_resolution_nm" type="number" step="0.01" value="{{ defaults.x_resolution_nm }}"></label>
+      <label><span class="parameter-label">Z resolution, nm {{ roughness_help('grating_z_resolution_nm', 'z_resolution') }}</span> <input name="z_resolution_nm" type="number" step="0.01" value="{{ defaults.z_resolution_nm }}"></label>
     </fieldset>
 
     <fieldset data-grating-section="laminar">

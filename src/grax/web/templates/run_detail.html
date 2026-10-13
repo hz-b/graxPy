@@ -67,6 +67,23 @@
   </section>
 </section>
 
+{% set final_plot = 'parameter_study.png' if 'parameter_study.png' in run.artifacts else ('selected_efficiency.png' if 'selected_efficiency.png' in run.artifacts else ('live_progress.png' if 'live_progress.png' in run.artifacts else None)) %}
+{% if final_plot %}
+<section class="preview-panel">
+  <h2>{{ 'Parameter-study visualization' if run.workflow == 'parameter_study' else 'Run visualization' }}</h2>
+  {% if run.workflow == 'parameter_study' %}
+    <p class="subtle">Numerical-stability check: selected-order efficiency while varying Fourier orders, X resolution, and Z resolution.</p>
+  {% else %}
+    <p class="subtle">Selected-order efficiency for this run.</p>
+  {% endif %}
+  <img
+    class="preview"
+    src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/' ~ final_plot) }}"
+    alt="{{ 'Parameter-study numerical-stability plot' if run.workflow == 'parameter_study' else 'Run efficiency plot' }}"
+  >
+</section>
+{% endif %}
+
 {% if related_plots %}
 <section>
   <h2>Related saved plots</h2>

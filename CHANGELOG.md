@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - Unreleased
+
+- Restored database-folder selection in the web interface, so users can choose where saved gratings, runs, and plots are stored.
+- Added X- and Z-resolution help tooltips explaining their role in the numerical simulation.
+- Reworked parameter studies into dedicated numerical-stability checks that compare Fourier orders, X resolution, and Z resolution at a selected energy and grazing angle.
+- Added per-sweep fixed-parameter controls, integer-aware Fourier-order validation and rounding warnings, live updates for all three study plots, and dynamic per-panel plot scaling.
+- Added clearer parameter-study defaults and documentation, including the purpose of the study and the values held fixed for each sweep.
+
 ## 0.5 - Unreleased
 
 - **Breaking:** diffraction-order signs now follow the standard grating equation; positive orders are the inside orders.
