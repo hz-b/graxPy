@@ -149,10 +149,62 @@ function syncWorkerFields(select) {
 
 function syncRunWorkflow(select) {
   const workflow = select.value;
+  if (workflow === "parameter_study") {
+    const form = select.closest("form");
+    const energy = form?.querySelector('[name="energy_start_ev"]');
+    const studyEnergy = form?.querySelector('[name="study_energy_ev"]');
+    const angle = form?.querySelector('[name="grazing_angle_deg"]');
+    const studyAngle = form?.querySelector('[name="study_grazing_angle_deg"]');
+    if (energy && studyEnergy && energy.value) studyEnergy.value = energy.value;
+    if (angle && studyAngle && angle.value) studyAngle.value = angle.value;
+  }
   document.querySelectorAll("[data-workflow-fields]").forEach((section) => {
     const allowed = (section.dataset.workflowFields || "").split(/\s+/).filter(Boolean);
     toggleSectionFields(section, allowed.includes(workflow));
   });
+  syncFourierRangeWarning(select.closest("form"));
+}
+
+function syncFourierRangeWarning(form) {
+  if (!form) return;
+  const minimum = Number(form.querySelector('[name="study_fourier_min"]')?.value);
+  const maximum = Number(form.querySelector('[name="study_fourier_max"]')?.value);
+  const requested = Number(form.querySelector('[name="study_fourier_points"]')?.value);
+  const warning = form.querySelector("[data-fourier-range-warning]");
+  if (!warning || !Number.isFinite(minimum) || !Number.isFinite(maximum) || !Number.isFinite(requested)) return;
+  const available = Math.max(0, Math.floor(maximum) - Math.ceil(minimum) + 1);
+  if (maximum < minimum || available === 0) {
+    warning.textContent = "The Fourier-order maximum must be at least the minimum, with integer bounds.";
+    return;
+  }
+  const lower = Math.ceil(minimum);
+  const upper = Math.floor(maximum);
+  const roundLikeBackend = (value) => {
+    const floor = Math.floor(value);
+    const fraction = value - floor;
+    return fraction > 0.5 || (fraction === 0.5 && floor % 2 !== 0) ? floor + 1 : floor;
+  };
+  const effectiveCount = Math.min(Math.max(1, Math.floor(requested)), available);
+  const values = [];
+  if (effectiveCount === available) {
+    for (let value = lower; value <= upper; value += 1) values.push(value);
+  } else if (effectiveCount > 1) {
+    for (let index = 0; index < effectiveCount; index += 1) {
+      values.push(roundLikeBackend(lower + (upper - lower) * index / (effectiveCount - 1)));
+    }
+  } else if (effectiveCount === 1) {
+    values.push(lower);
+  }
+  const distinctValues = [...new Set(values)];
+  const fractionalSpacing = requested > 1 && !Number.isInteger((maximum - minimum) / (requested - 1));
+  const messages = [];
+  if (requested > available) {
+    messages.push(`Only ${available} distinct integer values are available; the requested ${requested} values will be reduced to ${available}.`);
+  }
+  if (fractionalSpacing) {
+    messages.push(`The requested spacing is fractional; Fourier orders will be rounded to: ${distinctValues.join(", ")}.`);
+  }
+  warning.textContent = messages.join(" ");
 }
 
 function debounce(fn, delayMs) {
@@ -671,6 +723,22 @@ function initPlotWorkspace(form) {
   const seriesStyleList = document.querySelector("[data-series-style-list]");
   let requestId = 0;
 
+  function setPreviewFeedback(state, message) {
+    const labels = {
+      idle: "Idle",
+      rendering: "Rendering",
+      ready: "Ready",
+      error: "Error",
+    };
+    loading.textContent = labels[state];
+    loading.dataset.state = state;
+    loading.classList.toggle("is-rendering", state === "rendering");
+    loading.classList.toggle("is-ready", state === "ready");
+    loading.classList.toggle("is-error", state === "error");
+    previewStatus.classList.toggle("is-error", state === "error");
+    previewStatus.textContent = message;
+  }
+
   function summarizeRuns(selectedRuns) {
     selectedRunSummary.replaceChildren();
     selectedRuns.forEach((run) => {
@@ -698,6 +766,10 @@ function initPlotWorkspace(form) {
       const item = seriesTemplate.content.firstElementChild.cloneNode(true);
       item.querySelector("[data-series-style-title]").textContent = series.label;
 
+      const legendLabelInput = item.querySelector("[data-series-legend-label]");
+      legendLabelInput.name = `legend_label_${series.series_token}`;
+      legendLabelInput.value = series.legend_label;
+
       const colorInput = item.querySelector("[data-series-color]");
       colorInput.name = `color_${series.series_token}`;
       colorInput.value = series.color;
@@ -718,7 +790,8 @@ function initPlotWorkspace(form) {
   const refreshPreview = debounce(async () => {
     requestId += 1;
     const currentRequest = requestId;
-    loading.textContent = "Rendering";
+    setPreviewFeedback("rendering", "Updating the live preview…");
+    saveButton.disabled = true;
     try {
       const response = await fetch(previewUrl, {
         method: "POST",
@@ -728,15 +801,14 @@ function initPlotWorkspace(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = payload.ok ? "Ready" : "Idle";
       if (payload.ok) {
         renderPlotlyFigure(previewContainer, payload.figure_json);
-        previewStatus.textContent = "Ready";
+        setPreviewFeedback("ready", "Preview is up to date.");
         saveButton.disabled = false;
         summarizeRuns(payload.selected_runs || []);
         syncSeriesControls(payload.series_controls || []);
       } else {
-        previewStatus.textContent = payload.error || "Select runs and orders.";
+        setPreviewFeedback("error", payload.error || "Select runs and orders.");
         saveButton.disabled = true;
         seriesStyleList.replaceChildren();
       }
@@ -744,8 +816,7 @@ function initPlotWorkspace(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = "Error";
-      previewStatus.textContent = "Preview request failed.";
+      setPreviewFeedback("error", "The preview could not be updated. Try again.");
       saveButton.disabled = true;
       seriesStyleList.replaceChildren();
     }
@@ -1125,6 +1196,10 @@ document.addEventListener("DOMContentLoaded", () => {
     select.addEventListener("change", () => syncRunWorkflow(select));
   });
 
+  document.querySelectorAll('[name="study_fourier_min"], [name="study_fourier_max"], [name="study_fourier_points"]').forEach((field) => {
+    field.addEventListener("input", () => syncFourierRangeWarning(field.closest("form")));
+  });
+
   document.querySelectorAll("[data-confirm]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const message = button.dataset.confirm;
@@ -1320,7 +1395,82 @@ function initPlaneMirror(form) {
   updateStack();
 }
 
+function initRunExport() {
+  const dialog = document.querySelector("[data-run-export-dialog]");
+  const form = dialog?.querySelector("[data-run-export-form]");
+  if (!dialog || !form) {
+    return;
+  }
+  const status = form.querySelector("[data-run-export-status]");
+  const filenameField = form.querySelector("[data-run-export-filename]");
+  let exportUrl = "";
+  let defaultFilename = "grax-run-export.zip";
+
+  document.querySelectorAll("[data-run-export-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      exportUrl = button.dataset.runExportUrl || "";
+      defaultFilename = button.dataset.runExportName || "grax-run-export.zip";
+      filenameField.value = defaultFilename;
+      status.textContent = "";
+      dialog.showModal();
+    });
+  });
+
+  dialog.querySelectorAll("[data-run-export-cancel]").forEach((button) => {
+    button.addEventListener("click", () => dialog.close());
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formats = [...form.querySelectorAll("input[name='formats']:checked")].map(
+      (input) => input.value,
+    );
+    if (!exportUrl || formats.length === 0) {
+      status.textContent = "Select at least one file format.";
+      return;
+    }
+    const submitButton = form.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    status.textContent = "Preparing archive…";
+    try {
+      const body = new URLSearchParams();
+      formats.forEach((format) => body.append("formats", format));
+      const response = await fetch(exportUrl, {method: "POST", body});
+      if (!response.ok) {
+        throw new Error("The selected run data are not available yet.");
+      }
+      const blob = await response.blob();
+      const filename = filenameField.value.trim() || defaultFilename;
+      if (typeof window.showSaveFilePicker === "function") {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: filename.endsWith(".zip") ? filename : `${filename}.zip`,
+          types: [{description: "Grax run export", accept: {"application/zip": [".zip"]}}],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        status.textContent = "Export saved.";
+      } else {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = filename.endsWith(".zip") ? filename : `${filename}.zip`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+        status.textContent = "Export downloaded. Choose the destination in your browser’s download settings.";
+      }
+    } catch (error) {
+      status.textContent = error.name === "AbortError" ? "Export cancelled." : error.message;
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  initRunExport();
   document.querySelectorAll("[data-plane-mirror-form]").forEach((form) => {
     initPlaneMirror(form);
   });

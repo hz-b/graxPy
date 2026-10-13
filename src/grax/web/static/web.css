@@ -426,6 +426,43 @@ select {
   background: #fff;
 }
 
+.preview-pill.is-rendering {
+  border-color: #b5860b;
+  color: #735606;
+  background: #fff8e6;
+}
+
+.preview-pill.is-rendering::before {
+  content: "";
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: preview-spin 0.7s linear infinite;
+}
+
+.preview-pill.is-ready {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  background: #f0f9f4;
+}
+
+.preview-pill.is-error,
+[data-plot-preview-status].is-error {
+  color: #b42318;
+}
+
+.preview-pill.is-error {
+  border-color: #b42318;
+  background: #fff4f2;
+}
+
+@keyframes preview-spin {
+  to { transform: rotate(360deg); }
+}
+
 .plot-preview {
   margin-top: 8px;
 }
@@ -597,6 +634,33 @@ select {
 
 .export-dialog::backdrop {
   background: rgba(32, 35, 38, 0.25);
+}
+
+.export-format-list {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin: 4px 0 8px;
+}
+
+.export-format-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: auto;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.export-format-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .export-browser {
@@ -814,6 +878,9 @@ fieldset {
 .roughness-tip { display: none; position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 20; width: min(320px, 75vw); padding: 12px; border: 1px solid #b6c2cf; border-radius: 8px; background: #fff; color: #243447; box-shadow: 0 4px 16px #0002; font-size: 0.85rem; line-height: 1.5; font-weight: normal; pointer-events: none; }
 .roughness-help:hover + .roughness-tip,
 .roughness-help:focus-visible + .roughness-tip { display: block; }
+.parameter-range { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(150px, 1fr) repeat(3, minmax(120px, 1fr)); gap: 10px; align-items: end; padding-top: 8px; border-top: 1px solid var(--line); }
+.parameter-range strong { align-self: center; }
+.parameter-range-warning { grid-column: 2 / -1; color: #9a3412; }
 
 /* Geometry schematics (static/geometry.js) */
 .geo-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0; }
