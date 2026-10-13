@@ -882,6 +882,31 @@ fieldset {
 .parameter-range strong { align-self: center; }
 .parameter-range-warning { grid-column: 2 / -1; color: #9a3412; }
 
+.custom-grid-full-row { grid-column: 1 / -1; }
+.custom-grid-section { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfd; }
+.custom-grid-section h3 { margin: 0 0 4px; }
+.custom-grid-card { padding: 12px; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.custom-grid-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 10px; }
+.custom-grid-card-head label { flex: 1; }
+.custom-grid-axis-controls, .custom-grid-range { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.custom-grid-axis-controls { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+.custom-grid-spec, [data-group-rows], [data-axis-list] textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.custom-grid-spec { min-height: 180px; font: 0.88rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.custom-grid-variant-fields { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.custom-grid-card details { margin-top: 10px; }
+.custom-grid-card summary { cursor: pointer; color: var(--muted); }
+.custom-grid-coupled-parameters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.custom-grid-coupled-column { display: inline-flex; align-items: stretch; gap: 4px; min-width: min(100%, 260px); }
+.custom-grid-coupled-column select { flex: 1; min-width: 0; }
+.custom-grid-inline-actions { margin-bottom: 10px; }
+.custom-grid-preview { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 0.9rem; }
+[data-custom-grid-warning]:empty { display: none; }
+
+@media (max-width: 760px) {
+  .custom-grid-axis-controls, .custom-grid-range, .custom-grid-variant-fields { grid-template-columns: 1fr; }
+  .custom-grid-card-head { align-items: stretch; flex-direction: column; }
+}
+
 /* Geometry schematics (static/geometry.js) */
 .geo-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 8px 0; }
 .geo-svg { width: 100%; height: auto; max-height: 420px; background: #fbfcfd; border: 1px solid var(--line); border-radius: 8px; }

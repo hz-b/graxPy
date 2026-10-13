@@ -875,8 +875,349 @@ function initSavedPlotFigure(container) {
   renderPlotlyFigure(container, JSON.parse(figureJson));
 }
 
+function initCustomGridBuilder(root) {
+  const catalogNode = root.querySelector("[data-custom-grid-catalog]");
+  const defaultNode = root.querySelector("[data-custom-grid-default]");
+  const configField = root.querySelector("[data-custom-grid-config]");
+  const variantsRoot = root.querySelector("[data-custom-variants]");
+  const axesRoot = root.querySelector("[data-custom-axes]");
+  const groupsRoot = root.querySelector("[data-custom-groups]");
+  if (!catalogNode || !defaultNode || !configField || !variantsRoot || !axesRoot || !groupsRoot) return;
+
+  const baseCatalog = JSON.parse(catalogNode.textContent || "[]");
+  const initial = JSON.parse(defaultNode.textContent || "{}");
+  const threshold = Number(root.dataset.warningThreshold || 1000);
+  const countNode = root.querySelector("[data-custom-grid-count]");
+  const warningNode = root.querySelector("[data-custom-grid-warning]");
+  const previewNode = root.querySelector("[data-custom-grid-preview]");
+  let variantSerial = initial.variants?.length || 1;
+
+  function descriptorOptions(selected, blocked = new Set()) {
+    const groups = new Map();
+    const catalog = [...baseCatalog];
+    if (variantsRoot.children.length > 1) {
+      catalog.unshift({id: "variant", label: "Structural grating variant", category: "Structure", kind: "choice"});
+    }
+    catalog.forEach((item) => {
+      if (blocked.has(item.id) && item.id !== selected) return;
+      if (!groups.has(item.category)) groups.set(item.category, []);
+      groups.get(item.category).push(item);
+    });
+    const select = document.createElement("select");
+    select.className = "custom-grid-parameter";
+    groups.forEach((items, category) => {
+      const group = document.createElement("optgroup");
+      group.label = category;
+      items.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.label;
+        option.selected = item.id === selected;
+        group.append(option);
+      });
+      select.append(group);
+    });
+    return select;
+  }
+
+  function descriptor(id) {
+    if (id === "variant") {
+      return {id, label: "Structural grating variant", kind: "choice", choices: readVariants(false).map((item) => item.id)};
+    }
+    return baseCatalog.find((item) => item.id === id);
+  }
+
+  function splitValues(text) {
+    return text.split(/[\n,;]/).map((value) => value.trim()).filter(Boolean);
+  }
+
+  function roundHalfEven(value) {
+    const lower = Math.floor(value);
+    const fraction = value - lower;
+    if (Math.abs(fraction - 0.5) < Number.EPSILON * Math.max(1, Math.abs(value))) {
+      return lower % 2 === 0 ? lower : lower + 1;
+    }
+    return Math.round(value);
+  }
+
+  function castPreview(value, item) {
+    if (!item) throw new Error("Choose a valid parameter.");
+    if (item.kind === "int") {
+      const number = Number(value);
+      if (!Number.isInteger(number)) throw new Error(`${item.label} only accepts integers.`);
+      if (item.minimum !== null && item.minimum !== undefined && number < item.minimum) throw new Error(`${item.label} must be at least ${item.minimum}.`);
+      return number;
+    }
+    if (["float", "optional_float"].includes(item.kind)) {
+      if (item.kind === "optional_float" && value === "") return null;
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new Error(`${item.label} needs numeric values.`);
+      if (item.minimum !== null && item.minimum !== undefined && number < item.minimum) throw new Error(`${item.label} must be at least ${item.minimum}.`);
+      return number;
+    }
+    if (item.kind === "material") return value;
+    if (item.choices?.length && !item.choices.includes(value)) throw new Error(`Invalid value for ${item.label}.`);
+    return value;
+  }
+
+  function readVariants(strict = true) {
+    return [...variantsRoot.querySelectorAll("[data-custom-variant]")].map((row, index) => {
+      const id = row.dataset.variantId;
+      const name = row.querySelector("[data-variant-name]").value.trim() || `Variant ${index + 1}`;
+      let spec = {};
+      try {
+        spec = JSON.parse(row.querySelector("[data-variant-spec]").value);
+      } catch (error) {
+        if (strict) throw new Error(`${name} has invalid grating JSON.`);
+      }
+      return {id, name, spec};
+    });
+  }
+
+  function readablePath(path) {
+    return path.map((part) => typeof part === "number" ? `Layer ${part + 1}` : part.replaceAll("_", " ")).join(" · ");
+  }
+
+  function setNestedValue(rootObject, path, value) {
+    let target = rootObject;
+    path.slice(0, -1).forEach((part) => { target = target[part]; });
+    target[path.at(-1)] = value;
+  }
+
+  function applyStructureDefaults(spec, path, value) {
+    if (path.length === 1 && path[0] === "grating_type") {
+      spec.grating_type = value;
+      if (value === "laminar") Object.assign(spec, {width_to_period_ratio: spec.width_to_period_ratio ?? 0.5, depth_nm: spec.depth_nm ?? 10, left_wall_angle_deg: spec.left_wall_angle_deg ?? 0, right_wall_angle_deg: spec.right_wall_angle_deg ?? 0});
+      if (value === "sinusoidal") spec.depth_nm = spec.depth_nm ?? 10;
+      if (value === "blazed") Object.assign(spec, {blaze_angle_deg: spec.blaze_angle_deg ?? 1, anti_blaze_angle_deg: spec.anti_blaze_angle_deg ?? null});
+      if (value === "afm") spec.profile = spec.profile || {profile_path: "", source_filename: "", units: "nm", profile_type: "blazed", period_nm: 0};
+    }
+    if (path.join(".") === "stack.type") {
+      const substrate = spec.stack?.substrate_material || {name: "Si", density_g_cm3: null};
+      if (value === "bare") spec.stack = {type: value, substrate_material: substrate, substrate_roughness_sigma_nm: null};
+      if (value === "single_layer") spec.stack = {type: value, substrate_material: substrate, layer_material: {name: "Pt", density_g_cm3: null}, layer_thickness_nm: 10, top_cap_material: null, top_cap_thickness_nm: 0, substrate_roughness_sigma_nm: null, layer_roughness_sigma_nm: null, top_cap_roughness_sigma_nm: null};
+      if (value === "multilayer") spec.stack = {type: value, substrate_material: substrate, material_a: {name: "B4C", density_g_cm3: null}, material_b: {name: "Ru", density_g_cm3: null}, d_period_nm: 6, gamma: 0.5, n_bilayers: 20, top_material: {name: "Ru", density_g_cm3: null}, top_cap_material: null, top_cap_thickness_nm: 0, substrate_roughness_sigma_nm: null, material_a_roughness_sigma_nm: null, material_b_roughness_sigma_nm: null, top_cap_roughness_sigma_nm: null};
+      if (value === "custom") spec.stack = {type: value, substrate_material: substrate, layers_bottom_up: [{material: {name: "Pt", density_g_cm3: null}, thickness_nm: 10, roughness_sigma_nm: null}], top_cap_material: null, top_cap_thickness_nm: 0, substrate_roughness_sigma_nm: null, top_cap_roughness_sigma_nm: null};
+    }
+  }
+
+  function renderVariantFields(row, state) {
+    const fieldsRoot = row.querySelector("[data-variant-fields]");
+    const jsonField = row.querySelector("[data-variant-spec]");
+    fieldsRoot.replaceChildren();
+    if (state.spec.stack?.type === "custom") {
+      const actions = document.createElement("div"); actions.className = "custom-grid-inline-actions custom-grid-full-row";
+      const add = document.createElement("button"); add.type = "button"; add.className = "button"; add.textContent = "Add custom layer";
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "button danger"; remove.textContent = "Remove last layer"; remove.disabled = (state.spec.stack.layers_bottom_up || []).length <= 1;
+      add.addEventListener("click", () => { state.spec.stack.layers_bottom_up.push({material: {name: "Pt", density_g_cm3: null}, thickness_nm: 10, roughness_sigma_nm: null}); jsonField.value = JSON.stringify(state.spec, null, 2); renderVariantFields(row, state); refresh(); });
+      remove.addEventListener("click", () => { if (state.spec.stack.layers_bottom_up.length > 1) state.spec.stack.layers_bottom_up.pop(); jsonField.value = JSON.stringify(state.spec, null, 2); renderVariantFields(row, state); refresh(); });
+      actions.append(add, remove); fieldsRoot.append(actions);
+    }
+    const ignored = new Set(["id", "name", "schema_version", "created_at", "updated_at"]);
+    const roughnessLabel = document.createElement("label"); roughnessLabel.textContent = "Roughness model";
+    const roughnessSelect = document.createElement("select");
+    ["none", "debye-waller", "random-interface"].forEach((choice) => { const option = document.createElement("option"); option.value = choice; option.textContent = choice; roughnessSelect.append(option); });
+    roughnessSelect.value = state.spec.roughness?.kind || "none";
+    roughnessSelect.addEventListener("change", () => { state.spec.roughness = roughnessSelect.value === "none" ? null : {...(state.spec.roughness || {}), kind: roughnessSelect.value, sigma_nm: state.spec.roughness?.sigma_nm ?? 0, correlation_length_nm: state.spec.roughness?.correlation_length_nm ?? 0, seed: state.spec.roughness?.seed ?? 0, num_supercells: state.spec.roughness?.num_supercells ?? 1, num_realizations: state.spec.roughness?.num_realizations ?? 1}; jsonField.value = JSON.stringify(state.spec, null, 2); renderVariantFields(row, state); refresh(); });
+    roughnessLabel.append(roughnessSelect); fieldsRoot.append(roughnessLabel);
+    function visit(value, path = []) {
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => visit(item, [...path, index]));
+        return;
+      }
+      if (value && typeof value === "object") {
+        Object.entries(value).forEach(([key, nested]) => { if (!(path.length === 0 && ignored.has(key)) && !(path.length === 0 && key === "roughness") && !(path.join(".") === "roughness" && key === "kind")) visit(nested, [...path, key]); });
+        return;
+      }
+      const label = document.createElement("label");
+      label.textContent = readablePath(path);
+      let input;
+      const joined = path.join(".");
+      if (joined === "grating_type" || joined === "stack.type" || joined === "roughness.kind") {
+        input = document.createElement("select");
+        const choices = joined === "grating_type" ? ["laminar", "sinusoidal", "blazed", "afm"] : joined === "stack.type" ? ["bare", "single_layer", "multilayer", "custom"] : ["none", "debye-waller", "random-interface"];
+        choices.forEach((choice) => { const option = document.createElement("option"); option.value = choice; option.textContent = choice.replaceAll("_", " "); input.append(option); });
+        input.value = value ?? choices[0];
+      } else if (typeof value === "number") {
+        input = document.createElement("input"); input.type = "number"; input.step = Number.isInteger(value) ? "1" : "any"; input.value = value;
+      } else {
+        input = document.createElement("input"); input.type = "text"; input.value = value ?? "";
+      }
+      input.addEventListener("change", () => {
+        const converted = input.type === "number" ? (input.value === "" ? null : Number(input.value)) : input.value === "" && value === null ? null : input.value;
+        applyStructureDefaults(state.spec, path, converted);
+        setNestedValue(state.spec, path, converted);
+        jsonField.value = JSON.stringify(state.spec, null, 2);
+        if (["grating_type", "stack.type"].includes(joined)) renderVariantFields(row, state);
+        refresh();
+      });
+      label.append(input); fieldsRoot.append(label);
+    }
+    visit(state.spec);
+    if (state.spec.roughness) visit(state.spec.roughness, ["roughness"]);
+  }
+
+  function makeVariant(variant) {
+    const row = document.createElement("article");
+    row.className = "custom-grid-card";
+    row.dataset.customVariant = "";
+    row.dataset.variantId = variant.id;
+    row.innerHTML = `<div class="custom-grid-card-head"><label>Variant name <input data-variant-name></label><button type="button" class="button danger" data-remove>Remove</button></div><div class="custom-grid-variant-fields" data-variant-fields></div><details><summary>Advanced: complete configuration JSON</summary><label>Complete grating configuration<textarea class="custom-grid-spec" data-variant-spec spellcheck="false"></textarea></label></details>`;
+    const state = {spec: structuredClone(variant.spec)};
+    row.querySelector("[data-variant-name]").value = variant.name;
+    row.querySelector("[data-variant-spec]").value = JSON.stringify(state.spec, null, 2);
+    renderVariantFields(row, state);
+    row.querySelector("[data-variant-spec]").addEventListener("change", (event) => {
+      try { state.spec = JSON.parse(event.target.value); renderVariantFields(row, state); refresh(); } catch (error) { refresh(); }
+    });
+    row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
+    row.addEventListener("input", refresh);
+    variantsRoot.append(row);
+  }
+
+  function makeAxis(axis = {}) {
+    const row = document.createElement("article");
+    row.className = "custom-grid-card";
+    row.dataset.customAxis = "";
+    const parameter = descriptorOptions(axis.parameter || baseCatalog[0]?.id);
+    const mode = document.createElement("select");
+    mode.dataset.axisMode = "";
+    mode.innerHTML = '<option value="list">Explicit values</option><option value="range">Linear range</option>';
+    mode.value = axis.mode || "list";
+    row.innerHTML = '<div class="custom-grid-card-head"><strong>Independent axis</strong><button type="button" class="button danger" data-remove>Remove</button></div>';
+    const controls = document.createElement("div");
+    controls.className = "custom-grid-axis-controls";
+    const parameterLabel = document.createElement("label"); parameterLabel.append("Parameter", parameter);
+    const modeLabel = document.createElement("label"); modeLabel.append("Input", mode);
+    controls.append(parameterLabel, modeLabel);
+    const values = document.createElement("label"); values.dataset.axisList = ""; values.append("Values");
+    const textarea = document.createElement("textarea"); textarea.rows = 2; textarea.placeholder = "100, 200, 300";
+    textarea.value = (axis.values || []).join(", "); values.append(textarea);
+    const range = document.createElement("div"); range.className = "custom-grid-range"; range.dataset.axisRange = "";
+    [["Minimum", "minimum"], ["Maximum", "maximum"], ["Count", "count"]].forEach(([label, key]) => {
+      const fieldLabel = document.createElement("label"); const input = document.createElement("input");
+      input.type = "number"; input.step = key === "count" ? "1" : "any"; input.dataset[key] = "";
+      input.value = axis[key] ?? (key === "count" ? 2 : key === "minimum" ? 0 : 1);
+      fieldLabel.append(label, input); range.append(fieldLabel);
+    });
+    const generated = document.createElement("p"); generated.className = "subtle"; generated.dataset.axisGenerated = "";
+    row.append(controls, values, range, generated);
+    function syncMode() { const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind); if (!rangeAllowed) mode.value = "list"; mode.querySelector('[value="range"]').disabled = !rangeAllowed; values.classList.toggle("is-hidden", mode.value !== "list"); range.classList.toggle("is-hidden", mode.value !== "range"); }
+    parameter.addEventListener("change", () => { syncMode(); refresh(); }); mode.addEventListener("change", () => { syncMode(); refresh(); });
+    row.addEventListener("input", refresh); row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
+    axesRoot.append(row); syncMode();
+  }
+
+  function makeGroup(group = {}) {
+    const row = document.createElement("article"); row.className = "custom-grid-card"; row.dataset.customGroup = "";
+    row.innerHTML = '<div class="custom-grid-card-head"><label>Group name <input data-group-name></label><button type="button" class="button danger" data-remove>Remove</button></div><div class="custom-grid-coupled-parameters" data-group-parameters></div><div class="custom-grid-inline-actions"><button type="button" class="button" data-add-column>Add parameter</button></div><label>Rows (one row per coupled case; comma-separated columns)<textarea data-group-rows rows="5" placeholder="100, 1\n200, 2"></textarea></label><p class="subtle" data-group-columns></p>';
+    row.querySelector("[data-group-name]").value = group.name || "Coupled group";
+    const paramsRoot = row.querySelector("[data-group-parameters]");
+    function addColumn(value) {
+      const wrapper = document.createElement("div"); wrapper.className = "custom-grid-coupled-column";
+      const select = descriptorOptions(value || baseCatalog[paramsRoot.children.length]?.id);
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "button danger"; remove.textContent = "×"; remove.title = "Remove parameter";
+      remove.addEventListener("click", () => { if (paramsRoot.children.length > 2) { wrapper.remove(); refresh(); } });
+      select.addEventListener("change", refresh); wrapper.append(select, remove); paramsRoot.append(wrapper);
+    }
+    (group.parameters?.length ? group.parameters : [baseCatalog[0]?.id, baseCatalog[1]?.id]).forEach(addColumn);
+    const rows = group.rows || [];
+    row.querySelector("[data-group-rows]").value = rows.map((values) => group.parameters.map((parameter) => values[parameter]).join(", ")).join("\n");
+    row.querySelector("[data-add-column]").addEventListener("click", () => { addColumn(); refresh(); });
+    row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
+    row.addEventListener("input", refresh); groupsRoot.append(row);
+  }
+
+  function axisValues(row) {
+    const item = descriptor(row.querySelector(".custom-grid-parameter").value);
+    const mode = row.querySelector("[data-axis-mode]").value;
+    if (mode === "list") {
+      const values = splitValues(row.querySelector("[data-axis-list] textarea").value);
+      if (!values.length) throw new Error(`${item.label} needs at least one value.`);
+      return values.map((value) => castPreview(value, item));
+    }
+    const minimum = Number(row.querySelector("[data-minimum]").value);
+    const maximum = Number(row.querySelector("[data-maximum]").value);
+    const count = Number(row.querySelector("[data-count]").value);
+    if (!Number.isInteger(count) || count < 1 || !Number.isFinite(minimum) || !Number.isFinite(maximum)) throw new Error("Every range needs finite bounds and a positive integer count.");
+    const values = Array.from({length: count}, (_, index) => count === 1 ? minimum : minimum + ((maximum - minimum) * index) / (count - 1));
+    const exact = item.kind === "int" ? [...new Set(values.map(roundHalfEven))] : values;
+    row.querySelector("[data-axis-generated]").textContent = item.kind === "int" ? `Exact integer values: ${exact.join(", ")}${exact.length !== count ? ` (requested ${count}; reduced to ${exact.length})` : ""}` : `Generated ${exact.length} values.`;
+    return exact.map((value) => castPreview(value, item));
+  }
+
+  function buildConfig() {
+    const used = new Set();
+    const independent = [...axesRoot.querySelectorAll("[data-custom-axis]")].map((row) => {
+      const parameter = row.querySelector(".custom-grid-parameter").value;
+      if (used.has(parameter)) throw new Error("A parameter can appear only once across all axes and coupled groups."); used.add(parameter);
+      const mode = row.querySelector("[data-axis-mode]").value;
+      if (mode === "range") return {parameter, mode, minimum: Number(row.querySelector("[data-minimum]").value), maximum: Number(row.querySelector("[data-maximum]").value), count: Number(row.querySelector("[data-count]").value)};
+      return {parameter, mode, values: axisValues(row)};
+    });
+    const coupled_groups = [...groupsRoot.querySelectorAll("[data-custom-group]")].map((row, index) => {
+      const parameters = [...row.querySelectorAll(".custom-grid-parameter")].map((select) => select.value);
+      parameters.forEach((parameter) => { if (used.has(parameter)) throw new Error("A parameter can appear only once across all axes and coupled groups."); used.add(parameter); });
+      const lines = row.querySelector("[data-group-rows]").value.split(/\n/).map((line) => line.trim()).filter(Boolean);
+      const rows = lines.map((line) => { const cells = line.split(",").map((cell) => cell.trim()); if (cells.length !== parameters.length) throw new Error(`${row.querySelector("[data-group-name]").value || `Coupled group ${index + 1}`} needs exactly ${parameters.length} values on every row.`); return Object.fromEntries(parameters.map((parameter, cellIndex) => [parameter, castPreview(cells[cellIndex], descriptor(parameter))])); });
+      if (!rows.length) throw new Error("Every coupled group needs at least one row.");
+      row.querySelector("[data-group-columns]").textContent = `Columns: ${parameters.map((id) => descriptor(id)?.label || id).join(" · ")}`;
+      return {name: row.querySelector("[data-group-name]").value.trim() || `Coupled group ${index + 1}`, parameters, rows};
+    });
+    const display_order = [
+      ...independent.map((axis) => ({kind: "independent", parameter: axis.parameter})),
+      ...coupled_groups.map((group, index) => ({kind: "coupled_group", index, name: group.name})),
+    ];
+    return {schema_version: 1, variants: readVariants(), independent, coupled_groups, display_order};
+  }
+
+  function gridSummary(config) {
+    const axes = config.independent.map((axis, index) => axisValues(axesRoot.querySelectorAll("[data-custom-axis]")[index]).map((value) => ({[axis.parameter]: value})));
+    config.coupled_groups.forEach((group) => axes.push(group.rows));
+    if (!axes.length) return {count: 1, duplicateCount: 0, preview: [{}]};
+    const count = axes.reduce((total, axis) => total * axis.length, 1);
+    const uniqueCount = axes.reduce((total, axis) => total * new Set(axis.map((item) => JSON.stringify(item))).size, 1);
+    const preview = axes.reduce(
+      (left, right) => left.flatMap((a) => right.map((b) => ({...a, ...b}))).slice(0, 8),
+      [{}],
+    );
+    return {count, duplicateCount: count - uniqueCount, preview};
+  }
+
+  function refresh() {
+    try {
+      const config = buildConfig(); const summary = gridSummary(config);
+      configField.value = JSON.stringify(config);
+      countNode.textContent = `${summary.count.toLocaleString()} ${summary.count === 1 ? "case" : "cases"}`;
+      const duplicateCount = summary.duplicateCount;
+      const warnings = [];
+      if (summary.count > threshold) warnings.push(`Large grid: ${summary.count.toLocaleString()} cases exceeds the ${threshold.toLocaleString()}-case warning threshold.`);
+      if (duplicateCount) warnings.push(`${duplicateCount} resolved duplicate ${duplicateCount === 1 ? "case is" : "cases are"} retained.`);
+      warningNode.textContent = warnings.join(" "); warningNode.classList.toggle("notice-error", warnings.length > 0);
+      previewNode.textContent = summary.preview.map((item, index) => `${index + 1}. ${Object.entries(item).map(([key, value]) => `${descriptor(key)?.label || key}=${typeof value === "object" ? JSON.stringify(value) : value}`).join("; ") || "Default settings"}`).join("\n") + (summary.count > 8 ? `\n… ${(summary.count - 8).toLocaleString()} more` : "");
+      root.dataset.customGridValid = "true";
+    } catch (error) {
+      countNode.textContent = "Grid configuration needs attention"; warningNode.textContent = error.message; warningNode.classList.add("notice-error"); root.dataset.customGridValid = "false";
+    }
+  }
+
+  (initial.variants || []).forEach(makeVariant);
+  (initial.independent || []).forEach(makeAxis);
+  (initial.coupled_groups || []).forEach(makeGroup);
+  root.querySelector("[data-custom-add-variant]").addEventListener("click", () => { const source = readVariants(false)[0]; variantSerial += 1; makeVariant({id: `variant-${variantSerial}`, name: `Variant ${variantSerial}`, spec: source?.spec || {}}); refresh(); });
+  root.querySelector("[data-custom-add-axis]").addEventListener("click", () => { makeAxis(); refresh(); });
+  root.querySelector("[data-custom-add-group]").addEventListener("click", () => { makeGroup(); refresh(); });
+  root.closest("form")?.addEventListener("submit", (event) => {
+    if (root.closest("form").querySelector("[data-run-workflow]")?.value !== "custom_grid") return;
+    refresh();
+    if (root.dataset.customGridValid !== "true") { event.preventDefault(); window.alert(warningNode.textContent); }
+  });
+  refresh();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initMaterialDensitySync();
+  document.querySelectorAll("[data-custom-grid-builder]").forEach(initCustomGridBuilder);
 });
 
 function formatSeconds(value) {

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added a Custom grid run workflow for Cartesian parameter axes, row-coupled parameter groups, and complete run-local structural variants. Custom runs validate typed parameter overrides, preview exact integer ranges and case counts, preserve resolved case metadata for resume/export, snapshot AFM profiles, and generate dynamic CSV/DAT/YAML exports plus a simple live result plot.
+
 ## 0.5.1 
 
 - Plot comparisons can now use optional per-series legend names, while blank names retain the standard run-and-order label. The live preview now clearly distinguishes rendering, ready, and error states and prevents saving while it refreshes.
