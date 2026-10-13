@@ -1,0 +1,36 @@
+<dialog class="export-dialog" data-run-export-dialog>
+  <form class="form" data-run-export-form>
+    <div class="section-head preview-head">
+      <div>
+        <h2>Download run data</h2>
+        <p>Select the files to include. All formats are selected by default.</p>
+      </div>
+      <button class="button" type="button" data-run-export-cancel>Cancel</button>
+    </div>
+
+    <div class="list compact">
+      <label class="inline-check">
+        <input type="checkbox" name="formats" value="csv" checked>
+        <span>CSV data</span>
+      </label>
+      <label class="inline-check">
+        <input type="checkbox" name="formats" value="dat" checked>
+        <span>DAT data (tab-separated)</span>
+      </label>
+      <label class="inline-check">
+        <input type="checkbox" name="formats" value="yaml" checked>
+        <span>Metadata YAML</span>
+      </label>
+    </div>
+
+    <label>
+      Archive filename
+      <input type="text" value="run_export.zip" data-run-export-filename>
+    </label>
+    <p class="subtle" data-run-export-status></p>
+    <div class="actions">
+      <button class="button primary" type="submit">Choose destination…</button>
+      <button class="button" type="button" data-run-export-cancel>Cancel</button>
+    </div>
+  </form>
+</dialog>

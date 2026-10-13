@@ -8,7 +8,7 @@
 - Added per-sweep fixed-parameter controls, integer-aware Fourier-order validation and rounding warnings, live updates for all three study plots, and dynamic per-panel plot scaling.
 - Added clearer parameter-study defaults and documentation, including the purpose of the study and the values held fixed for each sweep.
 - Added run-data export as CSV or tab-separated DAT, plus a human-readable YAML metadata file containing the grating definition, simulation inputs, study configuration, result columns, and provenance.
-- Added a one-click ZIP export containing both data formats and metadata, with a native save-location picker where supported by the browser.
+- Added a run export dialog on both run-detail and saved-run-management pages. CSV, tab-separated DAT, and YAML metadata are selected together by default but can be downloaded individually or in any combination as a ZIP, with a native save-location picker where supported by the browser.
 
 ## 0.5 - Unreleased
 

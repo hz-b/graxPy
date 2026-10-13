@@ -41,6 +41,15 @@
             <p class="subtle">{{ run.workflow }} · {{ run.status }} · {{ run.progress_summary }}</p>
             <p class="subtle">{{ run.parameter_summary }}</p>
             <p><a href="{{ run.detail_url }}">View run details</a></p>
+            <p>
+              <button
+                class="button"
+                type="button"
+                data-run-export-open
+                data-run-export-url="{{ url_for('export_selected_run_data', run_id=run.id) }}"
+                data-run-export-name="{{ run.id }}_export.zip"
+              >Download data…</button>
+            </p>
             {% if run.artifact_links %}
               <p class="subtle">Artifacts:</p>
               <ul class="compact-list">
@@ -78,4 +87,5 @@
 {% else %}
   <p class="empty">No runs have been saved yet.</p>
 {% endif %}
+{% include "_run_export_dialog.html" %}
 {% endblock %}

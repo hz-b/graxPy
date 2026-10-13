@@ -40,13 +40,13 @@
     <button
       class="button primary"
       type="button"
-      data-download-all
-      data-download-all-url="{{ url_for('export_all_run_data', run_id=run.id) }}"
-      data-download-all-name="{{ run.id }}_export.zip"
+      data-run-export-open
+      data-run-export-url="{{ url_for('export_selected_run_data', run_id=run.id) }}"
+      data-run-export-name="{{ run.id }}_export.zip"
     >Download all…</button>
   </div>
-  <p class="subtle" data-download-all-status></p>
 </section>
+{% include "_run_export_dialog.html" %}
 
 <section
   class="run-monitor"

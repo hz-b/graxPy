@@ -639,24 +639,37 @@ def create_app(*, data_dir: str | Path | None = None):
         if manifest is None:
             abort(404)
         run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
-        header, rows = _run_export_rows(run_dir, workflow=str(manifest.get("workflow", "")))
-        if not header:
-            abort(404, "No exported data are available for this run yet.")
-
-        csv_text = _run_export_table(header, rows, delimiter=",")
-        dat_text = _run_export_table(header, rows, delimiter="\t")
         try:
-            metadata_text = _run_metadata_yaml(manifest, run_dir)
+            archive = _run_export_archive(manifest, run_dir, {"csv", "dat", "yaml"})
+        except ValueError as error:
+            abort(404, str(error))
         except ModuleNotFoundError:
             abort(500, "YAML export requires PyYAML. Install the web dependencies.")
-
-        archive_buffer = io.BytesIO()
-        with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr(f"{run_id}.csv", csv_text)
-            archive.writestr(f"{run_id}.dat", dat_text)
-            archive.writestr(f"{run_id}_metadata.yaml", metadata_text)
         return Response(
-            archive_buffer.getvalue(),
+            archive,
+            mimetype="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={run_id}_export.zip"},
+        )
+
+    @app.post("/runs/<run_id>/export-selected")
+    def export_selected_run_data(run_id: str):
+        """Download a selected subset of run data and metadata in one ZIP."""
+
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        formats = {value.strip().lower() for value in request.form.getlist("formats")}
+        if not formats or not formats <= {"csv", "dat", "yaml"}:
+            abort(400, "Select at least one valid export format.")
+        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        try:
+            archive = _run_export_archive(manifest, run_dir, formats)
+        except ValueError as error:
+            abort(404, str(error))
+        except ModuleNotFoundError:
+            abort(500, "YAML export requires PyYAML. Install the web dependencies.")
+        return Response(
+            archive,
             mimetype="application/zip",
             headers={"Content-Disposition": f"attachment; filename={run_id}_export.zip"},
         )
@@ -3179,6 +3192,33 @@ def _run_export_table(header: list[str], rows: list[list[str]], *, delimiter: st
     writer.writerow(header)
     writer.writerows(rows)
     return buffer.getvalue()
+
+
+def _run_export_archive(
+    manifest: dict[str, Any],
+    run_dir: Path,
+    formats: set[str],
+) -> bytes:
+    """Build a ZIP archive containing the selected run export formats."""
+
+    workflow = str(manifest.get("workflow", ""))
+    header: list[str] = []
+    rows: list[list[str]] = []
+    if formats & {"csv", "dat"}:
+        header, rows = _run_export_rows(run_dir, workflow=workflow)
+        if not header:
+            raise ValueError("No exported data are available for this run yet.")
+
+    run_id = str(manifest["id"])
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        if "csv" in formats:
+            archive.writestr(f"{run_id}.csv", _run_export_table(header, rows, delimiter=","))
+        if "dat" in formats:
+            archive.writestr(f"{run_id}.dat", _run_export_table(header, rows, delimiter="\t"))
+        if "yaml" in formats:
+            archive.writestr(f"{run_id}_metadata.yaml", _run_metadata_yaml(manifest, run_dir))
+    return archive_buffer.getvalue()
 
 
 def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, Any]:
