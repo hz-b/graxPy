@@ -37,7 +37,15 @@
     <a class="button" href="{{ url_for('export_run', run_id=run.id, export_format='csv') }}">Download CSV</a>
     <a class="button" href="{{ url_for('export_run', run_id=run.id, export_format='dat') }}">Download DAT</a>
     <a class="button" href="{{ url_for('export_run', run_id=run.id, export_format='yaml') }}">Download metadata YAML</a>
+    <button
+      class="button primary"
+      type="button"
+      data-download-all
+      data-download-all-url="{{ url_for('export_all_run_data', run_id=run.id) }}"
+      data-download-all-name="{{ run.id }}_export.zip"
+    >Download all…</button>
   </div>
+  <p class="subtle" data-download-all-status></p>
 </section>
 
 <section

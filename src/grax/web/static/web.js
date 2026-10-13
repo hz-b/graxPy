@@ -1376,7 +1376,62 @@ function initPlaneMirror(form) {
   updateStack();
 }
 
+function initRunExport() {
+  const button = document.querySelector("[data-download-all]");
+  if (!button) {
+    return;
+  }
+  const status = document.querySelector("[data-download-all-status]");
+  const url = button.dataset.downloadAllUrl;
+  const filename = button.dataset.downloadAllName || "grax-run-export.zip";
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    if (status) {
+      status.textContent = "Preparing archive…";
+    }
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error("The run data are not available yet.");
+      }
+      const blob = await response.blob();
+      if (typeof window.showSaveFilePicker === "function") {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{description: "Grax run export", accept: {"application/zip": [".zip"]}}],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        if (status) {
+          status.textContent = "Export saved.";
+        }
+      } else {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = filename;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+        if (status) {
+          status.textContent = "Export downloaded. Choose the destination in your browser’s download settings.";
+        }
+      }
+    } catch (error) {
+      if (status) {
+        status.textContent = error.name === "AbortError" ? "Export cancelled." : error.message;
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  initRunExport();
   document.querySelectorAll("[data-plane-mirror-form]").forEach((form) => {
     initPlaneMirror(form);
   });

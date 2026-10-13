@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 import webbrowser
+import zipfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -628,6 +629,36 @@ def create_app(*, data_dir: str | Path | None = None):
             buffer.getvalue(),
             mimetype=mimetype,
             headers={"Content-Disposition": f"attachment; filename={run_id}.{export_format}"},
+        )
+
+    @app.get("/runs/<run_id>/export-all")
+    def export_all_run_data(run_id: str):
+        """Download all run data formats and metadata in one ZIP archive."""
+
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        header, rows = _run_export_rows(run_dir, workflow=str(manifest.get("workflow", "")))
+        if not header:
+            abort(404, "No exported data are available for this run yet.")
+
+        csv_text = _run_export_table(header, rows, delimiter=",")
+        dat_text = _run_export_table(header, rows, delimiter="\t")
+        try:
+            metadata_text = _run_metadata_yaml(manifest, run_dir)
+        except ModuleNotFoundError:
+            abort(500, "YAML export requires PyYAML. Install the web dependencies.")
+
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(f"{run_id}.csv", csv_text)
+            archive.writestr(f"{run_id}.dat", dat_text)
+            archive.writestr(f"{run_id}_metadata.yaml", metadata_text)
+        return Response(
+            archive_buffer.getvalue(),
+            mimetype="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={run_id}_export.zip"},
         )
 
     @app.get("/runs/<run_id>/abort")
@@ -3138,6 +3169,16 @@ def _run_export_rows(
                 )
             rows.extend(list(reader))
     return header, rows
+
+
+def _run_export_table(header: list[str], rows: list[list[str]], *, delimiter: str) -> str:
+    """Serialize exported rows using the requested delimiter."""
+
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, delimiter=delimiter, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
+    return buffer.getvalue()
 
 
 def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, Any]:
