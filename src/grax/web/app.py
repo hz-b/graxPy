@@ -3211,7 +3211,10 @@ def _run_export_archive(
 
     run_id = str(manifest["id"])
     archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    # Keep the scientific data byte-for-byte uncompressed inside the archive.
+    # This makes the selected CSV/DAT/YAML files immediately inspectable and
+    # avoids spending CPU time compressing already compact tabular data.
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         if "csv" in formats:
             archive.writestr(f"{run_id}.csv", _run_export_table(header, rows, delimiter=","))
         if "dat" in formats:

@@ -599,6 +599,33 @@ select {
   background: rgba(32, 35, 38, 0.25);
 }
 
+.export-format-list {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin: 4px 0 8px;
+}
+
+.export-format-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: auto;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.export-format-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .export-browser {
   max-height: 320px;
   overflow: auto;
