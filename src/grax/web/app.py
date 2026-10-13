@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import importlib.metadata
+import io
+import json
 import warnings
 from copy import copy
-from .grating_roughness import (roughness_from_form, optional_nonnegative, realization_grating, validate_roughness_geometry)
-import csv
-import json
 import os
 import shutil
 import threading
@@ -40,6 +41,12 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime
 from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
 from grax.simulation.core import normalize_polarization
 
+from .grating_roughness import (
+    optional_nonnegative,
+    realization_grating,
+    roughness_from_form,
+    validate_roughness_geometry,
+)
 from .multilayer_design_studies import (
     STAGE_LABELS,
     STAGES,
@@ -580,6 +587,47 @@ def create_app(*, data_dir: str | Path | None = None):
             status_url=url_for("run_status", run_id=run_id),
             memory_url=url_for("system_memory"),
             abort_url=url_for("abort_run_dialog", run_id=run_id),
+        )
+
+    @app.get("/runs/<run_id>/export/<export_format>")
+    def export_run(run_id: str, export_format: str):
+        """Download run data as CSV/DAT or its YAML metadata companion."""
+
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        export_format = export_format.strip().lower()
+        if export_format not in {"csv", "dat", "yaml"}:
+            abort(404)
+
+        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        if export_format == "yaml":
+            try:
+                body = _run_metadata_yaml(manifest, run_dir)
+            except ModuleNotFoundError:
+                abort(500, "YAML export requires PyYAML. Install the web dependencies.")
+            return Response(
+                body,
+                mimetype="application/yaml",
+                headers={"Content-Disposition": f"attachment; filename={run_id}_metadata.yaml"},
+            )
+
+        header, rows = _run_export_rows(run_dir, workflow=str(manifest.get("workflow", "")))
+        if not header:
+            abort(404, "No exported data are available for this run yet.")
+        buffer = io.StringIO(newline="")
+        writer = csv.writer(
+            buffer,
+            delimiter="\t" if export_format == "dat" else ",",
+            lineterminator="\n",
+        )
+        writer.writerow(header)
+        writer.writerows(rows)
+        mimetype = "text/tab-separated-values" if export_format == "dat" else "text/csv"
+        return Response(
+            buffer.getvalue(),
+            mimetype=mimetype,
+            headers={"Content-Disposition": f"attachment; filename={run_id}.{export_format}"},
         )
 
     @app.get("/runs/<run_id>/abort")
@@ -3054,6 +3102,116 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     if isinstance(payload.get("run_input"), dict):
         payload["run_input"].setdefault("polarization", payload["polarization"])
     return payload
+
+
+def _run_export_rows(
+    run_dir: Path,
+    *,
+    workflow: str,
+) -> tuple[list[str], list[list[str]]]:
+    """Read the canonical data rows that should be offered for one run."""
+
+    if workflow == "parameter_study":
+        paths = sorted(run_dir.glob("parameter_study_*.csv"))
+    else:
+        paths = [run_dir / "all_orders.csv"]
+        if not paths[0].exists():
+            paths = [run_dir / "summary.csv"]
+
+    header: list[str] = []
+    rows: list[list[str]] = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            try:
+                current_header = next(reader)
+            except StopIteration:
+                continue
+            if not header:
+                header = current_header
+            if current_header != header:
+                raise ValueError(
+                    "Cannot combine exported files with different columns: "
+                    f"{path.name}"
+                )
+            rows.extend(list(reader))
+    return header, rows
+
+
+def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    """Return stable, user-facing metadata for a downloadable run export."""
+
+    run_input = dict(manifest.get("run_input") or {})
+    grating = dict(manifest.get("grating_spec") or {})
+    grating.setdefault("id", manifest.get("grating_id"))
+    grating.setdefault("name", manifest.get("grating_name"))
+    workflow = str(manifest.get("workflow", "run"))
+    data_filename = f"{manifest['id']}.csv"
+    metadata_filename = f"{manifest['id']}_metadata.yaml"
+    header, _ = _run_export_rows(run_dir, workflow=workflow)
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "grax_version": _grax_version(),
+        "run": {
+            "id": manifest.get("id"),
+            "name": manifest.get("display_name"),
+            "workflow": workflow,
+            "created_at": manifest.get("created_at"),
+            "status": manifest.get("status"),
+            "comment": manifest.get("comment", ""),
+        },
+        "grating": grating,
+        "simulation": {
+            "polarization": manifest.get("polarization", run_input.get("polarization", "s")),
+            "solver": manifest.get("solver", run_input.get("solver", "rcwa")),
+            "diffraction_order": run_input.get("diffraction_order"),
+            "input": run_input,
+        },
+        "results": {
+            "completed_cases": len(manifest.get("cases") or []),
+            "total_points": manifest.get("total_points"),
+            "columns": header,
+        },
+        "files": {
+            "csv": data_filename,
+            "dat": f"{manifest['id']}.dat",
+            "metadata": metadata_filename,
+        },
+    }
+    if workflow == "parameter_study":
+        payload["study"] = {
+            "type": "parameter_study",
+            "purpose": "Numerical-stability verification only",
+            "configuration": {
+                key: value for key, value in run_input.items() if key.startswith("study_")
+            },
+        }
+    return payload
+
+
+def _run_metadata_yaml(manifest: dict[str, Any], run_dir: Path) -> str:
+    """Serialize run metadata as human-readable, machine-readable YAML."""
+
+    import yaml
+
+    return yaml.safe_dump(
+        _run_metadata_payload(manifest, run_dir),
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    )
+
+
+def _grax_version() -> str:
+    """Return the installed graxpy version for exported provenance."""
+
+    try:
+        return importlib.metadata.version("graxpy")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _update_manifest_fields(data_dir: Path, run_id: str, **updates: Any) -> dict[str, Any]:

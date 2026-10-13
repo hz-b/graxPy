@@ -7,6 +7,7 @@
 - Reworked parameter studies into dedicated numerical-stability checks that compare Fourier orders, X resolution, and Z resolution at a selected energy and grazing angle.
 - Added per-sweep fixed-parameter controls, integer-aware Fourier-order validation and rounding warnings, live updates for all three study plots, and dynamic per-panel plot scaling.
 - Added clearer parameter-study defaults and documentation, including the purpose of the study and the values held fixed for each sweep.
+- Added run-data export as CSV or tab-separated DAT, plus a human-readable YAML metadata file containing the grating definition, simulation inputs, study configuration, result columns, and provenance.
 
 ## 0.5 - Unreleased
 
