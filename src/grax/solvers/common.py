@@ -64,6 +64,11 @@ class FourierBackend(str, Enum):
 
 FourierBackendName = Literal["numpy", "numba"]
 
+
+class NumbaBackendUnavailableError(RuntimeError):
+    """Raised when the requested Numba backend cannot be imported."""
+
+
 try:
     from numba import njit
 
@@ -176,9 +181,9 @@ def _resolve_fourier_backend(
     """Return the effective Fourier backend after validation."""
 
     if backend == "numba" and not _NUMBA_AVAILABLE:
-        raise RuntimeError(
-            "numba backend requested but numba is not installed. "
-            "Reinstall the standard graxpy package so the required numba dependency is available."
+        raise NumbaBackendUnavailableError(
+            "Numba backend is unavailable because Numba could not be imported. "
+            "Check the installation and its native dependencies."
         )
     try:
         return FourierBackend(backend)
