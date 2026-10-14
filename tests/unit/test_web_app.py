@@ -1053,6 +1053,8 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
 
     assert response.status_code == 200
     assert b'data-run-workflow' in response.data
+    assert b'data-run-workflow-description' in response.data
+    assert b'Use it to calculate the spectral response' in response.data
     assert b'data-workflow-fields=' in response.data
     assert b'fixed_angle' in response.data
     assert b'monochromator' in response.data

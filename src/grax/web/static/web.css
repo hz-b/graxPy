@@ -251,6 +251,32 @@ legend {
   font-weight: 700;
 }
 
+.run-workflow-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 2fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.run-workflow-description {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  background: #f7fafb;
+}
+
+.run-workflow-description p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+@media (max-width: 680px) {
+  .run-workflow-picker { grid-template-columns: 1fr; }
+}
+
 /* A named sub-group inside a fieldset: heading and fields each claim a full
    row of the fieldset grid, so the group reads as one line. */
 .field-row-label {
@@ -890,20 +916,24 @@ fieldset {
 .custom-grid-card-head label { flex: 1; }
 .custom-grid-axis-controls, .custom-grid-range { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; margin-bottom: 10px; }
 .custom-grid-axis-controls { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
-.custom-grid-spec, [data-group-rows], [data-axis-list] textarea { width: 100%; box-sizing: border-box; resize: vertical; }
-.custom-grid-spec { min-height: 180px; font: 0.88rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.custom-grid-variant-fields { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
-.custom-grid-card details { margin-top: 10px; }
-.custom-grid-card summary { cursor: pointer; color: var(--muted); }
-.custom-grid-coupled-parameters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.custom-grid-coupled-column { display: inline-flex; align-items: stretch; gap: 4px; min-width: min(100%, 260px); }
-.custom-grid-coupled-column select { flex: 1; min-width: 0; }
-.custom-grid-inline-actions { margin-bottom: 10px; }
-.custom-grid-preview { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 0.9rem; }
+.custom-grid-range.is-hidden { display: none; }
+[data-axis-list] textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+[data-couple-range] { margin-top: 12px; }
+[data-couple-error]:empty { display: none; }
+[data-axis-coupling-hint]:empty { display: none; }
+.custom-grid-material-fields { display: flex; flex-wrap: wrap; gap: 10px; }
+.custom-grid-material-fields label { flex: 1; min-width: 140px; }
+.custom-grid-material-row { padding: 10px 0; border-top: 1px solid var(--line); }
+.custom-grid-material-row > strong { display: block; margin-bottom: 6px; }
+.custom-grid-table-wrap { max-height: 400px; overflow: auto; margin-top: 12px; }
+.custom-grid-coupling-table { width: 100%; table-layout: fixed; }
+.custom-grid-coupling-table th { position: sticky; top: 0; background: #f4f7f8; }
+.custom-grid-coupling-table input, .custom-grid-coupling-table select { width: 100%; box-sizing: border-box; }
+.custom-grid-preview { max-height: 12em; overflow: auto; white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5; scrollbar-gutter: stable; }
 [data-custom-grid-warning]:empty { display: none; }
 
 @media (max-width: 760px) {
-  .custom-grid-axis-controls, .custom-grid-range, .custom-grid-variant-fields { grid-template-columns: 1fr; }
+  .custom-grid-axis-controls, .custom-grid-range { grid-template-columns: 1fr; }
   .custom-grid-card-head { align-items: stretch; flex-direction: column; }
 }
 

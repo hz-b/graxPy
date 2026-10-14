@@ -32,15 +32,21 @@
 >
   <fieldset>
     <legend>Run sweep</legend>
-    <label>Workflow
-      <select name="workflow" data-run-workflow>
-        <option value="fixed_angle">Fixed angle</option>
-        <option value="monochromator">Monochromator</option>
-        <option value="multilayer_theta_search">Multilayer theta search</option>
-        <option value="parameter_study">Parameter study</option>
-        <option value="custom_grid">Custom grid</option>
-      </select>
-    </label>
+    <div class="run-workflow-picker">
+      <label>Workflow
+        <select name="workflow" data-run-workflow aria-describedby="run-workflow-description">
+          <option value="fixed_angle">Fixed angle</option>
+          <option value="monochromator">Monochromator</option>
+          <option value="multilayer_theta_search">Multilayer theta search</option>
+          <option value="parameter_study">Parameter study</option>
+          <option value="custom_grid">Custom grid</option>
+        </select>
+      </label>
+      <aside class="run-workflow-description" id="run-workflow-description" data-run-workflow-description aria-live="polite">
+        <strong data-run-workflow-title>Fixed angle</strong>
+        <p data-run-workflow-summary>Scans an energy range while keeping the grazing angle fixed. Use it to calculate the spectral response at one incidence angle.</p>
+      </aside>
+    </div>
     <label>Workers
       <select name="max_workers_mode" data-worker-mode>
         <option value="auto" selected>Auto</option>
@@ -114,46 +120,40 @@
     >
 
     <p class="hint custom-grid-full-row">
+      The saved grating supplies the base geometry and coating.
       Independent parameters form a Cartesian grid. Within a coupled group, values stay
       together row by row—for example energy 100 with angle 1, then energy 200 with angle 2.
     </p>
 
-    <div class="custom-grid-full-row form-grid three-column">
-      <label>Default energy, eV
-        <input name="custom_default_energy_ev" type="number" min="0.000001" step="any" value="100">
-      </label>
-      <label>Default incident (grazing) angle α, deg
-        <input name="custom_default_grazing_angle_deg" type="number" step="any" value="1.5">
-      </label>
-      <label>Default diffraction order
-        <input name="custom_default_diffraction_order" type="number" step="1" value="1">
-      </label>
-      <label>Default Fourier orders
-        <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="5">
-      </label>
-      <label>Default polarization
-        <select name="custom_default_polarization">
-          <option value="s" selected>s (TE)</option>
-          <option value="p">p (TM)</option>
-        </select>
-      </label>
-      <label>Default solver
-        <select name="custom_default_solver">
-          <option value="rcwa" selected>RCWA</option>
-          <option value="neviere">Nevi&egrave;re</option>
-        </select>
-      </label>
-    </div>
-
     <section class="custom-grid-full-row custom-grid-section">
-      <div class="section-head preview-head">
-        <div>
-          <h3>Structural variants</h3>
-          <p class="subtle">Variants are run-local copies with the same geometry and coating settings as saved gratings. They are validated before the run and never change the saved grating.</p>
-        </div>
-        <button class="button" type="button" data-custom-add-variant>Add variant</button>
+      <h3>Default values</h3>
+      <p class="subtle">These values apply to every case unless overridden by an independent parameter or a coupled parameter group below.</p>
+      <div class="form-grid three-column">
+        <label>Default energy, eV
+          <input name="custom_default_energy_ev" type="number" min="0.000001" step="any" value="100">
+        </label>
+        <label>Default incident (grazing) angle α, deg
+          <input name="custom_default_grazing_angle_deg" type="number" step="any" value="1.5">
+        </label>
+        <label>Default diffraction order
+          <input name="custom_default_diffraction_order" type="number" step="1" value="1">
+        </label>
+        <label>Default Fourier orders
+          <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="5">
+        </label>
+        <label>Default polarization
+          <select name="custom_default_polarization">
+            <option value="s" selected>s (TE)</option>
+            <option value="p">p (TM)</option>
+          </select>
+        </label>
+        <label>Default solver
+          <select name="custom_default_solver">
+            <option value="rcwa" selected>RCWA</option>
+            <option value="neviere">Nevi&egrave;re</option>
+          </select>
+        </label>
       </div>
-      <div class="list compact" data-custom-variants></div>
     </section>
 
     <section class="custom-grid-full-row custom-grid-section">
@@ -170,10 +170,10 @@
     <section class="custom-grid-full-row custom-grid-section">
       <div class="section-head preview-head">
         <div>
-          <h3>Coupled parameter groups</h3>
-          <p class="subtle">Each non-empty row is one coupled set. Separate columns with commas.</p>
+          <h3>Coupled parameters</h3>
+          <p class="subtle">Choose an existing independent parameter to couple to, then choose the new parameter. Enter its values manually or generate a range with the same number of points. Each table row is one paired case. Edit the source values under Independent parameters.</p>
         </div>
-        <button class="button" type="button" data-custom-add-group>Add coupled group</button>
+        <button class="button" type="button" data-custom-add-group>Add coupled parameter</button>
       </div>
       <div class="list compact" data-custom-groups></div>
     </section>
@@ -181,7 +181,7 @@
     <section class="custom-grid-full-row notice" data-custom-grid-summary>
       <strong data-custom-grid-count>1 case</strong>
       <p class="subtle" data-custom-grid-warning></p>
-      <pre class="custom-grid-preview" data-custom-grid-preview>One case using the default settings.</pre>
+      <pre class="custom-grid-preview" data-custom-grid-preview tabindex="0" role="region" aria-label="Cases preview, scroll to see all cases">One case using the default settings.</pre>
     </section>
   </fieldset>
 

@@ -230,6 +230,15 @@ def create_app(*, data_dir: str | Path | None = None):
 
     app = Flask(__name__)
     app.config["GRAx_DATA_DIR"] = Path(data_dir or Path.cwd() / ".grax-web").resolve()
+
+    @app.url_defaults
+    def version_frontend_assets(endpoint: str, values: dict[str, Any]) -> None:
+        """Load updated frontend assets after a page refresh."""
+        if endpoint == "static" and values.get("filename") in {
+            "web.js", "web.css", "geometry.js", "afm.js"
+        }:
+            values.setdefault("v", _file_token(Path(app.static_folder) / values["filename"]))
+
     def store() -> GratingStore:
         return GratingStore(app.config["GRAx_DATA_DIR"] / "saved_gratings")
 

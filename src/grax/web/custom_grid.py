@@ -33,6 +33,7 @@ class ParameterDescriptor:
     path: tuple[str | int, ...] = ()
     minimum: float | None = None
     choices: tuple[str, ...] = ()
+    roughness_path: tuple[str | int, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         """Return a JSON-compatible descriptor for the browser builder."""
@@ -349,17 +350,44 @@ def expand_custom_grid(
         if variant_id not in variants:
             raise ValueError(f"Unknown structural variant: {variant_id}")
         spec = deepcopy(variants[variant_id]["spec"])
+        stack = spec.get("stack", {})
+        top_side = next((
+            key for key in ("material_a", "material_b")
+            if _material_name(stack.get(key))
+            and _material_name(stack.get(key)) == _material_name(stack.get("top_material"))
+        ), None)
         resolved = dict(base_defaults)
         for parameter, value in sorted(
-            selected.items(), key=lambda item: len(catalog[item[0]].path)
+            selected.items(),
+            key=lambda item: (catalog[item[0]].kind != "material", len(catalog[item[0]].path)),
         ):
             descriptor = catalog.get(parameter)
             if descriptor is None:
                 raise ValueError(f"Parameter is not valid for every selected variant: {parameter}")
             if descriptor.target == "spec":
-                _set_path(spec, descriptor.path, value)
+                if descriptor.kind == "material":
+                    material = deepcopy(value)
+                    sigma = material.pop("roughness_sigma_nm", None)
+                    _set_path(spec, descriptor.path, material)
+                    if sigma is not None and descriptor.roughness_path:
+                        _set_path(spec, descriptor.roughness_path, sigma)
+                else:
+                    _set_path(spec, descriptor.path, value)
             elif descriptor.target == "case":
                 resolved[parameter] = value
+
+        if top_side and not any(key.startswith("stack.top_material") for key in selected):
+            stack["top_material"] = deepcopy(stack[top_side])
+        elif top_side:
+            matching = next((
+                key for key in ("material_a", "material_b")
+                if _material_name(stack[key]) == _material_name(stack["top_material"])
+            ), None)
+            if matching:
+                top = stack["top_material"]
+                if isinstance(top, dict) and top.get("density_g_cm3") is not None:
+                    _set_path(spec, ("stack", matching, "density_g_cm3"), top["density_g_cm3"])
+                stack["top_material"] = deepcopy(stack[matching])
 
         grating = build_grating_from_spec(spec)
         grating._validate_simulation_materials()
@@ -601,6 +629,14 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
         )
         if leaf == "n_bilayers":
             minimum = 1
+        roughness_key = {
+            "substrate_material": "substrate_roughness_sigma_nm",
+            "layer_material": "layer_roughness_sigma_nm",
+            "material_a": "material_a_roughness_sigma_nm",
+            "material_b": "material_b_roughness_sigma_nm",
+            "top_cap_material": "top_cap_roughness_sigma_nm",
+            "material": "roughness_sigma_nm",
+        }.get(leaf)
         descriptors.append(
             ParameterDescriptor(
                 id=identifier,
@@ -610,9 +646,12 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
                 target="spec",
                 path=path,
                 minimum=minimum,
+                roughness_path=(
+                    (*path[:-1], roughness_key) if kind == "material" and roughness_key else ()
+                ),
             )
         )
-        if kind == "material" and isinstance(value, dict):
+        if kind == "material":
             descriptors.append(
                 ParameterDescriptor(
                     id=f"{identifier}.density_g_cm3",
@@ -621,7 +660,7 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
                     kind="optional_float",
                     target="spec",
                     path=(*path, "density_g_cm3"),
-                    minimum=0.0,
+                    minimum=1e-12,
                 )
             )
 
@@ -640,6 +679,18 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
                     )
             continue
         add_value(("stack", key), value, key.replace("_", " ").capitalize())
+    # Older saved gratings may omit optional interface roughness fields entirely.
+    known = {item.id for item in descriptors}
+    for material in list(descriptors):
+        if material.roughness_path:
+            identifier = ".".join(str(part) for part in material.roughness_path)
+            if identifier not in known:
+                descriptors.append(ParameterDescriptor(
+                    id=identifier, label=f"{material.label} roughness σ, nm",
+                    category="Coating", kind="optional_float", target="spec",
+                    path=material.roughness_path, minimum=0.0,
+                ))
+                known.add(identifier)
     return descriptors
 
 
@@ -700,6 +751,18 @@ def _cast_value(value: Any, descriptor: ParameterDescriptor) -> Any:
             result = {"name": str(value).strip(), "density_g_cm3": None}
         if not result.get("name"):
             raise ValueError(f"{descriptor.label} needs a material name.")
+        for key, positive in (("density_g_cm3", True), ("roughness_sigma_nm", False)):
+            raw = result.get(key)
+            if raw in (None, ""):
+                result[key] = None
+                continue
+            number = float(raw)
+            if not math.isfinite(number) or (number <= 0 if positive else number < 0):
+                constraint = "positive" if positive else "non-negative"
+                raise ValueError(f"{descriptor.label} {key} must be finite and {constraint}.")
+            if key == "roughness_sigma_nm" and not descriptor.roughness_path:
+                raise ValueError(f"{descriptor.label} has no separate interface roughness setting.")
+            result[key] = number
     else:
         raise ValueError(f"Unsupported parameter type: {descriptor.kind}")
     if isinstance(result, (float, int)) and descriptor.minimum is not None:
@@ -710,9 +773,20 @@ def _cast_value(value: Any, descriptor: ParameterDescriptor) -> Any:
     return result
 
 
+def _material_name(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return value.get("name")
+    return value if isinstance(value, str) else None
+
+
 def _set_path(root: dict[str, Any], path: tuple[str | int, ...], value: Any) -> None:
     target: Any = root
-    for part in path[:-1]:
+    for index, part in enumerate(path[:-1]):
+        if path[index + 1] == "density_g_cm3":
+            if isinstance(target[part], str):
+                target[part] = {"name": target[part], "density_g_cm3": None}
+            elif target[part] is None:
+                raise ValueError("Choose a material before scanning its density.")
         if isinstance(target, dict) and target.get(part) is None and part == "roughness":
             target[part] = {
                 "kind": "debye-waller",
@@ -734,6 +808,8 @@ def _get_path(root: dict[str, Any], path: tuple[str | int, ...]) -> Any:
         if target is None:
             return None
         if isinstance(target, dict) and part not in target:
+            return None
+        if isinstance(target, str) and part == "density_g_cm3":
             return None
         target = target[part]
     return target
