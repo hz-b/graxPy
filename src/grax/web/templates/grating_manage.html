@@ -6,6 +6,9 @@
     <h1>Manage saved gratings</h1>
     <p>Bulk delete saved gratings, with an option to also remove their linked runs.</p>
   </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('index') }}">Back to saved gratings</a>
+  </div>
 </section>
 
 {% if request.args.get("message") %}

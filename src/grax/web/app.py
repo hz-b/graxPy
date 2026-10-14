@@ -90,6 +90,15 @@ from .plane_mirror import (
 )
 from .runs import RunStore
 from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
+from .custom_grid import (
+    LARGE_GRID_WARNING,
+    default_configuration as default_custom_grid_configuration,
+    expand_custom_grid,
+    parameter_catalog as custom_grid_parameter_catalog,
+    plot_custom_grid,
+    write_custom_grid_all_orders,
+    write_custom_grid_summary,
+)
 
 try:
     import psutil
@@ -236,6 +245,18 @@ def create_app(*, data_dir: str | Path | None = None):
     def active_data_dir() -> Path:
         return Path(app.config["GRAx_DATA_DIR"]).resolve()
 
+    def afm_request_bytes() -> tuple[bytes, str]:
+        upload = request.files.get("afm_file")
+        if upload is not None and upload.filename:
+            return upload.read(MAX_BYTES + 1), upload.filename
+        grating_id = str(request.form.get("afm_existing_grating_id") or "").strip()
+        if grating_id:
+            spec = store().load(grating_id)
+            source = store().directory / grating_id / "source_upload"
+            if spec.get("grating_type") == "afm" and source.is_file():
+                return source.read_bytes(), str((spec.get("profile") or {}).get("source_filename") or "AFM scan")
+        raise ValueError("Choose an AFM text file first.")
+
     @app.context_processor
     def inject_site_metadata() -> dict[str, Any]:
         """Inject shared site attribution metadata into templates."""
@@ -305,13 +326,11 @@ def create_app(*, data_dir: str | Path | None = None):
     def preview_afm():
         """Preview the raw scan and selected preprocessing stages without saving."""
 
-        upload = request.files.get("afm_file")
-        if upload is None or not upload.filename:
-            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
         try:
+            raw, _ = afm_request_bytes()
             period_text = str(request.form.get("afm_period_nm", "")).strip()
             preview = preview_afm_upload(
-                upload.read(MAX_BYTES + 1),
+                raw,
                 units=str(request.form.get("afm_units", "nm")),
                 profile_type=str(request.form.get("afm_profile_type", "blazed")),
                 period_nm=float(period_text) if period_text else None,
@@ -324,26 +343,33 @@ def create_app(*, data_dir: str | Path | None = None):
                 periodicity_ramp=request.form.get("afm_periodicity_ramp") == "1",
             )
             return jsonify({"ok": True, **preview})
-        except (TypeError, ValueError, OSError) as error:
+        except (FileNotFoundError, TypeError, ValueError, OSError) as error:
             return jsonify({"ok": False, "error": str(error)}), 422
 
     @app.post("/gratings/afm/process")
     def process_afm():
         """Process one uploaded AFM scan into a temporary profile workflow."""
-        upload = request.files.get("afm_file")
-        if upload is None or not upload.filename:
-            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
         workflow_id = uuid4().hex
         workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
         try:
+            raw, filename = afm_request_bytes()
+            period_text = str(request.form.get("afm_period_nm") or "").strip()
+            if period_text:
+                period_nm = float(period_text)
+            else:
+                density_text = str(request.form.get("afm_target_period_lpermm") or "").strip()
+                density = float(density_text) if density_text else 0.0
+                if not np.isfinite(density) or density <= 0:
+                    raise ValueError("Target period, lines/mm must be greater than zero.")
+                period_nm = 1e6 / density
             metadata = process_afm_upload(
-                upload.read(MAX_BYTES + 1), workflow_dir, filename=upload.filename,
+                raw, workflow_dir, filename=filename,
                 units=str(request.form.get("afm_units", "nm")),
                 profile_type=str(request.form.get("afm_profile_type", "blazed")),
-                period_nm=float(request.form.get("afm_period_nm", "0")),
-                min_separation_fraction=float(request.form.get("afm_min_separation", "0.4")),
-                min_prominence_fraction=float(request.form.get("afm_min_prominence", "0.1")),
-                period_index=int(request.form.get("afm_period_index", "0")),
+                period_nm=period_nm,
+                min_separation_fraction=float(request.form.get("afm_min_separation") or "0.4"),
+                min_prominence_fraction=float(request.form.get("afm_min_prominence") or "0.1"),
+                period_index=int(request.form.get("afm_period_index") or "0"),
                 average=request.form.get("afm_average") == "1",
                 reverse=request.form.get("afm_reverse") == "1",
                 zero_baseline=request.form.get("afm_zero_baseline", "1") == "1",
@@ -353,7 +379,7 @@ def create_app(*, data_dir: str | Path | None = None):
             metadata["profile_path"] = str((workflow_dir / "profile.csv").resolve())
             (workflow_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
             return jsonify({"ok": True, **metadata})
-        except (TypeError, ValueError, OSError) as error:
+        except (FileNotFoundError, TypeError, ValueError, OSError) as error:
             return jsonify({"ok": False, "error": str(error), "workflow_id": workflow_id}), 422
     def invalid_grating_form(error, grating_id=None):
         """Keep submitted values visible when validation fails."""
@@ -369,6 +395,10 @@ def create_app(*, data_dir: str | Path | None = None):
             preview={"ok": False, "error": str(error)}, form_error=str(error),
             allow_custom=True, allow_bare=True,
             custom_layers=_custom_layer_rows(request.form.to_dict(flat=False)),
+            existing_afm_source_url=(url_for("download_afm_source", grating_id=grating_id)
+                                     if grating_id and (store().directory / grating_id / "source_upload").is_file()
+                                     else None),
+            existing_afm_grating_id=grating_id,
         ), 422
 
     @app.post("/gratings")
@@ -379,6 +409,14 @@ def create_app(*, data_dir: str | Path | None = None):
         except (KeyError, TypeError, ValueError, OverflowError) as error:
             return invalid_grating_form(error)
         saved = store().save(spec)
+        if saved.get("grating_type") == "afm":
+            try:
+                _persist_afm_artifacts(saved, active_data_dir())
+                saved = store().save(saved)
+            except (OSError, ValueError) as error:
+                store().delete(saved["id"])
+                shutil.rmtree(store().directory / saved["id"], ignore_errors=True)
+                return invalid_grating_form(error)
         return redirect(url_for("grating_detail", grating_id=saved["id"]))
 
     @app.get("/gratings/manage")
@@ -435,6 +473,11 @@ def create_app(*, data_dir: str | Path | None = None):
                                    if rough_path else None),
             preview_warnings=notices,
             roughness_periods=grating._roughness_num_supercells(),
+            custom_grid_catalog=[
+                descriptor.to_json() for descriptor in custom_grid_parameter_catalog(spec)
+            ],
+            custom_grid_default=default_custom_grid_configuration(spec),
+            custom_grid_warning_threshold=LARGE_GRID_WARNING,
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -495,7 +538,21 @@ def create_app(*, data_dir: str | Path | None = None):
             allow_custom=True,
             allow_bare=True,
             custom_layers=_grating_custom_layer_rows(spec),
+            existing_afm_source_url=(url_for("download_afm_source", grating_id=grating_id)
+                                     if spec.get("grating_type") == "afm"
+                                     and (store().directory / grating_id / "source_upload").is_file()
+                                     else None),
+            existing_afm_grating_id=grating_id,
         )
+
+    @app.get("/gratings/<grating_id>/afm/source")
+    def download_afm_source(grating_id: str):
+        spec = store().load(grating_id)
+        source = store().directory / grating_id / "source_upload"
+        if spec.get("grating_type") != "afm" or not source.is_file():
+            abort(404)
+        filename = Path(str((spec.get("profile") or {}).get("source_filename") or "afm_scan.txt")).name
+        return send_from_directory(source.parent, source.name, as_attachment=True, download_name=filename)
 
     @app.post("/gratings/<grating_id>")
     def update_grating(grating_id: str):
@@ -506,7 +563,9 @@ def create_app(*, data_dir: str | Path | None = None):
             spec["id"] = grating_id
             spec["created_at"] = previous.get("created_at")
             validate_roughness_geometry(build_grating_from_spec(spec))
-        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            if spec.get("grating_type") == "afm":
+                _persist_afm_artifacts(spec, active_data_dir(), previous=previous)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError) as error:
             return invalid_grating_form(error, grating_id)
         grating_store.save(spec)
         return redirect(url_for("grating_detail", grating_id=grating_id))
@@ -1341,7 +1400,7 @@ def _maybe_open_browser(host: str, port: int) -> None:
 def _default_form_values() -> dict[str, str]:
     """Return display defaults for the create-grating form."""
     return {
-        "name": "Untitled grating",
+        "name": "",
         "roughness_kind": "none",
         "roughness_seed": "0",
         "roughness_num_supercells": "1",
@@ -1424,6 +1483,30 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
             values["roughness_" + field] = str(roughness[field])
     if spec.get("grating_type") == "sinusoidal":
         values["sinusoidal_depth_nm"] = str(spec.get("depth_nm", "20.0"))
+    if spec.get("grating_type") == "afm":
+        profile = spec.get("profile") or {}
+        values.update({
+            "afm_profile_path": str(profile.get("profile_path") or ""),
+            "afm_source_filename": str(profile.get("source_filename") or ""),
+            "afm_units": str(profile.get("units") or "nm"),
+            "afm_profile_type": str(profile.get("profile_type") or "blazed"),
+            "afm_period_nm": str(profile.get("period_nm") or "0"),
+        })
+        settings = profile.get("import_settings") or {}
+        for key, field in (
+            ("min_separation_fraction", "afm_min_separation"),
+            ("min_prominence_fraction", "afm_min_prominence"),
+            ("period_index", "afm_period_index"),
+        ):
+            if key in settings:
+                values[field] = str(settings[key])
+        for key, field in (
+            ("average", "afm_average"), ("reverse", "afm_reverse"),
+            ("zero_baseline", "afm_zero_baseline"),
+            ("periodicity_ramp", "afm_periodicity_ramp"),
+        ):
+            if key in settings:
+                values[field] = "1" if settings[key] else "0"
     stack = dict(spec.get("stack", {}))
     values["stack_type"] = str(stack.get("type", "single_layer"))
     for key, value in stack.items():
@@ -1479,8 +1562,37 @@ def _grating_custom_layer_rows(spec: dict[str, Any]) -> list[dict[str, str]]:
     }]
 
 
-def _spec_from_form(form: Any) -> dict[str, Any]:
+def _persist_afm_artifacts(
+    spec: dict[str, Any], data_dir: Path, *, previous: dict[str, Any] | None = None,
+) -> None:
+    """Keep the processed profile and original scan beside the saved grating."""
+
+    profile = spec["profile"]
+    source = Path(str(profile["profile_path"])).resolve()
+    if not source.is_file() or not source.is_relative_to(data_dir.resolve()):
+        raise ValueError("The processed AFM profile is unavailable in this workspace.")
+    destination = (data_dir / "saved_gratings" / str(spec["id"])).resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    saved_profile = destination / "profile.csv"
+    if source != saved_profile:
+        shutil.copy2(source, saved_profile)
+    source_upload = source.parent / "source_upload"
+    if source_upload.is_file() and source_upload != destination / "source_upload":
+        shutil.copy2(source_upload, destination / "source_upload")
+    metadata_path = source.parent / "metadata.json"
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        profile["import_settings"] = metadata.get("settings") or {}
+    elif previous and source == Path(str((previous.get("profile") or {}).get("profile_path", ""))).resolve():
+        profile["import_settings"] = (previous.get("profile") or {}).get("import_settings") or {}
+    profile["profile_path"] = str(saved_profile)
+
+
+def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
     """Build a saved grating spec from submitted form data."""
+    name = str(form.get("name") or "").strip()
+    if require_name and not name:
+        raise ValueError("Enter a grating name before saving.")
     grating_type = str(form["grating_type"])
     for key, label in (("period_lpermm", "Period (lines/mm)"),
                        ("x_resolution_nm", "X resolution (nm)"),
@@ -1494,7 +1606,7 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
         if key == "period_lpermm" and not value.is_integer():
             raise ValueError("Period (lines/mm) must be a whole number of at least 1.")
     spec: dict[str, Any] = {
-        "name": str(form["name"]).strip() or "Untitled grating",
+        "name": name or "Preview grating",
         "grating_type": grating_type,
         "period_lpermm": int(float(form["period_lpermm"])),
         "x_resolution_nm": float(form["x_resolution_nm"]),
@@ -1576,7 +1688,7 @@ def _build_grating_preview(
 ) -> dict[str, Any]:
     """Build a live grating preview payload from form data."""
     try:
-        grating = build_grating_from_spec(_spec_from_form(form_data) if spec is None else spec)
+        grating = build_grating_from_spec(_spec_from_form(form_data, require_name=False) if spec is None else spec)
         preview_id = uuid4().hex
         preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
         rough_path, notices = _render_grating_previews(grating, preview_path)
@@ -1848,6 +1960,81 @@ def _parameter_study_fixed_configuration(
     )
 
 
+def _custom_grid_configuration_from_value(value: Any) -> dict[str, Any]:
+    """Return a custom-grid configuration submitted as JSON or a mapping."""
+
+    if isinstance(value, dict):
+        return dict(value)
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("Configure the custom grid before starting the run.")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Custom-grid configuration is invalid JSON: {error.msg}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("Custom-grid configuration must be an object.")
+    return payload
+
+
+def _custom_grid_from_form(
+    form: Any,
+    base_spec: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Validate the submitted custom grid and return its expanded cases."""
+
+    config = _custom_grid_configuration_from_value(form.get("custom_grid_config"))
+    defaults = _custom_grid_defaults_from_form(form)
+    return expand_custom_grid(config, base_spec, defaults=defaults)
+
+
+def _custom_grid_defaults_from_form(form: Any) -> dict[str, Any]:
+    """Return the direct-simulation values inherited by custom-grid cases."""
+
+    return {
+        "energy_ev": float(form.get("custom_default_energy_ev", 100.0) or 100.0),
+        "grazing_angle_deg": float(form.get("custom_default_grazing_angle_deg", 1.5) or 1.5),
+        "diffraction_order": int(float(form.get("custom_default_diffraction_order", 1) or 1)),
+        "fourier_orders": int(float(form.get("custom_default_fourier_orders", 5) or 5)),
+        "polarization": str(form.get("custom_default_polarization", "s") or "s"),
+        "solver": str(form.get("custom_default_solver", "rcwa") or "rcwa"),
+    }
+
+
+def _snapshot_custom_grid_afm_profiles(config: dict[str, Any], run_dir: Path) -> None:
+    """Copy AFM profiles into the run and update variant snapshots in place."""
+
+    profile_dir = run_dir / "custom_grid_profiles"
+    copied = False
+    for index, variant in enumerate(config.get("variants") or []):
+        spec = variant.get("spec") if isinstance(variant, dict) else None
+        profile = spec.get("profile") if isinstance(spec, dict) else None
+        if not isinstance(spec, dict) or spec.get("grating_type") != "afm" or not isinstance(profile, dict):
+            continue
+        source = Path(str(profile.get("profile_path", ""))).resolve()
+        if not source.is_file():
+            raise ValueError(f"AFM profile artifact is missing for variant {variant.get('name', index + 1)}.")
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        safe_id = "".join(character if character.isalnum() or character in "-_" else "_" for character in str(variant.get("id") or index + 1))
+        destination = profile_dir / f"{safe_id}{source.suffix or '.csv'}"
+        shutil.copyfile(source, destination)
+        profile["profile_path"] = str(destination.resolve())
+        copied = True
+    if not copied and profile_dir.exists() and not any(profile_dir.iterdir()):
+        profile_dir.rmdir()
+
+
+def _custom_grid_case_count_from_form(form: Any) -> int:
+    """Return the expanded case count from persisted custom-grid form data."""
+
+    config = _custom_grid_configuration_from_value(form.get("custom_grid_config"))
+    variants = config.get("variants") or []
+    if not variants or not isinstance(variants[0], dict) or not isinstance(variants[0].get("spec"), dict):
+        raise ValueError("Custom-grid configuration has no valid base variant.")
+    _, cases = _custom_grid_from_form(form, dict(variants[0]["spec"]))
+    return len(cases)
+
+
 def _queue_run(
     *,
     app: Any,
@@ -1864,7 +2051,18 @@ def _queue_run(
     run_id = _run_id(workflow, grating_id)
     run_dir = data_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    if workflow == "parameter_study" and str(form.get("study_energy_ev", "")).strip():
+    custom_config: dict[str, Any] | None = None
+    custom_cases: list[dict[str, Any]] = []
+    if workflow == "custom_grid":
+        custom_config, custom_cases = _custom_grid_from_form(form, grating_spec)
+        _snapshot_custom_grid_afm_profiles(custom_config, run_dir)
+        custom_config, custom_cases = expand_custom_grid(
+            custom_config,
+            grating_spec,
+            defaults=_custom_grid_defaults_from_form(form),
+        )
+        energies = np.asarray([case["energy_ev"] for case in custom_cases], dtype=float)
+    elif workflow == "parameter_study" and str(form.get("study_energy_ev", "")).strip():
         energies = np.asarray([float(form["study_energy_ev"])], dtype=float)
         if energies[0] <= 0:
             raise ValueError("Study energy must be greater than 0 eV.")
@@ -1874,15 +2072,26 @@ def _queue_run(
             float(form["energy_stop_ev"]),
             int(float(form["energy_points"])),
         )
-    diffraction_order = int(float(form.get("diffraction_order", 1)))
+    diffraction_order = (
+        int(custom_cases[0]["diffraction_order"])
+        if custom_cases else int(float(form.get("diffraction_order", 1)))
+    )
     if workflow == "parameter_study":
         study_config = _parameter_study_configuration(form, grating)
         _parameter_study_fixed_configuration(form, study_config[2], study_config[3], study_config[4])
         fourier_orders = int(np.max(study_config[2]))
+    elif custom_cases:
+        fourier_orders = int(custom_cases[0]["fourier_orders"])
     else:
         fourier_orders = int(float(form.get("fourier_orders", 5)))
-    polarization = _normalized_polarization(form.get("polarization", "s"))
-    solver = _normalized_solver(form.get("solver", "rcwa"))
+    polarization = (
+        str(custom_cases[0]["polarization"])
+        if custom_cases else _normalized_polarization(form.get("polarization", "s"))
+    )
+    solver = (
+        str(custom_cases[0]["solver"])
+        if custom_cases else _normalized_solver(form.get("solver", "rcwa"))
+    )
     worker_mode, max_workers_setting, requested_workers = _worker_settings_from_form(form)
     manifest: dict[str, Any] = {
         "id": run_id,
@@ -1902,13 +2111,25 @@ def _queue_run(
         "resolved_workers": None,
         "total_points": (
             _parameter_study_total_points(form, grating, energies.size)
-            if workflow == "parameter_study" else int(energies.size)
+            if workflow == "parameter_study"
+            else len(custom_cases) if workflow == "custom_grid"
+            else int(energies.size)
         ),
         "run_input": _run_input_from_form(form),
         "resume_count": 0,
     }
+    manifest["run_input"]["polarization"] = polarization
+    manifest["run_input"]["solver"] = solver
+    manifest["run_input"]["diffraction_order"] = diffraction_order
+    manifest["run_input"]["fourier_orders"] = fourier_orders
+    if custom_config is not None:
+        manifest["custom_grid"] = custom_config
+        manifest["run_input"]["custom_grid_config"] = custom_config
     RunStore(data_dir / "runs").save(manifest)
 
+    worker_form_data = dict(form)
+    if custom_config is not None:
+        worker_form_data["custom_grid_config"] = custom_config
     _start_run_worker(
         app=app,
         data_dir=data_dir,
@@ -1918,7 +2139,7 @@ def _queue_run(
         grating=grating,
         workflow=workflow,
         energies=energies,
-        form_data=dict(form),
+        form_data=worker_form_data,
         diffraction_order=diffraction_order,
         fourier_orders=fourier_orders,
         max_workers_setting=max_workers_setting,
@@ -1982,7 +2203,9 @@ def _start_run_worker(
         workflow=workflow,
         total_points=(
             _parameter_study_total_points(form_data, grating, energies.size)
-            if workflow == "parameter_study" else int(energies.size)
+            if workflow == "parameter_study"
+            else _custom_grid_case_count_from_form(form_data) if workflow == "custom_grid"
+            else int(energies.size)
         ),
         worker_mode=worker_mode,
         requested_workers=requested_workers,
@@ -2940,8 +3163,9 @@ def _wait_for_run_shutdown(app: Any, run_id: str, *, timeout_seconds: float = 10
 def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
     """Return manifest-ready case summaries for persisted run metadata."""
 
-    return [
-        {
+    cases: list[dict[str, Any]] = []
+    for result in results:
+        case = {
             "case_id": result.case_id,
             "energy_ev": result.energy_ev,
             "grazing_angle_deg": result.grazing_angle_deg,
@@ -2949,8 +3173,18 @@ def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
             "status": result.status,
             "error_message": result.error_message,
         }
-        for result in results
-    ]
+        case_data = getattr(result, "case_data", {})
+        if "custom_parameters" in case_data:
+            case["custom_parameters"] = case_data.get("custom_parameters")
+            case["custom_parameter_order"] = case_data.get("custom_parameter_order", [])
+            case["resolved_parameters"] = case_data.get("custom_resolved_parameters", {})
+            case["resolved_parameter_order"] = case_data.get(
+                "custom_resolved_parameter_order", []
+            )
+            case["structural_variant_id"] = case_data.get("custom_variant_id")
+            case["structural_variant_name"] = case_data.get("custom_variant_name")
+        cases.append(case)
+    return cases
 
 
 def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str]:
@@ -3011,9 +3245,16 @@ def _persist_run_outputs(
     from grax import simulation
 
     run_dir = data_dir / "runs" / run_id
-    _write_summary_csv(results, run_dir / "summary.csv")
-    simulation.write_all_orders_csv(results, run_dir / "all_orders.csv")
-    if include_plot:
+    is_custom_grid = any("custom_parameters" in result.case_data for result in results)
+    if is_custom_grid:
+        write_custom_grid_summary(results, run_dir / "summary.csv")
+        write_custom_grid_all_orders(results, run_dir / "all_orders.csv")
+    else:
+        _write_summary_csv(results, run_dir / "summary.csv")
+        simulation.write_all_orders_csv(results, run_dir / "all_orders.csv")
+    if include_plot and is_custom_grid:
+        plot_custom_grid(results, run_dir / "selected_efficiency.png", title=title)
+    elif include_plot:
         simulation.plot_order_subset(
             results,
             run_dir / "selected_efficiency.png",
@@ -3075,17 +3316,24 @@ def _publish_live_progress_snapshot(
     ):
         return False
 
-    ordered_results = _results_sorted_for_live_plot(results, x_key="energy_ev")
+    is_custom_grid = any("custom_parameters" in result.case_data for result in results)
+    ordered_results = _results_sorted_for_live_plot(
+        results,
+        x_key="index" if is_custom_grid else "energy_ev",
+    )
     if not ordered_results:
         return False
 
     temp_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
-    simulation.plot_order_subset(
-        ordered_results,
-        temp_path,
-        diffraction_orders=[diffraction_order],
-        title=title,
-    )
+    if is_custom_grid:
+        plot_custom_grid(ordered_results, temp_path, title=title)
+    else:
+        simulation.plot_order_subset(
+            ordered_results,
+            temp_path,
+            diffraction_orders=[diffraction_order],
+            title=title,
+        )
     temp_path.replace(output_path)
     state.plot_relative_path = output_path.name
     state.plot_token = uuid4().hex
@@ -3273,6 +3521,10 @@ def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, 
                 key: value for key, value in run_input.items() if key.startswith("study_")
             },
         }
+    elif workflow == "custom_grid":
+        payload["custom_grid"] = manifest.get("custom_grid") or run_input.get(
+            "custom_grid_config"
+        )
     return payload
 
 
@@ -3693,16 +3945,22 @@ def _cases_for_workflow(
                 final_z_resolution_nm=run_z_resolution_nm,
             )
         )
+    elif workflow == "custom_grid":
+        config = _custom_grid_configuration_from_value(form.get("custom_grid_config"))
+        variants = config.get("variants") or []
+        if not variants or not isinstance(variants[0], dict):
+            raise ValueError("Custom-grid configuration has no structural variants.")
+        _, cases = _custom_grid_from_form(form, dict(variants[0].get("spec") or {}))
     else:
         raise ValueError("Unsupported workflow.")
     for index, case in enumerate(cases):
         case["case_id"] = f"{workflow}-{index:08d}"
-        case["fourier_orders"] = fourier_orders
-        case["polarization"] = polarization
-        case["solver"] = solver
+        case.setdefault("fourier_orders", fourier_orders)
+        case.setdefault("polarization", polarization)
+        case.setdefault("solver", solver)
         if workflow != "multilayer_theta_search":
-            case["x_resolution_nm"] = run_x_resolution_nm
-            case["z_resolution_nm"] = run_z_resolution_nm
+            case.setdefault("x_resolution_nm", run_x_resolution_nm)
+            case.setdefault("z_resolution_nm", run_z_resolution_nm)
     return cases
 
 

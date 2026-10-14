@@ -234,6 +234,7 @@ def test_processed_afm_profile_can_be_previewed_and_saved(tmp_path: Path) -> Non
         data={
             "afm_file": (io.BytesIO(raw), "scan.csv"), "afm_units": "nm",
             "afm_profile_type": "blazed", "afm_period_nm": "1000", "afm_average": "1",
+            "afm_min_prominence": "0.2", "afm_reverse": "1",
         },
         content_type="multipart/form-data",
     )
@@ -259,6 +260,70 @@ def test_processed_afm_profile_can_be_previewed_and_saved(tmp_path: Path) -> Non
     spec = GratingStore(tmp_path / "saved_gratings").list()[0]
     assert spec["grating_type"] == "afm"
     assert build_grating_from_spec(spec).period_lpermm == 1000
+    stored = tmp_path / "saved_gratings" / spec["id"]
+    assert (stored / "source_upload").read_bytes() == raw
+    assert Path(spec["profile"]["profile_path"]) == stored / "profile.csv"
+    assert spec["profile"]["import_settings"]["min_prominence_fraction"] == 0.2
+    edit = client.get(f"/gratings/{spec['id']}/edit")
+    assert edit.status_code == 200
+    assert b"Stored AFM scan:" in edit.data
+    assert b'name="afm_min_prominence" type="number" min="0" step="0.1" value="0.2"' in edit.data
+    assert b'name="afm_reverse" value="1" checked' in edit.data
+    source_response = client.get(f"/gratings/{spec['id']}/afm/source")
+    assert source_response.data == raw
+    stored_preview = client.post(
+        "/gratings/afm/preview",
+        data={
+            "afm_existing_grating_id": spec["id"], "afm_units": "nm",
+            "afm_profile_type": "blazed", "afm_period_nm": "1000",
+        },
+    )
+    assert stored_preview.status_code == 200
+    assert "raw" in stored_preview.get_json()["traces"]
+    reprocessed = client.post(
+        "/gratings/afm/process",
+        data={
+            "afm_existing_grating_id": spec["id"], "afm_units": "nm",
+            "afm_profile_type": "blazed", "afm_target_period_lpermm": "1000",
+            "afm_average": "1", "afm_reverse": "1",
+        },
+    )
+    assert reprocessed.status_code == 200
+    assert reprocessed.get_json()["source_filename"] == "scan.csv"
+    update_form = {**form, "name": "AFM edited", "afm_profile_path": spec["profile"]["profile_path"]}
+    updated = client.post(f"/gratings/{spec['id']}", data=update_form)
+    assert updated.status_code == 302
+    updated_spec = GratingStore(tmp_path / "saved_gratings").load(spec["id"])
+    assert updated_spec["profile"]["import_settings"]["min_prominence_fraction"] == 0.2
+    assert (stored / "source_upload").read_bytes() == raw
+    detail = client.get(saved.headers["Location"])
+    assert b'data-geometry-nominal-type="blazed"' in detail.data
+    assert b'data-geometry-static=' not in detail.data
+
+
+def test_afm_process_uses_visible_target_when_period_is_blank(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    x = np.linspace(0, 4000, 401)
+    z = 20 * (1 - np.cos(2 * np.pi * x / 1000)) / 2
+    raw = ("x,z\n" + "\n".join(f"{a},{b}" for a, b in zip(x, z))).encode()
+    response = create_app(data_dir=tmp_path).test_client().post(
+        "/gratings/afm/process",
+        data={
+            "afm_file": (io.BytesIO(raw), "scan.csv"),
+            "afm_units": "nm",
+            "afm_profile_type": "blazed",
+            "afm_period_nm": "",
+            "afm_target_period_lpermm": "1000",
+            "afm_min_separation": "",
+            "afm_min_prominence": "",
+            "afm_average": "1",
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["period_nm"] == pytest.approx(1000)
 
 
 def test_save_attempt_auto_processes_current_afm_settings_in_browser() -> None:

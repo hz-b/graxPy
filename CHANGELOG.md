@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.3 - 2026-10-14
+
+- Improved the AFM grating workflow: scans appear on first upload, supported text formats and processing controls are explained in the form, and processing uses the visible target period and reports clear completion feedback.
+- Saved AFM gratings now retain the original uploaded scan and processed profile locally. Editing restores the import settings and allows the scan to be downloaded or processed again without re-uploading it.
+- Grating names are required when saving. Pressing Enter in a form field no longer submits the page, and material validation waits until the user pauses typing, presses Enter, or leaves the field.
+- Replaced live nominal geometry plots with labeled static schematics for all grating types, including angle references and arcs for blazed and laminar profiles.
+- Fixed Windows parameter studies failing during run-manifest updates when another request has the manifest open, and addressed Windows backend failures in the parameter study solver.
+
+## 0.5.2 - 2026-10-13
+
+- Added persistent navigation back to the Saved gratings home page from the web interface and grating-management page.
+- Added a Custom grid run workflow for Cartesian parameter axes, row-coupled parameter groups, and complete run-local structural variants. Custom runs validate typed parameter overrides, preview exact integer ranges and case counts, preserve resolved case metadata for resume/export, snapshot AFM profiles, and generate dynamic CSV/DAT/YAML exports plus a simple live result plot.
+
 ## 0.5.1 
 
 - Plot comparisons can now use optional per-series legend names, while blank names retain the standard run-and-order label. The live preview now clearly distinguishes rendering, ready, and error states and prevents saving while it refreshes.

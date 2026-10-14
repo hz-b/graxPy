@@ -15,6 +15,7 @@ from grax import (
     run_parameter_study,
 )
 from grax.simulation import GratingSimulation
+from grax.solvers.common import NumbaBackendUnavailableError
 
 
 def test_run_parameter_study_returns_expected_shapes(
@@ -84,6 +85,38 @@ def test_run_parameter_study_returns_expected_shapes(
     assert expected_csv.exists()
     csv_text = expected_csv.read_text(encoding="utf-8")
     assert "error_message" in csv_text
+
+
+def test_run_parameter_study_stops_for_unavailable_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An unavailable backend must fail the run instead of recording false results."""
+    attempts = 0
+    progress: list[int] = []
+
+    def unavailable(self, photon_energy_ev: float) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        raise NumbaBackendUnavailableError("Numba backend is unavailable.")
+
+    monkeypatch.setattr(GratingSimulation, "run_single", unavailable)
+    with pytest.raises(NumbaBackendUnavailableError, match="Numba backend is unavailable"):
+        run_parameter_study(
+            grating=BlazedGrating(period_lpermm=600, blaze_angle_deg=0.75),
+            energies_ev=[100.0],
+            grazing_angle_deg=1.5,
+            fourier_orders_values=[5, 7],
+            x_resolution_values=[1.0],
+            z_resolution_values=[1.0],
+            output_dir=tmp_path,
+            show_progress=False,
+            sweep_progress_callback=lambda completed, total, partial: progress.append(completed),
+        )
+
+    assert attempts == 1
+    assert progress == []
+    assert not list(tmp_path.glob("*.csv"))
 
 
 def test_run_parameter_study_reports_progress_after_each_energy(monkeypatch) -> None:

@@ -1,0 +1,17 @@
+{% macro afm_help(key, label) -%}
+{% set explanations = {
+  'file': 'Choose a scan with x positions and measured heights in two numeric columns. The scan is previewed before processing.',
+  'target': 'Desired grating line density in lines per millimetre. The extracted AFM period is scaled to this spacing; check that it matches your intended grating.',
+  'profile': 'Choose Blazed for sloped grooves or Laminar for flat-topped grooves. This changes how period boundaries are detected.',
+  'units': 'Units used by both x and z values in the uploaded file. The scan is converted to nanometres for processing.',
+  'reverse': 'Reverse the scan from left to right before finding period boundaries.',
+  'baseline': 'Subtract the lowest measured height so the lowest point is at zero.',
+  'separation': 'Minimum distance between detected period boundaries, as a fraction of the target period. Larger values ignore boundaries that are close together; default 0.4.',
+  'prominence': 'Minimum depth a trough needs relative to the full scan height range. Larger values ignore shallow troughs; default 0.1.',
+  'index': 'Zero-based number of the trough-to-trough period to use when averaging is off. Start with 0 for the first detected period.',
+  'average': 'Combine all valid detected periods into one representative profile. When off, the selected period index is used.',
+  'ramp': 'Apply a linear height correction so the start and end of the extracted period meet at the same height.',
+  'process': 'Extract and scale the selected AFM profile using the settings above. The result can then be saved as a grating.'
+} %}
+<button type="button" class="roughness-help" aria-label="Help: {{ label }}" aria-describedby="afm-help-{{ key }}">?</button><span class="roughness-tip" role="tooltip" id="afm-help-{{ key }}">{{ explanations[key] }}</span>
+{%- endmacro %}

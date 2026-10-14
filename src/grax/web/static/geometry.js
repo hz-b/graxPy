@@ -491,6 +491,78 @@
     add("angles", null, label(X1, BASE_Y + 104, exaggeration > 1.05 ? `heights exaggerated ×${fmt(exaggeration, 1)}; angle labels give the real values` : "to scale; angle labels give the real values", "geo-note", "end"));
   }
 
+  function drawNominalGrating(svg, type, status) {
+    const add = makeScene(svg);
+    status.textContent = "Schematic only; the measured or calculated profile is shown below.";
+    const periodPx = (X1 - X0) / 3;
+    const heightPx = 62;
+    let onePeriod;
+    if (type === "laminar") {
+      onePeriod = [[0, 0], [0.12, 0], [0.24, 1], [0.66, 1], [0.78, 0], [1, 0]];
+    } else if (type === "sinusoidal") {
+      onePeriod = Array.from({length: 33}, (_, index) => {
+        const x = index / 32;
+        return [x, (1 - Math.cos(2 * Math.PI * x)) / 2];
+      });
+    } else {
+      onePeriod = [[0, 0], [0.78, 1], [1, 0]];
+    }
+    const outline = [];
+    for (let period = 0; period < 3; period += 1) {
+      onePeriod.forEach(([x, z]) => outline.push([X0 + (period + x) * periodPx, BASE_Y - z * heightPx]));
+    }
+    const polygon = [[X0, BASE_Y + 80], ...outline, [X1, BASE_Y + 80]];
+    add("base", null, el("polygon", {points: polygon.map((point) => point.join(",")).join(" "), class: "geo-substrate"}));
+    add("base", null, el("polyline", {points: outline.map((point) => point.join(",")).join(" "), class: "geo-surface"}));
+
+    const hitX = type === "blazed" ? 0.78 : type === "sinusoidal" ? 0.5 : 0.6;
+    const hitSegment = onePeriod.findIndex((point) => point[0] >= hitX);
+    const [x0, z0] = onePeriod[hitSegment - 1];
+    const [x1, z1] = onePeriod[hitSegment];
+    const hitHeight = z0 + ((hitX - x0) / (x1 - x0)) * (z1 - z0);
+    const hx = X0 + periodPx * hitX;
+    const hy = BASE_Y - heightPx * hitHeight;
+    const rayLength = 175;
+    ray(add, "grazing", hx - rayLength, hy - 54, hx, hy, "geo-ray geo-incident");
+    ray(add, "grazing", hx, hy, hx + rayLength, hy - 54, "geo-ray geo-specular");
+    add("beams", "grazing", label(hx - rayLength, hy - 66, "incident", "geo-ray-text", "start"));
+    add("beams", "grazing", label(hx + rayLength, hy - 66, "specular (0)", "geo-ray-text", "end"));
+    add("angles", "grazing", line(hx - 92, hy, hx, hy, "geo-ref"));
+    add("angles", "grazing", arc(hx, hy, 48, 180, 198, "geo-arc").path);
+    add("angles", "grazing", label(hx - 86, hy - 38, "α", "geo-angle-text"));
+    add("angles", null, label(hx, hy - 88, "N", "geo-ref-text"));
+    add("angles", null, line(hx, hy - 78, hx, hy + 30, "geo-ref"));
+
+    const middleX = X0 + periodPx;
+    if (type === "laminar") {
+      const leftFoot = middleX + 0.12 * periodPx;
+      const rightFoot = middleX + 0.78 * periodPx;
+      const wallAngle = deg(Math.atan2(heightPx, 0.12 * periodPx));
+      add("angles", "wall_left", line(leftFoot, BASE_Y, leftFoot + 48, BASE_Y, "geo-ref"));
+      add("angles", "wall_left", arc(leftFoot, BASE_Y, 22, 0, -wallAngle, "geo-arc geo-wall-arc").path);
+      add("angles", "wall_left", label(leftFoot + 36, BASE_Y - 30, "θL", "geo-angle-text"));
+      add("angles", "wall_right", line(rightFoot - 48, BASE_Y, rightFoot, BASE_Y, "geo-ref"));
+      add("angles", "wall_right", arc(rightFoot, BASE_Y, 22, 180, 180 + wallAngle, "geo-arc geo-wall-arc").path);
+      add("angles", "wall_right", label(rightFoot - 36, BASE_Y - 30, "θR", "geo-angle-text"));
+      dimension(add, "lengths", "width", middleX + 0.24 * periodPx, BASE_Y - heightPx - 18,
+        middleX + 0.66 * periodPx, BASE_Y - heightPx - 18, "w", -7);
+    } else if (type !== "sinusoidal") {
+      const blazeAngle = deg(Math.atan2(heightPx, 0.78 * periodPx));
+      const antiAngle = deg(Math.atan2(heightPx, 0.22 * periodPx));
+      const nextValley = middleX + periodPx;
+      add("angles", "blaze", line(middleX, BASE_Y, middleX + 60, BASE_Y, "geo-ref"));
+      add("angles", "blaze", arc(middleX, BASE_Y, 28, 0, -blazeAngle, "geo-arc geo-blaze-arc").path);
+      add("angles", "blaze", label(middleX + 43, BASE_Y - 21, "θB", "geo-angle-text"));
+      add("angles", "anti", line(nextValley - 60, BASE_Y, nextValley, BASE_Y, "geo-ref"));
+      add("angles", "anti", arc(nextValley, BASE_Y, 28, 180, 180 + antiAngle, "geo-arc geo-anti-arc").path);
+      add("angles", "anti", label(nextValley - 43, BASE_Y - 27, "θA", "geo-angle-text"));
+    }
+    dimension(add, "lengths", "depth", X1 + 16, BASE_Y, X1 + 16, BASE_Y - heightPx, "h", 8);
+    dimension(add, "lengths", "period", middleX, BASE_Y + 42, middleX + periodPx, BASE_Y + 42, "d", 16);
+    const profileName = type === "laminar" ? "Laminar" : type === "sinusoidal" ? "Sinusoidal" : "Blazed";
+    add("angles", null, label(X1, BASE_Y + 104, `${profileName} profile · schematic, not to scale`, "geo-note", "end"));
+  }
+
   function drawMirror(svg, p, status) {
     const add = makeScene(svg);
     status.textContent = "";
@@ -604,12 +676,21 @@
     }
 
     function render() {
+      const nominalType = root.dataset.geometryNominalType;
       const sources = [...forms.map(formSource)];
       if (staticData) {
         sources.push(staticSource(staticData));
       }
       svg.replaceChildren();
       defs(svg);
+      if (nominalType) {
+        const selectedType = first(sources, ["grating_type"]) || nominalType;
+        const shapeType = selectedType === "afm"
+          ? first(sources, ["afm_profile_type"]) || "blazed"
+          : selectedType;
+        drawNominalGrating(svg, shapeType, status);
+        return;
+      }
       const params = kind === "mirror" ? readMirror(sources) : readGrating(sources);
       (kind === "mirror" ? drawMirror : drawGrating)(svg, params, status);
     }
