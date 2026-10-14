@@ -149,6 +149,34 @@ function syncWorkerFields(select) {
 
 function syncRunWorkflow(select) {
   const workflow = select.value;
+  const descriptions = {
+    fixed_angle: {
+      title: "Fixed angle",
+      summary: "Scans an energy range while keeping the grazing angle fixed. Use it to calculate the spectral response at one incidence angle.",
+    },
+    monochromator: {
+      title: "Monochromator",
+      summary: "Scans energy while adjusting the incidence and diffraction geometry for a constant CFF. Use it to model a grating operated as a monochromator.",
+    },
+    multilayer_theta_search: {
+      title: "Multilayer theta search",
+      summary: "Searches for the best grazing angle at each energy for a multilayer grating. Use it to follow the multilayer efficiency peak across an energy range.",
+    },
+    parameter_study: {
+      title: "Parameter study",
+      summary: "Varies Fourier orders and spatial resolutions at one energy and angle. Use it to check numerical convergence and choose stable simulation settings.",
+    },
+    custom_grid: {
+      title: "Custom grid",
+      summary: "Scans any supported grating or simulation parameters, independently or in coupled pairs. Use it for design exploration and nonstandard parameter combinations.",
+    },
+  };
+  const description = descriptions[workflow];
+  const panel = select.closest("form")?.querySelector("[data-run-workflow-description]");
+  if (panel && description) {
+    panel.querySelector("[data-run-workflow-title]").textContent = description.title;
+    panel.querySelector("[data-run-workflow-summary]").textContent = description.summary;
+  }
   if (workflow === "parameter_study") {
     const form = select.closest("form");
     const energy = form?.querySelector('[name="energy_start_ev"]');
@@ -162,7 +190,23 @@ function syncRunWorkflow(select) {
     const allowed = (section.dataset.workflowFields || "").split(/\s+/).filter(Boolean);
     toggleSectionFields(section, allowed.includes(workflow));
   });
+  select.closest("form")?.querySelectorAll("[data-custom-axis]").forEach(syncCustomGridAxisInputs);
+  select.closest("form")?.querySelector("[data-custom-grid-builder]")?.dispatchEvent(new Event("workflowchange"));
   syncFourierRangeWarning(select.closest("form"));
+}
+
+function syncCustomGridAxisInputs(row) {
+  const isRange = row.querySelector("[data-axis-mode]").value === "range";
+  const active = row.closest("form").querySelector("[data-run-workflow]").value === "custom_grid";
+  const list = row.querySelector("[data-axis-list]");
+  const range = row.querySelector("[data-axis-range]");
+  list.classList.toggle("is-hidden", isRange);
+  range.classList.toggle("is-hidden", !isRange);
+  list.querySelector("textarea").disabled = !active || isRange;
+  range.querySelectorAll("input").forEach((input) => { input.disabled = !active || !isRange; });
+  const generated = row.querySelector("[data-axis-generated]");
+  generated.classList.toggle("is-hidden", !isRange);
+  if (!isRange) generated.textContent = "";
 }
 
 function syncFourierRangeWarning(form) {
@@ -905,10 +949,9 @@ function initCustomGridBuilder(root) {
   const catalogNode = root.querySelector("[data-custom-grid-catalog]");
   const defaultNode = root.querySelector("[data-custom-grid-default]");
   const configField = root.querySelector("[data-custom-grid-config]");
-  const variantsRoot = root.querySelector("[data-custom-variants]");
   const axesRoot = root.querySelector("[data-custom-axes]");
   const groupsRoot = root.querySelector("[data-custom-groups]");
-  if (!catalogNode || !defaultNode || !configField || !variantsRoot || !axesRoot || !groupsRoot) return;
+  if (!catalogNode || !defaultNode || !configField || !axesRoot || !groupsRoot) return;
 
   const baseCatalog = JSON.parse(catalogNode.textContent || "[]");
   const initial = JSON.parse(defaultNode.textContent || "{}");
@@ -916,15 +959,36 @@ function initCustomGridBuilder(root) {
   const countNode = root.querySelector("[data-custom-grid-count]");
   const warningNode = root.querySelector("[data-custom-grid-warning]");
   const previewNode = root.querySelector("[data-custom-grid-preview]");
-  let variantSerial = initial.variants?.length || 1;
+  const coupledEditors = new Map();
+  const materialAxes = new WeakMap();
+  let casePreview = null;
+
+  function appendPreviewCases() {
+    if (!casePreview) return;
+    const end = Math.min(casePreview.rendered + 100, casePreview.count);
+    const lines = [];
+    for (let index = casePreview.rendered; index < end; index += 1) {
+      let remainder = index;
+      const selected = new Array(casePreview.axes.length);
+      for (let axis = casePreview.axes.length - 1; axis >= 0; axis -= 1) {
+        const values = casePreview.axes[axis];
+        selected[axis] = values[remainder % values.length];
+        remainder = Math.floor(remainder / values.length);
+      }
+      const item = Object.assign({}, ...selected);
+      lines.push(`${index + 1}. ${Object.entries(item).map(([key, value]) => `${descriptor(key)?.label || key}=${materialText(value)}`).join("; ") || "Default settings"}`);
+    }
+    if (lines.length) previewNode.append(document.createTextNode((casePreview.rendered ? "\n" : "") + lines.join("\n")));
+    casePreview.rendered = end;
+  }
+
+  previewNode.addEventListener("scroll", () => {
+    if (previewNode.scrollTop + previewNode.clientHeight >= previewNode.scrollHeight - 100) appendPreviewCases();
+  });
 
   function descriptorOptions(selected, blocked = new Set()) {
     const groups = new Map();
-    const catalog = [...baseCatalog];
-    if (variantsRoot.children.length > 1) {
-      catalog.unshift({id: "variant", label: "Structural grating variant", category: "Structure", kind: "choice"});
-    }
-    catalog.forEach((item) => {
+    baseCatalog.forEach((item) => {
       if (blocked.has(item.id) && item.id !== selected) return;
       if (!groups.has(item.category)) groups.set(item.category, []);
       groups.get(item.category).push(item);
@@ -947,10 +1011,45 @@ function initCustomGridBuilder(root) {
   }
 
   function descriptor(id) {
-    if (id === "variant") {
-      return {id, label: "Structural grating variant", kind: "choice", choices: readVariants(false).map((item) => item.id)};
-    }
     return baseCatalog.find((item) => item.id === id);
+  }
+
+  function availableParameters() {
+    const used = new Set([...root.querySelectorAll(".custom-grid-parameter")].map((select) => select.value));
+    return baseCatalog.filter((item) => !used.has(item.id));
+  }
+
+  function sourceAxes() {
+    return [...axesRoot.querySelectorAll("[data-custom-axis]")];
+  }
+
+  function syncParameterOptions() {
+    const all = [...root.querySelectorAll(".custom-grid-parameter")];
+    all.forEach((select) => {
+      const used = new Set(all.filter((other) => other !== select).map((other) => other.value));
+      [...select.options].forEach((option) => { option.disabled = used.has(option.value); });
+    });
+    const sources = [...groupsRoot.querySelectorAll("[data-couple-source]")];
+    const axes = sourceAxes().map((axis) => axis.querySelector(".custom-grid-parameter").value);
+    sources.forEach((select) => {
+      const previous = select.value;
+      const choices = axes;
+      const signature = JSON.stringify(choices);
+      if (select.dataset.choices !== signature) {
+        select.replaceChildren(new Option("Choose an existing parameter", ""));
+        choices.forEach((id) => select.append(new Option(descriptor(id).label, id)));
+        select.value = choices.includes(previous) ? previous : "";
+        select.dataset.choices = signature;
+      }
+    });
+    const coupledSources = new Set(sources.map((select) => select.value));
+    sourceAxes().forEach((axis) => {
+      axis.querySelector("[data-axis-coupling-hint]").textContent = coupledSources.has(axis.querySelector(".custom-grid-parameter").value)
+        ? "Used by coupled parameters below. Edit these values here to update their tables."
+        : "";
+    });
+    root.querySelector("[data-custom-add-axis]").disabled = !availableParameters().length;
+    root.querySelector("[data-custom-add-group]").disabled = !availableParameters().length || !axes.length;
   }
 
   function splitValues(text) {
@@ -981,131 +1080,56 @@ function initCustomGridBuilder(root) {
       if (item.minimum !== null && item.minimum !== undefined && number < item.minimum) throw new Error(`${item.label} must be at least ${item.minimum}.`);
       return number;
     }
-    if (item.kind === "material") return value;
+    if (item.kind === "material") {
+      const material = typeof value === "object" ? {...value} : {name: String(value)};
+      material.name = String(material.name || "").trim();
+      if (!material.name) throw new Error(`${item.label} needs a material name.`);
+      for (const key of ["density_g_cm3", "roughness_sigma_nm"]) {
+        const raw = material[key];
+        if (raw === "" || raw === null || raw === undefined) { material[key] = null; continue; }
+        const number = Number(raw);
+        if (!Number.isFinite(number) || (key === "density_g_cm3" ? number <= 0 : number < 0)) throw new Error(`${item.label}: density must be positive and roughness must be non-negative.`);
+        material[key] = number;
+      }
+      return material;
+    }
     if (item.choices?.length && !item.choices.includes(value)) throw new Error(`Invalid value for ${item.label}.`);
     return value;
   }
 
-  function readVariants(strict = true) {
-    return [...variantsRoot.querySelectorAll("[data-custom-variant]")].map((row, index) => {
-      const id = row.dataset.variantId;
-      const name = row.querySelector("[data-variant-name]").value.trim() || `Variant ${index + 1}`;
-      let spec = {};
-      try {
-        spec = JSON.parse(row.querySelector("[data-variant-spec]").value);
-      } catch (error) {
-        if (strict) throw new Error(`${name} has invalid grating JSON.`);
-      }
-      return {id, name, spec};
+  function materialFields(value, item, onChange, includeName = true) {
+    const wrapper = document.createElement("div"); wrapper.className = "custom-grid-material-fields";
+    const current = typeof value === "object" && value !== null ? {...value} : {name: value || ""};
+    const fields = [["name", "Material", ""], ["density_g_cm3", "Density, g/cm³", "Automatic"]];
+    if (item.roughness_path?.length) fields.push(["roughness_sigma_nm", "Roughness σ, nm", "Saved grating"]);
+    fields.forEach(([key, title, placeholder]) => {
+      if (key === "name" && !includeName) return;
+      const label = document.createElement("label"); label.append(title);
+      const input = document.createElement("input"); input.type = key === "name" ? "text" : "number";
+      if (key !== "name") { input.step = "any"; input.min = key === "density_g_cm3" ? "0.000000000001" : "0"; }
+      input.placeholder = placeholder; input.value = current[key] ?? "";
+      input.addEventListener("input", () => { current[key] = input.value; onChange({...current}); });
+      label.append(input); wrapper.append(label);
     });
-  }
-
-  function readablePath(path) {
-    return path.map((part) => typeof part === "number" ? `Layer ${part + 1}` : part.replaceAll("_", " ")).join(" · ");
-  }
-
-  function setNestedValue(rootObject, path, value) {
-    let target = rootObject;
-    path.slice(0, -1).forEach((part) => { target = target[part]; });
-    target[path.at(-1)] = value;
-  }
-
-  function applyStructureDefaults(spec, path, value) {
-    if (path.length === 1 && path[0] === "grating_type") {
-      spec.grating_type = value;
-      if (value === "laminar") Object.assign(spec, {width_to_period_ratio: spec.width_to_period_ratio ?? 0.5, depth_nm: spec.depth_nm ?? 10, left_wall_angle_deg: spec.left_wall_angle_deg ?? 0, right_wall_angle_deg: spec.right_wall_angle_deg ?? 0});
-      if (value === "sinusoidal") spec.depth_nm = spec.depth_nm ?? 10;
-      if (value === "blazed") Object.assign(spec, {blaze_angle_deg: spec.blaze_angle_deg ?? 1, anti_blaze_angle_deg: spec.anti_blaze_angle_deg ?? null});
-      if (value === "afm") spec.profile = spec.profile || {profile_path: "", source_filename: "", units: "nm", profile_type: "blazed", period_nm: 0};
+    if (item.roughness_path?.length) {
+      const hint = document.createElement("small");
+      hint.className = "muted";
+      hint.textContent = "Roughness uses the model selected in the grating settings.";
+      wrapper.append(hint);
     }
-    if (path.join(".") === "stack.type") {
-      const substrate = spec.stack?.substrate_material || {name: "Si", density_g_cm3: null};
-      if (value === "bare") spec.stack = {type: value, substrate_material: substrate, substrate_roughness_sigma_nm: null};
-      if (value === "single_layer") spec.stack = {type: value, substrate_material: substrate, layer_material: {name: "Pt", density_g_cm3: null}, layer_thickness_nm: 10, top_cap_material: null, top_cap_thickness_nm: 0, substrate_roughness_sigma_nm: null, layer_roughness_sigma_nm: null, top_cap_roughness_sigma_nm: null};
-      if (value === "multilayer") spec.stack = {type: value, substrate_material: substrate, material_a: {name: "B4C", density_g_cm3: null}, material_b: {name: "Ru", density_g_cm3: null}, d_period_nm: 6, gamma: 0.5, n_bilayers: 20, top_material: {name: "Ru", density_g_cm3: null}, top_cap_material: null, top_cap_thickness_nm: 0, substrate_roughness_sigma_nm: null, material_a_roughness_sigma_nm: null, material_b_roughness_sigma_nm: null, top_cap_roughness_sigma_nm: null};
-      if (value === "custom") spec.stack = {type: value, substrate_material: substrate, layers_bottom_up: [{material: {name: "Pt", density_g_cm3: null}, thickness_nm: 10, roughness_sigma_nm: null}], top_cap_material: null, top_cap_thickness_nm: 0, substrate_roughness_sigma_nm: null, top_cap_roughness_sigma_nm: null};
-    }
+    return wrapper;
   }
 
-  function renderVariantFields(row, state) {
-    const fieldsRoot = row.querySelector("[data-variant-fields]");
-    const jsonField = row.querySelector("[data-variant-spec]");
-    fieldsRoot.replaceChildren();
-    if (state.spec.stack?.type === "custom") {
-      const actions = document.createElement("div"); actions.className = "custom-grid-inline-actions custom-grid-full-row";
-      const add = document.createElement("button"); add.type = "button"; add.className = "button"; add.textContent = "Add custom layer";
-      const remove = document.createElement("button"); remove.type = "button"; remove.className = "button danger"; remove.textContent = "Remove last layer"; remove.disabled = (state.spec.stack.layers_bottom_up || []).length <= 1;
-      add.addEventListener("click", () => { state.spec.stack.layers_bottom_up.push({material: {name: "Pt", density_g_cm3: null}, thickness_nm: 10, roughness_sigma_nm: null}); jsonField.value = JSON.stringify(state.spec, null, 2); renderVariantFields(row, state); refresh(); });
-      remove.addEventListener("click", () => { if (state.spec.stack.layers_bottom_up.length > 1) state.spec.stack.layers_bottom_up.pop(); jsonField.value = JSON.stringify(state.spec, null, 2); renderVariantFields(row, state); refresh(); });
-      actions.append(add, remove); fieldsRoot.append(actions);
-    }
-    const ignored = new Set(["id", "name", "schema_version", "created_at", "updated_at"]);
-    const roughnessLabel = document.createElement("label"); roughnessLabel.textContent = "Roughness model";
-    const roughnessSelect = document.createElement("select");
-    ["none", "debye-waller", "random-interface"].forEach((choice) => { const option = document.createElement("option"); option.value = choice; option.textContent = choice; roughnessSelect.append(option); });
-    roughnessSelect.value = state.spec.roughness?.kind || "none";
-    roughnessSelect.addEventListener("change", () => { state.spec.roughness = roughnessSelect.value === "none" ? null : {...(state.spec.roughness || {}), kind: roughnessSelect.value, sigma_nm: state.spec.roughness?.sigma_nm ?? 0, correlation_length_nm: state.spec.roughness?.correlation_length_nm ?? 0, seed: state.spec.roughness?.seed ?? 0, num_supercells: state.spec.roughness?.num_supercells ?? 1, num_realizations: state.spec.roughness?.num_realizations ?? 1}; jsonField.value = JSON.stringify(state.spec, null, 2); renderVariantFields(row, state); refresh(); });
-    roughnessLabel.append(roughnessSelect); fieldsRoot.append(roughnessLabel);
-    function visit(value, path = []) {
-      if (Array.isArray(value)) {
-        value.forEach((item, index) => visit(item, [...path, index]));
-        return;
-      }
-      if (value && typeof value === "object") {
-        Object.entries(value).forEach(([key, nested]) => { if (!(path.length === 0 && ignored.has(key)) && !(path.length === 0 && key === "roughness") && !(path.join(".") === "roughness" && key === "kind")) visit(nested, [...path, key]); });
-        return;
-      }
-      const label = document.createElement("label");
-      label.textContent = readablePath(path);
-      let input;
-      const joined = path.join(".");
-      if (joined === "grating_type" || joined === "stack.type" || joined === "roughness.kind") {
-        input = document.createElement("select");
-        const choices = joined === "grating_type" ? ["laminar", "sinusoidal", "blazed", "afm"] : joined === "stack.type" ? ["bare", "single_layer", "multilayer", "custom"] : ["none", "debye-waller", "random-interface"];
-        choices.forEach((choice) => { const option = document.createElement("option"); option.value = choice; option.textContent = choice.replaceAll("_", " "); input.append(option); });
-        input.value = value ?? choices[0];
-      } else if (typeof value === "number") {
-        input = document.createElement("input"); input.type = "number"; input.step = Number.isInteger(value) ? "1" : "any"; input.value = value;
-      } else {
-        input = document.createElement("input"); input.type = "text"; input.value = value ?? "";
-      }
-      input.addEventListener("change", () => {
-        const converted = input.type === "number" ? (input.value === "" ? null : Number(input.value)) : input.value === "" && value === null ? null : input.value;
-        applyStructureDefaults(state.spec, path, converted);
-        setNestedValue(state.spec, path, converted);
-        jsonField.value = JSON.stringify(state.spec, null, 2);
-        if (["grating_type", "stack.type"].includes(joined)) renderVariantFields(row, state);
-        refresh();
-      });
-      label.append(input); fieldsRoot.append(label);
-    }
-    visit(state.spec);
-    if (state.spec.roughness) visit(state.spec.roughness, ["roughness"]);
-  }
-
-  function makeVariant(variant) {
-    const row = document.createElement("article");
-    row.className = "custom-grid-card";
-    row.dataset.customVariant = "";
-    row.dataset.variantId = variant.id;
-    row.innerHTML = `<div class="custom-grid-card-head"><label>Variant name <input data-variant-name></label><button type="button" class="button danger" data-remove>Remove</button></div><div class="custom-grid-variant-fields" data-variant-fields></div><details><summary>Advanced: complete configuration JSON</summary><label>Complete grating configuration<textarea class="custom-grid-spec" data-variant-spec spellcheck="false"></textarea></label></details>`;
-    const state = {spec: structuredClone(variant.spec)};
-    row.querySelector("[data-variant-name]").value = variant.name;
-    row.querySelector("[data-variant-spec]").value = JSON.stringify(state.spec, null, 2);
-    renderVariantFields(row, state);
-    row.querySelector("[data-variant-spec]").addEventListener("change", (event) => {
-      try { state.spec = JSON.parse(event.target.value); renderVariantFields(row, state); refresh(); } catch (error) { refresh(); }
-    });
-    row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
-    row.addEventListener("input", refresh);
-    variantsRoot.append(row);
+  function materialText(value) {
+    if (!value || typeof value !== "object") return String(value);
+    return `${value.name}${value.density_g_cm3 == null ? "" : ` (${value.density_g_cm3} g/cm³)`}${value.roughness_sigma_nm == null ? "" : `; σ=${value.roughness_sigma_nm} nm`}`;
   }
 
   function makeAxis(axis = {}) {
     const row = document.createElement("article");
     row.className = "custom-grid-card";
     row.dataset.customAxis = "";
-    const parameter = descriptorOptions(axis.parameter || baseCatalog[0]?.id);
+    const parameter = descriptorOptions(axis.parameter || availableParameters()[0]?.id);
     const mode = document.createElement("select");
     mode.dataset.axisMode = "";
     mode.innerHTML = '<option value="list">Explicit values</option><option value="range">Linear range</option>';
@@ -1118,7 +1142,37 @@ function initCustomGridBuilder(root) {
     controls.append(parameterLabel, modeLabel);
     const values = document.createElement("label"); values.dataset.axisList = ""; values.append("Values");
     const textarea = document.createElement("textarea"); textarea.rows = 2; textarea.placeholder = "100, 200, 300";
-    textarea.value = (axis.values || []).join(", "); values.append(textarea);
+    textarea.value = (axis.values || []).map((value) => typeof value === "object" ? value.name : value).join(", "); values.append(textarea);
+    const materials = document.createElement("div"); materials.dataset.axisMaterials = "";
+    let materialSignature = "";
+    let materialValues = (axis.values || []).map((value) => typeof value === "object" ? {...value} : {name: String(value)});
+    function syncMaterials() {
+      const item = descriptor(parameter.value);
+      const isMaterial = item?.kind === "material";
+      textarea.placeholder = isMaterial ? "Au, Pt, Si" : "100, 200, 300";
+      materials.classList.toggle("is-hidden", !isMaterial);
+      if (isMaterial) {
+        const names = splitValues(textarea.value);
+        const signature = JSON.stringify([parameter.value, names]);
+        if (signature !== materialSignature) {
+          materialValues = names.map((name, index) => materialValues[index]?.name === name ? materialValues[index] : {name});
+          materials.replaceChildren();
+          const hint = document.createElement("p"); hint.className = "subtle";
+          hint.textContent = "Set density and interface roughness for each material. Blank density uses the material default; blank roughness keeps the saved grating setting. A separate scan of either property overrides these values.";
+          materials.append(hint);
+          materialValues.forEach((value, index) => {
+            const line = document.createElement("div"); line.className = "custom-grid-material-row";
+            const name = document.createElement("strong"); name.textContent = value.name;
+            line.append(name, materialFields(value, item, (updated) => { materialValues[index] = updated; refresh(); }, false));
+            materials.append(line);
+          });
+          materialSignature = signature;
+        }
+      }
+      const active = root.closest("form").querySelector("[data-run-workflow]").value === "custom_grid";
+      materials.querySelectorAll("input").forEach((field) => { field.disabled = !active || !isMaterial; });
+    }
+    materialAxes.set(row, {sync: syncMaterials, read: () => materialValues.map((value) => castPreview(value, descriptor(parameter.value)))});
     const range = document.createElement("div"); range.className = "custom-grid-range"; range.dataset.axisRange = "";
     [["Minimum", "minimum"], ["Maximum", "maximum"], ["Count", "count"]].forEach(([label, key]) => {
       const fieldLabel = document.createElement("label"); const input = document.createElement("input");
@@ -1127,31 +1181,147 @@ function initCustomGridBuilder(root) {
       fieldLabel.append(label, input); range.append(fieldLabel);
     });
     const generated = document.createElement("p"); generated.className = "subtle"; generated.dataset.axisGenerated = "";
-    row.append(controls, values, range, generated);
-    function syncMode() { const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind); if (!rangeAllowed) mode.value = "list"; mode.querySelector('[value="range"]').disabled = !rangeAllowed; values.classList.toggle("is-hidden", mode.value !== "list"); range.classList.toggle("is-hidden", mode.value !== "range"); }
+    const couplingHint = document.createElement("p");
+    couplingHint.className = "subtle";
+    couplingHint.dataset.axisCouplingHint = "";
+    row.append(controls, values, materials, range, generated, couplingHint);
+    function syncMode() {
+      const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind);
+      if (!rangeAllowed) mode.value = "list";
+      mode.querySelector('[value="range"]').disabled = !rangeAllowed;
+      syncCustomGridAxisInputs(row);
+      syncMaterials();
+    }
     parameter.addEventListener("change", () => { syncMode(); refresh(); }); mode.addEventListener("change", () => { syncMode(); refresh(); });
     row.addEventListener("input", refresh); row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
     axesRoot.append(row); syncMode();
   }
 
   function makeGroup(group = {}) {
-    const row = document.createElement("article"); row.className = "custom-grid-card"; row.dataset.customGroup = "";
-    row.innerHTML = '<div class="custom-grid-card-head"><label>Group name <input data-group-name></label><button type="button" class="button danger" data-remove>Remove</button></div><div class="custom-grid-coupled-parameters" data-group-parameters></div><div class="custom-grid-inline-actions"><button type="button" class="button" data-add-column>Add parameter</button></div><label>Rows (one row per coupled case; comma-separated columns)<textarea data-group-rows rows="5" placeholder="100, 1\n200, 2"></textarea></label><p class="subtle" data-group-columns></p>';
-    row.querySelector("[data-group-name]").value = group.name || "Coupled group";
-    const paramsRoot = row.querySelector("[data-group-parameters]");
-    function addColumn(value) {
-      const wrapper = document.createElement("div"); wrapper.className = "custom-grid-coupled-column";
-      const select = descriptorOptions(value || baseCatalog[paramsRoot.children.length]?.id);
-      const remove = document.createElement("button"); remove.type = "button"; remove.className = "button danger"; remove.textContent = "×"; remove.title = "Remove parameter";
-      remove.addEventListener("click", () => { if (paramsRoot.children.length > 2) { wrapper.remove(); refresh(); } });
-      select.addEventListener("change", refresh); wrapper.append(select, remove); paramsRoot.append(wrapper);
+    const row = document.createElement("article");
+    row.className = "custom-grid-card";
+    row.dataset.customGroup = "";
+    row.innerHTML = `<div class="custom-grid-card-head"><strong>Coupled parameter</strong><button type="button" class="button danger" data-remove>Remove</button></div>
+      <div class="custom-grid-axis-controls">
+        <label>Couple to <select data-couple-source></select></label>
+        <label>Parameter to couple <span data-couple-target></span></label>
+      </div>
+      <label>Enter values <select data-couple-mode><option value="manual">Manually</option><option value="range">As a range</option></select></label>
+      <div class="custom-grid-range" data-couple-range>
+        <label>Start <input type="number" step="any" data-couple-start value="0"></label>
+        <label>Stop <input type="number" step="any" data-couple-stop value="1"></label>
+        <label>Number of points <input type="number" min="1" step="1" data-couple-count></label>
+      </div>
+      <p class="subtle" data-couple-hint></p>
+      <p class="notice-error" data-couple-error role="status"></p>
+      <div class="custom-grid-table-wrap"><table class="custom-grid-coupling-table"><thead><tr><th scope="col" data-source-heading></th><th scope="col" data-target-heading></th></tr></thead><tbody></tbody></table></div>`;
+    const source = row.querySelector("[data-couple-source]");
+    const target = descriptorOptions(group.parameters?.[1] || availableParameters()[0]?.id);
+    row.querySelector("[data-couple-target]").replaceWith(target);
+    const mode = row.querySelector("[data-couple-mode]");
+    const range = row.querySelector("[data-couple-range]");
+    const start = row.querySelector("[data-couple-start]");
+    const stop = row.querySelector("[data-couple-stop]");
+    const count = row.querySelector("[data-couple-count]");
+    const body = row.querySelector("tbody");
+    const state = {manual: (group.rows || []).map((values) => values[group.parameters[1]] ?? ""), values: [], error: "", signature: "", source: "", target: target.value};
+    groupsRoot.append(row);
+    syncParameterOptions();
+    source.value = group.parameters?.[0] || sourceAxes()[0]?.querySelector(".custom-grid-parameter").value || "";
+
+    function update() {
+      const active = root.closest("form").querySelector("[data-run-workflow]").value === "custom_grid";
+      const item = descriptor(target.value);
+      const rangeAllowed = ["int", "float", "optional_float"].includes(item?.kind);
+      mode.querySelector('[value="range"]').disabled = !rangeAllowed;
+      if (!rangeAllowed) mode.value = "manual";
+      const isRange = mode.value === "range";
+      range.classList.toggle("is-hidden", !isRange);
+      range.querySelectorAll("input").forEach((input) => { input.disabled = !active || !isRange; });
+      row.querySelector("[data-source-heading]").textContent = descriptor(source.value)?.label || "Existing values";
+      row.querySelector("[data-target-heading]").textContent = item?.label || "Coupled values";
+      state.error = "";
+      state.values = [];
+      let generated = [];
+      try {
+        const axis = sourceAxes().find((axis) => axis.querySelector(".custom-grid-parameter").value === source.value);
+        if (!axis) throw new Error("Choose an existing independent parameter to couple to.");
+        state.values = axisValues(axis);
+        if (source.value !== state.source) {
+          if (state.source) state.manual = [];
+          state.source = source.value;
+          count.value = state.values.length;
+        }
+        if (target.value !== state.target) {
+          state.manual = [];
+          state.target = target.value;
+        }
+        if (isRange) {
+          const size = Number(count.value);
+          if (!Number.isInteger(size) || size !== state.values.length) throw new Error(`Number of points must match ${descriptor(source.value).label}: ${state.values.length} values.`);
+          if (!start.value.trim() || !stop.value.trim()) throw new Error("Enter both Start and Stop for the range.");
+          const lower = Number(start.value), upper = Number(stop.value);
+          if (!Number.isFinite(lower) || !Number.isFinite(upper)) throw new Error("Start and Stop must be finite numbers.");
+          generated = Array.from({length: size}, (_, index) => size === 1 ? lower : lower + (upper - lower) * index / (size - 1));
+          // Keep every paired row when integer rounding produces repeated values.
+          if (item.kind === "int") generated = generated.map(roundHalfEven);
+          generated = generated.map((value) => castPreview(value, item));
+        }
+      } catch (error) {
+        state.error = error.message;
+      }
+      row.querySelector("[data-couple-hint]").textContent = isRange
+        ? `Match the ${state.values.length} existing values. The table is read-only.${item?.kind === "int" ? " Generated values are rounded to integers; paired rows are retained." : ""}`
+        : "The first column comes from the selected parameter. Enter one coupled value in each row of the second column.";
+      row.querySelector("[data-couple-error]").textContent = state.error;
+      const signature = JSON.stringify([source.value, target.value, mode.value, state.values, isRange ? generated : null]);
+      if (signature !== state.signature) {
+        body.replaceChildren();
+        state.values.forEach((value, index) => {
+          const tr = document.createElement("tr");
+          const left = document.createElement("td"); left.textContent = materialText(value);
+          const right = document.createElement("td");
+          if (isRange) {
+            right.textContent = generated[index] === undefined ? "—" : String(generated[index]);
+          } else if (item?.kind === "material") {
+            right.append(materialFields(state.manual[index], item, (value) => { state.manual[index] = value; refresh(); }));
+          } else {
+            const field = document.createElement(item?.choices?.length ? "select" : "input");
+            if (item?.choices?.length) {
+              field.append(new Option("Choose a value", ""));
+              item.choices.forEach((choice) => field.append(new Option(choice, choice)));
+            } else {
+              field.type = "text";
+              if (["float", "int", "optional_float"].includes(item?.kind)) field.inputMode = "decimal";
+            }
+            field.setAttribute("aria-label", `${item?.label || "Value"}, row ${index + 1}`);
+            field.value = state.manual[index] ?? "";
+            field.addEventListener("input", () => { state.manual[index] = field.value; refresh(); });
+            right.append(field);
+          }
+          tr.append(left, right); body.append(tr);
+        });
+        state.signature = signature;
+      }
+      body.querySelectorAll("input, select").forEach((field) => { field.disabled = !active; });
+      state.generated = generated;
     }
-    (group.parameters?.length ? group.parameters : [baseCatalog[0]?.id, baseCatalog[1]?.id]).forEach(addColumn);
-    const rows = group.rows || [];
-    row.querySelector("[data-group-rows]").value = rows.map((values) => group.parameters.map((parameter) => values[parameter]).join(", ")).join("\n");
-    row.querySelector("[data-add-column]").addEventListener("click", () => { addColumn(); refresh(); });
-    row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
-    row.addEventListener("input", refresh); groupsRoot.append(row);
+
+    function read() {
+      if (state.error) throw new Error(state.error);
+      const rows = state.values.map((value, index) => {
+        const manual = state.manual[index] ?? "";
+        const raw = mode.value === "range" ? state.generated[index] : typeof manual === "object" ? manual : String(manual).trim();
+        if (raw === "") throw new Error(`Enter ${descriptor(target.value).label} for row ${index + 1}.`);
+        return {[source.value]: value, [target.value]: castPreview(raw, descriptor(target.value))};
+      });
+      return {name: `Coupled to ${descriptor(source.value).label}`, parameters: [source.value, target.value], rows};
+    }
+
+    coupledEditors.set(row, {update, read});
+    [source, target, mode].forEach((select) => select.addEventListener("change", refresh));
+    [start, stop, count].forEach((input) => input.addEventListener("input", refresh));
+    row.querySelector("[data-remove]").addEventListener("click", () => { coupledEditors.delete(row); row.remove(); refresh(); });
   }
 
   function axisValues(row) {
@@ -1160,6 +1330,7 @@ function initCustomGridBuilder(root) {
     if (mode === "list") {
       const values = splitValues(row.querySelector("[data-axis-list] textarea").value);
       if (!values.length) throw new Error(`${item.label} needs at least one value.`);
+      if (item.kind === "material") { materialAxes.get(row).sync(); return materialAxes.get(row).read(); }
       return values.map((value) => castPreview(value, item));
     }
     const minimum = Number(row.querySelector("[data-minimum]").value);
@@ -1173,45 +1344,51 @@ function initCustomGridBuilder(root) {
   }
 
   function buildConfig() {
+    const bySource = new Map();
+    coupledEditors.forEach((editor) => {
+      const group = editor.read();
+      const existing = bySource.get(group.parameters[0]);
+      if (existing) {
+        existing.parameters.push(group.parameters[1]);
+        existing.rows.forEach((values, index) => Object.assign(values, group.rows[index]));
+      } else {
+        bySource.set(group.parameters[0], group);
+      }
+    });
+    const coupled_groups = [...bySource.values()];
+    const sources = new Set(coupled_groups.map((group) => group.parameters[0]));
     const used = new Set();
-    const independent = [...axesRoot.querySelectorAll("[data-custom-axis]")].map((row) => {
+    coupled_groups.forEach((group) => group.parameters.forEach((parameter) => {
+      if (used.has(parameter)) throw new Error("A parameter can appear only once across coupled groups.");
+      used.add(parameter);
+    }));
+    const independent = sourceAxes().filter((row) => !sources.has(row.querySelector(".custom-grid-parameter").value)).map((row) => {
       const parameter = row.querySelector(".custom-grid-parameter").value;
       if (used.has(parameter)) throw new Error("A parameter can appear only once across all axes and coupled groups."); used.add(parameter);
       const mode = row.querySelector("[data-axis-mode]").value;
       if (mode === "range") return {parameter, mode, minimum: Number(row.querySelector("[data-minimum]").value), maximum: Number(row.querySelector("[data-maximum]").value), count: Number(row.querySelector("[data-count]").value)};
       return {parameter, mode, values: axisValues(row)};
     });
-    const coupled_groups = [...groupsRoot.querySelectorAll("[data-custom-group]")].map((row, index) => {
-      const parameters = [...row.querySelectorAll(".custom-grid-parameter")].map((select) => select.value);
-      parameters.forEach((parameter) => { if (used.has(parameter)) throw new Error("A parameter can appear only once across all axes and coupled groups."); used.add(parameter); });
-      const lines = row.querySelector("[data-group-rows]").value.split(/\n/).map((line) => line.trim()).filter(Boolean);
-      const rows = lines.map((line) => { const cells = line.split(",").map((cell) => cell.trim()); if (cells.length !== parameters.length) throw new Error(`${row.querySelector("[data-group-name]").value || `Coupled group ${index + 1}`} needs exactly ${parameters.length} values on every row.`); return Object.fromEntries(parameters.map((parameter, cellIndex) => [parameter, castPreview(cells[cellIndex], descriptor(parameter))])); });
-      if (!rows.length) throw new Error("Every coupled group needs at least one row.");
-      row.querySelector("[data-group-columns]").textContent = `Columns: ${parameters.map((id) => descriptor(id)?.label || id).join(" · ")}`;
-      return {name: row.querySelector("[data-group-name]").value.trim() || `Coupled group ${index + 1}`, parameters, rows};
-    });
     const display_order = [
       ...independent.map((axis) => ({kind: "independent", parameter: axis.parameter})),
       ...coupled_groups.map((group, index) => ({kind: "coupled_group", index, name: group.name})),
     ];
-    return {schema_version: 1, variants: readVariants(), independent, coupled_groups, display_order};
+    return {schema_version: 1, independent, coupled_groups, display_order};
   }
 
   function gridSummary(config) {
-    const axes = config.independent.map((axis, index) => axisValues(axesRoot.querySelectorAll("[data-custom-axis]")[index]).map((value) => ({[axis.parameter]: value})));
+    const axes = config.independent.map((axis) => axisValues(sourceAxes().find((row) => row.querySelector(".custom-grid-parameter").value === axis.parameter)).map((value) => ({[axis.parameter]: value})));
     config.coupled_groups.forEach((group) => axes.push(group.rows));
-    if (!axes.length) return {count: 1, duplicateCount: 0, preview: [{}]};
     const count = axes.reduce((total, axis) => total * axis.length, 1);
     const uniqueCount = axes.reduce((total, axis) => total * new Set(axis.map((item) => JSON.stringify(item))).size, 1);
-    const preview = axes.reduce(
-      (left, right) => left.flatMap((a) => right.map((b) => ({...a, ...b}))).slice(0, 8),
-      [{}],
-    );
-    return {count, duplicateCount: count - uniqueCount, preview};
+    return {count, duplicateCount: count - uniqueCount, axes};
   }
 
   function refresh() {
     try {
+      syncParameterOptions();
+      sourceAxes().forEach((row) => materialAxes.get(row)?.sync());
+      coupledEditors.forEach((editor) => editor.update());
       const config = buildConfig(); const summary = gridSummary(config);
       configField.value = JSON.stringify(config);
       countNode.textContent = `${summary.count.toLocaleString()} ${summary.count === 1 ? "case" : "cases"}`;
@@ -1220,17 +1397,22 @@ function initCustomGridBuilder(root) {
       if (summary.count > threshold) warnings.push(`Large grid: ${summary.count.toLocaleString()} cases exceeds the ${threshold.toLocaleString()}-case warning threshold.`);
       if (duplicateCount) warnings.push(`${duplicateCount} resolved duplicate ${duplicateCount === 1 ? "case is" : "cases are"} retained.`);
       warningNode.textContent = warnings.join(" "); warningNode.classList.toggle("notice-error", warnings.length > 0);
-      previewNode.textContent = summary.preview.map((item, index) => `${index + 1}. ${Object.entries(item).map(([key, value]) => `${descriptor(key)?.label || key}=${typeof value === "object" ? JSON.stringify(value) : value}`).join("; ") || "Default settings"}`).join("\n") + (summary.count > 8 ? `\n… ${(summary.count - 8).toLocaleString()} more` : "");
+      casePreview = {...summary, rendered: 0};
+      previewNode.textContent = "";
+      previewNode.scrollTop = 0;
+      appendPreviewCases();
       root.dataset.customGridValid = "true";
     } catch (error) {
+      casePreview = null;
+      configField.value = "";
+      previewNode.textContent = "Enter valid values to preview the grid.";
       countNode.textContent = "Grid configuration needs attention"; warningNode.textContent = error.message; warningNode.classList.add("notice-error"); root.dataset.customGridValid = "false";
     }
   }
 
-  (initial.variants || []).forEach(makeVariant);
+  root.addEventListener("workflowchange", refresh);
   (initial.independent || []).forEach(makeAxis);
   (initial.coupled_groups || []).forEach(makeGroup);
-  root.querySelector("[data-custom-add-variant]").addEventListener("click", () => { const source = readVariants(false)[0]; variantSerial += 1; makeVariant({id: `variant-${variantSerial}`, name: `Variant ${variantSerial}`, spec: source?.spec || {}}); refresh(); });
   root.querySelector("[data-custom-add-axis]").addEventListener("click", () => { makeAxis(); refresh(); });
   root.querySelector("[data-custom-add-group]").addEventListener("click", () => { makeGroup(); refresh(); });
   root.closest("form")?.addEventListener("submit", (event) => {

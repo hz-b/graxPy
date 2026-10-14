@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4 - 2026-10-14
+
+- Redesigned the Custom grid workflow around editable independent parameters and guided coupled parameters. A coupled parameter can be entered row by row against an existing independent parameter or generated from a matching linear range, with a read-only paired-value table.
+- Added material-aware scans. Material choices can carry density and supported interface roughness values, material density can be scanned independently, and multilayer top-material references remain consistent when material properties change.
+- Fixed explicit-value axes being overridden by stale linear-range controls, removed structural variants from the Custom grid interface, and clarified that default values apply unless an independent or coupled parameter overrides them.
+- Improved Custom grid validation and previews, including preserved source axes, complete scrollable case lists, clearer material values, duplicate handling, and cache-busted web assets after application updates.
+- Added contextual workflow guidance beside the Run sweep selector, explaining each sweep and its typical use as soon as it is selected.
+
 ## 0.5.3 - 2026-10-14
 
 - Improved the AFM grating workflow: scans appear on first upload, supported text formats and processing controls are explained in the form, and processing uses the visible target period and reports clear completion feedback.
