@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_geometry_view.html" import geometry_view %}
 {% from "_roughness_help.html" import roughness_help %}
 {% block title %}{{ grating.name }}{% endblock %}
 {% block body %}
@@ -15,7 +14,8 @@
 </section>
 
 <h2>Nominal geometry — three periods</h2>
-{{ geometry_view("grating", bind=".run-form", static=grating) }}
+{% set nominal_type = (grating.profile.profile_type|default('blazed')) if grating.grating_type == 'afm' else grating.grating_type %}
+<div class="geometry-view" data-geometry-view data-geometry-kind="grating" data-geometry-nominal-type="{{ nominal_type }}"></div>
 
 <img class="preview" src="{{ preview_url }}" alt="Nominal grating profile and material stack over three aligned periods">
 {% if roughness_preview_url %}
@@ -62,7 +62,7 @@
 
   <fieldset data-workflow-fields="fixed_angle">
     <legend>Angle selection</legend>
-    <label>Grazing angle, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+    <label>Incident (grazing) angle α, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
   </fieldset>
 
   <fieldset data-workflow-fields="parameter_study" data-parameter-study-fields>
@@ -70,7 +70,7 @@
     <p class="hint">Choose the energy and angle for the study, then define the numerical ranges to compare.</p>
     <p class="hint">For each sweep, choose the other two numerical parameters to hold fixed. Defaults use the highest X/Z resolutions and the lowest Fourier order in the study.</p>
     <label>Energy, eV <input name="study_energy_ev" type="number" step="0.1" value="100"></label>
-    <label>Grazing angle, deg <input name="study_grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+    <label>Incident (grazing) angle α, deg <input name="study_grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
     <div class="parameter-range">
       <strong><span class="parameter-label">Fourier orders <button type="button" class="roughness-help" aria-label="Help: Fourier orders" aria-describedby="fourier-orders-help">?</button><span class="roughness-tip" role="tooltip" id="fourier-orders-help">Fourier orders are integer values only. The number of distinct steps cannot exceed maximum minus minimum plus one.</span></span></strong>
       <label>Minimum <input name="study_fourier_min" type="number" min="1" step="1" value="5"></label>
@@ -122,7 +122,7 @@
       <label>Default energy, eV
         <input name="custom_default_energy_ev" type="number" min="0.000001" step="any" value="100">
       </label>
-      <label>Default grazing angle, deg
+      <label>Default incident (grazing) angle α, deg
         <input name="custom_default_grazing_angle_deg" type="number" step="any" value="1.5">
       </label>
       <label>Default diffraction order

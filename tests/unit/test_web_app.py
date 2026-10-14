@@ -527,7 +527,38 @@ def test_flask_app_creates_grating_and_lists_it(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert b"Local laminar" in response.data
+    assert b'data-geometry-nominal-type="laminar"' in response.data
+    assert b'data-geometry-static=' not in response.data
     assert len(GratingStore(tmp_path / "saved_gratings").list()) == 1
+
+
+def test_grating_name_is_required_to_save_but_not_to_preview(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    form = {
+        "name": "   ",
+        "grating_type": "laminar",
+        "period_lpermm": "400",
+        "x_resolution_nm": "2.0",
+        "z_resolution_nm": "0.5",
+        "width_to_period_ratio": "0.67",
+        "depth_nm": "14.9",
+        "left_wall_angle_deg": "15.0",
+        "right_wall_angle_deg": "15.0",
+        "stack_type": "single_layer",
+        "substrate_material": "Si",
+        "layer_material": "Pt",
+        "layer_thickness_nm": "28.77",
+    }
+
+    page = client.get("/gratings/new")
+    assert b'name="name" required value=""' in page.data
+    assert client.post("/_preview/grating", data=form).get_json()["ok"] is True
+    response = client.post("/gratings", data=form)
+    assert response.status_code == 422
+    assert b"Enter a grating name before saving." in response.data
+    assert GratingStore(tmp_path / "saved_gratings").list() == []
 
 
 def test_flask_sinusoidal_create_edit_preview_and_validation(
@@ -2760,7 +2791,8 @@ def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_p
     design = client.get("/multilayer-design/new").get_data(as_text=True)
 
     assert 'data-geometry-kind="grating"' in grating
-    assert 'data-geometry-bind="[data-grating-preview-form]"' in grating
+    assert 'data-geometry-bind="[data-afm-process-form], [data-grating-preview-form]"' in grating
+    assert 'data-geometry-nominal-type="laminar"' in grating
     assert 'data-geometry-kind="mirror"' in mirror
     assert 'data-geometry-bind="[data-plane-mirror-form]"' in mirror
     assert 'data-geometry-bind="closest"' in design

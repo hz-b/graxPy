@@ -240,7 +240,20 @@ def process_afm_upload(
     x_points, z_points = afm.get_profile()
     profile_path = output_dir / "profile.csv"
     np.savetxt(profile_path, np.column_stack((x_points, z_points)), delimiter=",", header="x_nm,z_nm", comments="")
-    return {"id": output_dir.name, "source_filename": filename, "units": units, "profile_type": profile_type, "period_nm": period_nm, "profile_path": str(profile_path.name), "diagnostics": sorted(str(path.relative_to(output_dir)) for path in output_dir.rglob("*.png")), "points": int(len(x_points))}
+    (output_dir / "source_upload").write_bytes(raw)
+    return {
+        "id": output_dir.name, "source_filename": filename, "units": units,
+        "profile_type": profile_type, "period_nm": period_nm,
+        "profile_path": str(profile_path.name),
+        "settings": {
+            "min_separation_fraction": min_separation_fraction,
+            "min_prominence_fraction": min_prominence_fraction,
+            "period_index": period_index, "average": average, "reverse": reverse,
+            "zero_baseline": zero_baseline, "periodicity_ramp": periodicity_ramp,
+        },
+        "diagnostics": sorted(str(path.relative_to(output_dir)) for path in output_dir.rglob("*.png")),
+        "points": int(len(x_points)),
+    }
 
 
 def load_profile_artifact(profile_dir: Path, profile_name: str) -> tuple[np.ndarray, np.ndarray]:
