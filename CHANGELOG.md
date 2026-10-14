@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 - 2026-10-14
+## 0.5.4 - 2026-10-14
 
 - Redesigned the Custom grid workflow around editable independent parameters and guided coupled parameters. A coupled parameter can be entered row by row against an existing independent parameter or generated from a matching linear range, with a read-only paired-value table.
 - Added material-aware scans. Material choices can carry density and supported interface roughness values, material density can be scanned independently, and multilayer top-material references remain consistent when material properties change.
