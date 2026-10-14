@@ -4,7 +4,10 @@ GraxPy supports two roughness models that enter a simulation at different
 stages:
 
 - `debye-waller` preserves the discretized grating geometry and applies a
-  scalar Debye-Waller damping factor to the resulting efficiencies.
+  scalar Debye-Waller damping factor to the resulting efficiencies. The
+  grating-level sigma is the default for every material interface; explicit
+  per-interface values override it. GraxPy combines the resolved interface
+  sigmas as `sqrt(sum(sigma_i**2))` before applying this scalar approximation.
 - `random-interface` perturbs each material interface before textures are
   built, so the solver sees the perturbed geometry directly.
 

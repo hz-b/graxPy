@@ -51,6 +51,7 @@
 <section
   class="run-monitor"
   data-live-run-monitor
+  {% if initial_status.state in ['queued', 'running', 'aborting'] %}data-run-reload-on-finish{% endif %}
   data-run-status-url="{{ status_url }}"
   data-memory-url="{{ memory_url }}"
 >

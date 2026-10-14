@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import ctypes
+import dataclasses
+import hashlib
 import importlib
 import json
 import logging
@@ -12,8 +14,9 @@ import os
 import queue as queue_module
 import sys
 import threading
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -59,6 +62,86 @@ logger = logging.getLogger(__name__)
 
 _BATCH_MAX_TOTAL_REFLECTED_EFFICIENCY = 1.05
 _BATCH_THETA_RETRY_JITTER_DEG = (0.002, -0.002, 0.005)
+_CHECKPOINT_SCHEMA_VERSION = 1
+
+
+def _canonical_checkpoint_value(value: object) -> object:
+    """Return a deterministic JSON-compatible representation of simulation input."""
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not np.isfinite(value):
+            return {"float": str(value)}
+        return value
+    if isinstance(value, complex):
+        return {"complex": [value.real, value.imag]}
+    if isinstance(value, Enum):
+        return _canonical_checkpoint_value(value.value)
+    if isinstance(value, Path):
+        return {"path": str(value.resolve())}
+    if isinstance(value, np.generic):
+        return _canonical_checkpoint_value(value.item())
+    if isinstance(value, np.ndarray):
+        contiguous = np.ascontiguousarray(value)
+        if contiguous.dtype.kind in {"O", "U", "S"}:
+            return {
+                "array": {
+                    "dtype": str(contiguous.dtype),
+                    "shape": list(contiguous.shape),
+                    "values": _canonical_checkpoint_value(contiguous.tolist()),
+                }
+            }
+        return {
+            "array": {
+                "dtype": str(contiguous.dtype),
+                "shape": list(contiguous.shape),
+                "sha256": hashlib.sha256(contiguous.tobytes()).hexdigest(),
+            }
+        }
+    if isinstance(value, Mapping):
+        return {
+            str(key): _canonical_checkpoint_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_canonical_checkpoint_value(item) for item in value]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {
+            "type": f"{type(value).__module__}.{type(value).__qualname__}",
+            "fields": {
+                field.name: _canonical_checkpoint_value(getattr(value, field.name))
+                for field in dataclasses.fields(value)
+                if not field.name.startswith("_")
+            },
+        }
+    if hasattr(value, "columns") and hasattr(value, "to_numpy"):
+        return {
+            "table": {
+                "columns": [str(column) for column in value.columns],
+                "values": _canonical_checkpoint_value(np.asarray(value.to_numpy())),
+            }
+        }
+    attributes = getattr(value, "__dict__", None)
+    if isinstance(attributes, dict):
+        public = {key: item for key, item in attributes.items() if not key.startswith("_")}
+        return {
+            "type": f"{type(value).__module__}.{type(value).__qualname__}",
+            "attributes": _canonical_checkpoint_value(public),
+        }
+    raise TypeError(
+        "Checkpoint resume cannot fingerprint simulation input of type "
+        f"{type(value).__module__}.{type(value).__qualname__}."
+    )
+
+
+def _checkpoint_digest(value: object) -> str:
+    """Return a stable SHA-256 digest for one canonical checkpoint value."""
+
+    encoded = json.dumps(
+        _canonical_checkpoint_value(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _simulation_api():
@@ -906,6 +989,8 @@ class BatchSimulationRunner:
             ...         print(f"E={result.energy_ev:.1f} eV, eff={result.selected_efficiency:.4f}")
         """
 
+        case_list = list(cases)
+        checkpoint_input_metadata = self._checkpoint_input_metadata(case_list)
         checkpoint_path = self.checkpoint_path
         completed_ids: set[str] = set()
         checkpoint_handle = None
@@ -913,14 +998,15 @@ class BatchSimulationRunner:
         progress = None
         if self.checkpoint_dir is not None:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            self._write_metadata(metadata or {})
+            if self.resume:
+                self._validate_checkpoint_compatibility(checkpoint_input_metadata)
+            self._write_metadata({**(metadata or {}), **checkpoint_input_metadata})
             if checkpoint_path is not None and self.resume:
                 completed_ids = _completed_case_ids(checkpoint_path)
             checkpoint_handle = checkpoint_path.open("a", encoding="utf-8") if checkpoint_path else None
 
-        iterable: Iterable[dict[str, object]] = cases
         try:
-            pending_cases = self._prepare_pending_cases(iterable, completed_ids)
+            pending_cases = self._prepare_pending_cases(case_list, completed_ids)
             effective_total_cases = len(completed_ids) + len(pending_cases) if self.resume else len(pending_cases)
             if self.show_progress:
                 progress = _simulation_api().tqdm(
@@ -1002,6 +1088,79 @@ class BatchSimulationRunner:
             solver=self.solver,
             solver_options=self.solver_options,
         )
+
+    def _checkpoint_input_metadata(
+        self, cases: Sequence[dict[str, object]]
+    ) -> dict[str, object]:
+        """Return versioned fingerprints for every input that affects results."""
+
+        runner_input = self._settings()
+        case_input = [
+            {
+                "case_id": self._resolve_case_id(case, index),
+                "input": case,
+            }
+            for index, case in enumerate(cases)
+        ]
+        runner_fingerprint = _checkpoint_digest(runner_input)
+        cases_fingerprint = _checkpoint_digest(case_input)
+        canonical_runner = _canonical_checkpoint_value(runner_input)
+        canonical_cases = _canonical_checkpoint_value(case_input)
+        return {
+            "checkpoint_schema_version": _CHECKPOINT_SCHEMA_VERSION,
+            "simulation_fingerprint": _checkpoint_digest(
+                {"runner": runner_fingerprint, "cases": cases_fingerprint}
+            ),
+            "simulation_input_summary": {
+                "case_count": len(case_input),
+                "case_ids": [item["case_id"] for item in case_input],
+                "runner_fingerprint": runner_fingerprint,
+                "cases_fingerprint": cases_fingerprint,
+                "runner": canonical_runner,
+                "cases": canonical_cases,
+            },
+        }
+
+    def _validate_checkpoint_compatibility(self, current: dict[str, object]) -> None:
+        """Reject legacy or incompatible resume data without modifying it."""
+
+        assert self.checkpoint_dir is not None
+        metadata_path = self.checkpoint_dir / "metadata.json"
+        if not metadata_path.exists():
+            raise ValueError(
+                "Cannot resume this legacy checkpoint because metadata.json has no "
+                "simulation fingerprint. Start with a new checkpoint directory."
+            )
+        try:
+            existing = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise ValueError(
+                "Cannot resume because checkpoint metadata is unreadable. "
+                "Start with a new checkpoint directory."
+            ) from error
+        if existing.get("checkpoint_schema_version") != _CHECKPOINT_SCHEMA_VERSION:
+            raise ValueError(
+                "Cannot resume this legacy checkpoint because its schema is missing or "
+                "unsupported. Start with a new checkpoint directory."
+            )
+        existing_summary = existing.get("simulation_input_summary")
+        current_summary = current["simulation_input_summary"]
+        if not isinstance(existing_summary, dict) or not isinstance(current_summary, dict):
+            raise ValueError(
+                "Cannot resume because checkpoint input metadata is incomplete. "
+                "Start with a new checkpoint directory."
+            )
+        changed: list[str] = []
+        if existing_summary.get("runner_fingerprint") != current_summary.get("runner_fingerprint"):
+            changed.append("solver or numerical settings")
+        if existing_summary.get("cases_fingerprint") != current_summary.get("cases_fingerprint"):
+            changed.append("ordered cases, grating geometry, materials, or case inputs")
+        if existing.get("simulation_fingerprint") != current.get("simulation_fingerprint"):
+            detail = "; ".join(changed) or "simulation inputs"
+            raise ValueError(
+                f"Cannot resume because the checkpoint is incompatible: changed {detail}. "
+                "The existing metadata and results were left unchanged; use a new checkpoint directory."
+            )
 
     def _prepare_pending_cases(
         self,

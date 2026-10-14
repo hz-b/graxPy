@@ -183,8 +183,12 @@ function syncRunWorkflow(select) {
     const studyEnergy = form?.querySelector('[name="study_energy_ev"]');
     const angle = form?.querySelector('[name="grazing_angle_deg"]');
     const studyAngle = form?.querySelector('[name="study_grazing_angle_deg"]');
-    if (energy && studyEnergy && energy.value) studyEnergy.value = energy.value;
-    if (angle && studyAngle && angle.value) studyAngle.value = angle.value;
+    if (energy && studyEnergy && energy.value && studyEnergy.dataset.userEdited !== "true") {
+      studyEnergy.value = energy.value;
+    }
+    if (angle && studyAngle && angle.value && studyAngle.dataset.userEdited !== "true") {
+      studyAngle.value = angle.value;
+    }
   }
   document.querySelectorAll("[data-workflow-fields]").forEach((section) => {
     const allowed = (section.dataset.workflowFields || "").split(/\s+/).filter(Boolean);
@@ -1472,9 +1476,9 @@ function initRunMonitor(container) {
   // Only some monitors render a "what is running right now" line; the shared
   // run-detail monitor does not, so every use below is null-guarded.
   const currentLabelNode = container.querySelector("[data-run-current-label]");
-  // Scoped to this monitor: a page can host several (one per workflow stage),
-  // and a document-wide lookup would let every monitor drive the first button.
-  const abortButton = container.querySelector("[data-run-abort-action]");
+  // Run-detail keeps its action in the page header, outside the monitor. Stage
+  // monitors have no abort link, so the page-level lookup is unambiguous.
+  const abortButton = document.querySelector("[data-run-abort-action]");
   let latestPlotToken = "";
   let latestPlotUrl = plotImage.getAttribute("src") || "";
   let statusTimerId = null;
@@ -1503,7 +1507,8 @@ function initRunMonitor(container) {
     completedNode.textContent = String(payload.completed_points);
     remainingNode.textContent = String(payload.remaining_points);
     elapsedNode.textContent = formatSeconds(payload.elapsed_seconds);
-    etaNode.textContent = formatSeconds(payload.eta_seconds);
+    const terminal = ["completed", "failed", "aborted"].includes(payload.state);
+    etaNode.textContent = terminal ? "Complete" : formatSeconds(payload.eta_seconds);
     const requested = payload.worker_mode === "manual" ? String(payload.requested_workers) : "auto";
     const resolved = payload.resolved_workers ? ` -> ${payload.resolved_workers}` : "";
     workersNode.textContent = `${requested}${resolved}`;
@@ -1523,7 +1528,7 @@ function initRunMonitor(container) {
     if (payload.plot_url && payload.plot_token !== latestPlotToken) {
       preloadAndSwapPlot(payload.plot_url, payload.plot_token);
     }
-    if (["completed", "failed", "aborted"].includes(payload.state)) {
+    if (terminal) {
       if (statusTimerId !== null) {
         window.clearInterval(statusTimerId);
       }
@@ -1741,6 +1746,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.querySelectorAll("[data-run-workflow]").forEach((select) => {
+    select.closest("form")?.querySelectorAll(
+      '[name="study_energy_ev"], [name="study_grazing_angle_deg"]',
+    ).forEach((field) => {
+      field.addEventListener("input", () => { field.dataset.userEdited = "true"; });
+    });
     syncRunWorkflow(select);
     select.addEventListener("change", () => syncRunWorkflow(select));
   });
@@ -1755,6 +1765,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (message && !window.confirm(message)) {
         event.preventDefault();
       }
+    });
+  });
+
+  document.querySelectorAll("[data-run-abort-action]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      if (link.getAttribute("aria-disabled") === "true") event.preventDefault();
     });
   });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Made parameter-study runs retain the selected diffraction order, polarization, solver, and roughness model instead of silently falling back to defaults.
+- Made Debye-Waller roughness consistently apply the grating-level sigma to every unresolved interface. Coated-stack efficiencies may change because all resolved interface losses are now combined in quadrature.
+- Reject incompatible checkpoint resumes before changing metadata or reusing results, and refresh completed web runs into their final result view.
+
 ## 0.5.4 - 2026-10-14
 
 - Redesigned the Custom grid workflow around editable independent parameters and guided coupled parameters. A coupled parameter can be entered row by row against an existing independent parameter or generated from a matching linear range, with a read-only paired-value table.

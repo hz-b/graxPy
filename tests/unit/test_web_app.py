@@ -711,7 +711,6 @@ def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
         },
     )
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
-
     response = client.post(
         f"/gratings/{grating_id}",
         data={
@@ -851,7 +850,6 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     )
     assert create_response.status_code == 302
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
-
     run_response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
@@ -1175,6 +1173,15 @@ def test_parameter_study_run_uses_selected_polarization(
     )
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
 
+    from bs4 import BeautifulSoup
+
+    detail = BeautifulSoup(client.get(f"/gratings/{grating_id}").data, "html.parser")
+    for field_name in ("diffraction_order", "polarization", "solver", "roughness_kind"):
+        field = detail.select_one(f'[name="{field_name}"]')
+        assert field is not None
+        workflows = field.find_parent("fieldset").get("data-workflow-fields", "").split()
+        assert "parameter_study" in workflows
+
     response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
@@ -1186,6 +1193,7 @@ def test_parameter_study_run_uses_selected_polarization(
             "diffraction_order": "1",
             "fourier_orders": "5",
             "polarization": "p",
+            "solver": "neviere",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
         },
@@ -1206,15 +1214,18 @@ def test_parameter_study_run_uses_selected_polarization(
         time.sleep(0.02)
 
     assert captured["polarization"] == "p"
+    assert captured["solver"] == "neviere"
     assert manifest["polarization"] == "p"
+    assert manifest["solver"] == "neviere"
     assert manifest["run_input"]["polarization"] == "p"
-    assert manifest["completed_points"] == 3
+    assert manifest["run_input"]["solver"] == "neviere"
+    assert manifest["completed_points"] == 9
     status = client.get(f"/runs/{run_id}/status").get_json()
     assert status["state"] == "completed"
-    assert status["completed_points"] == 3
+    assert status["completed_points"] == 9
     assert status["remaining_points"] == 0
-    assert b"3 / 3" in client.get(f"/runs/{run_id}").data
-    assert b"completed \xc2\xb7 3 / 3 points" in client.get("/runs/manage").data
+    assert b"9 / 9" in client.get(f"/runs/{run_id}").data
+    assert b"completed \xc2\xb7 9 / 9 points" in client.get("/runs/manage").data
 
 
 def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
@@ -1259,7 +1270,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
             (run_dir / "parameter_study_Fourier_orders_E100.0eV.csv").write_text(
                 "energy,efficiency\n100,0.1\n", encoding="utf-8"
             )
-            kwargs["progress_callback"](1, 3, SimpleNamespace())
+            kwargs["sweep_progress_callback"](1, 9, SimpleNamespace())
         raise RuntimeError("controlled numerical failure")
 
     monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
@@ -1317,16 +1328,16 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
     status = client.get(f"/runs/{run_id}/status").get_json()
     assert status["state"] == "failed"
     assert status["completed_points"] == completed_points
-    assert status["remaining_points"] == 3 - completed_points
+    assert status["remaining_points"] == 9 - completed_points
     assert "controlled numerical failure" in status["error_text"]
     detail = client.get(f"/runs/{run_id}").data
-    assert f"{completed_points} / 3".encode() in detail
+    assert f"{completed_points} / 9".encode() in detail
     assert b"error.txt" in detail
     if completed_points:
         assert b"parameter_study.png" in detail
         assert b"parameter_study_Fourier_orders_E100.0eV.csv" in detail
     manage = client.get("/runs/manage").data
-    assert f"failed · {completed_points} / 3 points".encode() in manage
+    assert f"failed · {completed_points} / 9 points".encode() in manage
 
 
 def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path) -> None:
@@ -1978,6 +1989,7 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     assert live_payload["requested_workers"] == 2
     assert live_payload["total_points"] == 4
     assert live_payload["remaining_points"] <= 4
+    assert b"data-run-reload-on-finish" in client.get(location).data
 
     deadline = time.monotonic() + 15.0
     final_payload = live_payload
@@ -1990,6 +2002,8 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     assert final_payload["completed_points"] == 4
     assert final_payload["remaining_points"] == 0
     assert final_payload["plot_url"]
+    assert final_payload["elapsed_seconds"] is not None
+    assert b"data-run-reload-on-finish" not in client.get(location).data
 
 
 def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
@@ -2003,6 +2017,7 @@ def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert b'data-live-run-monitor' in response.data
+    assert b'data-run-reload-on-finish' not in response.data
     assert b'data-run-status-url="/runs/run-1/status"' in response.data
     assert b'data-memory-url="/system/memory"' in response.data
 
@@ -2317,7 +2332,9 @@ def test_abort_route_marks_run_aborted(
     manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
     assert final_payload["state"] == "aborted"
     assert final_payload["can_abort"] is False
+    assert final_payload["elapsed_seconds"] is not None
     assert manifest["status"] == "aborted"
+    assert manifest["elapsed_seconds"] >= 0.0
     assert (tmp_path / "runs" / run_id).exists()
 
 

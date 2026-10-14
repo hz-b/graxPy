@@ -3621,6 +3621,7 @@ def _finish_active_run(
 ) -> None:
     """Mark one active run as finished."""
 
+    elapsed_seconds: float | None = None
     with _active_runs_lock(app):
         active = _active_runs(app).get(run_id)
         if active is None:
@@ -3634,6 +3635,14 @@ def _finish_active_run(
         if error_text is not None:
             active.error_text = error_text
         active.simulation_pids = set()
+        elapsed_seconds = _elapsed_seconds(active)
+
+    # Ordinary runs have a manifest under ``runs/<run_id>``. Persist timing so
+    # it survives registry cleanup and process restarts; design-stage registry
+    # keys have no run manifest and are intentionally ignored here.
+    data_dir = Path(app.config["GRAx_DATA_DIR"])
+    if _load_run_manifest(data_dir, run_id) is not None:
+        _update_manifest_fields(data_dir, run_id, elapsed_seconds=elapsed_seconds)
 
 
 def _is_active_run_entry_live(active: ActiveRunState) -> bool:
@@ -3708,8 +3717,8 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
         "remaining_points": max(total_points - completed_points, 0),
         "checkpoint_completed_points": checkpoint_completed_points,
         "checkpoint_total_points": checkpoint_total_points or total_points,
-        "elapsed_seconds": None,
-        "eta_seconds": None,
+        "elapsed_seconds": manifest.get("elapsed_seconds"),
+        "eta_seconds": 0.0 if normalized_state in {"completed", "failed", "aborted"} else None,
         "worker_mode": manifest.get("worker_mode", "auto"),
         "requested_workers": manifest.get("requested_workers"),
         "resolved_workers": manifest.get("resolved_workers"),

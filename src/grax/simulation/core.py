@@ -391,17 +391,17 @@ def run_simulation(
     effective_roughness_sigma_nm = roughness_sigma_nm
     if grating.roughness is not None and grating.roughness.kind == "debye-waller":
         stack = grating.resolved_stack()
-        if stack.has_per_layer_roughness():
-            # Uncorrelated interface roughness adds in quadrature, reducing the
-            # per-layer Debye-Waller damping to a single effective sigma.
-            interface_sigmas = stack.interface_roughness_sigmas_bottom_up(
-                float(grating.roughness.sigma_nm)
-            )
-            effective_roughness_sigma_nm = float(
-                np.sqrt(sum(sigma * sigma for sigma in interface_sigmas))
-            )
-        else:
-            effective_roughness_sigma_nm = float(grating.roughness.sigma_nm)
+        # The grating-level sigma is the default for every unresolved interface.
+        # Uncorrelated interface losses multiply, which is equivalent in this
+        # scalar approximation to adding their variances in quadrature. Always
+        # resolve the full list so an explicit value equal to the default cannot
+        # change the result merely by being present.
+        interface_sigmas = stack.interface_roughness_sigmas_bottom_up(
+            float(grating.roughness.sigma_nm)
+        )
+        effective_roughness_sigma_nm = float(
+            np.sqrt(sum(sigma * sigma for sigma in interface_sigmas))
+        )
     polarization = normalize_polarization(polarization)
     if _memory_mode not in {"legacy_dense", "low_memory"}:
         raise ValueError("memory_mode must be 'low_memory' or 'legacy_dense'.")

@@ -190,10 +190,9 @@
     <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
-    <legend>Numerics</legend>
+  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search parameter_study">
+    <legend>Shared simulation settings</legend>
     <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
-    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
     <label>Polarization
       <select name="polarization">
         <option value="s" selected>s (TE)</option>
@@ -219,6 +218,11 @@
         <a href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit grating roughness</a>
       </small>
     </div>
+  </fieldset>
+
+  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
+    <legend>Numerical resolution</legend>
+    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
     <label><span class="parameter-label">X resolution, nm {{ roughness_help('run_x_resolution_nm', 'x_resolution') }}</span> <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
     <label><span class="parameter-label">Z resolution, nm {{ roughness_help('run_z_resolution_nm', 'z_resolution') }}</span> <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
   </fieldset>
