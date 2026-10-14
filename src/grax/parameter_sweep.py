@@ -127,6 +127,12 @@ def run_parameter_study(
     fourier_orders_values: Sequence[int] | None = None,
     x_resolution_values: Sequence[float] | None = None,
     z_resolution_values: Sequence[float] | None = None,
+    fourier_fixed_x_resolution_nm: float | None = None,
+    fourier_fixed_z_resolution_nm: float | None = None,
+    x_fixed_fourier_orders: int | None = None,
+    x_fixed_z_resolution_nm: float | None = None,
+    z_fixed_fourier_orders: int | None = None,
+    z_fixed_x_resolution_nm: float | None = None,
     max_retries: int = 2,
     output_dir: str | Path | None = None,
     save_csv: bool = True,
@@ -135,6 +141,7 @@ def run_parameter_study(
     solver_options: object | None = None,
     backend: str = "numba",
     progress_callback: Callable[[int, int, "ParameterStudyResult"], None] | None = None,
+    sweep_progress_callback: Callable[[int, int, "ParameterStudyResult"], None] | None = None,
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
 
@@ -143,10 +150,9 @@ def run_parameter_study(
     2. X-resolution study (discretization along grating profile)
     3. Z-resolution study (discretization along layer stack)
 
-    For Fourier order sweeps, the grating is used directly. For x/z resolution
-    sweeps, a shallow copy of the grating is created with the specified resolution
-    override. All sweeps use a fixed high Fourier order (max of sweep values) to
-    isolate discretization effects.
+    Each sweep uses the user-selected fixed values for the other numerical
+    parameters. If no fixed values are supplied, X/Z use the largest sweep
+    values and Fourier order uses the smallest sweep value.
 
     Args:
         grating: Grating used for all simulations.
@@ -172,6 +178,10 @@ def run_parameter_study(
         backend: Fourier coefficient backend selector. ``"numba"`` is the
             default. Previously fixed internally; exposing it here makes a
             convergence study reproducible against the backend it ran on.
+        sweep_progress_callback: Optional callback invoked after each simulated
+            point in the Fourier, X-resolution, and Z-resolution sweeps. Its
+            progress count spans all three sweeps for every requested energy
+            and includes a partial result suitable for live plotting.
 
     Returns:
         Structured parameter-study result containing all sweep data and metadata.
@@ -205,12 +215,14 @@ def run_parameter_study(
     energies = np.asarray(energies_ev, dtype=float)
     results: list[ParameterStudyEnergyResult] = []
     csv_output_dir = Path(output_dir) if output_dir is not None else None
-    fixed_fourier_orders = int(np.max(fourier_values))
+    default_fourier = int(np.min(fourier_values))
+    default_x = float(np.max(x_values))
+    default_z = float(np.max(z_values))
 
     if save_csv and csv_output_dir is not None:
         csv_output_dir.mkdir(parents=True, exist_ok=True)
 
-    progress_total = len(energies) * 3
+    progress_total = len(energies) * (len(fourier_values) + len(x_values) + len(z_values))
     progress_bar = tqdm(
         total=progress_total,
         desc="Parameter study",
@@ -218,51 +230,57 @@ def run_parameter_study(
         dynamic_ncols=True,
     )
 
+    completed_points = 0
     for energy_ev in energies:
-        sweeps = {
-            "fourier_orders": _run_single_parameter_sweep(
+        sweeps: dict[str, ParameterSweepSeries] = {}
+        for parameter, values in (
+            ("fourier_orders", fourier_values),
+            ("x_resolution_nm", x_values),
+            ("z_resolution_nm", z_values),
+        ):
+            def _point_progress(partial_sweep: ParameterSweepSeries) -> None:
+                nonlocal completed_points
+                completed_points += 1
+                progress_bar.update(1)
+                sweeps[parameter] = partial_sweep
+                if sweep_progress_callback is None:
+                    return
+                partial_energy = ParameterStudyEnergyResult(
+                    energy_ev=float(energy_ev),
+                    grazing_angle_deg=float(grazing_angle_deg),
+                    sweeps=dict(sweeps),
+                )
+                sweep_progress_callback(
+                    completed_points,
+                    progress_total,
+                    ParameterStudyResult(
+                        energies_ev=energies[: len(results) + 1],
+                        grazing_angle_deg=float(grazing_angle_deg),
+                        diffraction_order=int(diffraction_order),
+                        fourier_orders_values=fourier_values,
+                        x_resolution_values=x_values,
+                        z_resolution_values=z_values,
+                        results=[*results, partial_energy],
+                    ),
+                )
+
+            sweeps[parameter] = _run_single_parameter_sweep(
                 grating=grating,
-                parameter="fourier_orders",
-                values=fourier_values,
+                parameter=parameter,
+                values=values,
                 energy_ev=float(energy_ev),
                 grazing_angle_deg=grazing_angle_deg,
                 diffraction_order=diffraction_order,
                 polarization=polarization,
                 max_retries=max_retries,
-                fixed_fourier_orders=fixed_fourier_orders,
                 solver=solver,
                 solver_options=solver_options,
                 backend=backend,
-            ),
-            "x_resolution_nm": _run_single_parameter_sweep(
-                grating=grating,
-                parameter="x_resolution_nm",
-                values=x_values,
-                energy_ev=float(energy_ev),
-                grazing_angle_deg=grazing_angle_deg,
-                diffraction_order=diffraction_order,
-                polarization=polarization,
-                max_retries=max_retries,
-                fixed_fourier_orders=fixed_fourier_orders,
-                solver=solver,
-                solver_options=solver_options,
-                backend=backend,
-            ),
-            "z_resolution_nm": _run_single_parameter_sweep(
-                grating=grating,
-                parameter="z_resolution_nm",
-                values=z_values,
-                energy_ev=float(energy_ev),
-                grazing_angle_deg=grazing_angle_deg,
-                diffraction_order=diffraction_order,
-                polarization=polarization,
-                max_retries=max_retries,
-                fixed_fourier_orders=fixed_fourier_orders,
-                solver=solver,
-                solver_options=solver_options,
-                backend=backend,
-            ),
-        }
+                fixed_x_resolution_nm=(default_x if parameter == "z_resolution_nm" and z_fixed_x_resolution_nm is None else z_fixed_x_resolution_nm if parameter == "z_resolution_nm" else fourier_fixed_x_resolution_nm or default_x),
+                fixed_z_resolution_nm=(default_z if parameter == "x_resolution_nm" and x_fixed_z_resolution_nm is None else x_fixed_z_resolution_nm if parameter == "x_resolution_nm" else fourier_fixed_z_resolution_nm or default_z),
+                fixed_fourier_orders=(default_fourier if parameter == "x_resolution_nm" and x_fixed_fourier_orders is None else x_fixed_fourier_orders if parameter == "x_resolution_nm" else default_fourier if parameter == "z_resolution_nm" and z_fixed_fourier_orders is None else z_fixed_fourier_orders if parameter == "z_resolution_nm" else default_fourier),
+                progress_callback=_point_progress,
+            )
         results.append(
             ParameterStudyEnergyResult(
                 energy_ev=float(energy_ev),
@@ -278,7 +296,6 @@ def run_parameter_study(
                     grazing_angle_deg=float(grazing_angle_deg),
                     sweep=sweep,
                 )
-        progress_bar.update(3)
         if progress_callback is not None:
             progress_callback(
                 len(results),
@@ -355,16 +372,77 @@ def plot_parameter_study(
 
     if title is None:
         title = (
-            "Parameter Study: Selected-Order Efficiency "
+            "Numerical Stability Study: Selected-Order Efficiency "
             f"(grazing={result.grazing_angle_deg:.3f} deg)"
         )
     figure.suptitle(title, fontsize=15, y=0.995)
 
+    # Keep partial/live plots on stable axes. Without explicit limits, a panel
+    # with no completed points falls back to Matplotlib's 0–1 range and then
+    # jumps when its first point arrives.
+    all_efficiencies = np.concatenate(
+        [
+            sweep.efficiencies[np.isfinite(sweep.efficiencies)]
+            for energy_result in result.results
+            for sweep in energy_result.sweeps.values()
+            if np.any(np.isfinite(sweep.efficiencies))
+        ]
+    ) if any(
+        np.any(np.isfinite(sweep.efficiencies))
+        for energy_result in result.results
+        for sweep in energy_result.sweeps.values()
+    ) else np.asarray([], dtype=float)
+    if all_efficiencies.size:
+        y_min = float(np.min(all_efficiencies))
+        y_max = float(np.max(all_efficiencies))
+        y_pad = max((y_max - y_min) * 0.08, max(abs(y_max), 1.0) * 0.02, 1e-6)
+        y_limits = (y_min - y_pad, y_max + y_pad)
+    else:
+        y_limits = None
+
+    sweep_values = {
+        "fourier_orders": result.fourier_orders_values,
+        "x_resolution_nm": result.x_resolution_values,
+        "z_resolution_nm": result.z_resolution_values,
+    }
+
     for row_index, energy_result in enumerate(result.results):
         for col_index, parameter in enumerate(parameter_order):
             axis = axes[row_index, col_index]
-            sweep = energy_result.sweeps[parameter]
-            successful_mask = ~sweep.errors
+            sweep = energy_result.sweeps.get(parameter)
+            parameter_values = np.asarray(
+                sweep.values if sweep is not None else sweep_values[parameter],
+                dtype=float,
+            )
+            if parameter_values.size:
+                lower = float(np.min(parameter_values))
+                upper = float(np.max(parameter_values))
+                if parameter == "fourier_orders":
+                    pad = max((upper - lower) * 0.05, 0.5)
+                    axis.set_xlim(lower - pad, upper + pad)
+                else:
+                    axis.set_xscale("log")
+                    axis.set_xlim(lower / 1.05, upper * 1.05)
+            if sweep is None:
+                axis.set_title(column_titles[parameter])
+                axis.set_xlabel(column_titles[parameter])
+                if parameter != "fourier_orders":
+                    axis.invert_xaxis()
+                axis.grid(True, alpha=0.3)
+                axis.text(
+                    0.02,
+                    0.96,
+                    f"{energy_result.energy_ev:.1f} eV (pending)",
+                    transform=axis.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=9,
+                    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.65},
+                )
+                if y_limits is not None:
+                    axis.set_ylim(*y_limits)
+                continue
+            successful_mask = ~sweep.errors & np.isfinite(sweep.efficiencies)
             x_values = sweep.values[successful_mask]
             y_values = sweep.efficiencies[successful_mask]
 
@@ -397,6 +475,19 @@ def plot_parameter_study(
                 )
                 if y_values.size > 0:
                     axis.set_ylim(bottom=min(float(np.nanmin(failed_y)) * 1.05, float(np.nanmin(y_values))))
+
+            panel_values = y_values[np.isfinite(y_values)]
+            if panel_values.size:
+                panel_min = float(np.min(panel_values))
+                panel_max = float(np.max(panel_values))
+                panel_pad = max(
+                    (panel_max - panel_min) * 0.12,
+                    max(abs(panel_min), abs(panel_max), 1.0) * 1e-4,
+                    1e-9,
+                )
+                axis.set_ylim(panel_min - panel_pad, panel_max + panel_pad)
+            elif y_limits is not None:
+                axis.set_ylim(*y_limits)
 
             if row_index == 0:
                 axis.set_title(column_titles[parameter])
@@ -435,10 +526,13 @@ def _run_single_parameter_sweep(
     diffraction_order: int,
     polarization: str,
     max_retries: int,
-    fixed_fourier_orders: int,
     solver: str,
     solver_options: object | None,
     backend: str,
+    fixed_x_resolution_nm: float,
+    fixed_z_resolution_nm: float,
+    fixed_fourier_orders: int,
+    progress_callback: Callable[[ParameterSweepSeries], None] | None = None,
 ) -> ParameterSweepSeries:
     """Run one parameter sweep for one energy.
 
@@ -478,10 +572,25 @@ def _run_single_parameter_sweep(
         while not success and retries <= max_retries:
             try:
                 if parameter == "fourier_orders":
-                    case_grating = grating
+                    case_grating = _clone_grating_with_overrides(
+                        grating,
+                        x_resolution_nm=fixed_x_resolution_nm,
+                        z_resolution_nm=fixed_z_resolution_nm,
+                    )
                     fourier_orders = int(value)
                 else:
-                    case_grating = _clone_grating_with_override(grating, parameter, float(value))
+                    if parameter == "x_resolution_nm":
+                        case_grating = _clone_grating_with_overrides(
+                            grating,
+                            x_resolution_nm=float(value),
+                            z_resolution_nm=fixed_z_resolution_nm,
+                        )
+                    else:
+                        case_grating = _clone_grating_with_overrides(
+                            grating,
+                            x_resolution_nm=fixed_x_resolution_nm,
+                            z_resolution_nm=float(value),
+                        )
                     fourier_orders = fixed_fourier_orders
 
                 result = GratingSimulation(
@@ -501,6 +610,19 @@ def _run_single_parameter_sweep(
                 if retries > max_retries:
                     errors[index] = True
                     error_messages[index] = str(error)
+        if progress_callback is not None:
+            progress_callback(
+                ParameterSweepSeries(
+                    parameter=parameter,
+                    values=np.asarray(values),
+                    efficiencies=efficiencies.copy(),
+                    # Unvisited points remain pending rather than being
+                    # reported as failed; this keeps them out of live-plot
+                    # markers and automatic axis scaling.
+                    errors=errors.copy(),
+                    error_messages=error_messages.copy(),
+                )
+            )
 
     return ParameterSweepSeries(
         parameter=parameter,
@@ -532,6 +654,20 @@ def _clone_grating_with_override(
 
     cloned_grating = copy(grating)
     setattr(cloned_grating, parameter, value)
+    return cloned_grating
+
+
+def _clone_grating_with_overrides(
+    grating: BaseGrating,
+    *,
+    x_resolution_nm: float,
+    z_resolution_nm: float,
+) -> BaseGrating:
+    """Return a shallow copy with both numerical resolutions overridden."""
+
+    cloned_grating = copy(grating)
+    cloned_grating.x_resolution_nm = x_resolution_nm
+    cloned_grating.z_resolution_nm = z_resolution_nm
     return cloned_grating
 
 

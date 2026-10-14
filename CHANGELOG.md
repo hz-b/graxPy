@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.5 - Unreleased
+## 0.5.2 - 2026-10-13
+
+- Added persistent navigation back to the Saved gratings home page from the web interface and grating-management page.
+- Added a Custom grid run workflow for Cartesian parameter axes, row-coupled parameter groups, and complete run-local structural variants. Custom runs validate typed parameter overrides, preview exact integer ranges and case counts, preserve resolved case metadata for resume/export, snapshot AFM profiles, and generate dynamic CSV/DAT/YAML exports plus a simple live result plot.
+
+## 0.5.1 
+
+- Plot comparisons can now use optional per-series legend names, while blank names retain the standard run-and-order label. The live preview now clearly distinguishes rendering, ready, and error states and prevents saving while it refreshes.
+- Restored database-folder selection in the web interface, so users can choose where saved gratings, runs, and plots are stored.
+- Added X- and Z-resolution help tooltips explaining their role in the numerical simulation.
+- Reworked parameter studies into dedicated numerical-stability checks that compare Fourier orders, X resolution, and Z resolution at a selected energy and grazing angle.
+- Added per-sweep fixed-parameter controls, integer-aware Fourier-order validation and rounding warnings, live updates for all three study plots, and dynamic per-panel plot scaling.
+- Added clearer parameter-study defaults and documentation, including the purpose of the study and the values held fixed for each sweep.
+- Added run-data export as CSV or tab-separated DAT, plus a human-readable YAML metadata file containing the grating definition, simulation inputs, study configuration, result columns, and provenance.
+- Added a run export dialog on both run-detail and saved-run-management pages. CSV, tab-separated DAT, and YAML metadata are selected together by default but can be downloaded individually or in any combination as a ZIP, with a native save-location picker where supported by the browser.
+
+## 0.5.0
 
 - **Breaking:** diffraction-order signs now follow the standard grating equation; positive orders are the inside orders.
 - Improved web run monitoring with reliable progress counts, clearer failures, diagnostics, and retained partial results.

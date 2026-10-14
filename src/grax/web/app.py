@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import importlib.metadata
+import io
+import json
 import warnings
 from copy import copy
-from .grating_roughness import (roughness_from_form, optional_nonnegative, realization_grating, validate_roughness_geometry)
-import csv
-import json
 import os
 import shutil
 import threading
 import time
 import traceback
 import webbrowser
+import zipfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +42,12 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency at runtime
 from grax.materials import available_material_symbols, material_density_catalog, material_density_g_cm3
 from grax.simulation.core import normalize_polarization
 
+from .grating_roughness import (
+    optional_nonnegative,
+    realization_grating,
+    roughness_from_form,
+    validate_roughness_geometry,
+)
 from .multilayer_design_studies import (
     STAGE_LABELS,
     STAGES,
@@ -82,6 +90,15 @@ from .plane_mirror import (
 )
 from .runs import RunStore
 from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
+from .custom_grid import (
+    LARGE_GRID_WARNING,
+    default_configuration as default_custom_grid_configuration,
+    expand_custom_grid,
+    parameter_catalog as custom_grid_parameter_catalog,
+    plot_custom_grid,
+    write_custom_grid_all_orders,
+    write_custom_grid_summary,
+)
 
 try:
     import psutil
@@ -266,6 +283,17 @@ def create_app(*, data_dir: str | Path | None = None):
         app.config["GRAx_DATA_DIR"] = target_dir
         return redirect(url_for("index", message=f"Workspace switched to {target_dir}", kind="success"))
 
+    @app.get("/workspace/browse")
+    def browse_workspace():
+        browse_path = _safe_browse_path(request.args.get("path"))
+        return render_template(
+            "workspace_browser.html",
+            current_path=str(browse_path),
+            parent_path=str(browse_path.parent) if browse_path.parent != browse_path else None,
+            breadcrumbs=_path_breadcrumbs(browse_path),
+            entries=_list_directory_entries(browse_path),
+        )
+
     @app.get("/gratings/new")
     def new_grating():
         preview = _build_grating_preview(
@@ -416,6 +444,11 @@ def create_app(*, data_dir: str | Path | None = None):
                                    if rough_path else None),
             preview_warnings=notices,
             roughness_periods=grating._roughness_num_supercells(),
+            custom_grid_catalog=[
+                descriptor.to_json() for descriptor in custom_grid_parameter_catalog(spec)
+            ],
+            custom_grid_default=default_custom_grid_configuration(spec),
+            custom_grid_warning_threshold=LARGE_GRID_WARNING,
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -499,15 +532,18 @@ def create_app(*, data_dir: str | Path | None = None):
             grating = build_grating_from_spec(spec)
         except (TypeError, ValueError) as error:
             abort(400, str(error))
-        run = _queue_run(
-            app=app,
-            data_dir=app.config["GRAx_DATA_DIR"],
-            grating_id=grating_id,
-            grating_name=str(spec["name"]),
-            grating_spec=spec,
-            grating=grating,
-            form=request.form,
-        )
+        try:
+            run = _queue_run(
+                app=app,
+                data_dir=app.config["GRAx_DATA_DIR"],
+                grating_id=grating_id,
+                grating_name=str(spec["name"]),
+                grating_spec=spec,
+                grating=grating,
+                form=request.form,
+            )
+        except (TypeError, ValueError, OverflowError) as error:
+            abort(422, str(error))
         return redirect(url_for("run_detail", run_id=run["id"]))
 
     @app.post("/_preview/grating")
@@ -566,6 +602,90 @@ def create_app(*, data_dir: str | Path | None = None):
             status_url=url_for("run_status", run_id=run_id),
             memory_url=url_for("system_memory"),
             abort_url=url_for("abort_run_dialog", run_id=run_id),
+        )
+
+    @app.get("/runs/<run_id>/export/<export_format>")
+    def export_run(run_id: str, export_format: str):
+        """Download run data as CSV/DAT or its YAML metadata companion."""
+
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        export_format = export_format.strip().lower()
+        if export_format not in {"csv", "dat", "yaml"}:
+            abort(404)
+
+        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        if export_format == "yaml":
+            try:
+                body = _run_metadata_yaml(manifest, run_dir)
+            except ModuleNotFoundError:
+                abort(500, "YAML export requires PyYAML. Install the web dependencies.")
+            return Response(
+                body,
+                mimetype="application/yaml",
+                headers={"Content-Disposition": f"attachment; filename={run_id}_metadata.yaml"},
+            )
+
+        header, rows = _run_export_rows(run_dir, workflow=str(manifest.get("workflow", "")))
+        if not header:
+            abort(404, "No exported data are available for this run yet.")
+        buffer = io.StringIO(newline="")
+        writer = csv.writer(
+            buffer,
+            delimiter="\t" if export_format == "dat" else ",",
+            lineterminator="\n",
+        )
+        writer.writerow(header)
+        writer.writerows(rows)
+        mimetype = "text/tab-separated-values" if export_format == "dat" else "text/csv"
+        return Response(
+            buffer.getvalue(),
+            mimetype=mimetype,
+            headers={"Content-Disposition": f"attachment; filename={run_id}.{export_format}"},
+        )
+
+    @app.get("/runs/<run_id>/export-all")
+    def export_all_run_data(run_id: str):
+        """Download all run data formats and metadata in one ZIP archive."""
+
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        try:
+            archive = _run_export_archive(manifest, run_dir, {"csv", "dat", "yaml"})
+        except ValueError as error:
+            abort(404, str(error))
+        except ModuleNotFoundError:
+            abort(500, "YAML export requires PyYAML. Install the web dependencies.")
+        return Response(
+            archive,
+            mimetype="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={run_id}_export.zip"},
+        )
+
+    @app.post("/runs/<run_id>/export-selected")
+    def export_selected_run_data(run_id: str):
+        """Download a selected subset of run data and metadata in one ZIP."""
+
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
+        if manifest is None:
+            abort(404)
+        formats = {value.strip().lower() for value in request.form.getlist("formats")}
+        if not formats or not formats <= {"csv", "dat", "yaml"}:
+            abort(400, "Select at least one valid export format.")
+        run_dir = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        try:
+            archive = _run_export_archive(manifest, run_dir, formats)
+        except ValueError as error:
+            abort(404, str(error))
+        except ModuleNotFoundError:
+            abort(500, "YAML export requires PyYAML. Install the web dependencies.")
+        return Response(
+            archive,
+            mimetype="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={run_id}_export.zip"},
         )
 
     @app.get("/runs/<run_id>/abort")
@@ -1647,6 +1767,176 @@ def _optional_material_spec_from_form(form: Any, field_name: str) -> dict[str, A
     return _material_spec_from_form(form, field_name)
 
 
+def _parameter_study_range(
+    form: Any,
+    prefix: str,
+    default: float | int,
+    *,
+    integer: bool = False,
+) -> np.ndarray:
+    """Parse one parameter-study min/max/count range."""
+
+    min_key = f"study_{prefix}_min"
+    max_key = f"study_{prefix}_max"
+    points_key = f"study_{prefix}_points"
+    if not str(form.get(min_key, "")).strip():
+        return np.asarray([default])
+    lower = float(form[min_key])
+    upper = float(form[max_key])
+    points = int(float(form[points_key]))
+    if lower <= 0 or upper <= 0:
+        raise ValueError(f"Study {prefix.replace('_', ' ')} values must be greater than 0.")
+    if upper < lower:
+        raise ValueError(f"Study {prefix.replace('_', ' ')} maximum must be at least its minimum.")
+    if points < 1:
+        raise ValueError("Each parameter-study range must contain at least one value.")
+    values = np.linspace(lower, upper, points)
+    if integer:
+        if not lower.is_integer() or not upper.is_integer():
+            raise ValueError(f"Study {prefix.replace('_', ' ')} bounds must be integers.")
+        integer_values = np.arange(int(lower), int(upper) + 1, dtype=int)
+        if points >= integer_values.size:
+            return integer_values
+        return np.unique(np.rint(np.linspace(lower, upper, points)).astype(int))
+    return values
+
+
+def _parameter_study_configuration(form: Any, grating: Any) -> tuple[float, float, np.ndarray, np.ndarray, np.ndarray]:
+    """Return the selected energy, angle, and numerical study ranges."""
+
+    energy_text = str(form.get("study_energy_ev", "")).strip()
+    angle_text = str(form.get("study_grazing_angle_deg", "")).strip()
+    # Keep compatibility with older clients/forms that submitted the shared
+    # energy and angle fields before the dedicated parameter-study controls.
+    energy = float(energy_text or form.get("energy_start_ev", 100.0))
+    angle = float(angle_text or form.get("grazing_angle_deg", 1.5))
+    if energy <= 0:
+        raise ValueError("Study energy must be greater than 0 eV.")
+    if not np.isfinite(angle):
+        raise ValueError("Study grazing angle must be finite.")
+    fourier_default = int(float(form.get("fourier_orders", 5)))
+    fourier = _parameter_study_range(form, "fourier", fourier_default, integer=True)
+    x_default = float(form.get("run_x_resolution_nm") or getattr(grating, "x_resolution_nm", 1.0))
+    z_default = float(form.get("run_z_resolution_nm") or getattr(grating, "z_resolution_nm", 1.0))
+    x_values = _parameter_study_range(form, "x_resolution", x_default)
+    z_values = _parameter_study_range(form, "z_resolution", z_default)
+    if np.any(fourier < 1):
+        raise ValueError("Fourier orders must be at least 1.")
+    return energy, angle, fourier, x_values, z_values
+
+
+def _parameter_study_total_points(form: Any, grating: Any, energy_count: int) -> int:
+    """Return the number of individual simulations in a parameter study."""
+
+    _, _, fourier, x_values, z_values = _parameter_study_configuration(form, grating)
+    return int(energy_count * (len(fourier) + len(x_values) + len(z_values)))
+
+
+def _parameter_study_fixed_configuration(
+    form: Any,
+    fourier_values: np.ndarray,
+    x_values: np.ndarray,
+    z_values: np.ndarray,
+) -> tuple[float, float, int, float, int, float]:
+    """Return fixed X/Z/Fourier settings for each individual sweep."""
+
+    def positive_float(field: str, default: float) -> float:
+        value = float(form.get(field, default))
+        if value <= 0:
+            raise ValueError(f"{field.replace('_', ' ').capitalize()} must be greater than 0.")
+        return value
+
+    def positive_integer(field: str, default: int) -> int:
+        value = float(form.get(field, default))
+        if not value.is_integer() or value < 1:
+            raise ValueError(f"{field.replace('_', ' ').capitalize()} must be a positive integer.")
+        return int(value)
+
+    return (
+        positive_float("study_fourier_fixed_x_resolution", float(np.max(x_values))),
+        positive_float("study_fourier_fixed_z_resolution", float(np.max(z_values))),
+        positive_integer("study_x_fixed_fourier", int(np.min(fourier_values))),
+        positive_float("study_x_fixed_z_resolution", float(np.max(z_values))),
+        positive_integer("study_z_fixed_fourier", int(np.min(fourier_values))),
+        positive_float("study_z_fixed_x_resolution", float(np.max(x_values))),
+    )
+
+
+def _custom_grid_configuration_from_value(value: Any) -> dict[str, Any]:
+    """Return a custom-grid configuration submitted as JSON or a mapping."""
+
+    if isinstance(value, dict):
+        return dict(value)
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("Configure the custom grid before starting the run.")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Custom-grid configuration is invalid JSON: {error.msg}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("Custom-grid configuration must be an object.")
+    return payload
+
+
+def _custom_grid_from_form(
+    form: Any,
+    base_spec: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Validate the submitted custom grid and return its expanded cases."""
+
+    config = _custom_grid_configuration_from_value(form.get("custom_grid_config"))
+    defaults = _custom_grid_defaults_from_form(form)
+    return expand_custom_grid(config, base_spec, defaults=defaults)
+
+
+def _custom_grid_defaults_from_form(form: Any) -> dict[str, Any]:
+    """Return the direct-simulation values inherited by custom-grid cases."""
+
+    return {
+        "energy_ev": float(form.get("custom_default_energy_ev", 100.0) or 100.0),
+        "grazing_angle_deg": float(form.get("custom_default_grazing_angle_deg", 1.5) or 1.5),
+        "diffraction_order": int(float(form.get("custom_default_diffraction_order", 1) or 1)),
+        "fourier_orders": int(float(form.get("custom_default_fourier_orders", 5) or 5)),
+        "polarization": str(form.get("custom_default_polarization", "s") or "s"),
+        "solver": str(form.get("custom_default_solver", "rcwa") or "rcwa"),
+    }
+
+
+def _snapshot_custom_grid_afm_profiles(config: dict[str, Any], run_dir: Path) -> None:
+    """Copy AFM profiles into the run and update variant snapshots in place."""
+
+    profile_dir = run_dir / "custom_grid_profiles"
+    copied = False
+    for index, variant in enumerate(config.get("variants") or []):
+        spec = variant.get("spec") if isinstance(variant, dict) else None
+        profile = spec.get("profile") if isinstance(spec, dict) else None
+        if not isinstance(spec, dict) or spec.get("grating_type") != "afm" or not isinstance(profile, dict):
+            continue
+        source = Path(str(profile.get("profile_path", ""))).resolve()
+        if not source.is_file():
+            raise ValueError(f"AFM profile artifact is missing for variant {variant.get('name', index + 1)}.")
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        safe_id = "".join(character if character.isalnum() or character in "-_" else "_" for character in str(variant.get("id") or index + 1))
+        destination = profile_dir / f"{safe_id}{source.suffix or '.csv'}"
+        shutil.copyfile(source, destination)
+        profile["profile_path"] = str(destination.resolve())
+        copied = True
+    if not copied and profile_dir.exists() and not any(profile_dir.iterdir()):
+        profile_dir.rmdir()
+
+
+def _custom_grid_case_count_from_form(form: Any) -> int:
+    """Return the expanded case count from persisted custom-grid form data."""
+
+    config = _custom_grid_configuration_from_value(form.get("custom_grid_config"))
+    variants = config.get("variants") or []
+    if not variants or not isinstance(variants[0], dict) or not isinstance(variants[0].get("spec"), dict):
+        raise ValueError("Custom-grid configuration has no valid base variant.")
+    _, cases = _custom_grid_from_form(form, dict(variants[0]["spec"]))
+    return len(cases)
+
+
 def _queue_run(
     *,
     app: Any,
@@ -1663,15 +1953,47 @@ def _queue_run(
     run_id = _run_id(workflow, grating_id)
     run_dir = data_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    energies = np.linspace(
-        float(form["energy_start_ev"]),
-        float(form["energy_stop_ev"]),
-        int(float(form["energy_points"])),
+    custom_config: dict[str, Any] | None = None
+    custom_cases: list[dict[str, Any]] = []
+    if workflow == "custom_grid":
+        custom_config, custom_cases = _custom_grid_from_form(form, grating_spec)
+        _snapshot_custom_grid_afm_profiles(custom_config, run_dir)
+        custom_config, custom_cases = expand_custom_grid(
+            custom_config,
+            grating_spec,
+            defaults=_custom_grid_defaults_from_form(form),
+        )
+        energies = np.asarray([case["energy_ev"] for case in custom_cases], dtype=float)
+    elif workflow == "parameter_study" and str(form.get("study_energy_ev", "")).strip():
+        energies = np.asarray([float(form["study_energy_ev"])], dtype=float)
+        if energies[0] <= 0:
+            raise ValueError("Study energy must be greater than 0 eV.")
+    else:
+        energies = np.linspace(
+            float(form["energy_start_ev"]),
+            float(form["energy_stop_ev"]),
+            int(float(form["energy_points"])),
+        )
+    diffraction_order = (
+        int(custom_cases[0]["diffraction_order"])
+        if custom_cases else int(float(form.get("diffraction_order", 1)))
     )
-    diffraction_order = int(float(form.get("diffraction_order", 1)))
-    fourier_orders = int(float(form.get("fourier_orders", 5)))
-    polarization = _normalized_polarization(form.get("polarization", "s"))
-    solver = _normalized_solver(form.get("solver", "rcwa"))
+    if workflow == "parameter_study":
+        study_config = _parameter_study_configuration(form, grating)
+        _parameter_study_fixed_configuration(form, study_config[2], study_config[3], study_config[4])
+        fourier_orders = int(np.max(study_config[2]))
+    elif custom_cases:
+        fourier_orders = int(custom_cases[0]["fourier_orders"])
+    else:
+        fourier_orders = int(float(form.get("fourier_orders", 5)))
+    polarization = (
+        str(custom_cases[0]["polarization"])
+        if custom_cases else _normalized_polarization(form.get("polarization", "s"))
+    )
+    solver = (
+        str(custom_cases[0]["solver"])
+        if custom_cases else _normalized_solver(form.get("solver", "rcwa"))
+    )
     worker_mode, max_workers_setting, requested_workers = _worker_settings_from_form(form)
     manifest: dict[str, Any] = {
         "id": run_id,
@@ -1689,12 +2011,27 @@ def _queue_run(
         "worker_mode": worker_mode,
         "requested_workers": requested_workers,
         "resolved_workers": None,
-        "total_points": int(energies.size),
+        "total_points": (
+            _parameter_study_total_points(form, grating, energies.size)
+            if workflow == "parameter_study"
+            else len(custom_cases) if workflow == "custom_grid"
+            else int(energies.size)
+        ),
         "run_input": _run_input_from_form(form),
         "resume_count": 0,
     }
+    manifest["run_input"]["polarization"] = polarization
+    manifest["run_input"]["solver"] = solver
+    manifest["run_input"]["diffraction_order"] = diffraction_order
+    manifest["run_input"]["fourier_orders"] = fourier_orders
+    if custom_config is not None:
+        manifest["custom_grid"] = custom_config
+        manifest["run_input"]["custom_grid_config"] = custom_config
     RunStore(data_dir / "runs").save(manifest)
 
+    worker_form_data = dict(form)
+    if custom_config is not None:
+        worker_form_data["custom_grid_config"] = custom_config
     _start_run_worker(
         app=app,
         data_dir=data_dir,
@@ -1704,7 +2041,7 @@ def _queue_run(
         grating=grating,
         workflow=workflow,
         energies=energies,
-        form_data=dict(form),
+        form_data=worker_form_data,
         diffraction_order=diffraction_order,
         fourier_orders=fourier_orders,
         max_workers_setting=max_workers_setting,
@@ -1766,7 +2103,12 @@ def _start_run_worker(
     active_state = ActiveRunState(
         run_id=run_id,
         workflow=workflow,
-        total_points=int(energies.size),
+        total_points=(
+            _parameter_study_total_points(form_data, grating, energies.size)
+            if workflow == "parameter_study"
+            else _custom_grid_case_count_from_form(form_data) if workflow == "custom_grid"
+            else int(energies.size)
+        ),
         worker_mode=worker_mode,
         requested_workers=requested_workers,
         resolved_workers=None,
@@ -1837,11 +2179,18 @@ def _execute_run_job(
     _update_manifest_fields(data_dir, run_id, status="running")
     try:
         if workflow == "parameter_study":
-            run_x_resolution_nm = float(form_data.get("run_x_resolution_nm") or grating.x_resolution_nm)
-            run_z_resolution_nm = float(form_data.get("run_z_resolution_nm") or grating.z_resolution_nm)
+            _study_energy, study_angle, fourier_values, x_values, z_values = _parameter_study_configuration(form_data, grating)
+            (
+                fourier_fixed_x,
+                fourier_fixed_z,
+                x_fixed_fourier,
+                x_fixed_z,
+                z_fixed_fourier,
+                z_fixed_x,
+            ) = _parameter_study_fixed_configuration(form_data, fourier_values, x_values, z_values)
 
             def _parameter_study_progress(completed: int, total: int, partial_result: Any) -> None:
-                """Persist visible progress and a partial plot after each energy."""
+                """Persist visible progress and a partial plot after each sweep."""
 
                 _update_active_run(app, run_id, completed_points=completed)
                 _update_manifest_fields(
@@ -1869,17 +2218,23 @@ def _execute_run_job(
             result = parameter_sweep.run_parameter_study(
                 grating=grating,
                 energies_ev=energies,
-                grazing_angle_deg=float(form_data["grazing_angle_deg"]),
+                grazing_angle_deg=study_angle,
                 diffraction_order=diffraction_order,
                 polarization=_normalized_polarization(form_data.get("polarization", "s")),
                 solver=_normalized_solver(form_data.get("solver", "rcwa")),
-                fourier_orders_values=[fourier_orders],
-                x_resolution_values=[run_x_resolution_nm],
-                z_resolution_values=[run_z_resolution_nm],
+                fourier_orders_values=fourier_values,
+                x_resolution_values=x_values,
+                z_resolution_values=z_values,
+                fourier_fixed_x_resolution_nm=fourier_fixed_x,
+                fourier_fixed_z_resolution_nm=fourier_fixed_z,
+                x_fixed_fourier_orders=x_fixed_fourier,
+                x_fixed_z_resolution_nm=x_fixed_z,
+                z_fixed_fourier_orders=z_fixed_fourier,
+                z_fixed_x_resolution_nm=z_fixed_x,
                 output_dir=run_dir,
                 save_csv=True,
                 show_progress=False,
-                progress_callback=_parameter_study_progress,
+                sweep_progress_callback=_parameter_study_progress,
             )
             plot_path = run_dir / "parameter_study.png"
             if not plot_path.exists():
@@ -1889,7 +2244,7 @@ def _execute_run_job(
             _update_active_run(
                 app,
                 run_id,
-                completed_points=int(energies.size),
+                completed_points=_parameter_study_total_points(form_data, grating, energies.size),
                 plot_relative_path="parameter_study.png",
                 bump_plot_token=True,
             )
@@ -1898,8 +2253,8 @@ def _execute_run_job(
                 run_id,
                 status="completed",
                 artifacts=_parameter_study_artifacts(run_dir),
-                completed_points=int(energies.size),
-                total_points=int(energies.size),
+                completed_points=_parameter_study_total_points(form_data, grating, energies.size),
+                total_points=_parameter_study_total_points(form_data, grating, energies.size),
             )
             _finish_active_run(app, run_id, state="completed")
             return
@@ -2046,7 +2401,10 @@ def _execute_run_job(
                 if workflow == "parameter_study"
                 else None
             ),
-            total_points=int(energies.size) if workflow == "parameter_study" else None,
+            total_points=(
+                _parameter_study_total_points(form_data, grating, energies.size)
+                if workflow == "parameter_study" else None
+            ),
         )
         _finish_active_run(
             app,
@@ -2707,8 +3065,9 @@ def _wait_for_run_shutdown(app: Any, run_id: str, *, timeout_seconds: float = 10
 def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
     """Return manifest-ready case summaries for persisted run metadata."""
 
-    return [
-        {
+    cases: list[dict[str, Any]] = []
+    for result in results:
+        case = {
             "case_id": result.case_id,
             "energy_ev": result.energy_ev,
             "grazing_angle_deg": result.grazing_angle_deg,
@@ -2716,8 +3075,18 @@ def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
             "status": result.status,
             "error_message": result.error_message,
         }
-        for result in results
-    ]
+        case_data = getattr(result, "case_data", {})
+        if "custom_parameters" in case_data:
+            case["custom_parameters"] = case_data.get("custom_parameters")
+            case["custom_parameter_order"] = case_data.get("custom_parameter_order", [])
+            case["resolved_parameters"] = case_data.get("custom_resolved_parameters", {})
+            case["resolved_parameter_order"] = case_data.get(
+                "custom_resolved_parameter_order", []
+            )
+            case["structural_variant_id"] = case_data.get("custom_variant_id")
+            case["structural_variant_name"] = case_data.get("custom_variant_name")
+        cases.append(case)
+    return cases
 
 
 def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str]:
@@ -2778,9 +3147,16 @@ def _persist_run_outputs(
     from grax import simulation
 
     run_dir = data_dir / "runs" / run_id
-    _write_summary_csv(results, run_dir / "summary.csv")
-    simulation.write_all_orders_csv(results, run_dir / "all_orders.csv")
-    if include_plot:
+    is_custom_grid = any("custom_parameters" in result.case_data for result in results)
+    if is_custom_grid:
+        write_custom_grid_summary(results, run_dir / "summary.csv")
+        write_custom_grid_all_orders(results, run_dir / "all_orders.csv")
+    else:
+        _write_summary_csv(results, run_dir / "summary.csv")
+        simulation.write_all_orders_csv(results, run_dir / "all_orders.csv")
+    if include_plot and is_custom_grid:
+        plot_custom_grid(results, run_dir / "selected_efficiency.png", title=title)
+    elif include_plot:
         simulation.plot_order_subset(
             results,
             run_dir / "selected_efficiency.png",
@@ -2842,17 +3218,24 @@ def _publish_live_progress_snapshot(
     ):
         return False
 
-    ordered_results = _results_sorted_for_live_plot(results, x_key="energy_ev")
+    is_custom_grid = any("custom_parameters" in result.case_data for result in results)
+    ordered_results = _results_sorted_for_live_plot(
+        results,
+        x_key="index" if is_custom_grid else "energy_ev",
+    )
     if not ordered_results:
         return False
 
     temp_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
-    simulation.plot_order_subset(
-        ordered_results,
-        temp_path,
-        diffraction_orders=[diffraction_order],
-        title=title,
-    )
+    if is_custom_grid:
+        plot_custom_grid(ordered_results, temp_path, title=title)
+    else:
+        simulation.plot_order_subset(
+            ordered_results,
+            temp_path,
+            diffraction_orders=[diffraction_order],
+            title=title,
+        )
     temp_path.replace(output_path)
     state.plot_relative_path = output_path.name
     state.plot_token = uuid4().hex
@@ -2913,6 +3296,160 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     if isinstance(payload.get("run_input"), dict):
         payload["run_input"].setdefault("polarization", payload["polarization"])
     return payload
+
+
+def _run_export_rows(
+    run_dir: Path,
+    *,
+    workflow: str,
+) -> tuple[list[str], list[list[str]]]:
+    """Read the canonical data rows that should be offered for one run."""
+
+    if workflow == "parameter_study":
+        paths = sorted(run_dir.glob("parameter_study_*.csv"))
+    else:
+        paths = [run_dir / "all_orders.csv"]
+        if not paths[0].exists():
+            paths = [run_dir / "summary.csv"]
+
+    header: list[str] = []
+    rows: list[list[str]] = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            try:
+                current_header = next(reader)
+            except StopIteration:
+                continue
+            if not header:
+                header = current_header
+            if current_header != header:
+                raise ValueError(
+                    "Cannot combine exported files with different columns: "
+                    f"{path.name}"
+                )
+            rows.extend(list(reader))
+    return header, rows
+
+
+def _run_export_table(header: list[str], rows: list[list[str]], *, delimiter: str) -> str:
+    """Serialize exported rows using the requested delimiter."""
+
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, delimiter=delimiter, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+def _run_export_archive(
+    manifest: dict[str, Any],
+    run_dir: Path,
+    formats: set[str],
+) -> bytes:
+    """Build a ZIP archive containing the selected run export formats."""
+
+    workflow = str(manifest.get("workflow", ""))
+    header: list[str] = []
+    rows: list[list[str]] = []
+    if formats & {"csv", "dat"}:
+        header, rows = _run_export_rows(run_dir, workflow=workflow)
+        if not header:
+            raise ValueError("No exported data are available for this run yet.")
+
+    run_id = str(manifest["id"])
+    archive_buffer = io.BytesIO()
+    # Keep the scientific data byte-for-byte uncompressed inside the archive.
+    # This makes the selected CSV/DAT/YAML files immediately inspectable and
+    # avoids spending CPU time compressing already compact tabular data.
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+        if "csv" in formats:
+            archive.writestr(f"{run_id}.csv", _run_export_table(header, rows, delimiter=","))
+        if "dat" in formats:
+            archive.writestr(f"{run_id}.dat", _run_export_table(header, rows, delimiter="\t"))
+        if "yaml" in formats:
+            archive.writestr(f"{run_id}_metadata.yaml", _run_metadata_yaml(manifest, run_dir))
+    return archive_buffer.getvalue()
+
+
+def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    """Return stable, user-facing metadata for a downloadable run export."""
+
+    run_input = dict(manifest.get("run_input") or {})
+    grating = dict(manifest.get("grating_spec") or {})
+    grating.setdefault("id", manifest.get("grating_id"))
+    grating.setdefault("name", manifest.get("grating_name"))
+    workflow = str(manifest.get("workflow", "run"))
+    data_filename = f"{manifest['id']}.csv"
+    metadata_filename = f"{manifest['id']}_metadata.yaml"
+    header, _ = _run_export_rows(run_dir, workflow=workflow)
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "grax_version": _grax_version(),
+        "run": {
+            "id": manifest.get("id"),
+            "name": manifest.get("display_name"),
+            "workflow": workflow,
+            "created_at": manifest.get("created_at"),
+            "status": manifest.get("status"),
+            "comment": manifest.get("comment", ""),
+        },
+        "grating": grating,
+        "simulation": {
+            "polarization": manifest.get("polarization", run_input.get("polarization", "s")),
+            "solver": manifest.get("solver", run_input.get("solver", "rcwa")),
+            "diffraction_order": run_input.get("diffraction_order"),
+            "input": run_input,
+        },
+        "results": {
+            "completed_cases": len(manifest.get("cases") or []),
+            "total_points": manifest.get("total_points"),
+            "columns": header,
+        },
+        "files": {
+            "csv": data_filename,
+            "dat": f"{manifest['id']}.dat",
+            "metadata": metadata_filename,
+        },
+    }
+    if workflow == "parameter_study":
+        payload["study"] = {
+            "type": "parameter_study",
+            "purpose": "Numerical-stability verification only",
+            "configuration": {
+                key: value for key, value in run_input.items() if key.startswith("study_")
+            },
+        }
+    elif workflow == "custom_grid":
+        payload["custom_grid"] = manifest.get("custom_grid") or run_input.get(
+            "custom_grid_config"
+        )
+    return payload
+
+
+def _run_metadata_yaml(manifest: dict[str, Any], run_dir: Path) -> str:
+    """Serialize run metadata as human-readable, machine-readable YAML."""
+
+    import yaml
+
+    return yaml.safe_dump(
+        _run_metadata_payload(manifest, run_dir),
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    )
+
+
+def _grax_version() -> str:
+    """Return the installed graxpy version for exported provenance."""
+
+    try:
+        return importlib.metadata.version("graxpy")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _update_manifest_fields(data_dir: Path, run_id: str, **updates: Any) -> dict[str, Any]:
@@ -3310,16 +3847,22 @@ def _cases_for_workflow(
                 final_z_resolution_nm=run_z_resolution_nm,
             )
         )
+    elif workflow == "custom_grid":
+        config = _custom_grid_configuration_from_value(form.get("custom_grid_config"))
+        variants = config.get("variants") or []
+        if not variants or not isinstance(variants[0], dict):
+            raise ValueError("Custom-grid configuration has no structural variants.")
+        _, cases = _custom_grid_from_form(form, dict(variants[0].get("spec") or {}))
     else:
         raise ValueError("Unsupported workflow.")
     for index, case in enumerate(cases):
         case["case_id"] = f"{workflow}-{index:08d}"
-        case["fourier_orders"] = fourier_orders
-        case["polarization"] = polarization
-        case["solver"] = solver
+        case.setdefault("fourier_orders", fourier_orders)
+        case.setdefault("polarization", polarization)
+        case.setdefault("solver", solver)
         if workflow != "multilayer_theta_search":
-            case["x_resolution_nm"] = run_x_resolution_nm
-            case["z_resolution_nm"] = run_z_resolution_nm
+            case.setdefault("x_resolution_nm", run_x_resolution_nm)
+            case.setdefault("z_resolution_nm", run_z_resolution_nm)
     return cases
 
 
@@ -3638,6 +4181,7 @@ def _build_combined_plot(
             "y_axis_type": plot_options["y_axis_type"],
             "series_styles": {
                 item["series_key"]: {
+                    "legend_label": item["legend_label"],
                     "color": item["color"],
                     "marker_symbol": item["marker_symbol"],
                     "marker_size": item["marker_size"],
@@ -3680,7 +4224,9 @@ def _plot_options_from_form(
             except (TypeError, ValueError):
                 marker_size = 3
             marker_size = max(1, min(marker_size, 24))
+            legend_label = str(form_data.get(f"legend_label_{token}", "")).strip()
             plot_options["series_styles"][series_key] = {
+                "legend_label": legend_label,
                 "color": _normalize_hex_color(form_data.get(f"color_{token}")),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,
@@ -3813,13 +4359,16 @@ def _series_controls_for_selected_series(
         except (TypeError, ValueError):
             marker_size = int(default_style["marker_size"])
         marker_size = max(1, min(marker_size, 24))
+        default_label = f"{series['label']} · order: {series['order']}"
+        legend_label = str(saved_style.get("legend_label", "")).strip()
         series_controls.append(
             {
                 "series_key": str(series["series_key"]),
                 "series_token": str(series["series_token"]),
                 "run_id": str(series["run_id"]),
                 "order": int(series["order"]),
-                "label": f"{series['label']} · order: {series['order']}",
+                "label": legend_label or default_label,
+                "legend_label": legend_label,
                 "color": _normalize_hex_color(saved_style.get("color")) or str(default_style["color"]),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,

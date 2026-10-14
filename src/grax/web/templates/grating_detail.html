@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_geometry_view.html" import geometry_view %}
+{% from "_roughness_help.html" import roughness_help %}
 {% block title %}{{ grating.name }}{% endblock %}
 {% block body %}
 <section class="section-head">
@@ -37,6 +38,7 @@
         <option value="monochromator">Monochromator</option>
         <option value="multilayer_theta_search">Multilayer theta search</option>
         <option value="parameter_study">Parameter study</option>
+        <option value="custom_grid">Custom grid</option>
       </select>
     </label>
     <label>Workers
@@ -51,16 +53,136 @@
     </label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search parameter_study">
+  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
     <legend>Energy sweep</legend>
     <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="100"></label>
     <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="120"></label>
     <label>Energy points <input name="energy_points" type="number" step="1" value="3"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle parameter_study">
+  <fieldset data-workflow-fields="fixed_angle">
     <legend>Angle selection</legend>
     <label>Grazing angle, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="parameter_study" data-parameter-study-fields>
+    <legend><span class="parameter-label">Parameter study <button type="button" class="roughness-help" aria-label="Help: parameter study" aria-describedby="parameter-study-help">?</button><span class="roughness-tip" role="tooltip" id="parameter-study-help">This study is only for verifying numerical stability. It compares simulations while varying Fourier orders, X resolution, and Z resolution, with energy and grazing angle held fixed.</span></span></legend>
+    <p class="hint">Choose the energy and angle for the study, then define the numerical ranges to compare.</p>
+    <p class="hint">For each sweep, choose the other two numerical parameters to hold fixed. Defaults use the highest X/Z resolutions and the lowest Fourier order in the study.</p>
+    <label>Energy, eV <input name="study_energy_ev" type="number" step="0.1" value="100"></label>
+    <label>Grazing angle, deg <input name="study_grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+    <div class="parameter-range">
+      <strong><span class="parameter-label">Fourier orders <button type="button" class="roughness-help" aria-label="Help: Fourier orders" aria-describedby="fourier-orders-help">?</button><span class="roughness-tip" role="tooltip" id="fourier-orders-help">Fourier orders are integer values only. The number of distinct steps cannot exceed maximum minus minimum plus one.</span></span></strong>
+      <label>Minimum <input name="study_fourier_min" type="number" min="1" step="1" value="5"></label>
+      <label>Maximum <input name="study_fourier_max" type="number" min="1" step="1" value="40"></label>
+      <label>Values <input name="study_fourier_points" type="number" min="1" step="1" value="36"></label>
+      <p class="subtle parameter-range-warning" data-fourier-range-warning role="status"></p>
+      <label>Fixed X resolution, nm <input name="study_fourier_fixed_x_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
+      <label>Fixed Z resolution, nm <input name="study_fourier_fixed_z_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
+    </div>
+    <div class="parameter-range">
+      <strong>X resolution, nm</strong>
+      <label>Minimum <input name="study_x_resolution_min" type="number" min="0.000001" step="any" value="0.1"></label>
+      <label>Maximum <input name="study_x_resolution_max" type="number" min="0.000001" step="any" value="1.0"></label>
+      <label>Values <input name="study_x_resolution_points" type="number" min="1" step="1" value="51"></label>
+      <label>Fixed Fourier orders <input name="study_x_fixed_fourier" type="number" min="1" step="1" value="20"></label>
+      <label>Fixed Z resolution, nm <input name="study_x_fixed_z_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
+    </div>
+    <div class="parameter-range">
+      <strong>Z resolution, nm</strong>
+      <label>Minimum <input name="study_z_resolution_min" type="number" min="0.000001" step="any" value="0.1"></label>
+      <label>Maximum <input name="study_z_resolution_max" type="number" min="0.000001" step="any" value="1.0"></label>
+      <label>Values <input name="study_z_resolution_points" type="number" min="1" step="1" value="51"></label>
+      <label>Fixed Fourier orders <input name="study_z_fixed_fourier" type="number" min="1" step="1" value="20"></label>
+      <label>Fixed X resolution, nm <input name="study_z_fixed_x_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
+    </div>
+  </fieldset>
+
+  <fieldset
+    data-workflow-fields="custom_grid"
+    data-custom-grid-builder
+    data-warning-threshold="{{ custom_grid_warning_threshold }}"
+  >
+    <legend>Custom parameter grid</legend>
+    <script type="application/json" data-custom-grid-catalog>{{ custom_grid_catalog | tojson }}</script>
+    <script type="application/json" data-custom-grid-default>{{ custom_grid_default | tojson }}</script>
+    <input
+      type="hidden"
+      name="custom_grid_config"
+      value="{{ custom_grid_default | tojson | forceescape }}"
+      data-custom-grid-config
+    >
+
+    <p class="hint custom-grid-full-row">
+      Independent parameters form a Cartesian grid. Within a coupled group, values stay
+      together row by row—for example energy 100 with angle 1, then energy 200 with angle 2.
+    </p>
+
+    <div class="custom-grid-full-row form-grid three-column">
+      <label>Default energy, eV
+        <input name="custom_default_energy_ev" type="number" min="0.000001" step="any" value="100">
+      </label>
+      <label>Default grazing angle, deg
+        <input name="custom_default_grazing_angle_deg" type="number" step="any" value="1.5">
+      </label>
+      <label>Default diffraction order
+        <input name="custom_default_diffraction_order" type="number" step="1" value="1">
+      </label>
+      <label>Default Fourier orders
+        <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="5">
+      </label>
+      <label>Default polarization
+        <select name="custom_default_polarization">
+          <option value="s" selected>s (TE)</option>
+          <option value="p">p (TM)</option>
+        </select>
+      </label>
+      <label>Default solver
+        <select name="custom_default_solver">
+          <option value="rcwa" selected>RCWA</option>
+          <option value="neviere">Nevi&egrave;re</option>
+        </select>
+      </label>
+    </div>
+
+    <section class="custom-grid-full-row custom-grid-section">
+      <div class="section-head preview-head">
+        <div>
+          <h3>Structural variants</h3>
+          <p class="subtle">Variants are run-local copies with the same geometry and coating settings as saved gratings. They are validated before the run and never change the saved grating.</p>
+        </div>
+        <button class="button" type="button" data-custom-add-variant>Add variant</button>
+      </div>
+      <div class="list compact" data-custom-variants></div>
+    </section>
+
+    <section class="custom-grid-full-row custom-grid-section">
+      <div class="section-head preview-head">
+        <div>
+          <h3>Independent parameters</h3>
+          <p class="subtle">Use a linear range or an explicit comma-separated list.</p>
+        </div>
+        <button class="button" type="button" data-custom-add-axis>Add independent parameter</button>
+      </div>
+      <div class="list compact" data-custom-axes></div>
+    </section>
+
+    <section class="custom-grid-full-row custom-grid-section">
+      <div class="section-head preview-head">
+        <div>
+          <h3>Coupled parameter groups</h3>
+          <p class="subtle">Each non-empty row is one coupled set. Separate columns with commas.</p>
+        </div>
+        <button class="button" type="button" data-custom-add-group>Add coupled group</button>
+      </div>
+      <div class="list compact" data-custom-groups></div>
+    </section>
+
+    <section class="custom-grid-full-row notice" data-custom-grid-summary>
+      <strong data-custom-grid-count>1 case</strong>
+      <p class="subtle" data-custom-grid-warning></p>
+      <pre class="custom-grid-preview" data-custom-grid-preview>One case using the default settings.</pre>
+    </section>
   </fieldset>
 
   <fieldset data-workflow-fields="monochromator">
@@ -68,7 +190,7 @@
     <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search parameter_study">
+  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
     <legend>Numerics</legend>
     <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
     <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
@@ -97,8 +219,8 @@
         <a href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit grating roughness</a>
       </small>
     </div>
-    <label>X resolution, nm <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
-    <label>Z resolution, nm <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
+    <label><span class="parameter-label">X resolution, nm {{ roughness_help('run_x_resolution_nm', 'x_resolution') }}</span> <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
+    <label><span class="parameter-label">Z resolution, nm {{ roughness_help('run_z_resolution_nm', 'z_resolution') }}</span> <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
   </fieldset>
   <div class="actions">
     <button class="button primary" type="submit">Run sweep</button>

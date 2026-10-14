@@ -30,6 +30,24 @@
   </p>
 </section>
 
+<section class="notice">
+  <h2>Export data</h2>
+  <p>Download the saved results as comma-separated CSV, tab-separated DAT, or human-readable YAML metadata.</p>
+  <div class="actions">
+    <a class="button" href="{{ url_for('export_run', run_id=run.id, export_format='csv') }}">Download CSV</a>
+    <a class="button" href="{{ url_for('export_run', run_id=run.id, export_format='dat') }}">Download DAT</a>
+    <a class="button" href="{{ url_for('export_run', run_id=run.id, export_format='yaml') }}">Download metadata YAML</a>
+    <button
+      class="button primary"
+      type="button"
+      data-run-export-open
+      data-run-export-url="{{ url_for('export_selected_run_data', run_id=run.id) }}"
+      data-run-export-name="{{ run.id }}_export.zip"
+    >Download all…</button>
+  </div>
+</section>
+{% include "_run_export_dialog.html" %}
+
 <section
   class="run-monitor"
   data-live-run-monitor
@@ -66,6 +84,23 @@
     <p class="subtle" data-run-error></p>
   </section>
 </section>
+
+{% set final_plot = 'parameter_study.png' if 'parameter_study.png' in run.artifacts else ('selected_efficiency.png' if 'selected_efficiency.png' in run.artifacts else ('live_progress.png' if 'live_progress.png' in run.artifacts else None)) %}
+{% if final_plot %}
+<section class="preview-panel">
+  <h2>{{ 'Parameter-study visualization' if run.workflow == 'parameter_study' else 'Run visualization' }}</h2>
+  {% if run.workflow == 'parameter_study' %}
+    <p class="subtle">Numerical-stability check: selected-order efficiency while varying Fourier orders, X resolution, and Z resolution.</p>
+  {% else %}
+    <p class="subtle">Selected-order efficiency for this run.</p>
+  {% endif %}
+  <img
+    class="preview"
+    src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/' ~ final_plot) }}"
+    alt="{{ 'Parameter-study numerical-stability plot' if run.workflow == 'parameter_study' else 'Run efficiency plot' }}"
+  >
+</section>
+{% endif %}
 
 {% if related_plots %}
 <section>
