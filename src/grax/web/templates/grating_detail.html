@@ -29,6 +29,7 @@
   class="form run-form"
   method="post"
   action="{{ url_for('create_run', grating_id=grating.id) }}"
+  data-run-form data-grating-id="{{ grating.id }}"
 >
   <fieldset>
     <legend>Run sweep</legend>
@@ -123,6 +124,7 @@
       The saved grating supplies the base geometry and coating.
       Independent parameters form a Cartesian grid. Within a coupled group, values stay
       together row by row—for example energy 100 with angle 1, then energy 200 with angle 2.
+      <a href="{{ url_for('edit_grating', grating_id=grating.id, return_to_run='1') }}" data-edit-run-grating>Edit grating roughness</a>
     </p>
 
     <section class="custom-grid-full-row custom-grid-section">
@@ -215,7 +217,7 @@
         </select>
       </label>
       <small>Applies to this run using the saved interface parameters.
-        <a href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit grating roughness</a>
+        <a href="{{ url_for('edit_grating', grating_id=grating.id, return_to_run='1') }}" data-edit-run-grating>Edit grating roughness</a>
       </small>
     </div>
   </fieldset>

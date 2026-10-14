@@ -9,6 +9,13 @@
   <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
 </section>
 
+{% if plot.plot_path %}
+<section class="notice">
+  <a href="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}" download>Download plot PNG</a>
+  {% if plot.run_images %}<p class="subtle">A copy is also saved beside each selected run's manifest.json.</p>{% endif %}
+</section>
+{% endif %}
+
 <section class="notice">
   {% if plot.figure_json %}
     <p>This saved comparison is stored as an interactive Plotly figure with persistent style and axis settings.</p>

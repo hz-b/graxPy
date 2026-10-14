@@ -155,6 +155,7 @@ PLOTLY_DEFAULT_COLORS: tuple[str, ...] = (
     "#bcbd22",
     "#17becf",
 )
+PLOTLY_LINE_STYLES: tuple[str, ...] = ("solid", "dot", "dash", "dashdot")
 
 
 @dataclass
@@ -408,6 +409,7 @@ def create_app(*, data_dir: str | Path | None = None):
                                      if grating_id and (store().directory / grating_id / "source_upload").is_file()
                                      else None),
             existing_afm_grating_id=grating_id,
+            return_to_run=request.form.get("return_to_run") == "1",
         ), 422
 
     @app.post("/gratings")
@@ -552,6 +554,7 @@ def create_app(*, data_dir: str | Path | None = None):
                                      and (store().directory / grating_id / "source_upload").is_file()
                                      else None),
             existing_afm_grating_id=grating_id,
+            return_to_run=request.args.get("return_to_run") == "1",
         )
 
     @app.get("/gratings/<grating_id>/afm/source")
@@ -577,6 +580,8 @@ def create_app(*, data_dir: str | Path | None = None):
         except (KeyError, TypeError, ValueError, OverflowError, OSError) as error:
             return invalid_grating_form(error, grating_id)
         grating_store.save(spec)
+        if request.form.get("return_to_run") == "1":
+            return redirect(url_for("grating_detail", grating_id=grating_id, restore_run="1"))
         return redirect(url_for("grating_detail", grating_id=grating_id))
 
     @app.post("/gratings/<grating_id>/runs")
@@ -4164,6 +4169,7 @@ def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
                 ],
                 "related_plots": _plot_references_for_runs(data_dir, [run_id]),
                 "parameter_summary": _run_input_summary(input_data),
+                "parameter_details": _run_parameter_details(run),
                 "progress_summary": (
                     f"{_run_completed_points(run, run.get('checkpoint_completed_points', 0))} / "
                     f"{run.get('checkpoint_total_points') or run.get('total_points', 0)} points"
@@ -4185,6 +4191,33 @@ def _run_input_summary(run_input: dict[str, Any]) -> str:
     if run_input.get("diffraction_order") is not None:
         fields.append(f"order {run_input['diffraction_order']}")
     return " · ".join(fields) or "Parameters unavailable"
+
+
+def _run_parameter_details(run: dict[str, Any]) -> list[tuple[str, str]]:
+    """Present saved run inputs without requiring a metadata download."""
+
+    source = dict(run.get("run_input") or {})
+    source.setdefault("workflow", run.get("workflow"))
+    source.setdefault("solver", run.get("solver"))
+    source.setdefault("polarization", run.get("polarization"))
+    if run.get("custom_grid") and not source.get("custom_grid_config"):
+        source["custom_grid_config"] = run["custom_grid"]
+    labels = {
+        "workflow": "Workflow", "cff": "CFF", "fourier_orders": "Fourier orders",
+        "solver": "Solver", "polarization": "Polarization",
+        "diffraction_order": "Diffraction order", "grazing_angle_deg": "Grazing angle (deg)",
+        "energy_start_ev": "Energy start (eV)", "energy_stop_ev": "Energy stop (eV)",
+        "energy_points": "Energy points", "roughness_kind": "Roughness model",
+        "max_workers_mode": "Worker mode", "max_workers": "Workers",
+    }
+    details = []
+    for key, value in source.items():
+        if value in (None, "") or key == "comment":
+            continue
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        details.append((labels.get(key, key.replace("_", " ").capitalize()), str(value)))
+    return details
 
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
@@ -4285,11 +4318,31 @@ def _build_combined_plot(
         order_selection=order_selection,
         plot_options=plot_options,
     )
+    _, selected_series = _load_selected_plot_series(
+        data_dir=data_dir, run_ids=run_ids, order_selection=order_selection,
+    )
+    image_path = plot_dir / f"{_plot_filename_stem(title)}.png"
+    _save_compare_image(
+        selected_series=selected_series,
+        series_controls=series_controls,
+        title=title,
+        x_axis_type=plot_options["x_axis_type"],
+        y_axis_type=plot_options["y_axis_type"],
+        output_path=image_path,
+    )
+    run_images = []
+    for run in run_summaries:
+        run_dir = data_dir / "runs" / str(run["id"])
+        destination = _unused_plot_image_path(run_dir, image_path.name)
+        shutil.copyfile(image_path, destination)
+        run_images.append({"run_id": run["id"], "filename": destination.name})
 
     manifest = {
         "id": plot_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "title": title,
+        "plot_path": image_path.name,
+        "run_images": run_images,
         "selected_runs": run_summaries,
         "plot_config": {
             "title": title,
@@ -4301,6 +4354,7 @@ def _build_combined_plot(
                     "color": item["color"],
                     "marker_symbol": item["marker_symbol"],
                     "marker_size": item["marker_size"],
+                    "line_style": item["line_style"],
                 }
                 for item in series_controls
             },
@@ -4311,6 +4365,58 @@ def _build_combined_plot(
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
     return manifest
+
+
+def _plot_filename_stem(title: str) -> str:
+    """Return a useful, safe filename based on the plot title."""
+
+    stem = "".join(character if character.isalnum() or character in "-_" else "_" for character in title.strip())
+    return stem.strip("_-")[:80] or "plot"
+
+
+def _unused_plot_image_path(directory: Path, filename: str) -> Path:
+    """Choose a path beside a run manifest without overwriting a prior view."""
+
+    candidate = directory / filename
+    suffix = 2
+    while candidate.exists():
+        candidate = directory / f"{Path(filename).stem}_{suffix}.png"
+        suffix += 1
+    return candidate
+
+
+def _save_compare_image(
+    *, selected_series: list[dict[str, Any]], series_controls: list[dict[str, Any]],
+    title: str, x_axis_type: str, y_axis_type: str, output_path: Path,
+) -> None:
+    """Render the styled comparison as a PNG for run-folder access."""
+
+    style_by_key = {style["series_key"]: style for style in series_controls}
+    line_styles = {"solid": "-", "dot": ":", "dash": "--", "dashdot": "-."}
+    markers = {"circle": "o", "square": "s", "diamond": "D", "triangle-up": "^",
+               "triangle-down": "v", "cross": "+", "x": "x", "star": "*"}
+    figure, axis = plt.subplots(figsize=(12, 6))
+    try:
+        for series in selected_series:
+            style = style_by_key[series["series_key"]]
+            axis.plot(
+                np.asarray(series["energies"], dtype=float),
+                np.asarray(series["efficiencies"], dtype=float),
+                label=style["label"], color=style["color"],
+                linestyle=line_styles[style["line_style"]],
+                marker=markers.get(style["marker_symbol"], "o"),
+                markersize=style["marker_size"], linewidth=1.6,
+            )
+        axis.set_xscale(x_axis_type)
+        axis.set_yscale(y_axis_type)
+        axis.set_xlabel("Photon Energy (eV)")
+        axis.set_ylabel("Diffraction Efficiency")
+        axis.set_title(title, pad=16)
+        axis.grid(True, alpha=0.3)
+        axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=min(3, len(selected_series)))
+        figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    finally:
+        plt.close(figure)
 
 
 def _plot_options_from_form(
@@ -4346,6 +4452,7 @@ def _plot_options_from_form(
                 "color": _normalize_hex_color(form_data.get(f"color_{token}")),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,
+                "line_style": str(form_data.get(f"line_style_{token}", "")).strip(),
             }
     return plot_options
 
@@ -4391,6 +4498,7 @@ def _default_series_style(index: int) -> dict[str, Any]:
         "color": PLOTLY_DEFAULT_COLORS[index % len(PLOTLY_DEFAULT_COLORS)],
         "marker_symbol": marker_cycle[index % len(marker_cycle)],
         "marker_size": 3,
+        "line_style": PLOTLY_LINE_STYLES[index % len(PLOTLY_LINE_STYLES)],
     }
 
 
@@ -4444,10 +4552,11 @@ def _load_selected_plot_series(
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
         run_label = _run_selector_text(manifest)
+        legend_name = str(manifest.get("display_name") or manifest.get("grating_name") or run_id)
         orders = order_selection.get(run_id) or _available_orders(run_dir)
         run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
         for order in orders:
-            series = _load_order_series(run_dir, order=order, label=run_label)
+            series = _load_order_series(run_dir, order=order, label=legend_name)
             if series is not None:
                 series["series_key"] = _series_key(run_id, int(order))
                 series["series_token"] = _series_token(run_id, int(order))
@@ -4475,6 +4584,9 @@ def _series_controls_for_selected_series(
         except (TypeError, ValueError):
             marker_size = int(default_style["marker_size"])
         marker_size = max(1, min(marker_size, 24))
+        line_style = str(saved_style.get("line_style", "solid" if saved_style else default_style["line_style"]))
+        if line_style not in PLOTLY_LINE_STYLES:
+            line_style = str(default_style["line_style"])
         default_label = f"{series['label']} · order: {series['order']}"
         legend_label = str(saved_style.get("legend_label", "")).strip()
         series_controls.append(
@@ -4488,6 +4600,7 @@ def _series_controls_for_selected_series(
                 "color": _normalize_hex_color(saved_style.get("color")) or str(default_style["color"]),
                 "marker_symbol": marker_symbol,
                 "marker_size": marker_size,
+                "line_style": line_style,
             }
         )
     return series_controls
@@ -4515,7 +4628,7 @@ def _build_plotly_compare_figure(
                 y=np.asarray(series["efficiencies"], dtype=float),
                 mode="lines+markers",
                 name=style["label"],
-                line={"color": style["color"], "width": 1.6},
+                line={"color": style["color"], "width": 1.6, "dash": style["line_style"]},
                 marker={
                     "color": style["color"],
                     "symbol": style["marker_symbol"],
@@ -4527,8 +4640,8 @@ def _build_plotly_compare_figure(
     figure.update_layout(
         title=title,
         template="plotly_white",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0.0},
-        margin={"l": 64, "r": 24, "t": 72, "b": 60},
+        legend={"orientation": "h", "yanchor": "top", "y": -0.25, "x": 0.0},
+        margin={"l": 64, "r": 24, "t": 82, "b": 140},
     )
     figure.update_xaxes(title_text="Photon Energy (eV)", type=x_axis_type, showgrid=True, zeroline=False)
     figure.update_yaxes(title_text="Diffraction Efficiency", type=y_axis_type, showgrid=True, zeroline=False)

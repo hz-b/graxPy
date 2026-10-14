@@ -605,6 +605,8 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
     assert b'<option value="sinusoidal" selected' in edit_response.data
     assert b'name="sinusoidal_depth_nm"' in edit_response.data
     assert b'value="30.0"' in edit_response.data
+    return_edit_response = client.get(f"/gratings/{grating_id}/edit?return_to_run=1")
+    assert b'name="return_to_run" value="1"' in return_edit_response.data
 
     invalid_form = {**form, "sinusoidal_depth_nm": "0"}
     invalid_response = client.post(f"/gratings/{grating_id}", data=invalid_form)
@@ -618,6 +620,12 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
     )
     assert update_response.status_code == 200
     assert grating_store.load(grating_id)["depth_nm"] == pytest.approx(18.5)
+    return_update = client.post(
+        f"/gratings/{grating_id}", data={**update_form, "return_to_run": "1"},
+        follow_redirects=False,
+    )
+    assert return_update.status_code == 302
+    assert return_update.headers["Location"].endswith(f"/gratings/{grating_id}?restore_run=1")
 
     captured: dict[str, object] = {}
 
@@ -1405,16 +1413,16 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert len(payload["series_controls"]) == 3
     assert payload["series_controls"][0]["marker_size"] == 3
     assert payload["series_controls"][0]["label"].endswith("· order: 0")
-    assert "name: Demo grating" in payload["series_controls"][0]["label"]
-    assert "grating type: laminar" in payload["series_controls"][0]["label"]
-    assert "sweep type: fixed_angle" in payload["series_controls"][0]["label"]
-    assert "grating: Demo grating" not in payload["series_controls"][0]["label"]
+    assert payload["series_controls"][0]["label"] == "Alpha run · order: 0"
+    assert payload["series_controls"][1]["color"] != payload["series_controls"][0]["color"]
+    assert payload["series_controls"][1]["line_style"] != payload["series_controls"][0]["line_style"]
     figure = json.loads(payload["figure_json"])
     assert len(figure["data"]) == 3
     assert figure["layout"]["xaxis"]["type"] == "linear"
     assert figure["layout"]["yaxis"]["type"] == "linear"
     assert figure["data"][0]["marker"]["size"] == 3
     assert figure["data"][0]["name"] == payload["series_controls"][0]["label"]
+    assert figure["layout"]["legend"]["y"] < 0
     assert payload["series_controls"][0]["legend_label"] == ""
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
@@ -1422,6 +1430,28 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     invalid_payload = invalid_response.get_json()
     assert invalid_payload["ok"] is False
     assert invalid_payload["error"]
+
+
+def test_manage_runs_shows_saved_parameters_and_handles_older_manifests(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-new", display_name="New run")
+    _write_run_fixture(tmp_path, run_id="run-old", display_name="Older run")
+    path = tmp_path / "runs" / "run-new" / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["workflow"] = "monochromator"
+    manifest["run_input"] = {"cff": "2.25", "fourier_orders": "12", "solver": "neviere", "polarization": "p"}
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/manage")
+    assert response.status_code == 200
+    assert b"Simulation parameters" in response.data
+    assert b"CFF" in response.data
+    assert b"2.25" in response.data
+    assert b"Fourier orders" in response.data
+    assert b"neviere" in response.data
+    assert b"Detailed parameters are unavailable" not in response.data
 
 
 def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None:
@@ -1443,6 +1473,7 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
             "marker_symbol_run_1__order_0": "diamond",
             "marker_size_run_1__order_0": "13",
             "legend_label_run_1__order_0": "Diamond reference",
+            "line_style_run_1__order_0": "dashdot",
         },
     )
     preview_payload = preview_response.get_json()
@@ -1451,10 +1482,20 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
     assert figure["layout"]["xaxis"]["type"] == "log"
     assert figure["layout"]["yaxis"]["type"] == "log"
     assert figure["data"][0]["line"]["color"] == "#123abc"
+    assert figure["data"][0]["line"]["dash"] == "dashdot"
     assert figure["data"][0]["marker"]["symbol"] == "diamond"
     assert figure["data"][0]["marker"]["size"] == 13
     assert figure["data"][0]["name"] == "Diamond reference"
     assert preview_payload["series_controls"][0]["legend_label"] == "Diamond reference"
+
+
+def test_older_saved_series_style_defaults_to_solid() -> None:
+    controls = web_app_module._series_controls_for_selected_series(
+        selected_series=[{"series_key": "old::order::1", "series_token": "old__order_1",
+                          "run_id": "old", "order": 1, "label": "Old run"}],
+        saved_styles={"old::order::1": {"color": "#123abc"}},
+    )
+    assert controls[0]["line_style"] == "solid"
 
 
 def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) -> None:
@@ -1479,6 +1520,7 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
             "marker_symbol_run_1__order_0": "square",
             "marker_size_run_1__order_0": "11",
             "legend_label_run_1__order_0": "Reference scan",
+            "line_style_run_1__order_0": "dash",
         },
         follow_redirects=False,
     )
@@ -1491,6 +1533,10 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["color"] == "#ff0000"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_symbol"] == "square"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_size"] == 11
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["line_style"] == "dash"
+    assert (tmp_path / "plots" / plot_id / "Saved_interactive_plot.png").is_file()
+    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot.png").is_file()
+    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot.png").is_file()
     assert (
         manifest["plot_config"]["series_styles"]["run-1::order::0"]["legend_label"]
         == "Reference scan"
@@ -1504,6 +1550,12 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert b"square" in detail_response.data
     assert b"#ff0000" in detail_response.data
     assert b"Reference scan" in detail_response.data
+    assert b"Download plot PNG" in detail_response.data
+
+    repeat = client.post("/plots", data={"title": "Saved interactive plot", "run_ids": ["run-1", "run-2"], "orders_run-1": ["0"], "orders_run-2": ["2"]})
+    assert repeat.status_code == 302
+    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot_2.png").is_file()
+    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot_2.png").is_file()
 
 
 def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:

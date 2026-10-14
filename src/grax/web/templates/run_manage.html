@@ -40,6 +40,9 @@
             </label>
             <p class="subtle">{{ run.workflow }} · {{ run.status }} · {{ run.progress_summary }}</p>
             <p class="subtle">{{ run.parameter_summary }}</p>
+            <details class="run-parameters"><summary>Simulation parameters</summary>
+              {% if run.parameter_details %}<dl>{% for label, value in run.parameter_details %}<dt>{{ label }}</dt><dd><code>{{ value }}</code></dd>{% endfor %}</dl>{% else %}<p class="subtle">Detailed parameters are unavailable for this run.</p>{% endif %}
+            </details>
             <p><a href="{{ run.detail_url }}">View run details</a></p>
             <p>
               <button

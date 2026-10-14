@@ -55,6 +55,7 @@
     data-grating-preview-form
     data-preview-url="{{ url_for('preview_grating') }}"
   >
+    {% if return_to_run %}<input type="hidden" name="return_to_run" value="1">{% endif %}
     <input type="hidden" name="afm_profile_path" data-afm-profile-path value="{{ defaults.afm_profile_path|default('') }}">
     <input type="hidden" name="afm_source_filename" data-afm-source-filename value="{{ defaults.afm_source_filename|default('') }}">
     <input type="hidden" name="afm_units" data-afm-units value="{{ defaults.afm_units|default('nm') }}">

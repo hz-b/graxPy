@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed help tooltips appearing over adjacent inputs and preserved keyboard access to the help controls.
+- Preserved unsaved run settings, custom-grid defaults, and parameter axes when returning from the grating roughness editor.
+- Added expandable saved simulation parameters to Manage runs, including CFF and workflow-specific settings.
+- Improved comparison plots with distinct automatic colors and line styles, editable per-series line styles, shorter legends below the plot, and stable cursor focus while editing legend names.
+- Named camera downloads after the plot title and saved comparison PNGs beside each selected run's manifest, using numbered filenames to preserve previous views.
 - Made parameter-study runs retain the selected diffraction order, polarization, solver, and roughness model instead of silently falling back to defaults.
 - Made Debye-Waller roughness consistently apply the grating-level sigma to every unresolved interface. Coated-stack efficiencies may change because all resolved interface losses are now combined in quadrature.
 - Reject incompatible checkpoint resumes before changing metadata or reusing results, and refresh completed web runs into their final result view.

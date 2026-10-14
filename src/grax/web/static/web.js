@@ -458,9 +458,13 @@ function renderPlotlyFigure(container, figureJson) {
     return;
   }
   const parsed = typeof figureJson === "string" ? JSON.parse(figureJson) : figureJson;
+  const rawTitle = parsed.layout?.title;
+  const title = typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot";
+  const filename = title.replace(/<[^>]*>/g, "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "plot";
   window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
     responsive: true,
     displaylogo: false,
+    toImageButtonOptions: {format: "png", filename},
   });
 }
 
@@ -835,29 +839,35 @@ function initPlotWorkspace(form) {
   }
 
   function syncSeriesControls(seriesControls) {
-    seriesStyleList.replaceChildren();
+    const existing = new Map([...seriesStyleList.querySelectorAll("[data-series-style-item]")]
+      .map((item) => [item.dataset.seriesKey, item]));
     seriesControls.forEach((series) => {
-      const item = seriesTemplate.content.firstElementChild.cloneNode(true);
+      let item = existing.get(series.series_key);
+      if (!item) {
+        item = seriesTemplate.content.firstElementChild.cloneNode(true);
+        item.dataset.seriesKey = series.series_key;
+        const legendLabelInput = item.querySelector("[data-series-legend-label]");
+        legendLabelInput.name = `legend_label_${series.series_token}`;
+        legendLabelInput.value = series.legend_label;
+        const colorInput = item.querySelector("[data-series-color]");
+        colorInput.name = `color_${series.series_token}`;
+        colorInput.value = series.color;
+        const markerSelect = item.querySelector("[data-series-marker-symbol]");
+        markerSelect.name = `marker_symbol_${series.series_token}`;
+        markerSelect.value = series.marker_symbol;
+        const markerSizeInput = item.querySelector("[data-series-marker-size]");
+        markerSizeInput.name = `marker_size_${series.series_token}`;
+        markerSizeInput.value = String(series.marker_size);
+        const lineStyleSelect = item.querySelector("[data-series-line-style]");
+        lineStyleSelect.name = `line_style_${series.series_token}`;
+        lineStyleSelect.value = series.line_style;
+        attachStyleInputHandlers(item);
+      }
       item.querySelector("[data-series-style-title]").textContent = series.label;
-
-      const legendLabelInput = item.querySelector("[data-series-legend-label]");
-      legendLabelInput.name = `legend_label_${series.series_token}`;
-      legendLabelInput.value = series.legend_label;
-
-      const colorInput = item.querySelector("[data-series-color]");
-      colorInput.name = `color_${series.series_token}`;
-      colorInput.value = series.color;
-
-      const markerSelect = item.querySelector("[data-series-marker-symbol]");
-      markerSelect.name = `marker_symbol_${series.series_token}`;
-      markerSelect.value = series.marker_symbol;
-
-      const markerSizeInput = item.querySelector("[data-series-marker-size]");
-      markerSizeInput.name = `marker_size_${series.series_token}`;
-      markerSizeInput.value = String(series.marker_size);
-
-      attachStyleInputHandlers(item);
-      seriesStyleList.append(item);
+      if (!existing.has(series.series_key)) seriesStyleList.append(item);
+    });
+    existing.forEach((item, key) => {
+      if (!seriesControls.some((series) => series.series_key === key)) item.remove();
     });
   }
 
@@ -1429,7 +1439,41 @@ function initCustomGridBuilder(root) {
 
 document.addEventListener("DOMContentLoaded", () => {
   initMaterialDensitySync();
+  const runForm = document.querySelector("[data-run-form]");
+  let draft = null;
+  if (runForm) {
+    const draftKey = `grax:run-draft:${runForm.dataset.gratingId}`;
+    try { draft = JSON.parse(sessionStorage.getItem(draftKey) || "null"); } catch { sessionStorage.removeItem(draftKey); }
+    if (draft && !Array.isArray(draft.fields)) { draft = null; sessionStorage.removeItem(draftKey); }
+    if (draft?.customGrid) {
+      const defaultNode = runForm.querySelector("[data-custom-grid-default]");
+      if (defaultNode) defaultNode.textContent = draft.customGrid;
+    }
+    runForm.querySelectorAll("[data-edit-run-grating]").forEach((link) => link.addEventListener("click", () => {
+      const fields = [...runForm.querySelectorAll("[name]")]
+        .filter((field) => !field.matches("[data-custom-grid-config]"))
+        .map((field) => ({name: field.name, value: field.value, checked: field.checked}));
+      sessionStorage.setItem(draftKey, JSON.stringify({
+        fields,
+        customGrid: runForm.querySelector("[data-custom-grid-config]")?.value || "",
+      }));
+    }));
+    runForm.addEventListener("submit", (event) => {
+      if (!event.defaultPrevented) sessionStorage.removeItem(draftKey);
+    });
+  }
   document.querySelectorAll("[data-custom-grid-builder]").forEach(initCustomGridBuilder);
+  if (runForm && draft) {
+    const fields = [...runForm.querySelectorAll("[name]")].filter((field) => !field.matches("[data-custom-grid-config]"));
+    draft.fields.forEach((saved, index) => {
+      const field = fields[index];
+      if (!field || field.name !== saved.name) return;
+      if (field.type === "checkbox" || field.type === "radio") field.checked = saved.checked;
+      else field.value = saved.value;
+      if (saved.name === "study_energy_ev" || saved.name === "study_grazing_angle_deg") field.dataset.userEdited = "true";
+    });
+    sessionStorage.removeItem(`grax:run-draft:${runForm.dataset.gratingId}`);
+  }
 });
 
 function formatSeconds(value) {
