@@ -245,6 +245,18 @@ def create_app(*, data_dir: str | Path | None = None):
     def active_data_dir() -> Path:
         return Path(app.config["GRAx_DATA_DIR"]).resolve()
 
+    def afm_request_bytes() -> tuple[bytes, str]:
+        upload = request.files.get("afm_file")
+        if upload is not None and upload.filename:
+            return upload.read(MAX_BYTES + 1), upload.filename
+        grating_id = str(request.form.get("afm_existing_grating_id") or "").strip()
+        if grating_id:
+            spec = store().load(grating_id)
+            source = store().directory / grating_id / "source_upload"
+            if spec.get("grating_type") == "afm" and source.is_file():
+                return source.read_bytes(), str((spec.get("profile") or {}).get("source_filename") or "AFM scan")
+        raise ValueError("Choose an AFM text file first.")
+
     @app.context_processor
     def inject_site_metadata() -> dict[str, Any]:
         """Inject shared site attribution metadata into templates."""
@@ -314,13 +326,11 @@ def create_app(*, data_dir: str | Path | None = None):
     def preview_afm():
         """Preview the raw scan and selected preprocessing stages without saving."""
 
-        upload = request.files.get("afm_file")
-        if upload is None or not upload.filename:
-            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
         try:
+            raw, _ = afm_request_bytes()
             period_text = str(request.form.get("afm_period_nm", "")).strip()
             preview = preview_afm_upload(
-                upload.read(MAX_BYTES + 1),
+                raw,
                 units=str(request.form.get("afm_units", "nm")),
                 profile_type=str(request.form.get("afm_profile_type", "blazed")),
                 period_nm=float(period_text) if period_text else None,
@@ -333,26 +343,33 @@ def create_app(*, data_dir: str | Path | None = None):
                 periodicity_ramp=request.form.get("afm_periodicity_ramp") == "1",
             )
             return jsonify({"ok": True, **preview})
-        except (TypeError, ValueError, OSError) as error:
+        except (FileNotFoundError, TypeError, ValueError, OSError) as error:
             return jsonify({"ok": False, "error": str(error)}), 422
 
     @app.post("/gratings/afm/process")
     def process_afm():
         """Process one uploaded AFM scan into a temporary profile workflow."""
-        upload = request.files.get("afm_file")
-        if upload is None or not upload.filename:
-            return jsonify({"ok": False, "error": "Choose an AFM text file first."}), 422
         workflow_id = uuid4().hex
         workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
         try:
+            raw, filename = afm_request_bytes()
+            period_text = str(request.form.get("afm_period_nm") or "").strip()
+            if period_text:
+                period_nm = float(period_text)
+            else:
+                density_text = str(request.form.get("afm_target_period_lpermm") or "").strip()
+                density = float(density_text) if density_text else 0.0
+                if not np.isfinite(density) or density <= 0:
+                    raise ValueError("Target period, lines/mm must be greater than zero.")
+                period_nm = 1e6 / density
             metadata = process_afm_upload(
-                upload.read(MAX_BYTES + 1), workflow_dir, filename=upload.filename,
+                raw, workflow_dir, filename=filename,
                 units=str(request.form.get("afm_units", "nm")),
                 profile_type=str(request.form.get("afm_profile_type", "blazed")),
-                period_nm=float(request.form.get("afm_period_nm", "0")),
-                min_separation_fraction=float(request.form.get("afm_min_separation", "0.4")),
-                min_prominence_fraction=float(request.form.get("afm_min_prominence", "0.1")),
-                period_index=int(request.form.get("afm_period_index", "0")),
+                period_nm=period_nm,
+                min_separation_fraction=float(request.form.get("afm_min_separation") or "0.4"),
+                min_prominence_fraction=float(request.form.get("afm_min_prominence") or "0.1"),
+                period_index=int(request.form.get("afm_period_index") or "0"),
                 average=request.form.get("afm_average") == "1",
                 reverse=request.form.get("afm_reverse") == "1",
                 zero_baseline=request.form.get("afm_zero_baseline", "1") == "1",
@@ -362,7 +379,7 @@ def create_app(*, data_dir: str | Path | None = None):
             metadata["profile_path"] = str((workflow_dir / "profile.csv").resolve())
             (workflow_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
             return jsonify({"ok": True, **metadata})
-        except (TypeError, ValueError, OSError) as error:
+        except (FileNotFoundError, TypeError, ValueError, OSError) as error:
             return jsonify({"ok": False, "error": str(error), "workflow_id": workflow_id}), 422
     def invalid_grating_form(error, grating_id=None):
         """Keep submitted values visible when validation fails."""
@@ -378,6 +395,10 @@ def create_app(*, data_dir: str | Path | None = None):
             preview={"ok": False, "error": str(error)}, form_error=str(error),
             allow_custom=True, allow_bare=True,
             custom_layers=_custom_layer_rows(request.form.to_dict(flat=False)),
+            existing_afm_source_url=(url_for("download_afm_source", grating_id=grating_id)
+                                     if grating_id and (store().directory / grating_id / "source_upload").is_file()
+                                     else None),
+            existing_afm_grating_id=grating_id,
         ), 422
 
     @app.post("/gratings")
@@ -388,6 +409,14 @@ def create_app(*, data_dir: str | Path | None = None):
         except (KeyError, TypeError, ValueError, OverflowError) as error:
             return invalid_grating_form(error)
         saved = store().save(spec)
+        if saved.get("grating_type") == "afm":
+            try:
+                _persist_afm_artifacts(saved, active_data_dir())
+                saved = store().save(saved)
+            except (OSError, ValueError) as error:
+                store().delete(saved["id"])
+                shutil.rmtree(store().directory / saved["id"], ignore_errors=True)
+                return invalid_grating_form(error)
         return redirect(url_for("grating_detail", grating_id=saved["id"]))
 
     @app.get("/gratings/manage")
@@ -509,7 +538,21 @@ def create_app(*, data_dir: str | Path | None = None):
             allow_custom=True,
             allow_bare=True,
             custom_layers=_grating_custom_layer_rows(spec),
+            existing_afm_source_url=(url_for("download_afm_source", grating_id=grating_id)
+                                     if spec.get("grating_type") == "afm"
+                                     and (store().directory / grating_id / "source_upload").is_file()
+                                     else None),
+            existing_afm_grating_id=grating_id,
         )
+
+    @app.get("/gratings/<grating_id>/afm/source")
+    def download_afm_source(grating_id: str):
+        spec = store().load(grating_id)
+        source = store().directory / grating_id / "source_upload"
+        if spec.get("grating_type") != "afm" or not source.is_file():
+            abort(404)
+        filename = Path(str((spec.get("profile") or {}).get("source_filename") or "afm_scan.txt")).name
+        return send_from_directory(source.parent, source.name, as_attachment=True, download_name=filename)
 
     @app.post("/gratings/<grating_id>")
     def update_grating(grating_id: str):
@@ -520,7 +563,9 @@ def create_app(*, data_dir: str | Path | None = None):
             spec["id"] = grating_id
             spec["created_at"] = previous.get("created_at")
             validate_roughness_geometry(build_grating_from_spec(spec))
-        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            if spec.get("grating_type") == "afm":
+                _persist_afm_artifacts(spec, active_data_dir(), previous=previous)
+        except (KeyError, TypeError, ValueError, OverflowError, OSError) as error:
             return invalid_grating_form(error, grating_id)
         grating_store.save(spec)
         return redirect(url_for("grating_detail", grating_id=grating_id))
@@ -1355,7 +1400,7 @@ def _maybe_open_browser(host: str, port: int) -> None:
 def _default_form_values() -> dict[str, str]:
     """Return display defaults for the create-grating form."""
     return {
-        "name": "Untitled grating",
+        "name": "",
         "roughness_kind": "none",
         "roughness_seed": "0",
         "roughness_num_supercells": "1",
@@ -1438,6 +1483,30 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
             values["roughness_" + field] = str(roughness[field])
     if spec.get("grating_type") == "sinusoidal":
         values["sinusoidal_depth_nm"] = str(spec.get("depth_nm", "20.0"))
+    if spec.get("grating_type") == "afm":
+        profile = spec.get("profile") or {}
+        values.update({
+            "afm_profile_path": str(profile.get("profile_path") or ""),
+            "afm_source_filename": str(profile.get("source_filename") or ""),
+            "afm_units": str(profile.get("units") or "nm"),
+            "afm_profile_type": str(profile.get("profile_type") or "blazed"),
+            "afm_period_nm": str(profile.get("period_nm") or "0"),
+        })
+        settings = profile.get("import_settings") or {}
+        for key, field in (
+            ("min_separation_fraction", "afm_min_separation"),
+            ("min_prominence_fraction", "afm_min_prominence"),
+            ("period_index", "afm_period_index"),
+        ):
+            if key in settings:
+                values[field] = str(settings[key])
+        for key, field in (
+            ("average", "afm_average"), ("reverse", "afm_reverse"),
+            ("zero_baseline", "afm_zero_baseline"),
+            ("periodicity_ramp", "afm_periodicity_ramp"),
+        ):
+            if key in settings:
+                values[field] = "1" if settings[key] else "0"
     stack = dict(spec.get("stack", {}))
     values["stack_type"] = str(stack.get("type", "single_layer"))
     for key, value in stack.items():
@@ -1493,8 +1562,37 @@ def _grating_custom_layer_rows(spec: dict[str, Any]) -> list[dict[str, str]]:
     }]
 
 
-def _spec_from_form(form: Any) -> dict[str, Any]:
+def _persist_afm_artifacts(
+    spec: dict[str, Any], data_dir: Path, *, previous: dict[str, Any] | None = None,
+) -> None:
+    """Keep the processed profile and original scan beside the saved grating."""
+
+    profile = spec["profile"]
+    source = Path(str(profile["profile_path"])).resolve()
+    if not source.is_file() or not source.is_relative_to(data_dir.resolve()):
+        raise ValueError("The processed AFM profile is unavailable in this workspace.")
+    destination = (data_dir / "saved_gratings" / str(spec["id"])).resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    saved_profile = destination / "profile.csv"
+    if source != saved_profile:
+        shutil.copy2(source, saved_profile)
+    source_upload = source.parent / "source_upload"
+    if source_upload.is_file() and source_upload != destination / "source_upload":
+        shutil.copy2(source_upload, destination / "source_upload")
+    metadata_path = source.parent / "metadata.json"
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        profile["import_settings"] = metadata.get("settings") or {}
+    elif previous and source == Path(str((previous.get("profile") or {}).get("profile_path", ""))).resolve():
+        profile["import_settings"] = (previous.get("profile") or {}).get("import_settings") or {}
+    profile["profile_path"] = str(saved_profile)
+
+
+def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
     """Build a saved grating spec from submitted form data."""
+    name = str(form.get("name") or "").strip()
+    if require_name and not name:
+        raise ValueError("Enter a grating name before saving.")
     grating_type = str(form["grating_type"])
     for key, label in (("period_lpermm", "Period (lines/mm)"),
                        ("x_resolution_nm", "X resolution (nm)"),
@@ -1508,7 +1606,7 @@ def _spec_from_form(form: Any) -> dict[str, Any]:
         if key == "period_lpermm" and not value.is_integer():
             raise ValueError("Period (lines/mm) must be a whole number of at least 1.")
     spec: dict[str, Any] = {
-        "name": str(form["name"]).strip() or "Untitled grating",
+        "name": name or "Preview grating",
         "grating_type": grating_type,
         "period_lpermm": int(float(form["period_lpermm"])),
         "x_resolution_nm": float(form["x_resolution_nm"]),
@@ -1590,7 +1688,7 @@ def _build_grating_preview(
 ) -> dict[str, Any]:
     """Build a live grating preview payload from form data."""
     try:
-        grating = build_grating_from_spec(_spec_from_form(form_data) if spec is None else spec)
+        grating = build_grating_from_spec(_spec_from_form(form_data, require_name=False) if spec is None else spec)
         preview_id = uuid4().hex
         preview_path = data_dir / "previews" / "live" / f"{preview_id}.png"
         rough_path, notices = _render_grating_previews(grating, preview_path)

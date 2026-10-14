@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 import shutil
-from datetime import datetime
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,10 +71,22 @@ class RunStore:
         path = self._manifest_path(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = path.with_name(f"{path.name}.{datetime.now().timestamp():.9f}.tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temp_path.replace(path)
+        try:
+            with temp_path.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            deadline = time.monotonic() + 2.0
+            while True:
+                try:
+                    temp_path.replace(path)
+                    break
+                except PermissionError as error:
+                    # Windows readers can briefly block replacement of the old file.
+                    if os.name != "nt" or error.winerror != 5 or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.02)
+        finally:
+            temp_path.unlink(missing_ok=True)
         return payload
 
     def rename(self, run_id: str, display_name: str) -> dict[str, Any]:
@@ -88,7 +102,6 @@ class RunStore:
 
     def update_comment(self, run_id: str, comment: str) -> dict[str, Any]:
         """Update the saved user comment for one run."""
-
         payload = self.load(run_id)
         payload["comment"] = comment.strip()
         payload["updated_at"] = _timestamp()

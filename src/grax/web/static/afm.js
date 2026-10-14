@@ -106,6 +106,7 @@
     const gratingForm = document.querySelector("[data-grating-preview-form]");
     if (!processForm || !gratingForm) return;
     const fileInput = processForm.querySelector('[name="afm_file"]');
+    const existingSourceInput = processForm.querySelector('[name="afm_existing_grating_id"]');
     const targetPeriod = processForm.querySelector("[data-afm-target-period]");
     const mainPeriodLabel = gratingForm.querySelector("[data-afm-main-period]");
     const unitsInput = processForm.querySelector('[name="afm_units"]');
@@ -141,13 +142,12 @@
     }
 
     function periodNm() {
-      const density = Number(periodInput.value);
+      const density = Number(targetPeriod.value);
       return Number.isFinite(density) && density > 0 ? 1e6 / density : null;
     }
 
     function syncTargetPeriod() {
-      const period = periodNm();
-      if (targetPeriod && periodInput.value !== targetPeriod.value) targetPeriod.value = periodInput.value;
+      if (periodInput.value !== targetPeriod.value) targetPeriod.value = periodInput.value;
     }
 
     function afmFormData() {
@@ -185,7 +185,7 @@
 
     async function preview() {
       const currentRequest = ++previewRequest;
-      if (!fileInput.files.length) {
+      if (!fileInput.files.length && !existingSourceInput?.value) {
         showTraces({});
         previewMessage.classList.add("is-hidden");
         return;
@@ -203,9 +203,6 @@
         if (payload.suggested_units && unitsInput.value !== payload.suggested_units) {
           if (allowUnitSuggestion) {
             unitsInput.value = payload.suggested_units;
-            periodInput.value = "";
-            densityInput.value = "";
-            autoEstimateAllowed = true;
             allowUnitSuggestion = false;
             unitsHint.textContent = "The scan values look like metres; selected m. Please confirm the file's coordinate units.";
             unitsHint.classList.remove("is-hidden");
@@ -268,15 +265,6 @@
       }
       schedulePreview(event.target === fileInput || event.target === unitsInput || event.target.type === "checkbox");
     });
-    // File selection must show the raw scan even when no period analysis can
-    // run yet. Keep this explicit so it does not depend on form bubbling.
-    fileInput.addEventListener("change", () => {
-      settingsRevision += 1;
-      delete gratingForm.dataset.afmProcessingError;
-      clearProcessed();
-      if (previewTimer) window.clearTimeout(previewTimer);
-      preview();
-    });
     processForm.addEventListener("input", (event) => {
       if (event.target.type === "number") schedulePreview(false);
     });
@@ -298,6 +286,7 @@
     });
     syncTargetPeriod();
     if (mainPeriodLabel && gratingType.value === "afm") mainPeriodLabel.classList.add("is-hidden");
+    if (existingSourceInput?.value) preview();
 
     async function processCurrentProfile() {
       if (!processForm.reportValidity()) {
@@ -331,7 +320,7 @@
           gratingForm.querySelector("[name=grating_type]").dispatchEvent(new Event("change", {bubbles: true}));
           delete gratingForm.dataset.afmProcessingError;
           if (gratingError) gratingError.classList.add("is-hidden");
-          result.textContent = `Processed ${payload.points} points. Ready to save.`;
+          result.textContent = "AFM profile processing complete.";
           return true;
         } catch (error) {
           result.textContent = error.message || "AFM processing failed.";

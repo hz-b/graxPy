@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 from .gratings import BaseGrating
 from .simulation import GratingSimulation
 from .simulation.core import normalize_polarization
+from .solvers.common import NumbaBackendUnavailableError
 
 __all__ = [
     "ParameterStudyEnergyResult",
@@ -605,6 +606,9 @@ def _run_single_parameter_sweep(
                 ).run_single(energy_ev)
                 efficiencies[index] = float(result["efficiency"])
                 success = True
+            except NumbaBackendUnavailableError:
+                # A missing backend affects every point; retrying the scan cannot help.
+                raise
             except Exception as error:
                 retries += 1
                 if retries > max_retries:

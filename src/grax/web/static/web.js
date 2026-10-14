@@ -273,6 +273,7 @@ function initGratingPreview(form) {
   }
 
   const updatePreview = debounce(async () => {
+    if (materialPauseTimer !== null) return;
     requestId += 1;
     const currentRequest = requestId;
     const afmPending = form.querySelector('[name="grating_type"]')?.value === "afm" &&
@@ -326,8 +327,33 @@ function initGratingPreview(form) {
     }
   }, 250);
 
-  form.addEventListener("input", updatePreview);
-  form.addEventListener("change", updatePreview);
+  let materialPauseTimer = null;
+  function validateMaterialNow() {
+    if (materialPauseTimer !== null) window.clearTimeout(materialPauseTimer);
+    materialPauseTimer = null;
+    updatePreview();
+  }
+  form.addEventListener("input", (event) => {
+    if (event.target.matches("[data-material-select]")) {
+      // Material formulas can be invalid midway through typing ("A" before "Au").
+      // Invalidate an in-flight preview and wait until the user pauses.
+      requestId += 1;
+      if (materialPauseTimer !== null) window.clearTimeout(materialPauseTimer);
+      materialPauseTimer = window.setTimeout(validateMaterialNow, 2000);
+    } else {
+      validateMaterialNow();
+    }
+  });
+  form.addEventListener("change", validateMaterialNow);
+  form.addEventListener("focusout", (event) => {
+    if (event.target.matches("[data-material-select]")) validateMaterialNow();
+  });
+  form.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.matches("[data-material-select]")) {
+      event.preventDefault();
+      validateMaterialNow();
+    }
+  });
   form.addEventListener("submit", (event) => {
     if (form.querySelector('[name="grating_type"]')?.value === "afm") {
       if (!form.querySelector("[data-afm-profile-path]")?.value) {
@@ -1551,6 +1577,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   const gratingPreviewForm = document.querySelector("[data-grating-preview-form]");
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target instanceof HTMLInputElement &&
+        event.target.form && !["button", "submit", "reset"].includes(event.target.type)) {
+      event.preventDefault();
+    }
+  });
   if (gratingPreviewForm) {
     const editor = gratingPreviewForm.querySelector("[data-layer-editor]");
     if (editor) initLayerEditor(editor, gratingPreviewForm);
