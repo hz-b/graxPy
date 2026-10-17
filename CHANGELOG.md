@@ -5,6 +5,7 @@
 - Kept the site navigation visible while scrolling and added the current GraxPy version to the header.
 - Moved the RETICOLO citation to the end of the documentation home page, placed installer availability information before that citation, and added project contact and pre-1.0 API information to the documentation footer.
 - Clarified the documentation home page overview with HZB attribution and a brief explanation of both roughness models; placed the installer notice before the RETICOLO citation and removed the redundant home-page outline.
+- Applied HZB and BESSY II colors and Source Sans Pro typography to the online documentation.
 
 ## 0.5.5
 

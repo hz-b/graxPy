@@ -1,3 +1,42 @@
+.font-stack,
+body {
+  font-family: "Source Sans Pro", Calibri, sans-serif;
+}
+
+:root {
+  --font-stack: "Source Sans Pro", Calibri, sans-serif;
+  --font-stack--headings: "Source Sans Pro", Calibri, sans-serif;
+}
+
+@font-face {
+  font-family: "Source Sans Pro";
+  src: url("SourceSansPro-Regular.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Sans Pro";
+  src: url("SourceSansPro-Semibold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Sans Pro";
+  src: url("SourceSansPro-Bold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+.sidebar-brand {
+  border-bottom: 3px solid transparent;
+  border-image: linear-gradient(to right, #184e8b 0 62%, #6cabe9 62% 80%, #bcd233 80% 100%) 1;
+}
+
 .graxpy-home-page .toc-drawer {
   display: none;
 }

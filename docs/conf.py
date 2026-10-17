@@ -78,12 +78,26 @@ html_logo = "_static/GraxPy_logo.svg"
 html_favicon = "_static/GraxPy_logo.svg"
 html_theme_options = {
     "light_css_variables": {
-        "color-brand-primary": "#00234c",
-        "color-brand-content": "#005dce",
+        "color-brand-primary": "#184e8b",
+        "color-brand-content": "#184e8b",
+        "color-brand-visited": "#093566",
+        "color-link": "#184e8b",
+        "color-link--hover": "#093566",
+        "color-background-primary": "#ffffff",
+        "color-background-secondary": "#f6f8fa",
+        "color-background-hover": "#f3f7dc",
+        "color-header-background": "#ffffff",
+        "color-header-border": "#bcd233",
+        "color-admonition-title--note": "#184e8b",
+        "color-admonition-title-background--note": "#bcd233",
     },
     "dark_css_variables": {
         "color-brand-primary": "#bcd233",
         "color-brand-content": "#87baff",
+        "color-brand-visited": "#6cabe9",
+        "color-link": "#87baff",
+        "color-link--hover": "#bcd233",
+        "color-header-border": "#bcd233",
     },
 }
 templates_path = ["_templates"]
