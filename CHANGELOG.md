@@ -8,6 +8,7 @@
 - Applied HZB and BESSY II colors and Source Sans Pro typography to the online documentation.
 - Made the local documentation opener prefer Chrome on macOS, with Safari as a fallback, while retaining Linux browser launch behavior.
 - Removed the duplicate guide and API link lists from the documentation home page while keeping them in the left navigation.
+- Ensured every documentation page footer credits Helmholtz-Zentrum Berlin and provides Simone Vadilonga's contact email.
 
 ## 0.5.5
 
