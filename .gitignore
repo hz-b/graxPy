@@ -11,7 +11,6 @@ reticolo
 *.log
 .token
 ToDo.md
-AGENTS.md
 .agents
 context
 superpowers

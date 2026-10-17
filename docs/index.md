@@ -8,11 +8,15 @@
 
 *Version {{ release }}*
 
-GraxPy (`graxpy`) is a Python package for one-dimensional X-ray grating
-simulations, imported as `grax`. Build laminar, blazed, sinusoidal, or custom
-grating profiles; combine them with material definitions and multilayer
-coatings; then calculate diffraction efficiencies with either modal RCWA or
-the Nevière differential method.
+GraxPy is a Python package developed by Helmholtz-Zentrum Berlin (HZB) for
+one-dimensional X-ray grating simulations. Build laminar, blazed, sinusoidal,
+or custom grating profiles; combine them with material definitions and
+multilayer coatings; then calculate diffraction efficiencies with either
+modal RCWA or the Nevière differential method. GraxPy also offers two
+roughness models: Debye-Waller damping, which reduces diffraction efficiencies
+to represent roughness losses, and random-interface roughness, which models
+rough surfaces by perturbing material interfaces. See the
+[roughness guide](tutorials/roughness.md) for details.
 
 Use the same API for single simulations, energy-angle and fixed-angle sweeps,
 batch runs, parameter studies, optimizer fits, and multilayer design searches.
@@ -20,13 +24,10 @@ Start with the [single simulation tutorial](tutorials/single-simulation.md),
 explore [grating workflows](tutorials/gratings.md), or see
 [how to choose a solver](tutorials/choosing-a-solver.md).
 
-GraxPy's modal RCWA solver is inspired by the one-dimensional RETICOLO approach;
-GraxPy is an independent implementation, not an official port. If you use it,
-please cite [RETICOLO V9](https://doi.org/10.5281/zenodo.14631950) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
-
 ```{toctree}
 :maxdepth: 2
 :caption: User guide
+:hidden:
 
 installation/index
 validation/index
@@ -37,6 +38,15 @@ how-to/index
 ```{toctree}
 :maxdepth: 2
 :caption: Reference
+:hidden:
 
 api/index
 ```
+
+```{note}
+Installers for macOS and Windows are available upon request and are currently being tested.
+```
+
+GraxPy's modal RCWA solver is inspired by the one-dimensional RETICOLO approach;
+GraxPy is an independent implementation, not an official port. If you use it,
+please cite [RETICOLO V9](https://doi.org/10.5281/zenodo.14631950) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).

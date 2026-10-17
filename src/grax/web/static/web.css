@@ -61,7 +61,8 @@ body {
 }
 
 .topbar {
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -71,6 +72,14 @@ body {
   padding: 12px clamp(16px, 3vw, 48px);
   background: #fff;
   box-shadow: 0 2px 12px rgba(9, 53, 102, 0.06);
+}
+
+.version-badge {
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
 }
 
 .topbar nav {
