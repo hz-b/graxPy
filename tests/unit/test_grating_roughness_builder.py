@@ -111,7 +111,7 @@ def test_both_solvers_and_continuous_roughness(kind):
 def test_builder_save_preview_reload_and_run_settings(tmp_path, kind):
     client = create_app(data_dir=tmp_path).test_client()
     form = _default_form_values()
-    form.update(grating_type=kind, roughness_kind='random-interface', layer_roughness_sigma_nm='0.2',
+    form.update(name=f'{kind} roughness', grating_type=kind, roughness_kind='random-interface', layer_roughness_sigma_nm='0.2',
                 layer_correlation_length_nm='60', roughness_num_realizations='2')
     preview = client.post('/_preview/grating', data=form).json
     assert preview['ok'], preview
@@ -213,7 +213,8 @@ def test_invalid_builder_parameters_keep_form(tmp_path, field, value):
     response = create_app(data_dir=tmp_path).test_client().post('/gratings', data=form)
     assert response.status_code == 422
     assert b'role="alert"' in response.data
-    assert b'Untitled grating' in response.data
+    assert b'name="name"' in response.data
+    assert b'value=""' in response.data
 
 
 def test_preview_is_stable_and_debug_uses_simulation_span(tmp_path):
@@ -248,7 +249,7 @@ def test_detail_separates_nominal_and_simulated_plot_spans(tmp_path, monkeypatch
     monkeypatch.setattr(BaseGrating, '_material_plot_data', record)
     client = create_app(data_dir=tmp_path).test_client()
     form = _default_form_values()
-    form.update(grating_type='sinusoidal', stack_type='bare', roughness_kind='random-interface',
+    form.update(name=f'roughness span {periods}', grating_type='sinusoidal', stack_type='bare', roughness_kind='random-interface',
                 roughness_num_supercells=str(periods), roughness_num_realizations='1')
     saved = client.post('/gratings', data=form)
     page = client.get(saved.location)

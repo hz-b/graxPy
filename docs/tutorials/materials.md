@@ -1,6 +1,6 @@
 # Materials
 
-`grax` accepts material inputs anywhere a grating or multilayer asks for a material. The resolver supports four
+GraxPy accepts material inputs anywhere a grating or multilayer asks for a material. The resolver supports four
 patterns, in this order:
 
 - A string elemental material name such as `"Si"`, `"Pt"`, or `"Au"` when a packaged Henke table exists for that
@@ -11,7 +11,7 @@ patterns, in this order:
 
 String material names are the recommended default for elemental Henke lookups. DataFrame-like optical-constants tables
 remain supported for custom workflows, and xrt material objects still work for backward compatibility during the
-transition. When xrt objects are used, `grax` emits a `FutureWarning` so the deprecation is visible at runtime.
+transition. When xrt objects are used, GraxPy emits a `FutureWarning` so the deprecation is visible at runtime.
 
 ## String material names
 
@@ -27,7 +27,7 @@ grating = grax.LaminarGrating(
 )
 ```
 
-At solve time, `grax` loads the packaged Henke table for the symbol, converts it to `Delta` and `Beta` using the
+At solve time, GraxPy loads the packaged Henke table for the symbol, converts it to `Delta` and `Beta` using the
 built-in density metadata for that element, and interpolates `n = 1 - delta + i beta` at the requested photon energy.
 
 If a material name is not available, the error includes the full supported-material list.
@@ -69,7 +69,7 @@ grating = grax.LaminarGrating(
 )
 ```
 
-`grax` supports flat stoichiometric formulas such as `SiO2`, `Al2O3`, `B4C`, and `Cr2O3`. It combines the elemental
+GraxPy supports flat stoichiometric formulas such as `SiO2`, `Al2O3`, `B4C`, and `Cr2O3`. It combines the elemental
 Henke scattering factors using the formula stoichiometry and the provided mass density. In v1, grouped formulas such
 as `Ca(OH)2`, hydrate or dot notation, charges, and fractional stoichiometry are rejected with a validation error.
 
@@ -112,7 +112,7 @@ platinum = xrt_materials.Material(
 )
 ```
 
-This path still works for compatibility, but `grax` warns that xrt material support is deprecated and will be removed
+This path still works for compatibility, but GraxPy warns that xrt material support is deprecated and will be removed
 in a future version. For new code, prefer string material names or `grax.MaterialSpec`.
 
 ## Shared material list

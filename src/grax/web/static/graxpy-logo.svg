@@ -1,0 +1,70 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ns0:svg xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns0="http://www.w3.org/2000/svg" xmlns:ns1="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:ns2="http://www.inkscape.org/namespaces/inkscape" xmlns:ns4="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" width="1390" height="850" viewBox="70 100 1390 850" role="img" aria-labelledby="title desc" version="1.1" id="svg15" ns1:docname="GraxPy_logo.svg" ns2:version="1.4.3 (0d15f750, 2025-12-25)">
+  <ns1:namedview id="namedview15" pagecolor="#ffffff" bordercolor="#000000" borderopacity="0.25" ns2:showpageshadow="2" ns2:pageopacity="0.0" ns2:pagecheckerboard="0" ns2:deskcolor="#d1d1d1" ns2:zoom="0.3914846" ns2:cx="835.28191" ns2:cy="605.3878" ns2:window-width="1512" ns2:window-height="921" ns2:window-x="0" ns2:window-y="33" ns2:window-maximized="1" ns2:current-layer="svg15" />
+  <ns0:title id="title">GraxPy — Gratings made easy</ns0:title>
+  <ns0:desc id="desc">GraxPy logo with a blazed grating, diffraction rays, wordmark, and “Gratings made easy” tagline.</ns0:desc>
+  <ns0:defs id="defs15">
+    <ns0:rect x="86.625715" y="705.13332" width="878.38475" height="256.41212" id="rect1597" />
+    <ns0:marker style="overflow:visible" id="DartArrow" refX="0" refY="0" orient="auto-start-reverse" ns2:stockid="Dart arrow" markerWidth="1" markerHeight="1" viewBox="0 0 1 1" ns2:isstock="true" ns2:collect="always" preserveAspectRatio="xMidYMid">
+      <ns0:path style="fill:context-stroke;fill-rule:evenodd;stroke:none" d="M 0,0 5,-5 -12.5,0 5,5 Z" transform="scale(-0.5)" id="path6" />
+    </ns0:marker>
+    <ns0:marker style="overflow:visible" id="Triangle" refX="0" refY="0" orient="auto-start-reverse" ns2:stockid="Triangle arrow" markerWidth="1" markerHeight="1" viewBox="0 0 1 1" ns2:isstock="true" ns2:collect="always" preserveAspectRatio="xMidYMid">
+      <ns0:path transform="scale(0.5)" style="fill:context-stroke;fill-rule:evenodd;stroke:context-stroke;stroke-width:1pt" d="M 5.77,0 -2.88,5 V -5 Z" id="path135" />
+    </ns0:marker>
+    <ns0:linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <ns0:stop offset="0" stop-color="#ffd566" id="stop1" />
+      <ns0:stop offset="1" stop-color="#ffc34f" id="stop2" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="dark-word" x1="54.701567" y1="1246.6005" x2="54.701567" y2="1565.7869" gradientTransform="matrix(1.7732581,0,0,0.56393369,36.3828,364.60731)" gradientUnits="userSpaceOnUse">
+      <ns0:stop offset="0" stop-color="#00284f" id="stop3" />
+      <ns0:stop offset="1" stop-color="#00214a" id="stop4" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="bright-word" x1="593.07745" y1="803.61848" x2="593.07745" y2="1067.3058" gradientTransform="matrix(1.1415035,0,0,0.87603759,36.3828,364.60731)" gradientUnits="userSpaceOnUse">
+      <ns0:stop offset="0" stop-color="#0875e8" id="stop5" />
+      <ns0:stop offset="1" stop-color="#005dce" id="stop6" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="incident-fade" x1="155" y1="129" x2="693" y2="505" gradientUnits="userSpaceOnUse" gradientTransform="rotate(-33.314152,696.97942,507.80699)">
+      <ns0:stop offset="0" stop-color="#ff1017" stop-opacity="0" id="stop7" />
+      <ns0:stop offset="0.30" stop-color="#ff1017" stop-opacity="0.95" id="stop8" />
+      <ns0:stop offset="1" stop-color="#f00000" id="stop9" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="blue-ray" x1="693" y1="505" x2="1131" y2="130" gradientUnits="userSpaceOnUse">
+      <ns0:stop stop-color="#0069e6" id="stop10" />
+      <ns0:stop offset="1" stop-color="#087aff" id="stop11" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="red-ray" x1="693" y1="505" x2="1248" y2="219" gradientUnits="userSpaceOnUse">
+      <ns0:stop stop-color="#e70000" id="stop12" />
+      <ns0:stop offset="1" stop-color="#ff1010" id="stop13" />
+    </ns0:linearGradient>
+    <ns0:linearGradient id="green-ray" x1="693" y1="505" x2="1328" y2="341" gradientUnits="userSpaceOnUse">
+      <ns0:stop stop-color="#00952f" id="stop14" />
+      <ns0:stop offset="1" stop-color="#00b53b" id="stop15" />
+    </ns0:linearGradient>
+    <ns0:marker style="overflow:visible" id="DartArrow-1" refX="0" refY="0" orient="auto-start-reverse" ns2:stockid="Dart arrow" markerWidth="1" markerHeight="1" viewBox="0 0 1 1" ns2:isstock="true" ns2:collect="always" preserveAspectRatio="xMidYMid">
+      <ns0:path style="fill:context-stroke;fill-rule:evenodd;stroke:none" d="M 0,0 5,-5 -12.5,0 5,5 Z" transform="scale(-0.5)" id="path6-8" />
+    </ns0:marker>
+  </ns0:defs>
+  <ns0:g id="grating">
+    <ns0:path id="gold-substrate" d="M84,574 438,444 Q445,441 450,451 L514,579 906,459 Q912,456 916,466 L970,587 1374,444 Q1382,441 1387,455 L1451,590 1451,666 84,666Z" fill="url(#gold)" stroke="#002750" stroke-width="7" stroke-linejoin="round" />
+    <ns0:path id="bright-blue-layer" d="M84,574 439,444 514,579 908,458 970,588 1377,444 1451,590 1451,608 1377,468 969,611 908,482 513,603 440,467 84,593Z" fill="#006de6" />
+    <ns0:path id="light-cyan-layer" d="M84,593 440,467 513,603 908,482 969,611 1377,468 1451,608 1451,618 1377,485 968,626 908,498 511,619 441,485 84,608Z" fill="#d7f8ff" />
+    <ns0:path id="deep-blue-layer" d="M84,608 441,485 511,619 908,498 968,626 1377,485 1451,618 1451,628 1377,508 967,639 908,517 509,634 442,507 84,627Z" fill="#004f9e" />
+    <ns0:path id="dark-outer-rim" d="M84,574 439,444 514,579 908,458 970,588 1377,444 1451,590" fill="none" stroke="#002750" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+    <ns0:path id="base-border" d="M84,574 V666 H1451 V590" fill="none" stroke="#002750" stroke-width="7" stroke-linejoin="round" />
+  </ns0:g>
+  <ns0:path style="fill:#ff000c;stroke:#ff0002;stroke-width:8.51795;stroke-linecap:round;stroke-dasharray:none;marker-mid:url(#Triangle);fill-opacity:1;stroke-opacity:1" d="M 317.35005,301.09682 693.13262,503.49928" id="path15" ns2:transform-center-x="-189.46207" ns2:transform-center-y="100.66736" />
+  <ns0:path style="fill:#ff000c;fill-opacity:1;stroke:#00a434;stroke-width:8.518;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow)" d="M 1103.6262,383.50258 693.97347,503.35247" id="path19" ns2:transform-center-x="-204.22275" ns2:transform-center-y="-59.85307" />
+  <ns0:path style="fill:#ff000c;fill-opacity:1;stroke:#0068ff;stroke-width:8.518;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow)" d="M 1019.5439,227.48267 694.05489,503.59177" id="path20" ns2:transform-center-x="-162.22231" ns2:transform-center-y="-137.74337" />
+  <ns0:path style="fill:#ff000c;fill-opacity:1;stroke:#ff0002;stroke-width:8.518;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow-1)" d="M 1068.7446,301.01685 692.96201,503.41931" id="path17" ns2:transform-center-x="189.46207" ns2:transform-center-y="100.66736" />
+  <ns0:text xml:space="preserve" id="text1597" style="fill:#ff000c;text-orientation:auto;stroke-width:8.518;stroke:#00a434;-inkscape-font-specification:'Source Sans Pro, Semi-Bold';font-family:'Source Sans Pro';font-size:8.70944023px;font-weight:600;writing-mode:lr-tb;direction:ltr;stroke-dasharray:none;stroke-linecap:round;fill-opacity:1;stroke-opacity:1;white-space:pre;shape-inside:url(#rect1597)" />
+  <ns0:text xml:space="preserve" style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:260.647px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:#00234c;fill-opacity:1;stroke:none;stroke-width:227.498;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1" x="74.559029" y="863.74756" id="text1598"><ns0:tspan ns1:role="line" id="tspan1598" x="74.559029" y="863.74756" style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:260.647px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#00234c;fill-opacity:1;stroke-width:227.498">Grax</ns0:tspan></ns0:text>
+  <ns0:text xml:space="preserve" style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:249.153px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:#0367d9;fill-opacity:1;stroke:none;stroke-width:194.427;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1" x="603.87592" y="863.9187" id="text1599"><ns0:tspan ns1:role="line" id="tspan1599" x="603.87592" y="863.9187" style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:249.153px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#0367d9;fill-opacity:1;stroke-width:194.427">Py</ns0:tspan></ns0:text>
+  <ns0:text xml:space="preserve" style="font-style:italic;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:71.6774px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold Italic';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:#00234c;fill-opacity:1;stroke:none;stroke-width:227.498;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1" x="82.534691" y="931.91449" id="text1600"><ns0:tspan ns1:role="line" id="tspan1600" x="82.534691" y="931.91449" style="font-style:italic;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:71.6774px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold Italic';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#00234c;fill-opacity:1;stroke-width:227.498">Gratings made easy</ns0:tspan></ns0:text>
+  <ns0:metadata id="metadata1600">
+    <rdf:RDF>
+      <ns4:Work rdf:about="">
+        <dc:title>GraxPy — Gratings made easy</dc:title>
+      </ns4:Work>
+    </rdf:RDF>
+  </ns0:metadata>
+</ns0:svg>

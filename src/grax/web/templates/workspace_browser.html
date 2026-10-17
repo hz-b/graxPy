@@ -9,6 +9,12 @@
   <a class="button" href="{{ url_for('index') }}">Cancel</a>
 </section>
 
+{% if message %}
+  <section class="notice{% if message_kind == 'error' %} notice-error{% endif %}" role="status">
+    <p>{{ message }}</p>
+  </section>
+{% endif %}
+
 <section class="notice">
   <nav class="export-breadcrumbs" aria-label="Folder path">
     {% for crumb in breadcrumbs %}
@@ -24,6 +30,19 @@
     </form>
     {% if parent_path %}<a class="button" href="{{ url_for('browse_workspace', path=parent_path) }}">Up</a>{% endif %}
   </div>
+</section>
+
+<section class="notice workspace-create-panel">
+  <h2>Create a database folder here</h2>
+  <p class="subtle">Creates a subfolder inside the selected location and switches Grax Web to it.</p>
+  <form class="workspace-create-form" method="post" action="{{ url_for('create_workspace_folder') }}">
+    <input type="hidden" name="parent_path" value="{{ current_path }}">
+    <label>
+      New folder name
+      <input name="folder_name" type="text" required maxlength="128" autocomplete="off" placeholder="e.g. My simulations">
+    </label>
+    <button class="button primary" type="submit">Create and use folder</button>
+  </form>
 </section>
 
 <div class="list compact">

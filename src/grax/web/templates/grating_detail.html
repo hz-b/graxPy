@@ -9,9 +9,32 @@
   </div>
   <div class="actions">
     <a class="button" href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit</a>
-    <a class="button danger" href="{{ url_for('delete_grating_prompt', grating_id=grating.id) }}">Delete grating</a>
+    <button class="button danger" type="button" data-dialog-target="#single-grating-delete-dialog">Delete grating</button>
   </div>
 </section>
+
+<dialog class="grating-delete-dialog" id="single-grating-delete-dialog" data-grating-delete-dialog>
+  <form class="grating-delete-form" method="post" action="{{ url_for('delete_grating', grating_id=grating.id) }}">
+    <h2>Delete {{ grating.name }}?</h2>
+    <p>This grating has {{ linked_runs|length }} linked saved run{{ 's' if linked_runs|length != 1 else '' }}.</p>
+    <fieldset>
+      <legend>What should be deleted?</legend>
+      <label class="inline-check">
+        <input type="radio" name="delete_mode" value="grating_only" checked>
+        <span>Delete the grating only; keep its runs</span>
+      </label>
+      <label class="inline-check">
+        <input type="radio" name="delete_mode" value="grating_and_runs">
+        <span>Delete the grating and all linked runs</span>
+      </label>
+    </fieldset>
+    <p class="subtle">Deleting the grating and runs cannot be undone. Active runs block deletion with their associated runs.</p>
+    <div class="actions grating-delete-actions">
+      <button class="button" type="button" data-close-dialog>Cancel</button>
+      <button class="button danger" type="submit">Delete grating</button>
+    </div>
+  </form>
+</dialog>
 
 <h2>Nominal geometry — three periods</h2>
 {% set nominal_type = (grating.profile.profile_type|default('blazed')) if grating.grating_type == 'afm' else grating.grating_type %}
@@ -29,13 +52,15 @@
   class="form run-form"
   method="post"
   action="{{ url_for('create_run', grating_id=grating.id) }}"
+  data-run-form data-grating-id="{{ grating.id }}"
 >
   <fieldset>
     <legend>Run sweep</legend>
     <div class="run-workflow-picker">
       <label>Workflow
         <select name="workflow" data-run-workflow aria-describedby="run-workflow-description">
-          <option value="fixed_angle">Fixed angle</option>
+          <option value="energy_sweep">Energy sweep</option>
+          <option value="angle_sweep">Angle sweep</option>
           <option value="monochromator">Monochromator</option>
           <option value="multilayer_theta_search">Multilayer theta search</option>
           <option value="parameter_study">Parameter study</option>
@@ -43,8 +68,8 @@
         </select>
       </label>
       <aside class="run-workflow-description" id="run-workflow-description" data-run-workflow-description aria-live="polite">
-        <strong data-run-workflow-title>Fixed angle</strong>
-        <p data-run-workflow-summary>Scans an energy range while keeping the grazing angle fixed. Use it to calculate the spectral response at one incidence angle.</p>
+        <strong data-run-workflow-title>Energy sweep</strong>
+        <p data-run-workflow-summary>Scans energy at a fixed grazing incidence angle, with optional independent and coupled parameter variations.</p>
       </aside>
     </div>
     <label>Workers
@@ -59,17 +84,27 @@
     </label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
+  <fieldset data-workflow-fields="energy_sweep monochromator multilayer_theta_search">
     <legend>Energy sweep</legend>
-    <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="100"></label>
-    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="120"></label>
-    <label>Energy points <input name="energy_points" type="number" step="1" value="3"></label>
+    <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"></label>
+    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"></label>
+    <label>Energy points <input name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle">
-    <legend>Angle selection</legend>
+  <fieldset data-workflow-fields="energy_sweep">
+    <legend>Fixed grazing angle</legend>
     <label>Incident (grazing) angle α, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
   </fieldset>
+
+  <fieldset data-workflow-fields="angle_sweep">
+    <legend>Angle sweep at fixed energy</legend>
+    <label>Energy, eV <input name="energy_ev" type="number" step="0.1" value="100"></label>
+    <label>Grazing angle start, deg <input name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"></label>
+    <label>Grazing angle stop, deg <input name="grazing_angle_stop_deg" type="number" step="0.01" value="35"></label>
+    <label>Angle points <input name="grazing_angle_points" type="number" step="1" value="101"></label>
+  </fieldset>
+
+  {% include "_parameter_variations.html" %}
 
   <fieldset data-workflow-fields="parameter_study" data-parameter-study-fields>
     <legend><span class="parameter-label">Parameter study <button type="button" class="roughness-help" aria-label="Help: parameter study" aria-describedby="parameter-study-help">?</button><span class="roughness-tip" role="tooltip" id="parameter-study-help">This study is only for verifying numerical stability. It compares simulations while varying Fourier orders, X resolution, and Z resolution, with energy and grazing angle held fixed.</span></span></legend>
@@ -91,7 +126,7 @@
       <label>Minimum <input name="study_x_resolution_min" type="number" min="0.000001" step="any" value="0.1"></label>
       <label>Maximum <input name="study_x_resolution_max" type="number" min="0.000001" step="any" value="1.0"></label>
       <label>Values <input name="study_x_resolution_points" type="number" min="1" step="1" value="51"></label>
-      <label>Fixed Fourier orders <input name="study_x_fixed_fourier" type="number" min="1" step="1" value="20"></label>
+      <label>Fixed Fourier orders <input name="study_x_fixed_fourier" type="number" min="1" step="1" value="15"></label>
       <label>Fixed Z resolution, nm <input name="study_x_fixed_z_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
     </div>
     <div class="parameter-range">
@@ -99,7 +134,7 @@
       <label>Minimum <input name="study_z_resolution_min" type="number" min="0.000001" step="any" value="0.1"></label>
       <label>Maximum <input name="study_z_resolution_max" type="number" min="0.000001" step="any" value="1.0"></label>
       <label>Values <input name="study_z_resolution_points" type="number" min="1" step="1" value="51"></label>
-      <label>Fixed Fourier orders <input name="study_z_fixed_fourier" type="number" min="1" step="1" value="20"></label>
+      <label>Fixed Fourier orders <input name="study_z_fixed_fourier" type="number" min="1" step="1" value="15"></label>
       <label>Fixed X resolution, nm <input name="study_z_fixed_x_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
     </div>
   </fieldset>
@@ -123,6 +158,7 @@
       The saved grating supplies the base geometry and coating.
       Independent parameters form a Cartesian grid. Within a coupled group, values stay
       together row by row—for example energy 100 with angle 1, then energy 200 with angle 2.
+      <a href="{{ url_for('edit_grating', grating_id=grating.id, return_to_run='1') }}" data-edit-run-grating>Edit grating roughness</a>
     </p>
 
     <section class="custom-grid-full-row custom-grid-section">
@@ -139,7 +175,7 @@
           <input name="custom_default_diffraction_order" type="number" step="1" value="1">
         </label>
         <label>Default Fourier orders
-          <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="5">
+          <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="15">
         </label>
         <label>Default polarization
           <select name="custom_default_polarization">
@@ -190,10 +226,9 @@
     <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
-    <legend>Numerics</legend>
+  <fieldset data-workflow-fields="energy_sweep angle_sweep monochromator multilayer_theta_search parameter_study">
+    <legend>Shared simulation settings</legend>
     <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
-    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
     <label>Polarization
       <select name="polarization">
         <option value="s" selected>s (TE)</option>
@@ -216,11 +251,16 @@
         </select>
       </label>
       <small>Applies to this run using the saved interface parameters.
-        <a href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit grating roughness</a>
+        <a href="{{ url_for('edit_grating', grating_id=grating.id, return_to_run='1') }}" data-edit-run-grating>Edit grating roughness</a>
       </small>
     </div>
-    <label><span class="parameter-label">X resolution, nm {{ roughness_help('run_x_resolution_nm', 'x_resolution') }}</span> <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
-    <label><span class="parameter-label">Z resolution, nm {{ roughness_help('run_z_resolution_nm', 'z_resolution') }}</span> <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="energy_sweep angle_sweep monochromator multilayer_theta_search">
+    <legend>Numerical resolution</legend>
+    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="15"></label>
+    <label><span class="parameter-label">X resolution, nm {{ roughness_help('run_x_resolution_nm', 'x_resolution') }}</span> <input name="run_x_resolution_nm" type="number" step="0.01" value="0.5"></label>
+    <label><span class="parameter-label">Z resolution, nm {{ roughness_help('run_z_resolution_nm', 'z_resolution') }}</span> <input name="run_z_resolution_nm" type="number" step="0.01" value="0.5"></label>
   </fieldset>
   <div class="actions">
     <button class="button primary" type="submit">Run sweep</button>

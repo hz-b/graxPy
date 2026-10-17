@@ -152,7 +152,7 @@ def test_per_layer_debye_waller_combines_sigmas_in_quadrature() -> None:
     assert result.roughness_sigma_nm == pytest.approx(expected)
 
 
-def test_debye_waller_without_per_layer_overrides_keeps_single_sigma() -> None:
+def test_debye_waller_default_applies_to_every_interface() -> None:
     grating = build_test_grating()
     grating.roughness = RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
 
@@ -163,7 +163,25 @@ def test_debye_waller_without_per_layer_overrides_keeps_single_sigma() -> None:
         fourier_orders=3,
     )
 
-    assert result.roughness_sigma_nm == pytest.approx(0.5)
+    interface_count = len(grating.resolved_stack().interface_roughness_sigmas_bottom_up(0.5))
+    assert result.roughness_sigma_nm == pytest.approx(0.5 * np.sqrt(interface_count))
+
+
+def test_debye_waller_explicit_default_is_equivalent_to_omitted_override() -> None:
+    from copy import deepcopy
+
+    implicit = build_test_grating()
+    implicit.roughness = RoughnessSpec(kind="debye-waller", sigma_nm=0.5)
+    explicit = deepcopy(implicit)
+    explicit.coating_stack = explicit.resolved_stack()
+    explicit.coating_stack.substrate_roughness_sigma_nm = 0.5
+
+    settings = dict(energy_ev=100.0, grazing_angle_deg=4.0, fourier_orders=3)
+    implicit_result = run_simulation(grating=implicit, **settings)
+    explicit_result = run_simulation(grating=explicit, **settings)
+
+    assert explicit_result.roughness_sigma_nm == pytest.approx(implicit_result.roughness_sigma_nm)
+    np.testing.assert_allclose(explicit_result.efficiency_all, implicit_result.efficiency_all)
 
 
 def test_rcwa_simulation_runs_for_multiple_energies() -> None:
@@ -1060,8 +1078,8 @@ def test_run_simulation_uses_solver_roughness_from_grating(monkeypatch: pytest.M
         fourier_orders=1,
     )
 
-    assert captured == [0.5]
-    assert result.roughness_sigma_nm == pytest.approx(0.5)
+    assert captured == [pytest.approx(0.5 * np.sqrt(2.0))]
+    assert result.roughness_sigma_nm == pytest.approx(0.5 * np.sqrt(2.0))
 
 
 def test_run_simulation_keeps_random_interface_roughness_out_of_res2(
@@ -1211,6 +1229,83 @@ def test_batch_runner_writes_jsonl_and_resumes(monkeypatch: pytest.MonkeyPatch, 
     assert json.loads(checkpoint_lines[0])["case_id"] == "case-1"
 
 
+def test_batch_runner_rejects_changed_resume_before_mutating_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run_simulation(**kwargs: object) -> SingleSimulationResult:
+        return fake_single_result(
+            energy_ev=float(kwargs["energy_ev"]),
+            grazing_angle_deg=float(kwargs["grazing_angle_deg"]),
+        )
+
+    monkeypatch.setattr(simulation_module, "run_simulation", fake_run_simulation)
+    grating = build_test_grating()
+    first_cases = [
+        {"case_id": "case-1", "grating": grating, "energy_ev": 100.0, "grazing_angle_deg": 4.0}
+    ]
+    list(BatchSimulationRunner(checkpoint_dir=tmp_path).run_cases(first_cases))
+    metadata_before = (tmp_path / "metadata.json").read_bytes()
+    checkpoint_before = (tmp_path / "results.jsonl").read_bytes()
+    changed_cases = [
+        {"case_id": "case-1", "grating": grating, "energy_ev": 200.0, "grazing_angle_deg": 4.0}
+    ]
+
+    with pytest.raises(ValueError, match="checkpoint is incompatible.*ordered cases"):
+        list(BatchSimulationRunner(checkpoint_dir=tmp_path, resume=True).run_cases(changed_cases))
+
+    assert (tmp_path / "metadata.json").read_bytes() == metadata_before
+    assert (tmp_path / "results.jsonl").read_bytes() == checkpoint_before
+
+
+def test_batch_runner_rejects_legacy_checkpoint_without_metadata(tmp_path: Path) -> None:
+    (tmp_path / "results.jsonl").write_text("", encoding="utf-8")
+    cases = [
+        {
+            "case_id": "case-1",
+            "grating": build_test_grating(),
+            "energy_ev": 100.0,
+            "grazing_angle_deg": 4.0,
+        }
+    ]
+
+    with pytest.raises(ValueError, match="legacy checkpoint.*new checkpoint directory"):
+        list(BatchSimulationRunner(checkpoint_dir=tmp_path, resume=True).run_cases(cases))
+
+
+def test_batch_runner_rejects_changed_solver_before_mutating_checkpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        simulation_module,
+        "run_simulation",
+        lambda **kwargs: fake_single_result(
+            energy_ev=float(kwargs["energy_ev"]),
+            grazing_angle_deg=float(kwargs["grazing_angle_deg"]),
+        ),
+    )
+    cases = [
+        {
+            "case_id": "case-1",
+            "grating": build_test_grating(),
+            "energy_ev": 100.0,
+            "grazing_angle_deg": 4.0,
+        }
+    ]
+    list(BatchSimulationRunner(checkpoint_dir=tmp_path, solver="rcwa").run_cases(cases))
+    metadata_before = (tmp_path / "metadata.json").read_bytes()
+    results_before = (tmp_path / "results.jsonl").read_bytes()
+
+    with pytest.raises(ValueError, match="checkpoint is incompatible.*solver or numerical"):
+        list(
+            BatchSimulationRunner(
+                checkpoint_dir=tmp_path, resume=True, solver="neviere"
+            ).run_cases(cases)
+        )
+
+    assert (tmp_path / "metadata.json").read_bytes() == metadata_before
+    assert (tmp_path / "results.jsonl").read_bytes() == results_before
+
+
 def test_batch_runner_progress_updates_on_completion_not_submission(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1283,16 +1378,19 @@ def test_batch_runner_progress_updates_on_completion_not_submission(
         + "\n",
         encoding="utf-8",
     )
+    resume_cases = [
+        {"case_id": "case-1", "grating": build_test_grating(), "energy_ev": 100.0, "grazing_angle_deg": 4.0},
+        {"case_id": "case-2", "grating": build_test_grating(), "energy_ev": 150.0, "grazing_angle_deg": 4.0},
+    ]
+    metadata_runner = BatchSimulationRunner(checkpoint_dir=checkpoint_path)
+    metadata_runner._write_metadata(metadata_runner._checkpoint_input_metadata(resume_cases))
     updates.clear()
     postfix_values.clear()
     totals.clear()
     resumed_runner = BatchSimulationRunner(show_progress=True, checkpoint_dir=checkpoint_path, resume=True)
     resumed_results = list(
         resumed_runner.run_cases(
-            [
-                {"case_id": "case-1", "grating": build_test_grating(), "energy_ev": 100.0, "grazing_angle_deg": 4.0},
-                {"case_id": "case-2", "grating": build_test_grating(), "energy_ev": 150.0, "grazing_angle_deg": 4.0},
-            ]
+            resume_cases
         )
     )
     assert [case.case_id for case in resumed_results] == ["case-2"]
@@ -1360,6 +1458,10 @@ def test_batch_runner_parallel_executes_cases_and_writes_checkpoint(tmp_path: Pa
 
 def test_batch_runner_parallel_resume_skips_completed_cases(tmp_path: Path) -> None:
     grating = build_test_grating()
+    cases = [
+        {"case_id": "case-1", "grating": grating, "energy_ev": 100.0, "grazing_angle_deg": 4.0},
+        {"case_id": "case-2", "grating": grating, "energy_ev": 120.0, "grazing_angle_deg": 4.0},
+    ]
     checkpoint_path = tmp_path / "results.jsonl"
     checkpoint_path.write_text(
         json.dumps(
@@ -1382,17 +1484,14 @@ def test_batch_runner_parallel_resume_skips_completed_cases(tmp_path: Path) -> N
         + "\n",
         encoding="utf-8",
     )
+    metadata_runner = BatchSimulationRunner(fourier_orders=1, checkpoint_dir=tmp_path)
+    metadata_runner._write_metadata(metadata_runner._checkpoint_input_metadata(cases))
     runner = BatchSimulationRunner(
         fourier_orders=1,
         max_workers=2,
         checkpoint_dir=tmp_path,
         resume=True,
     )
-    cases = [
-        {"case_id": "case-1", "grating": grating, "energy_ev": 100.0, "grazing_angle_deg": 4.0},
-        {"case_id": "case-2", "grating": grating, "energy_ev": 120.0, "grazing_angle_deg": 4.0},
-    ]
-
     results = list(runner.run_cases(cases))
 
     assert [case.case_id for case in results] == ["case-2"]

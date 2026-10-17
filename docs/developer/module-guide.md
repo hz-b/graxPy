@@ -4,7 +4,7 @@ This guide summarizes the source layout for contributors.
 
 ## Core package
 
-`grax` is the simulation package documented for users.
+GraxPy is the simulation package documented for users.
 
 - `gratings.py`: grating profiles, grid construction, texture/profile building,
   profile plotting, and structure debug exports

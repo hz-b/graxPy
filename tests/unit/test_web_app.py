@@ -605,6 +605,8 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
     assert b'<option value="sinusoidal" selected' in edit_response.data
     assert b'name="sinusoidal_depth_nm"' in edit_response.data
     assert b'value="30.0"' in edit_response.data
+    return_edit_response = client.get(f"/gratings/{grating_id}/edit?return_to_run=1")
+    assert b'name="return_to_run" value="1"' in return_edit_response.data
 
     invalid_form = {**form, "sinusoidal_depth_nm": "0"}
     invalid_response = client.post(f"/gratings/{grating_id}", data=invalid_form)
@@ -618,6 +620,12 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
     )
     assert update_response.status_code == 200
     assert grating_store.load(grating_id)["depth_nm"] == pytest.approx(18.5)
+    return_update = client.post(
+        f"/gratings/{grating_id}", data={**update_form, "return_to_run": "1"},
+        follow_redirects=False,
+    )
+    assert return_update.status_code == 302
+    assert return_update.headers["Location"].endswith(f"/gratings/{grating_id}?restore_run=1")
 
     captured: dict[str, object] = {}
 
@@ -711,7 +719,6 @@ def test_flask_app_edits_saved_grating(tmp_path: Path) -> None:
         },
     )
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
-
     response = client.post(
         f"/gratings/{grating_id}",
         data={
@@ -851,11 +858,10 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     )
     assert create_response.status_code == 302
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
-
     run_response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
-            "workflow": "fixed_angle",
+            "workflow": "energy_sweep",
             "energy_start_ev": "100",
             "energy_stop_ev": "120",
             "energy_points": "3",
@@ -871,7 +877,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     )
 
     assert run_response.status_code == 200
-    assert b"fixed_angle" in run_response.data
+    assert b"energy_sweep" in run_response.data
     assert (tmp_path / "runs").exists()
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline and not captured_cases:
@@ -890,7 +896,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
             break
         time.sleep(0.02)
     assert manifest["status"] == "completed"
-    assert manifest["display_name"] == "Run grating · fixed_angle"
+    assert manifest["display_name"] == "Run grating · energy_sweep"
     assert manifest["comment"] == "Commissioning sample"
     assert manifest["polarization"] == "p"
     assert manifest["run_input"]["polarization"] == "p"
@@ -1054,14 +1060,22 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert response.status_code == 200
     assert b'data-run-workflow' in response.data
     assert b'data-run-workflow-description' in response.data
-    assert b'Use it to calculate the spectral response' in response.data
+    assert b'Scans energy at a fixed grazing incidence angle' in response.data
     assert b'data-workflow-fields=' in response.data
-    assert b'fixed_angle' in response.data
+    assert b'energy_sweep' in response.data
+    assert b'angle_sweep' in response.data
     assert b'monochromator' in response.data
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
     assert b'name="polarization"' in response.data
+    assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
+    assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
+    assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
+    assert b'name="energy_ev" type="number" step="0.1" value="100"' in response.data
+    assert b'name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"' in response.data
+    assert b'name="grazing_angle_stop_deg" type="number" step="0.01" value="35"' in response.data
+    assert b'name="grazing_angle_points" type="number" step="1" value="101"' in response.data
 
 
 def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
@@ -1175,6 +1189,15 @@ def test_parameter_study_run_uses_selected_polarization(
     )
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
 
+    from bs4 import BeautifulSoup
+
+    detail = BeautifulSoup(client.get(f"/gratings/{grating_id}").data, "html.parser")
+    for field_name in ("diffraction_order", "polarization", "solver", "roughness_kind"):
+        field = detail.select_one(f'[name="{field_name}"]')
+        assert field is not None
+        workflows = field.find_parent("fieldset").get("data-workflow-fields", "").split()
+        assert "parameter_study" in workflows
+
     response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
@@ -1186,6 +1209,7 @@ def test_parameter_study_run_uses_selected_polarization(
             "diffraction_order": "1",
             "fourier_orders": "5",
             "polarization": "p",
+            "solver": "neviere",
             "run_x_resolution_nm": "0.75",
             "run_z_resolution_nm": "0.25",
         },
@@ -1206,15 +1230,18 @@ def test_parameter_study_run_uses_selected_polarization(
         time.sleep(0.02)
 
     assert captured["polarization"] == "p"
+    assert captured["solver"] == "neviere"
     assert manifest["polarization"] == "p"
+    assert manifest["solver"] == "neviere"
     assert manifest["run_input"]["polarization"] == "p"
-    assert manifest["completed_points"] == 3
+    assert manifest["run_input"]["solver"] == "neviere"
+    assert manifest["completed_points"] == 9
     status = client.get(f"/runs/{run_id}/status").get_json()
     assert status["state"] == "completed"
-    assert status["completed_points"] == 3
+    assert status["completed_points"] == 9
     assert status["remaining_points"] == 0
-    assert b"3 / 3" in client.get(f"/runs/{run_id}").data
-    assert b"completed \xc2\xb7 3 / 3 points" in client.get("/runs/manage").data
+    assert b"9 / 9" in client.get(f"/runs/{run_id}").data
+    assert b"completed \xc2\xb7 9 / 9 points" in client.get("/runs/gratings").data
 
 
 def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
@@ -1259,7 +1286,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
             (run_dir / "parameter_study_Fourier_orders_E100.0eV.csv").write_text(
                 "energy,efficiency\n100,0.1\n", encoding="utf-8"
             )
-            kwargs["progress_callback"](1, 3, SimpleNamespace())
+            kwargs["sweep_progress_callback"](1, 9, SimpleNamespace())
         raise RuntimeError("controlled numerical failure")
 
     monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
@@ -1317,16 +1344,16 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
     status = client.get(f"/runs/{run_id}/status").get_json()
     assert status["state"] == "failed"
     assert status["completed_points"] == completed_points
-    assert status["remaining_points"] == 3 - completed_points
+    assert status["remaining_points"] == 9 - completed_points
     assert "controlled numerical failure" in status["error_text"]
     detail = client.get(f"/runs/{run_id}").data
-    assert f"{completed_points} / 3".encode() in detail
+    assert f"{completed_points} / 9".encode() in detail
     assert b"error.txt" in detail
     if completed_points:
         assert b"parameter_study.png" in detail
         assert b"parameter_study_Fourier_orders_E100.0eV.csv" in detail
-    manage = client.get("/runs/manage").data
-    assert f"failed · {completed_points} / 3 points".encode() in manage
+    manage = client.get("/runs/gratings").data
+    assert f"failed · {completed_points} / 9 points".encode() in manage
 
 
 def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path) -> None:
@@ -1345,7 +1372,7 @@ def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path)
 
     assert legacy["completed_points"] == 2
     assert checkpoint["completed_points"] == 2
-    manage = client.get("/runs/manage").data
+    manage = client.get("/runs/gratings").data
     assert b"ok \xc2\xb7 2 / 3 points" in manage
     assert b"aborted \xc2\xb7 2 / 4 points" in manage
 
@@ -1394,16 +1421,16 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     assert len(payload["series_controls"]) == 3
     assert payload["series_controls"][0]["marker_size"] == 3
     assert payload["series_controls"][0]["label"].endswith("· order: 0")
-    assert "name: Demo grating" in payload["series_controls"][0]["label"]
-    assert "grating type: laminar" in payload["series_controls"][0]["label"]
-    assert "sweep type: fixed_angle" in payload["series_controls"][0]["label"]
-    assert "grating: Demo grating" not in payload["series_controls"][0]["label"]
+    assert payload["series_controls"][0]["label"] == "Alpha run · order: 0"
+    assert payload["series_controls"][1]["color"] != payload["series_controls"][0]["color"]
+    assert payload["series_controls"][1]["line_style"] != payload["series_controls"][0]["line_style"]
     figure = json.loads(payload["figure_json"])
     assert len(figure["data"]) == 3
     assert figure["layout"]["xaxis"]["type"] == "linear"
     assert figure["layout"]["yaxis"]["type"] == "linear"
     assert figure["data"][0]["marker"]["size"] == 3
     assert figure["data"][0]["name"] == payload["series_controls"][0]["label"]
+    assert figure["layout"]["legend"]["y"] < 0
     assert payload["series_controls"][0]["legend_label"] == ""
 
     invalid_response = client.post("/_preview/plot", data={"title": "Empty"})
@@ -1411,6 +1438,28 @@ def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
     invalid_payload = invalid_response.get_json()
     assert invalid_payload["ok"] is False
     assert invalid_payload["error"]
+
+
+def test_manage_runs_shows_saved_parameters_and_handles_older_manifests(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-new", display_name="New run")
+    _write_run_fixture(tmp_path, run_id="run-old", display_name="Older run")
+    path = tmp_path / "runs" / "run-new" / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["workflow"] = "monochromator"
+    manifest["run_input"] = {"cff": "2.25", "fourier_orders": "12", "solver": "neviere", "polarization": "p"}
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/gratings")
+    assert response.status_code == 200
+    assert b"Simulation parameters" in response.data
+    assert b"CFF" in response.data
+    assert b"2.25" in response.data
+    assert b"Fourier orders" in response.data
+    assert b"neviere" in response.data
+    assert b"Detailed parameters are unavailable" not in response.data
 
 
 def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None:
@@ -1432,6 +1481,7 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
             "marker_symbol_run_1__order_0": "diamond",
             "marker_size_run_1__order_0": "13",
             "legend_label_run_1__order_0": "Diamond reference",
+            "line_style_run_1__order_0": "dashdot",
         },
     )
     preview_payload = preview_response.get_json()
@@ -1440,10 +1490,20 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
     assert figure["layout"]["xaxis"]["type"] == "log"
     assert figure["layout"]["yaxis"]["type"] == "log"
     assert figure["data"][0]["line"]["color"] == "#123abc"
+    assert figure["data"][0]["line"]["dash"] == "dashdot"
     assert figure["data"][0]["marker"]["symbol"] == "diamond"
     assert figure["data"][0]["marker"]["size"] == 13
     assert figure["data"][0]["name"] == "Diamond reference"
     assert preview_payload["series_controls"][0]["legend_label"] == "Diamond reference"
+
+
+def test_older_saved_series_style_defaults_to_solid() -> None:
+    controls = web_app_module._series_controls_for_selected_series(
+        selected_series=[{"series_key": "old::order::1", "series_token": "old__order_1",
+                          "run_id": "old", "order": 1, "label": "Old run"}],
+        saved_styles={"old::order::1": {"color": "#123abc"}},
+    )
+    assert controls[0]["line_style"] == "solid"
 
 
 def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) -> None:
@@ -1468,6 +1528,7 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
             "marker_symbol_run_1__order_0": "square",
             "marker_size_run_1__order_0": "11",
             "legend_label_run_1__order_0": "Reference scan",
+            "line_style_run_1__order_0": "dash",
         },
         follow_redirects=False,
     )
@@ -1480,6 +1541,10 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["color"] == "#ff0000"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_symbol"] == "square"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_size"] == 11
+    assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["line_style"] == "dash"
+    assert (tmp_path / "plots" / plot_id / "Saved_interactive_plot.png").is_file()
+    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot.png").is_file()
+    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot.png").is_file()
     assert (
         manifest["plot_config"]["series_styles"]["run-1::order::0"]["legend_label"]
         == "Reference scan"
@@ -1493,6 +1558,12 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert b"square" in detail_response.data
     assert b"#ff0000" in detail_response.data
     assert b"Reference scan" in detail_response.data
+    assert b"Download plot PNG" in detail_response.data
+
+    repeat = client.post("/plots", data={"title": "Saved interactive plot", "run_ids": ["run-1", "run-2"], "orders_run-1": ["0"], "orders_run-2": ["2"]})
+    assert repeat.status_code == 302
+    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot_2.png").is_file()
+    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot_2.png").is_file()
 
 
 def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:
@@ -1554,7 +1625,7 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     app = create_app(data_dir=tmp_path)
     client = app.test_client()
 
-    page = client.get("/runs/manage")
+    page = client.get("/runs/gratings")
     assert page.status_code == 200
     assert b"data-confirm=\"Delete the selected runs?" in page.data
     assert b'name="comment_run-1"' in page.data
@@ -1589,6 +1660,38 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     assert not (tmp_path / "runs" / "run-2").exists()
 
 
+def test_run_management_is_grouped_in_navigation_and_legacy_url_redirects(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="grating-run", display_name="Grating run")
+    _write_run_fixture(tmp_path, run_id="unclassified-run", display_name="Unclassified run")
+    unclassified_manifest = tmp_path / "runs" / "unclassified-run" / "manifest.json"
+    manifest = json.loads(unclassified_manifest.read_text(encoding="utf-8"))
+    for key in ("grating_id", "grating_spec", "grating_name"):
+        manifest.pop(key, None)
+    unclassified_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+    client = create_app(data_dir=tmp_path).test_client()
+    home = client.get("/")
+    page = home.data.decode("utf-8")
+    assert page.index("Manage gratings") < page.index("Manage grating runs")
+    assert page.index("Manage plane mirrors") < page.index("Manage plane-mirror runs")
+    assert page.index("Manage multilayer mirrors") < page.index("Manage multilayer runs")
+    assert "Manage runs</a>" not in page
+
+    legacy = client.get("/runs/manage")
+    assert legacy.status_code == 302
+    assert legacy.headers["Location"].endswith("/runs/gratings")
+
+    grating_runs = client.get("/runs/gratings")
+    assert grating_runs.status_code == 200
+    assert b"Manage grating runs" in grating_runs.data
+    assert b"Grating run" in grating_runs.data
+    assert b"Unclassified run" not in grating_runs.data
+    assert client.get("/plane-mirrors").status_code == 200
+    assert client.get("/multilayer-design").status_code == 200
+
+
 def test_manage_runs_shows_available_run_plots_on_the_right(tmp_path: Path) -> None:
     from grax.web.app import create_app
 
@@ -1603,7 +1706,7 @@ def test_manage_runs_shows_available_run_plots_on_the_right(tmp_path: Path) -> N
     (tmp_path / "runs" / "partial" / "live_progress.png").write_bytes(b"plot")
 
     client = create_app(data_dir=tmp_path).test_client()
-    page = client.get("/runs/manage")
+    page = client.get("/runs/gratings")
 
     assert page.status_code == 200
     assert b'class="run-manage-preview"' in page.data
@@ -1951,11 +2054,11 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
-            "workflow": "fixed_angle",
-            "energy_start_ev": "100",
-            "energy_stop_ev": "140",
-            "energy_points": "4",
-            "grazing_angle_deg": "1.5",
+            "workflow": "angle_sweep",
+            "energy_ev": "100",
+            "grazing_angle_start_deg": "1",
+            "grazing_angle_stop_deg": "2",
+            "grazing_angle_points": "4",
             "diffraction_order": "1",
             "fourier_orders": "5",
             "max_workers_mode": "manual",
@@ -1978,18 +2081,24 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     assert live_payload["requested_workers"] == 2
     assert live_payload["total_points"] == 4
     assert live_payload["remaining_points"] <= 4
+    assert b"data-run-reload-on-finish" in client.get(location).data
 
     deadline = time.monotonic() + 15.0
     final_payload = live_payload
     while time.monotonic() < deadline:
         final_payload = client.get(f"/runs/{run_id}/status").get_json()
-        if final_payload["state"] == "completed":
+        if final_payload["state"] == "completed" and final_payload["elapsed_seconds"] is not None:
             break
         time.sleep(0.05)
     assert final_payload["state"] == "completed"
     assert final_payload["completed_points"] == 4
     assert final_payload["remaining_points"] == 0
-    assert final_payload["plot_url"]
+    assert "/selected_efficiency.png?v=" in final_payload["plot_url"]
+    assert final_payload["elapsed_seconds"] is not None
+    assert b"data-run-reload-on-finish" not in client.get(location).data
+    detail = client.get(location).get_data(as_text=True)
+    assert "1 angle scan" in detail
+    assert "scans/scan-000000/efficiency.png" in detail
 
 
 def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
@@ -2003,6 +2112,7 @@ def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert b'data-live-run-monitor' in response.data
+    assert b'data-run-reload-on-finish' not in response.data
     assert b'data-run-status-url="/runs/run-1/status"' in response.data
     assert b'data-memory-url="/system/memory"' in response.data
 
@@ -2317,7 +2427,9 @@ def test_abort_route_marks_run_aborted(
     manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
     assert final_payload["state"] == "aborted"
     assert final_payload["can_abort"] is False
+    assert final_payload["elapsed_seconds"] is not None
     assert manifest["status"] == "aborted"
+    assert manifest["elapsed_seconds"] >= 0.0
     assert (tmp_path / "runs" / run_id).exists()
 
 
@@ -2349,7 +2461,7 @@ def test_manage_runs_page_no_longer_shows_resume_buttons(tmp_path: Path) -> None
 
     _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="aborted")
 
-    response = create_app(data_dir=tmp_path).test_client().get("/runs/manage")
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/gratings")
 
     assert response.status_code == 200
     assert b"Resume" not in response.data
@@ -2628,7 +2740,7 @@ def test_flask_app_plots_selected_orders_across_runs(
         client.post(
             f"/gratings/{grating_id}/runs",
             data={
-                "workflow": "fixed_angle",
+                "workflow": "energy_sweep",
                 "energy_start_ev": energy_start,
                 "energy_stop_ev": str(float(energy_start) + 20.0),
                 "energy_points": "3",

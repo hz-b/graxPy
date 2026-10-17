@@ -3,7 +3,7 @@
 This comparison uses the blazed multilayer workflow from `validation/blazed_multilayer`.
 
 All simulation curves use the same optical constants. The comparison plot includes
-the external DiffraMod reference together with two grax workflows applied to
+the external DiffraMod reference together with two GraxPy workflows applied to
 the same second diffraction order.
 
 ## Grating design parameters
@@ -40,18 +40,18 @@ The three curves in the comparison figure are obtained as follows:
 
 - `DiffraMod`: reference efficiencies from
   `validation/blazed_multilayer/simulation/DiffractMod_CrC_d4.8_N60.dat`
-- `grax energy-angle`: the grax sweep in
+- `grax energy-angle`: the GraxPy sweep in
   `validation/blazed_multilayer/run_rcwa.py`, where
-  each grax simulation uses the energy and grazing angle pair taken directly
+  each GraxPy simulation uses the energy and grazing angle pair taken directly
   from the DiffraMod table
 - `grax theta-search`: the adaptive multilayer theta-search workflow, where
-  grax determines the grazing angle internally at each energy by running a
+  GraxPy determines the grazing angle internally at each energy by running a
   rough scan, a precise scan, and a final solve at the selected peak
 
 This means the simulations in the `simulation/` folder that follow the DiffraMod
 angles are not performing an internal angle search; they reuse the grazing angles
 already present in the DiffraMod dataset. The theta-search curve is the one that
-solves for the angle inside grax itself.
+solves for the angle inside GraxPy itself.
 
 ```{image} images/comparison_blazed_multilayer_sweep.png
 :alt: Blazed multilayer comparison
@@ -70,7 +70,7 @@ between `550 eV` and `600 eV`, with the vertical axis limited to `0.4`.
 
 To make the angle-selection differences explicit, the figure below compares the
 grazing angle used by `DiffractMod` (`alpha` in the source table) with the
-angle selected by `grax` theta-search at each energy.
+angle selected by the GraxPy theta-search at each energy.
 
 ```{image} images/comparison_blazed_multilayer_grating_angle.png
 :alt: Blazed multilayer comparison of grazing angle versus energy
@@ -78,10 +78,10 @@ angle selected by `grax` theta-search at each energy.
 :width: 85%
 ```
 
-The lower second-order intensity seen in the `grax` theta-search curve is due
+The lower second-order intensity seen in the GraxPy theta-search curve is due
 to numerical resolution settings (Fourier-order truncation and `x`/`z`
 discretization), not to a different grazing-angle choice. The compared runs use
-the same grazing angles. When the DiffraMod angles are reused in `grax` and the
+the same grazing angles. When the DiffraMod angles are reused in GraxPy and the
 simulation is run with higher fine/final Fourier order and finer fine/final
 `x`/`z` resolution,
-`grax` reproduces the same results.
+GraxPy reproduces the same results.

@@ -90,6 +90,7 @@ def test_integer_range_is_rounded_deduplicated_and_ordered() -> None:
         "minimum": 5.0,
         "maximum": 10.0,
         "count": 31,
+        "step_size": 1 / 6,
     }
     assert [case["fourier_orders"] for case in cases] == [5, 6, 7, 8, 9, 10]
     assert cases[0]["custom_resolved_parameters"]["fourier_orders"] == 5

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.5
+
+- Reworked the web interface with HZB blue and BESSY II lime, added bundled Source Sans Pro, and moved the supplied logo into the web app's static assets.
+- Added the GraxPy mark to the left of the HZB mark across the site, with an enlarged logo lockup on the landing page.
+- Reworked the landing page as a home page with database controls, a GraxPy overview, collaboration and documentation links, and scrollable newest-first grating and run lists.
+- Reorganized the header into hover-, focus-, and click-accessible menus for gratings, plane mirrors, multilayer designs, and plots.
+- Added Manage runs before Plots and made navigation menus exclusive, closing them when the pointer leaves.
+- Updated the home page to use the supplied complete GraxPy/HZB logo, with About before database selection and recent lists.
+- Applied the brand palette to new automatic plot colors and geometry diagrams; existing saved plot styles are unchanged.
+- Improved typography and spacing across the site, and added a database-folder browser that can create named folders.
+- Split run management by simulation type. Grating runs can be renamed, compared, duplicated, or deleted; plane-mirror and multilayer studies have their own management pages.
+- Added run comparison plots and a parameter table that highlights differences, plus material-stack diagrams beside saved grating-run plots.
+- Made multilayer survey plots appear while a study is running, so its live results are visible from the start.
+- Split the former Fixed angle workflow into Energy sweep, which holds grazing angle fixed while scanning energy, and Angle sweep, which scans grazing angle at one selected energy.
+- Group each Angle sweep's sampled angles into one curve per parameter combination, with angle-based plots and wide-table exports.
+- Restored live run plots for grouped Energy, Angle, and Monochromator sweeps; each parameter combination has its own curve, and missing saved plot images can be rebuilt from results.
+- Added optional independent and coupled parameter variations to Energy sweep, Angle sweep, and Monochromator. Each combination produces the complete mode-specific scan within one grouped run, with per-scan metadata, progress, and checkpoint resume.
+- Added parameter-slice energy comparisons and CSV/DAT table exports with one energy column and one efficiency column per scan. Saved comparison plots now distinguish scans within grouped runs.
+- Linked point count and step-size controls throughout bounded web scan ranges. Editing either updates the other while fitting both endpoints; coupled ranges retain the source row count.
+- Set Energy sweep defaults to 200–2200 eV in 101 points, Angle sweep defaults to 0.1–35° at 100 eV in 101 points, and run numerical defaults to 15 Fourier orders with 0.5 nm X/Z resolution.
+- Fixed help tooltips appearing over adjacent inputs and preserved keyboard access to the help controls.
+- Preserved unsaved run settings, custom-grid defaults, and parameter axes when returning from the grating roughness editor.
+- Added expandable saved simulation parameters to Manage runs, including CFF and workflow-specific settings.
+- Improved comparison plots with distinct automatic colors and line styles, editable per-series line styles, shorter legends below the plot, and stable cursor focus while editing legend names.
+- Added Custom grid variable loops to saved comparison plots, so each chosen parameter value produces its own energy curve; fixed missing curves and made custom legends visible even for one curve.
+- Added a separate save-as name for plots and their PNG files. Plot titles can be edited without losing focus during preview updates.
+- Named camera downloads after the plot title and saved comparison PNGs beside each selected run's manifest, using numbered filenames to preserve previous views.
+- Made parameter-study runs retain the selected diffraction order, polarization, solver, and roughness model instead of silently falling back to defaults.
+- Made Debye-Waller roughness consistently apply the grating-level sigma to every unresolved interface. Coated-stack efficiencies may change because all resolved interface losses are now combined in quadrature.
+- Reject incompatible checkpoint resumes before changing metadata or reusing results, and refresh completed web runs into their final result view.
+
 ## 0.5.4 - 2026-10-14
 
 - Redesigned the Custom grid workflow around editable independent parameters and guided coupled parameters. A coupled parameter can be entered row by row against an existing independent parameter or generated from a matching linear range, with a read-only paired-value table.

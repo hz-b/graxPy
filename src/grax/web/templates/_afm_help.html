@@ -13,5 +13,5 @@
   'ramp': 'Apply a linear height correction so the start and end of the extracted period meet at the same height.',
   'process': 'Extract and scale the selected AFM profile using the settings above. The result can then be saved as a grating.'
 } %}
-<button type="button" class="roughness-help" aria-label="Help: {{ label }}" aria-describedby="afm-help-{{ key }}">?</button><span class="roughness-tip" role="tooltip" id="afm-help-{{ key }}">{{ explanations[key] }}</span>
+<span class="roughness-help-wrap"><span tabindex="0" role="button" class="roughness-help" aria-label="Help: {{ label }}" aria-describedby="afm-help-{{ key }}">?</span><span class="roughness-tip" role="tooltip" id="afm-help-{{ key }}">{{ explanations[key] }}</span></span>
 {%- endmacro %}

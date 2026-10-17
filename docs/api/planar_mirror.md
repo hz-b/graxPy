@@ -1,7 +1,7 @@
 # Planar mirrors (`grax.planar_mirror`)
 
 Fast specular reflectivity of flat mirrors and multilayers using the Parratt
-recursion. It accepts any `grax` stack (`SingleLayerStack`, `MultilayerStack`,
+recursion. It accepts any GraxPy stack (`SingleLayerStack`, `MultilayerStack`,
 `CustomStack`), honours per-layer and substrate roughness (Névot–Croce), and
 supports `s`, `p` and averaged polarization.
 

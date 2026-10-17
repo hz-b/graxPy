@@ -1,6 +1,6 @@
 # Nevière differential method
 
-The differential method is one of `grax`'s two selectable electromagnetic solver
+The differential method is one of GraxPy's two selectable electromagnetic solver
 paths, selected with `solver="neviere"`. It solves the same physical problem as the RCWA solver in
 [RCWA theory](rcwa-theory.md) and shares most of its machinery; this page
 describes only what differs and why the two agree.

@@ -1,47 +1,48 @@
 {% extends "base.html" %}
-{% block title %}Manage runs{% endblock %}
+{% block title %}Manage grating runs{% endblock %}
 {% block body %}
-<section class="section-head">
-  <div>
-    <h1>Manage saved runs</h1>
-    <p>Rename runs, edit comments inline, or bulk delete selected runs.</p>
-  </div>
-</section>
+{% if message %}
+  <section class="notice{% if message_kind == 'error' %} notice-error{% endif %}" role="status"><p>{{ message }}</p></section>
+{% endif %}
 
 {% if runs %}
   <form class="form" method="post" action="{{ url_for('update_runs') }}">
-    <div class="manage-actions">
-      <button class="button primary" type="submit" name="action" value="save">Save changes</button>
-      <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">
-        Delete selected
-      </button>
+    <div class="run-manage-sticky">
+      <section class="section-head">
+        <div>
+          <h1>Manage grating runs</h1>
+          <p>Rename runs, edit comments inline, or bulk delete selected runs.</p>
+        </div>
+      </section>
+      <div class="manage-actions">
+        <button class="button primary" type="submit" name="action" value="save">Save changes</button>
+        <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">
+          Delete selected
+        </button>
+        <button class="button" type="submit" name="action" value="compare">
+          Compare two selected
+        </button>
+      </div>
     </div>
 
-    <div class="list">
+    <div class="list run-manage-list">
       {% for run in runs %}
-        <div class="row run-manage-row">
+        <article class="row run-manage-row run-manage-card">
           <div class="run-manage-main">
-            <label>
-              Run name
-              <input
-                name="display_name_{{ run.id }}"
-                type="text"
-                value="{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}"
-              >
+            <label class="inline-check manage-delete">
+              <input type="checkbox" name="selected_run_id" value="{{ run.id }}">
+              <span>Select run</span>
             </label>
-            <label>
-              Comment
-              <input
-                name="comment_{{ run.id }}"
-                type="text"
-                value="{{ run.comment | default('', true) }}"
-                placeholder="Optional note for this run"
-              >
-            </label>
-            <p class="subtle">{{ run.workflow }} · {{ run.status }} · {{ run.progress_summary }}</p>
-            <p class="subtle">{{ run.parameter_summary }}</p>
-            <p><a href="{{ run.detail_url }}">View run details</a></p>
-            <p>
+            <div class="run-manage-heading">
+              <h2><a href="{{ run.detail_url }}">{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}</a></h2>
+              <div class="run-manage-status">
+                <span class="status-pill is-{{ run.status }}">{{ run.status }}</span>
+                <span class="subtle">{{ run.progress_summary }}</span>
+              </div>
+            </div>
+            <p class="run-manage-summary">{{ run.grating_name }} · {{ run.workflow }}{% if run.parameter_summary != 'Parameters unavailable' %} · {{ run.parameter_summary }}{% endif %}</p>
+            <div class="run-manage-actions">
+              <a class="button" href="{{ run.detail_url }}">View details</a>
               <button
                 class="button"
                 type="button"
@@ -49,42 +50,83 @@
                 data-run-export-url="{{ url_for('export_selected_run_data', run_id=run.id) }}"
                 data-run-export-name="{{ run.id }}_export.zip"
               >Download data…</button>
-            </p>
+            </div>
+            <details class="run-edit-details">
+              <summary>Edit run name or comment</summary>
+              <div class="run-manage-fields">
+                <label>
+                  Run name
+                  <input
+                    name="display_name_{{ run.id }}"
+                    type="text"
+                    value="{{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}"
+                  >
+                </label>
+                <label>
+                  Comment
+                  <input
+                    name="comment_{{ run.id }}"
+                    type="text"
+                    value="{{ run.comment | default('', true) }}"
+                    placeholder="Optional note"
+                  >
+                </label>
+              </div>
+            </details>
+            <details class="run-parameters"><summary>Simulation parameters</summary>
+              {% if run.parameter_details %}<dl>{% for label, value in run.parameter_details %}<dt>{{ label }}</dt><dd><code>{{ value }}</code></dd>{% endfor %}</dl>{% else %}<p class="subtle">Detailed parameters are unavailable for this run.</p>{% endif %}
+            </details>
+            {% include '_scan_rows.html' %}
             {% if run.artifact_links %}
-              <p class="subtle">Artifacts:</p>
-              <ul class="compact-list">
-                {% for artifact in run.artifact_links %}
-                  <li><a href="{{ artifact.url }}">{{ artifact.name }}</a></li>
-                {% endfor %}
-              </ul>
+              <details class="run-attachments">
+                <summary>Files ({{ run.artifact_links|length }})</summary>
+                <ul class="compact-list">
+                  {% for artifact in run.artifact_links %}<li><a href="{{ artifact.url }}">{{ artifact.name }}</a></li>{% endfor %}
+                </ul>
+              </details>
             {% endif %}
             {% if run.related_plots %}
-              <p class="subtle">Related plots:</p>
-              <ul class="compact-list">
-                {% for plot in run.related_plots %}
-                  <li><a href="{{ plot.url }}">{{ plot.title }}</a></li>
-                {% endfor %}
-              </ul>
+              <details class="run-attachments">
+                <summary>Related plots ({{ run.related_plots|length }})</summary>
+                <ul class="compact-list">
+                  {% for plot in run.related_plots %}<li><a href="{{ plot.url }}">{{ plot.title }}</a></li>{% endfor %}
+                </ul>
+              </details>
             {% endif %}
           </div>
           <div class="run-manage-preview">
-            {% if run.plot_preview_url %}
-              <a href="{{ run.plot_preview_url }}" target="_blank" rel="noopener" aria-label="Open plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}">
-                <img src="{{ run.plot_preview_url }}" alt="Simulation plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}" loading="lazy">
-              </a>
-            {% else %}
-              <span class="subtle">No plot available</span>
+            <section class="run-preview-panel">
+              <h3>Results plot</h3>
+              {% if run.plot_preview_url %}
+                <a href="{{ run.plot_preview_url }}" target="_blank" rel="noopener" aria-label="Open plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}">
+                  <img src="{{ run.plot_preview_url }}" alt="Simulation plot for {{ run.display_name | default(run.grating_name ~ ' · ' ~ run.workflow, true) }}" loading="lazy">
+                </a>
+              {% else %}
+                <span class="subtle">No plot available</span>
+              {% endif %}
+            </section>
+            {% if run.grating_spec %}
+              <section class="run-preview-panel run-geometry-panel">
+                <h3>Material stack</h3>
+                {% if run.material_stack_preview_url %}
+                  <img src="{{ run.material_stack_preview_url }}" alt="Colored grating material stack over three periods" loading="lazy">
+                {% else %}
+                  <span class="subtle">Material stack preview unavailable</span>
+                {% endif %}
+              </section>
             {% endif %}
           </div>
-          <label class="inline-check manage-delete">
-            <input type="checkbox" name="delete_run_id" value="{{ run.id }}">
-            <span>Delete</span>
-          </label>
-        </div>
+        </article>
       {% endfor %}
     </div>
   </form>
 {% else %}
+  <section class="section-head">
+    <div>
+      <h1>Manage grating runs</h1>
+      <p>Rename runs, edit comments inline, or bulk delete selected runs.</p>
+    </div>
+  </section>
   <p class="empty">No runs have been saved yet.</p>
 {% endif %}
 {% include "_run_export_dialog.html" %}

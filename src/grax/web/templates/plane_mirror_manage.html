@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Plane mirrors{% endblock %}
+{% block title %}Manage plane-mirror runs{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>Plane mirrors</h1>
-    <p>Saved plane mirrors with their attached scans. Open one to view, edit or add scans; select several to delete them.</p>
+  <h1>Manage plane-mirror runs</h1>
+    <p>Open a saved mirror or scan, or select mirrors to delete with their saved scans.</p>
   </div>
   <div class="actions">
     <a class="button primary" href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
@@ -22,26 +22,34 @@
         Delete selected
       </button>
     </div>
-    <div class="list">
+    <div class="list manage-record-list">
       {% for mirror in mirrors %}
-        <div class="row run-manage-row">
-          <div class="run-manage-main">
-            <a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}"><strong>{{ mirror.name }}</strong></a>
-            {% if mirror.label %}<p>{{ mirror.label }}</p>{% endif %}
-            <p class="subtle">{{ mirror.summary }} · {{ mirror.id }}</p>
+        <article class="manage-record-card plane-mirror-record">
+          <div class="manage-record-content">
+            <div class="manage-record-heading">
+              <div>
+                <h2><a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">{{ mirror.name }}</a></h2>
+                {% if mirror.label %}<p class="subtle">{{ mirror.label }}</p>{% endif %}
+              </div>
+              <label class="inline-check manage-record-delete">
+                <input type="checkbox" name="delete_mirror_id" value="{{ mirror.id }}">
+                <span>Delete</span>
+              </label>
+            </div>
+            <p class="manage-record-summary">{{ mirror.summary }}</p>
             {% if mirror.scans %}
-              <p class="subtle">
+              <div class="manage-scan-list" aria-label="Saved scans">
                 {% for scan in mirror.scans %}
-                  <a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">{{ scan.name }}</a>{% if scan.label %} ({{ scan.label }}){% endif %}{% if not loop.last %} · {% endif %}
+                  <a class="manage-scan-link" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">
+                    <strong>{{ scan.name }}</strong>{% if scan.label %}<span>{{ scan.label }}</span>{% endif %}
+                  </a>
                 {% endfor %}
-              </p>
+              </div>
+            {% else %}
+              <p class="subtle">No scans saved for this mirror.</p>
             {% endif %}
           </div>
-          <label class="inline-check manage-delete">
-            <input type="checkbox" name="delete_mirror_id" value="{{ mirror.id }}">
-            <span>Delete</span>
-          </label>
-        </div>
+        </article>
       {% endfor %}
     </div>
   </form>

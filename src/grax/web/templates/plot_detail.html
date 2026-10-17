@@ -3,11 +3,18 @@
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>{{ plot.title }}</h1>
+    <h1>{{ plot.name or plot.title }}</h1>
     <p>{{ plot.created_at }}</p>
   </div>
   <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
 </section>
+
+{% if plot.plot_path %}
+<section class="notice">
+  <a href="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}" download>Download plot PNG</a>
+  {% if plot.run_images %}<p class="subtle">A copy is also saved beside each selected run's manifest.json.</p>{% endif %}
+</section>
+{% endif %}
 
 <section class="notice">
   {% if plot.figure_json %}

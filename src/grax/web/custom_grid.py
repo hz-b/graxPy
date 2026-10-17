@@ -184,7 +184,7 @@ def default_configuration(base_spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def normalize_configuration(config: dict[str, Any], base_spec: dict[str, Any]) -> dict[str, Any]:
+def normalize_configuration(config: dict[str, Any], base_spec: dict[str, Any], *, extra_descriptors: Iterable[ParameterDescriptor] = ()) -> dict[str, Any]:
     """Validate and normalize a submitted custom-grid configuration."""
 
     if int(config.get("schema_version", SCHEMA_VERSION)) != SCHEMA_VERSION:
@@ -214,6 +214,7 @@ def normalize_configuration(config: dict[str, Any], base_spec: dict[str, Any]) -
         variant_ids.add(variant_id)
 
     catalog = {item.id: item for item in common_parameter_catalog(v["spec"] for v in variants)}
+    catalog.update({item.id: item for item in extra_descriptors})
     variant_descriptor = ParameterDescriptor(
         id="variant",
         label="Structural grating variant",
@@ -244,6 +245,7 @@ def normalize_configuration(config: dict[str, Any], base_spec: dict[str, Any]) -
                     "minimum": float(raw_axis["minimum"]),
                     "maximum": float(raw_axis["maximum"]),
                     "count": int(raw_axis["count"]),
+                    "step_size": (abs(float(raw_axis["maximum"]) - float(raw_axis["minimum"])) / (int(raw_axis["count"]) - 1)) if int(raw_axis["count"]) > 1 else 0.0,
                 }
             )
         independent.append(normalized_axis)
@@ -297,15 +299,18 @@ def expand_custom_grid(
     base_spec: dict[str, Any],
     *,
     defaults: dict[str, Any] | None = None,
+    extra_descriptors: Iterable[ParameterDescriptor] = (),
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Normalize a configuration and expand it into deterministic batch cases."""
 
-    normalized = normalize_configuration(config, base_spec)
+    extra_descriptors = tuple(extra_descriptors)
+    normalized = normalize_configuration(config, base_spec, extra_descriptors=extra_descriptors)
     variants = {variant["id"]: variant for variant in normalized["variants"]}
     catalog = {
         item.id: item
         for item in common_parameter_catalog(variant["spec"] for variant in normalized["variants"])
     }
+    catalog.update({item.id: item for item in extra_descriptors})
     catalog["variant"] = ParameterDescriptor(
         id="variant",
         label="Structural grating variant",
@@ -419,6 +424,7 @@ def expand_custom_grid(
                 "case_id": f"custom-grid-{index:08d}",
                 "label": f"Custom case {index + 1}",
                 "grating": grating,
+                "custom_grating_spec": deepcopy(spec),
                 "energy_ev": energy,
                 "grazing_angle_deg": angle,
                 "diffraction_order": int(resolved["diffraction_order"]),

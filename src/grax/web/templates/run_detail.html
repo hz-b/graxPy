@@ -7,7 +7,7 @@
     <p>{{ run.grating_name }} · {{ run.created_at }}</p>
   </div>
   <div class="actions">
-    <a class="button" href="{{ url_for('manage_runs') }}">Manage runs</a>
+    <a class="button" href="{{ url_for('manage_grating_runs') }}">Manage grating runs</a>
     <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
     <a
       class="button"
@@ -48,9 +48,16 @@
 </section>
 {% include "_run_export_dialog.html" %}
 
+{% if run.parameter_sweep %}
+{% if initial_status.state in ['aborted', 'error', 'failed'] %}
+<form method="post" action="{{ url_for('resume_parameter_run', run_id=run.id) }}"><button class="button primary" type="submit">Resume unfinished {{ 'angle' if run.parameter_sweep.sample_axis else 'energy' }} scans</button></form>
+{% endif %}
+{% endif %}
+
 <section
   class="run-monitor"
   data-live-run-monitor
+  {% if initial_status.state in ['queued', 'running', 'aborting'] %}data-run-reload-on-finish{% endif %}
   data-run-status-url="{{ status_url }}"
   data-memory-url="{{ memory_url }}"
 >
@@ -85,21 +92,9 @@
   </section>
 </section>
 
-{% set final_plot = 'parameter_study.png' if 'parameter_study.png' in run.artifacts else ('selected_efficiency.png' if 'selected_efficiency.png' in run.artifacts else ('live_progress.png' if 'live_progress.png' in run.artifacts else None)) %}
-{% if final_plot %}
-<section class="preview-panel">
-  <h2>{{ 'Parameter-study visualization' if run.workflow == 'parameter_study' else 'Run visualization' }}</h2>
-  {% if run.workflow == 'parameter_study' %}
-    <p class="subtle">Numerical-stability check: selected-order efficiency while varying Fourier orders, X resolution, and Z resolution.</p>
-  {% else %}
-    <p class="subtle">Selected-order efficiency for this run.</p>
-  {% endif %}
-  <img
-    class="preview"
-    src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/' ~ final_plot) }}"
-    alt="{{ 'Parameter-study numerical-stability plot' if run.workflow == 'parameter_study' else 'Run efficiency plot' }}"
-  >
-</section>
+{% if run.parameter_sweep %}
+{% set hide_scan_plots = not run.parameter_sweep.sample_axis %}
+{% include '_scan_rows.html' %}
 {% endif %}
 
 {% if related_plots %}
@@ -125,8 +120,9 @@
 {% endif %}
 
 {% if run.cases %}
-<section>
+<section class="run-case-results">
   <h2>Cases</h2>
+  <div class="run-case-results-scroll">
   <table>
     <thead><tr><th>Energy eV</th><th>Grazing deg</th><th>Efficiency</th><th>Status</th></tr></thead>
     <tbody>
@@ -140,6 +136,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 {% endif %}
 {% endblock %}

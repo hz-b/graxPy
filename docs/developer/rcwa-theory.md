@@ -2,7 +2,7 @@
 
 Rigorous coupled-wave analysis models diffraction from periodic structures by
 expanding the electromagnetic fields and material permittivity in Fourier
-orders. In `grax`, modal RCWA is one of two selectable electromagnetic solver
+orders. In GraxPy, modal RCWA is one of two selectable electromagnetic solver
 paths; it is a one-dimensional implementation for periodic grating profiles
 used in X-ray optics and is inspired by RETICOLO.
 
@@ -50,7 +50,7 @@ for convenience while preserving all-order arrays for export and diagnostics.
 
 ## Order sign convention
 
-`grax` reports diffraction orders with the usual grating-equation sign,
+GraxPy reports diffraction orders with the usual grating-equation sign,
 `m * lambda = d * (sin(alpha) + sin(beta))`, with the specular beam at `m = 0`.
 For reflection at grazing incidence this means:
 

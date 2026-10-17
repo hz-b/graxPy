@@ -1,0 +1,13 @@
+{% if run.scan_rows %}
+<details class="scan-list scan-list-scroll">
+  <summary>{{ run.scan_rows|length }} {{ 'angle' if run.parameter_sweep.sample_axis else 'energy' }} scan{{ '' if run.scan_rows|length == 1 else 's' }}</summary>
+  {% for scan in run.scan_rows %}
+  <details class="scan-item">
+    <summary>{{ scan.id }} — {{ scan.label }} · {{ scan.completed }} / {{ scan.total }} points{% if scan.failed %} · {{ scan.failed }} failed{% endif %}</summary>
+    <dl class="scan-settings">{% for key, value in scan.settings.items() %}<dt>{{ key.replace('_', ' ') }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+    {% if scan.plot_path and not hide_scan_plots|default(false) %}<img class="preview" loading="lazy" src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/' ~ scan.plot_path) }}" alt="Scan: {{ scan.label }}">{% endif %}
+  </details>
+  {% endfor %}
+</details>
+<p><a class="button" href="{{ url_for('energy_tables', run_id=run.id) }}">Export {{ 'angle' if run.parameter_sweep.sample_axis else 'energy' }} tables</a></p>
+{% endif %}

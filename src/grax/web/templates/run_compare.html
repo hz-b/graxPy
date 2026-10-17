@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Compare grating runs{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Compare grating runs</h1>
+    <p>Overlay saved efficiencies and compare the settings used for each run.</p>
+  </div>
+  <a class="button" href="{{ url_for('manage_grating_runs') }}">Back to grating runs</a>
+</section>
+
+<section class="run-compare-panel">
+  <div class="run-compare-head">
+    <div>
+      <h2>Efficiency plot</h2>
+      <p class="subtle">Grouped runs show each saved scan as a separate curve.</p>
+    </div>
+    {% if common_orders %}
+      <form class="run-compare-order" method="get" action="{{ url_for('compare_grating_runs') }}">
+        {% for run_id in run_ids %}<input type="hidden" name="run_ids" value="{{ run_id }}">{% endfor %}
+        <label>
+          Diffraction order
+          <select name="order">
+            {% for order in common_orders %}
+              <option value="{{ order }}" {% if order == selected_order %}selected{% endif %}>{{ order }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="button" type="submit">Update plot</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {% if plot_error %}
+    <p class="notice notice-error" role="status">{{ plot_error }}</p>
+  {% elif figure_json %}
+    <div class="plotly-stage run-compare-figure" data-saved-plot-figure data-figure-json="{{ figure_json | e }}"></div>
+  {% endif %}
+</section>
+
+<section class="run-compare-panel">
+  <h2>Simulation parameter comparison</h2>
+  <p class="subtle">Highlighted cells differ between the two saved runs. “Not recorded” means the manifest did not contain that setting.</p>
+  <div class="run-compare-table-wrap">
+    <table class="run-compare-table">
+      <colgroup>
+        <col style="width: 28%">
+        {% for run in runs %}<col style="width: {{ 72 / (runs|length) }}%">{% endfor %}
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col">Parameter</th>
+          {% for run in runs %}<th scope="col">{{ run.display_name }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in parameter_rows %}
+          <tr>
+            <th scope="row">{{ row.label }}</th>
+            {% for value in row["values"] %}
+              <td{% if row.different %} class="is-different"{% endif %}>{{ value }}</td>
+            {% endfor %}
+          </tr>
+        {% else %}
+          <tr><td colspan="3">No simulation parameters were recorded for these runs.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
