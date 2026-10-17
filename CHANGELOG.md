@@ -7,6 +7,7 @@
 - Clarified the documentation home page overview with HZB attribution and a brief explanation of both roughness models; placed the installer notice before the RETICOLO citation and removed the redundant home-page outline.
 - Applied HZB and BESSY II colors and Source Sans Pro typography to the online documentation.
 - Made the local documentation opener prefer Chrome on macOS, with Safari as a fallback, while retaining Linux browser launch behavior.
+- Removed the duplicate guide and API link lists from the documentation home page while keeping them in the left navigation.
 
 ## 0.5.5
 

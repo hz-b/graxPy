@@ -27,6 +27,7 @@ explore [grating workflows](tutorials/gratings.md), or see
 ```{toctree}
 :maxdepth: 2
 :caption: User guide
+:hidden:
 
 installation/index
 validation/index
@@ -37,6 +38,7 @@ how-to/index
 ```{toctree}
 :maxdepth: 2
 :caption: Reference
+:hidden:
 
 api/index
 ```
