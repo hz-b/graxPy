@@ -22,6 +22,7 @@
     <a class="button" href="#materials">Materials</a>
     <a class="button" href="#gratings">Gratings</a>
     <a class="button" href="#simulations">Simulations</a>
+    <a class="button" href="#parameter-energy-scans">Parameter energy scans</a>
     <a class="button" href="#multilayer-design">Multilayer design</a>
     <a class="button" href="#plane-mirror">Plane mirror</a>
     <a class="button" href="#plots">Plots</a>
@@ -82,7 +83,7 @@
   <h2>Run simulations</h2>
   <ol>
     <li>Open a saved grating from the home page.</li>
-    <li>Pick a workflow: fixed angle, monochromator, multilayer theta search, or parameter study.</li>
+    <li>Pick Energy sweep, Angle sweep, Monochromator, Multilayer theta search, Parameter study, or Custom grid.</li>
     <li>Enter the energy range, diffraction order, Fourier orders, polarization (<code>s</code> is TE, <code>p</code> is TM), and any workflow-specific values.</li>
     <li>
       Pick the solver. <strong>RCWA</strong> is the default modal solver, inspired
@@ -100,6 +101,17 @@
     metadata, selected orders, comment, and progress state. The run directory also stores the result CSV files and
     generated preview images for that run.
   </p>
+</section>
+
+<section class="docs-section" id="parameter-energy-scans">
+  <h2>Energy and angle scans</h2>
+  <p><strong>Energy sweep</strong> scans photon energy while keeping grazing incidence angle fixed. <strong>Angle sweep</strong> scans grazing angle at one selected energy. <strong>Monochromator</strong> scans energy at constant CFF and solves incidence geometry at every energy using the line density of the current grating combination.</p>
+  <p>Energy sweep and Angle sweep support independent parameters and coupled parameter rows. Two duty cycles and two coating materials produce four scan sets. Each set covers the full energy or angle range for its workflow. Monochromator scans the energy range for every configured variation combination. Coupling depth to duty cycle pairs the values row by row; it does not form another Cartesian axis. Parameters omitted from the variations keep their saved or shared simulation values.</p>
+  <p>The run page updates a live plot as points finish. Parameter combinations appear as separate curves; Angle sweep uses grazing angle on the horizontal axis, while Energy sweep and Monochromator use energy. The plot remains available after completion or abort.</p>
+  <p>Numerical ranges show both a point count and a step size. Edit either field to update the other. A requested step is adjusted to the nearest point count that includes both bounds: 100–110 eV with a requested step of 3 eV becomes four points at 3⅓ eV spacing. A single-point range has equal bounds and zero spacing. Integer ranges still show the actual rounded values. A coupled range keeps the source row count; editing its step changes the dependent endpoint.</p>
+  <p>One grouped run stores every combination, its resolved grating snapshot, and the selected energy or angle grid. Manage grating runs expands into per-scan settings and progress. An interrupted run can resume its unfinished points from its checkpoints.</p>
+  <p><strong>Export scan tables</strong> downloads a ZIP of CSV and/or tab-separated DAT files plus YAML metadata. Each table fixes the other parameter axes and contains energy, or grazing angle for an Angle sweep, in the first column, followed by the efficiencies for each value of the selected axis. Missing values are <code>NaN</code>. For duty cycle × coating material, selecting both axes exports a duty-cycle table for each material and a material table for each duty cycle. The existing complete result export remains available.</p>
+  <p>When adding a grouped run to Plots, select its individual scans as well as diffraction orders. The saved plot preserves each scan's identity and styling. The older Custom grid workflow and its saved data remain available.</p>
 </section>
 
 <section class="docs-section" id="geometry-sketch">
@@ -203,7 +215,7 @@
   <ul>
     <li>Use <strong>Save plot</strong> in the plot builder to store the interactive compare view in <code>plots/</code>.</li>
     <li>Use the <strong>Download data…</strong> button on either the run page or saved-run manager to choose CSV, tab-separated DAT, and/or YAML metadata. The selected files are packaged into one ZIP and a save-location picker opens where supported.</li>
-    <li>Use <strong>Manage runs</strong> to rename saved runs, edit their comments, or delete them.</li>
+    <li>Use <strong>Manage grating runs</strong> to rename saved runs, edit their comments, or delete them.</li>
     <li>Use <strong>Manage gratings</strong> to inspect, edit, or delete saved grating definitions.</li>
     <li>Use the workspace switcher on the home page if you want the app to read and write a different local folder.</li>
   </ul>

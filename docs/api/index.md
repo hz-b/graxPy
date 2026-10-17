@@ -1,6 +1,6 @@
 # API reference
 
-This section documents the supported public API for the core `grax`
+This section documents the supported public API for the core GraxPy
 simulation package. Lower-level numerical infrastructure and experimental
 helpers are intentionally left out of the user-facing API reference.
 

@@ -1,7 +1,7 @@
 # AFM Preprocessing to ProfileGrating
 
 This tutorial shows the AFM preprocessing pipeline with sample AFM line scans
-and builds `AFMGrating` objects that can be simulated with the normal `grax`
+and builds `AFMGrating` objects that can be simulated with GraxPy's normal
 workflow. The repository now ships two checked-in examples:
 
 - a blazed AFM workflow

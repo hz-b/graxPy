@@ -5,7 +5,7 @@
   <h1>Delete plot</h1>
 </section>
 <section class="notice">
-  <p>Delete <strong>{{ plot.title }}</strong>? This cannot be undone.</p>
+  <p>Delete <strong>{{ plot.name or plot.title }}</strong>? This cannot be undone.</p>
 </section>
 <form class="form" method="post" action="{{ url_for('plot_delete', plot_id=plot.id) }}">
   <div class="actions">

@@ -14,7 +14,7 @@
     {% for plot in plots %}
       <div class="row">
         <div>
-          <strong><a href="{{ url_for('plot_detail', plot_id=plot.id) }}">{{ plot.title }}</a></strong>
+          <strong><a href="{{ url_for('plot_detail', plot_id=plot.id) }}">{{ plot.name or plot.title }}</a></strong>
           <p class="subtle">
             {{ plot.created_at }}
             {% if plot.selected_runs %}

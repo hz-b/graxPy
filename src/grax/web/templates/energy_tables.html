@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Export {{ 'angle' if run.parameter_sweep.sample_axis else 'energy' }} tables{% endblock %}
+{% block body %}
+<h1>Export {{ 'angle' if run.parameter_sweep.sample_axis else 'energy' }} tables — {{ run.display_name }}</h1>
+<p>Each selected parameter axis produces a table for every fixed combination of the other axes and every selected diffraction order. {{ 'Grazing angle' if run.parameter_sweep.sample_axis else 'Energy' }} is the first column; each remaining column is one scan. Coupled values remain paired. Missing results are NaN.</p>
+<form class="form" method="post" action="{{ url_for('export_energy_tables', run_id=run.id) }}">
+  <fieldset><legend>Parameter axes</legend>{% for axis in run.parameter_sweep.axes %}<label class="inline-check"><input type="checkbox" name="axes" value="{{ axis.id }}" checked><span>{{ axis.label }}</span></label>{% else %}<label class="inline-check"><input type="checkbox" name="axes" value="scan" checked><span>Single scan</span></label>{% endfor %}</fieldset>
+  <fieldset><legend>Diffraction orders</legend>{% for order in orders %}<label class="inline-check"><input type="checkbox" name="orders" value="{{ order }}" {% if order == run.run_input.diffraction_order|int %}checked{% endif %}><span>Order {{ order }}</span></label>{% endfor %}</fieldset>
+  <fieldset><legend>Formats</legend><label class="inline-check"><input type="checkbox" name="formats" value="csv" checked><span>CSV</span></label><label class="inline-check"><input type="checkbox" name="formats" value="dat" checked><span>DAT (tab-separated)</span></label><p>YAML metadata describes the settings and scan identity of every column.</p></fieldset>
+  <div class="actions"><button class="button primary" type="submit">Download ZIP</button><a class="button" href="{{ url_for('run_detail', run_id=run.id) }}">Back to run</a></div>
+</form>
+{% endblock %}

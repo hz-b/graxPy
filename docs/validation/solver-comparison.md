@@ -1,7 +1,7 @@
 # RCWA vs Nevière differential method
 
-The other pages in this section compare `grax` against external codes. This one
-compares `grax` against itself: the same validation sweeps run through both of
+The other pages in this section compare GraxPy against external codes. This one
+compares GraxPy against itself: the same validation sweeps run through both of
 its solvers.
 
 The two solvers share their inputs, their Fourier-space operators (including the

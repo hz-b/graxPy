@@ -3,58 +3,91 @@
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>Manage saved gratings</h1>
-    <p>Bulk delete saved gratings, with an option to also remove their linked runs.</p>
+    <h1>Manage gratings</h1>
+    <p>Select one or more gratings to duplicate or delete. Rename a grating from its row.</p>
   </div>
-  <div class="actions">
-    <a class="button" href="{{ url_for('index') }}">Back to saved gratings</a>
-  </div>
+  <a class="button" href="{{ url_for('index') }}">Home</a>
 </section>
 
-{% if request.args.get("message") %}
-  <section class="notice notice-error">
-    <p>{{ request.args.get("message") }}</p>
+{% if message %}
+  <section class="notice{% if message_kind == 'error' %} notice-error{% else %} notice-success{% endif %}" role="status">
+    <p>{{ message }}</p>
   </section>
 {% endif %}
 
 {% if gratings %}
-  <form class="form" method="post" action="{{ url_for('update_gratings') }}">
-    <fieldset>
-      <legend>Delete options</legend>
-      <label class="inline-check">
-        <input type="radio" name="delete_mode" value="grating_only" checked>
-        <span>Delete selected gratings only</span>
+  <form id="selected-gratings-form" method="post" action="{{ url_for('update_gratings') }}"></form>
+  <section class="grating-manager" data-grating-manager>
+    <div class="grating-manager-toolbar">
+      <label class="grating-select-all">
+        <input type="checkbox" data-select-all-gratings>
+        <span>Select all</span>
       </label>
-      <label class="inline-check">
-        <input type="radio" name="delete_mode" value="grating_and_runs">
-        <span>Delete selected gratings and linked runs</span>
-      </label>
-    </fieldset>
-
-    <div class="manage-actions">
-      <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete selected gratings? This cannot be undone.">
-        Delete selected
-      </button>
+      <span class="grating-selection-count" data-grating-selection-count>0 selected</span>
+      <div class="actions">
+        <button class="button" type="submit" form="selected-gratings-form" name="action" value="duplicate" data-selection-action disabled>
+          Duplicate selected
+        </button>
+        <button class="button danger" type="button" data-dialog-target="#bulk-delete-dialog" data-selection-action disabled>
+          Delete selected
+        </button>
+      </div>
     </div>
 
-    <div class="list">
+    <div class="grating-manager-list">
       {% for grating in gratings %}
-        <div class="row run-manage-row">
-          <div class="run-manage-main">
-            <a href="{{ url_for('grating_detail', grating_id=grating.id) }}"><strong>{{ grating.name }}</strong></a>
-            <p class="subtle">
-              {{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm · {{ grating.id }}
-            </p>
-          </div>
-          <label class="inline-check manage-delete">
-            <input type="checkbox" name="delete_grating_id" value="{{ grating.id }}">
-            <span>Delete</span>
+        {% set linked_count = grating_run_counts.get(grating.id, 0) %}
+        <article class="grating-manage-card" data-grating-card data-linked-runs="{{ linked_count }}">
+          <label class="grating-select" aria-label="Select {{ grating.name }}">
+            <input type="checkbox" name="delete_grating_id" value="{{ grating.id }}" form="selected-gratings-form" data-grating-select>
+            <span>Select</span>
           </label>
-        </div>
+          <div class="grating-manage-main">
+            <a class="grating-manage-name" href="{{ url_for('grating_detail', grating_id=grating.id) }}">{{ grating.name }}</a>
+            <p class="subtle">{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm · {{ linked_count }} linked run{{ 's' if linked_count != 1 else '' }}</p>
+          </div>
+          <div class="grating-manage-actions">
+            <details class="grating-rename">
+              <summary class="button">Rename</summary>
+              <form class="grating-rename-form" method="post" action="{{ url_for('rename_grating', grating_id=grating.id) }}">
+                <label>
+                  Grating name
+                  <input type="text" name="name" value="{{ grating.name }}" maxlength="128" required>
+                </label>
+                <button class="button primary" type="submit">Save name</button>
+              </form>
+            </details>
+            <a class="button" href="{{ url_for('grating_detail', grating_id=grating.id) }}">Open grating</a>
+          </div>
+        </article>
       {% endfor %}
     </div>
-  </form>
+
+    <dialog class="grating-delete-dialog" id="bulk-delete-dialog" data-grating-delete-dialog>
+      <h2>Delete selected gratings?</h2>
+      <p data-grating-delete-summary></p>
+      <fieldset>
+        <legend>What should be deleted?</legend>
+        <label class="inline-check">
+          <input type="radio" name="delete_mode" value="grating_only" form="selected-gratings-form" checked>
+          <span>Delete the grating(s) only; keep their runs</span>
+        </label>
+        <label class="inline-check">
+          <input type="radio" name="delete_mode" value="grating_and_runs" form="selected-gratings-form">
+          <span>Delete the grating(s) and all linked runs</span>
+        </label>
+      </fieldset>
+      <p class="subtle">Deleting gratings and runs cannot be undone. Active runs block deletion with their associated runs.</p>
+      <div class="actions grating-delete-actions">
+        <button class="button" type="button" data-close-dialog>Cancel</button>
+        <button class="button danger" type="submit" form="selected-gratings-form" name="action" value="delete">Delete selected</button>
+      </div>
+    </dialog>
+  </section>
 {% else %}
-  <p class="empty">No gratings have been saved yet.</p>
+  <section class="empty-state">
+    <p class="empty">No gratings have been saved yet.</p>
+    <a class="button primary" href="{{ url_for('new_grating') }}">Create a grating</a>
+  </section>
 {% endif %}
 {% endblock %}

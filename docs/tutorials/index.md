@@ -1,6 +1,6 @@
 # Tutorials
 
-The tutorials introduce the public `grax` workflow in increasing order of
+The tutorials introduce the public GraxPy workflow in increasing order of
 scope. Start with the direct simulation API, then move to sweeps and batch
 execution.
 

@@ -1,9 +1,9 @@
 # Installation
 
-`grax` requires Python 3.12 or 3.13. The core package dependencies are
+GraxPy requires Python 3.12 or 3.13. The core package dependencies are
 NumPy, numba, pandas, SciPy, Matplotlib, tqdm, and `xrt` for backward compatibility
 during the current material-lookup transition. Local Henke-table string
-material lookup is built into `grax`, and xrt-backed material objects now emit
+material lookup is built into GraxPy, and xrt-backed material objects now emit
 a deprecation warning when they are used.
 
 ## Install the package
@@ -65,7 +65,7 @@ propagation. You can still explicitly specify `backend="numpy"` for parity
 checks or transition-time comparisons, but that path is deprecated.
 ```
 
-The main documentation focuses on the `grax` simulation package. The
+The main documentation focuses on the GraxPy simulation package. The
 optimization package is currently treated as an advanced companion package.
 
 ## Web UI

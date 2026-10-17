@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Multilayer designs{% endblock %}
+{% block title %}Manage multilayer runs{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>Multilayer grating designs</h1>
+  <h1>Manage multilayer runs</h1>
     <p>Survey a d-spacing × blaze-angle grid at one energy, then scan the chosen designs over energy.</p>
   </div>
   <div class="actions">
@@ -19,25 +19,29 @@
         Delete selected
       </button>
     </div>
-    <div class="list">
+    <div class="list manage-record-list">
       {% for study in studies %}
-        <div class="row run-manage-row">
-          <div class="run-manage-main">
-            <a href="{{ url_for('multilayer_design_detail', study_id=study.id) }}"><strong>{{ study.display_name }}</strong></a>
-            <p class="subtle">{{ study.id }} · created {{ study.created_at }}</p>
-            <p class="subtle">
+        <article class="manage-record-card multilayer-record">
+          <div class="manage-record-content">
+            <div class="manage-record-heading">
+              <div>
+                <h2><a href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">{{ study.display_name }}</a></h2>
+                <p class="subtle">Created {{ study.created_at }}</p>
+              </div>
+              <label class="inline-check manage-record-delete">
+                <input type="checkbox" name="delete_study_id" value="{{ study.id }}">
+                <span>Delete</span>
+              </label>
+            </div>
+            <div class="manage-stage-list" aria-label="Simulation stage status">
               {% for stage in stages %}
                 <span class="status-pill is-{{ study.stages[stage].status }}">
                   {{ stage_labels[stage] }}: {{ study.stages[stage].status }}
                 </span>
               {% endfor %}
-            </p>
+            </div>
           </div>
-          <label class="inline-check manage-delete">
-            <input type="checkbox" name="delete_study_id" value="{{ study.id }}">
-            <span>Delete</span>
-          </label>
-        </div>
+        </article>
       {% endfor %}
     </div>
   </form>

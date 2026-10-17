@@ -26,7 +26,7 @@
   <section class="preview-panel plot-stage-panel">
     <div class="section-head preview-head">
       <div>
-        <h2>Live plot preview</h2>
+        <h2>Plot preview</h2>
         <p data-plot-preview-status role="status" aria-live="polite">Select saved runs and orders to see the interactive combined plot.</p>
       </div>
       <div class="actions">
@@ -45,7 +45,18 @@
         Plot title
         <input name="title" type="text" value="Combined plot">
       </label>
+      <label>
+        Save as name
+        <input name="plot_name" type="text" maxlength="160" placeholder="Uses the plot title if left blank">
+      </label>
       <div class="form-grid two-column">
+        <label>
+          X values
+          <select name="x_axis_value">
+            <option value="energy" selected>Energy (eV)</option>
+            <option value="energy_times_order">Energy × plotted diffraction order (eV)</option>
+          </select>
+        </label>
         <label>
           X axis
           <select name="x_axis_type">
@@ -72,6 +83,9 @@
                 value="{{ run.id }}"
                 data-run-name="{{ run.selector_text }}"
                 data-run-orders="{{ run.available_orders | join(',') }}"
+                data-run-scans="{{ run.plot_scans | tojson | forceescape }}"
+                data-run-loops="{{ run.plot_loops | tojson | forceescape }}"
+                data-run-default-order="{{ run.run_input.diffraction_order if run.parameter_sweep or run.plot_scans else '' }}"
               >
                 {{ run.selector_text }}
               </option>
@@ -105,6 +119,12 @@
     </legend>
     <input type="hidden" name="run_ids" value="" data-run-id-field>
     <div class="order-grid" data-order-grid></div>
+    <div class="scan-selection" data-scan-grid></div>
+    <div class="plot-loop-controls" data-loop-controls hidden>
+      <p class="hint">Selected scans set the values of parameters without loops.</p>
+      <div class="list compact" data-loop-list></div>
+      <button class="button" type="button" data-add-loop>Add loop</button>
+    </div>
   </fieldset>
 </template>
 
@@ -131,6 +151,15 @@
       <label>
         Marker size
         <input type="number" min="1" max="24" step="1" value="3" data-series-marker-size>
+      </label>
+      <label>
+        Line style
+        <select data-series-line-style>
+          <option value="solid">Solid</option>
+          <option value="dot">Dotted</option>
+          <option value="dash">Dashed</option>
+          <option value="dashdot">Dash-dot</option>
+        </select>
       </label>
     </div>
   </fieldset>

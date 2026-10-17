@@ -33,13 +33,13 @@
       const [start, stop] = curve.selection;
       svg.append(svgElement("rect", {
         x: px(start), y: 26, width: Math.max(0, px(stop) - px(start)), height: 136,
-        fill: "#f59e0b", opacity: 0.18,
+        fill: "#bcd233", opacity: 0.22,
       }));
     }
     traces.forEach((trace) => {
       const points = trace.x.map((x, point) => `${px(x).toFixed(2)},${py(trace.z[point]).toFixed(2)}`).join(" ");
       svg.append(svgElement("polyline", {
-        points, fill: "none", stroke: trace === curve ? "#0f766e" : "#94a3b8",
+        points, fill: "none", stroke: trace === curve ? "#184e8b" : "#94a3b8",
         "stroke-width": 2, "vector-effect": "non-scaling-stroke",
         "stroke-dasharray": trace === curve ? "none" : "5 3",
       }));
@@ -63,7 +63,7 @@
     if (curve.before) {
       const before = svgElement("text", {x: 410, y: 16, "font-size": 11, fill: "#64748b"});
       before.textContent = "before";
-      const after = svgElement("text", {x: 500, y: 16, "font-size": 11, fill: "#0f766e"});
+      const after = svgElement("text", {x: 500, y: 16, "font-size": 11, fill: "#184e8b"});
       after.textContent = "after";
       svg.append(before, after);
     }

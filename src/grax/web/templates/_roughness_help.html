@@ -9,5 +9,5 @@
 'x_resolution': 'Horizontal sampling step along the grating profile, in nm. Smaller values resolve lateral profile features more accurately, but increase the number of samples and simulation time.',
 'z_resolution': 'Vertical sampling step through the grating and coating stack, in nm. Smaller values resolve interfaces and layer thicknesses more accurately, but increase the number of samples and simulation time.'
 } %}
-<button type="button" class="roughness-help" aria-label="Help: {{ kind }}" aria-describedby="roughness-help-{{ key }}">?</button><span class="roughness-tip" role="tooltip" id="roughness-help-{{ key }}">{{ explanations[kind] }}</span>
+<span class="roughness-help-wrap"><span tabindex="0" role="button" class="roughness-help" aria-label="Help: {{ kind }}" aria-describedby="roughness-help-{{ key }}">?</span><span class="roughness-tip" role="tooltip" id="roughness-help-{{ key }}">{{ explanations[kind] }}</span></span>
 {%- endmacro %}
