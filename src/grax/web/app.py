@@ -3703,6 +3703,7 @@ def _site_metadata() -> dict[str, str]:
     """Return shared attribution metadata for the web UI."""
 
     return {
+        "version": _grax_version(),
         "organization": "Helmholtz-Zentrum Berlin",
         "contact_name": "Simone Vadilonga",
         "contact_email": "simone.vadilonga@helmholtz-berlin.de",

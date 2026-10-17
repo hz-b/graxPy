@@ -66,7 +66,14 @@ intersphinx_mapping = {
 
 html_theme = "furo"
 html_static_path = ["_static"] if (Path(__file__).resolve().parent / "_static").is_dir() else []
+html_js_files = ["site-notice.js"]
+html_css_files = ["site-notice.css"]
 html_title = "GraxPy documentation"
+html_context = {
+    "graxpy_release": release,
+    "graxpy_contact_name": "Simone Vadilonga",
+    "graxpy_contact_email": "simone.vadilonga@helmholtz-berlin.de",
+}
 html_logo = "_static/GraxPy_logo.svg"
 html_favicon = "_static/GraxPy_logo.svg"
 html_theme_options = {
