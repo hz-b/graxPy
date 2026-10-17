@@ -9,9 +9,32 @@
   </div>
   <div class="actions">
     <a class="button" href="{{ url_for('edit_grating', grating_id=grating.id) }}">Edit</a>
-    <a class="button danger" href="{{ url_for('delete_grating_prompt', grating_id=grating.id) }}">Delete grating</a>
+    <button class="button danger" type="button" data-dialog-target="#single-grating-delete-dialog">Delete grating</button>
   </div>
 </section>
+
+<dialog class="grating-delete-dialog" id="single-grating-delete-dialog" data-grating-delete-dialog>
+  <form class="grating-delete-form" method="post" action="{{ url_for('delete_grating', grating_id=grating.id) }}">
+    <h2>Delete {{ grating.name }}?</h2>
+    <p>This grating has {{ linked_runs|length }} linked saved run{{ 's' if linked_runs|length != 1 else '' }}.</p>
+    <fieldset>
+      <legend>What should be deleted?</legend>
+      <label class="inline-check">
+        <input type="radio" name="delete_mode" value="grating_only" checked>
+        <span>Delete the grating only; keep its runs</span>
+      </label>
+      <label class="inline-check">
+        <input type="radio" name="delete_mode" value="grating_and_runs">
+        <span>Delete the grating and all linked runs</span>
+      </label>
+    </fieldset>
+    <p class="subtle">Deleting the grating and runs cannot be undone. Active runs block deletion with their associated runs.</p>
+    <div class="actions grating-delete-actions">
+      <button class="button" type="button" data-close-dialog>Cancel</button>
+      <button class="button danger" type="submit">Delete grating</button>
+    </div>
+  </form>
+</dialog>
 
 <h2>Nominal geometry — three periods</h2>
 {% set nominal_type = (grating.profile.profile_type|default('blazed')) if grating.grating_type == 'afm' else grating.grating_type %}

@@ -14,17 +14,47 @@
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="{{ url_for('index') }}">Grax Web</a>
+      <div class="brand-lockup" aria-label="GraxPy and HZB BESSY II">
+        <a class="brand" href="{{ url_for('index') }}" aria-label="Grax Web home">
+          <img class="graxpy-logo" src="{{ url_for('static', filename='graxpy-logo.svg') }}" alt="GraxPy — Gratings made easy">
+        </a>
+        <span class="brand-divider" aria-hidden="true"></span>
+        <img class="hzb-logo" src="{{ url_for('static', filename='hzb-bessy2-logo.png') }}" alt="HZB BESSY II Light Source">
+      </div>
       <nav>
-        <a href="{{ url_for('index') }}">Saved gratings</a>
+        <a href="{{ url_for('index') }}">Home</a>
+        <details class="nav-dropdown">
+          <summary>Gratings <span aria-hidden="true">⌄</span></summary>
+          <div class="nav-menu">
+            <a href="{{ url_for('new_grating') }}">New grating</a>
+            <a href="{{ url_for('manage_gratings') }}">Manage gratings</a>
+            <a href="{{ url_for('manage_grating_runs') }}">Manage grating runs</a>
+          </div>
+        </details>
+        <details class="nav-dropdown">
+          <summary>Plane mirrors <span aria-hidden="true">⌄</span></summary>
+          <div class="nav-menu">
+            <a href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
+            <a href="{{ url_for('plane_mirror_index') }}">Manage plane mirrors</a>
+            <a href="{{ url_for('plane_mirror_index') }}">Manage plane-mirror runs</a>
+          </div>
+        </details>
+        <details class="nav-dropdown">
+          <summary>Multilayer grating <span aria-hidden="true">⌄</span></summary>
+          <div class="nav-menu">
+            <a href="{{ url_for('multilayer_design_new') }}">New multilayer mirror</a>
+            <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer mirrors</a>
+            <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer runs</a>
+          </div>
+        </details>
+        <details class="nav-dropdown">
+          <summary>Plots <span aria-hidden="true">⌄</span></summary>
+          <div class="nav-menu">
+            <a href="{{ url_for('plot_new') }}">New plot</a>
+            <a href="{{ url_for('plot_index') }}">Manage plots</a>
+          </div>
+        </details>
         <a href="{{ url_for('web_docs') }}">Web docs</a>
-        <a href="{{ url_for('multilayer_design_index') }}">Multilayer design</a>
-        <a href="{{ url_for('plot_index') }}">Plots</a>
-        <a href="{{ url_for('manage_runs') }}">Manage runs</a>
-        <a href="{{ url_for('manage_gratings') }}">Manage gratings</a>
-        <a href="{{ url_for('new_grating') }}">New grating</a>
-        <a href="{{ url_for('plane_mirror_index') }}">Plane mirrors</a>
-        <a href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
       </nav>
     </header>
     <main class="shell">

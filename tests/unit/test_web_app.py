@@ -1241,7 +1241,7 @@ def test_parameter_study_run_uses_selected_polarization(
     assert status["completed_points"] == 9
     assert status["remaining_points"] == 0
     assert b"9 / 9" in client.get(f"/runs/{run_id}").data
-    assert b"completed \xc2\xb7 9 / 9 points" in client.get("/runs/manage").data
+    assert b"completed \xc2\xb7 9 / 9 points" in client.get("/runs/gratings").data
 
 
 def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
@@ -1352,7 +1352,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
     if completed_points:
         assert b"parameter_study.png" in detail
         assert b"parameter_study_Fourier_orders_E100.0eV.csv" in detail
-    manage = client.get("/runs/manage").data
+    manage = client.get("/runs/gratings").data
     assert f"failed · {completed_points} / 9 points".encode() in manage
 
 
@@ -1372,7 +1372,7 @@ def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path)
 
     assert legacy["completed_points"] == 2
     assert checkpoint["completed_points"] == 2
-    manage = client.get("/runs/manage").data
+    manage = client.get("/runs/gratings").data
     assert b"ok \xc2\xb7 2 / 3 points" in manage
     assert b"aborted \xc2\xb7 2 / 4 points" in manage
 
@@ -1452,7 +1452,7 @@ def test_manage_runs_shows_saved_parameters_and_handles_older_manifests(tmp_path
     manifest["run_input"] = {"cff": "2.25", "fourier_orders": "12", "solver": "neviere", "polarization": "p"}
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    response = create_app(data_dir=tmp_path).test_client().get("/runs/manage")
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/gratings")
     assert response.status_code == 200
     assert b"Simulation parameters" in response.data
     assert b"CFF" in response.data
@@ -1625,7 +1625,7 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     app = create_app(data_dir=tmp_path)
     client = app.test_client()
 
-    page = client.get("/runs/manage")
+    page = client.get("/runs/gratings")
     assert page.status_code == 200
     assert b"data-confirm=\"Delete the selected runs?" in page.data
     assert b'name="comment_run-1"' in page.data
@@ -1660,6 +1660,38 @@ def test_manage_runs_page_renames_and_deletes_selected_runs(tmp_path: Path) -> N
     assert not (tmp_path / "runs" / "run-2").exists()
 
 
+def test_run_management_is_grouped_in_navigation_and_legacy_url_redirects(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="grating-run", display_name="Grating run")
+    _write_run_fixture(tmp_path, run_id="unclassified-run", display_name="Unclassified run")
+    unclassified_manifest = tmp_path / "runs" / "unclassified-run" / "manifest.json"
+    manifest = json.loads(unclassified_manifest.read_text(encoding="utf-8"))
+    for key in ("grating_id", "grating_spec", "grating_name"):
+        manifest.pop(key, None)
+    unclassified_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+    client = create_app(data_dir=tmp_path).test_client()
+    home = client.get("/")
+    page = home.data.decode("utf-8")
+    assert page.index("Manage gratings") < page.index("Manage grating runs")
+    assert page.index("Manage plane mirrors") < page.index("Manage plane-mirror runs")
+    assert page.index("Manage multilayer mirrors") < page.index("Manage multilayer runs")
+    assert "Manage runs</a>" not in page
+
+    legacy = client.get("/runs/manage")
+    assert legacy.status_code == 302
+    assert legacy.headers["Location"].endswith("/runs/gratings")
+
+    grating_runs = client.get("/runs/gratings")
+    assert grating_runs.status_code == 200
+    assert b"Manage grating runs" in grating_runs.data
+    assert b"Grating run" in grating_runs.data
+    assert b"Unclassified run" not in grating_runs.data
+    assert client.get("/plane-mirrors").status_code == 200
+    assert client.get("/multilayer-design").status_code == 200
+
+
 def test_manage_runs_shows_available_run_plots_on_the_right(tmp_path: Path) -> None:
     from grax.web.app import create_app
 
@@ -1674,7 +1706,7 @@ def test_manage_runs_shows_available_run_plots_on_the_right(tmp_path: Path) -> N
     (tmp_path / "runs" / "partial" / "live_progress.png").write_bytes(b"plot")
 
     client = create_app(data_dir=tmp_path).test_client()
-    page = client.get("/runs/manage")
+    page = client.get("/runs/gratings")
 
     assert page.status_code == 200
     assert b'class="run-manage-preview"' in page.data
@@ -2429,7 +2461,7 @@ def test_manage_runs_page_no_longer_shows_resume_buttons(tmp_path: Path) -> None
 
     _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="aborted")
 
-    response = create_app(data_dir=tmp_path).test_client().get("/runs/manage")
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/gratings")
 
     assert response.status_code == 200
     assert b"Resume" not in response.data

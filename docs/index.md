@@ -1,35 +1,28 @@
-# grax documentation
+# GraxPy documentation
+
+```{image} _static/GraxPy_logo.svg
+:alt: GraxPy — Gratings made easy
+:width: 340px
+:align: center
+```
 
 *Version {{ release }}*
 
-`graxpy` is an independent Python package for one-dimensional X-ray
-diffraction-grating simulations; `grax` is its public Python import. It offers
-two selectable electromagnetic solver paths for the same gratings, materials,
-and workflows:
+GraxPy (`graxpy`) is a Python package for one-dimensional X-ray grating
+simulations, imported as `grax`. Build laminar, blazed, sinusoidal, or custom
+grating profiles; combine them with material definitions and multilayer
+coatings; then calculate diffraction efficiencies with either modal RCWA or
+the Nevière differential method.
 
-- modal rigorous coupled-wave analysis (RCWA), inspired by the one-dimensional
-  RETICOLO approach;
-- the Nevière differential method.
+Use the same API for single simulations, energy-angle and fixed-angle sweeps,
+batch runs, parameter studies, optimizer fits, and multilayer design searches.
+Start with the [single simulation tutorial](tutorials/single-simulation.md),
+explore [grating workflows](tutorials/gratings.md), or see
+[how to choose a solver](tutorials/choosing-a-solver.md).
 
-The paths share Fourier/discretization infrastructure and differ in how they
-propagate fields through a layer. `solver="rcwa"` remains the default. `grax`
-provides higher-level abstractions for laminar and blazed gratings, multilayer
-coating stacks, single simulations, batch execution, and energy-angle sweeps.
-
-For selection guidance and integration settings, see
-[Choosing a solver](tutorials/choosing-a-solver.md).
-
-The local Web UI includes its own documentation page. Start `grax-web`, then click
-`Web docs` in the GUI to read the guide for storage, grating creation,
-simulation runs, plotting, exporting, and customization.
-
-RETICOLO V9 is an important scientific reference and inspiration for GraxPy's
-modal RCWA solver. `grax` is not an official RETICOLO port or direct
-translation. If you use `grax`, please also cite RETICOLO:
-
-> [https://doi.org/10.5281/zenodo.14631950](https://doi.org/10.5281/zenodo.14631950)
-
-RETICOLO license: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+GraxPy's modal RCWA solver is inspired by the one-dimensional RETICOLO approach;
+GraxPy is an independent implementation, not an official port. If you use it,
+please cite [RETICOLO V9](https://doi.org/10.5281/zenodo.14631950) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
 
 ```{toctree}
 :maxdepth: 2

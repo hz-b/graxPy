@@ -1,66 +1,80 @@
 {% extends "base.html" %}
-{% block title %}Grax Web{% endblock %}
+{% block title %}Home · GraxPy{% endblock %}
 {% block body %}
-<section class="section-head">
-  <div>
-    <h1>Saved gratings</h1>
-    <p>Local prototype workspace</p>
-  </div>
-  <div class="actions">
-    <a class="button" href="{{ url_for('web_docs') }}">Web docs</a>
-    <a class="button" href="{{ url_for('multilayer_design_index') }}">Multilayer design</a>
-    <a class="button" href="{{ url_for('plot_index') }}">Plot results</a>
-    <a class="button" href="{{ url_for('plane_mirror_index') }}">Plane mirrors</a>
-    <a class="button primary" href="{{ url_for('new_grating') }}">Create grating</a>
-  </div>
-</section>
-
-<section class="notice">
-  <p>
-    Saved runs live in <code>{{ results_dir }}/</code> and combined plots live in
-    <code>{{ plots_dir }}/</code>.
-  </p>
+<section class="brand-hero" aria-label="GraxPy and HZB BESSY II logo">
+  <img class="brand-hero-complete" src="{{ url_for('static', filename='graxpy-hzb-logo.png') }}" alt="GraxPy — Gratings made easy, developed with HZB BESSY II Light Source">
 </section>
 
 {% if message %}
-  <section class="notice{% if message_kind == 'error' %} notice-error{% endif %}">
+  <section class="notice{% if message_kind == 'error' %} notice-error{% endif %}" role="status">
     <p>{{ message }}</p>
   </section>
 {% endif %}
 
-<section class="notice">
-  <form class="form" method="post" action="{{ url_for('switch_workspace') }}">
+<section class="home-about">
+  <h2>About GraxPy</h2>
+  <p>
+    Developed at Helmholtz-Zentrum Berlin (HZB), GraxPy is a tool for calculating grating diffraction efficiencies
+    and is open to collaboration. It offers two solvers: modal RCWA and the Nevi&egrave;re differential method.
+  </p>
+  <p>
+    Simulate laminar, blazed, and sinusoidal gratings, or upload and process an AFM-measured profile. Surface roughness
+    can be represented either with a Debye&ndash;Waller efficiency correction or with explicitly simulated random interfaces.
+  </p>
+  <p class="home-resource-links">
+    <a href="{{ site_metadata.github_url }}/issues" target="_blank" rel="noreferrer">Collaborate or report an issue on GitHub</a>
+    <span aria-hidden="true">·</span>
+    <a href="{{ site_metadata.docs_url }}" target="_blank" rel="noreferrer">Read the documentation</a>
+  </p>
+</section>
+
+<section class="home-database">
+  <h1>Database folder</h1>
+  <form class="home-database-form" method="post" action="{{ url_for('switch_workspace') }}">
     <label>
       Active database folder
       <input name="workspace_root" type="text" value="{{ active_workspace }}">
     </label>
-    <p class="subtle">Grax Web stores saved gratings, runs, and plots in this database folder.</p>
     <div class="actions">
-      <button class="button" type="submit">Switch workspace</button>
-      <a class="button" href="{{ url_for('browse_workspace', path=active_workspace) }}">Select database folder</a>
+      <button class="button primary" type="submit">Switch workspace</button>
+      <a class="button" href="{{ url_for('browse_workspace', path=active_workspace) }}">Browse folders</a>
     </div>
   </form>
 </section>
 
-<div class="grid two">
-  <section>
+<div class="grid halves home-recent-grid">
+  <section class="home-recent-panel">
+    <div class="section-head">
+      <div>
+        <h2>Recent gratings</h2>
+        <p class="subtle">{{ gratings|length }} saved · newest first; scroll for older</p>
+      </div>
+      <a class="button" href="{{ url_for('manage_gratings') }}">Manage gratings</a>
+    </div>
     {% if gratings %}
-      <div class="list">
+      <div class="list home-recent-list" role="region" aria-label="Saved gratings, newest first" tabindex="0">
         {% for grating in gratings %}
           <a class="row" href="{{ url_for('grating_detail', grating_id=grating.id) }}">
             <strong>{{ grating.name }}</strong>
-            <span>{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm · {{ grating.id }}</span>
+            <span>{{ grating.grating_type }} · {{ grating.period_lpermm }} l/mm</span>
           </a>
         {% endfor %}
       </div>
     {% else %}
-      <p class="empty">No saved gratings yet.</p>
+      <p class="empty">No gratings saved yet.</p>
     {% endif %}
   </section>
-  <section>
-    <h2>Recent runs</h2>
+
+  <section class="home-recent-panel">
+    <div class="section-head">
+      <div>
+        <h2>Recent runs</h2>
+        <p class="subtle">{{ runs|length }} saved · newest first; scroll for older</p>
+      </div>
+      <a class="button" href="{{ url_for('manage_grating_runs') }}">Manage grating runs</a>
+    </div>
     {% if runs %}
-      <div class="list compact">
+      <div class="list compact home-recent-list" role="region" aria-label="Simulation runs, newest first" tabindex="0">
         {% for run in runs %}
           <a class="row" href="{{ url_for('run_detail', run_id=run.id) }}">
             <strong>{{ run.summary_label }}</strong>

@@ -19,7 +19,7 @@ marker size, and the x/y axis scale before saving the comparison.
 When you launch a run from a saved grating, you can add an optional comment.
 That comment is saved with the run, shown in the saved-run selector together
 with the date/time, grating name, and sweep type, and can be edited later from
-`Manage runs`.
+`Gratings` → `Manage grating runs`.
 
 The run form keeps polarization together with the other numerics controls, so
 you choose the diffraction order, Fourier orders, polarization, and x/z

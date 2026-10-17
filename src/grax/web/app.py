@@ -9,7 +9,7 @@ import io
 import itertools
 import json
 import warnings
-from copy import copy
+from copy import copy, deepcopy
 import os
 import shutil
 import threading
@@ -146,16 +146,16 @@ PLOTLY_MARKER_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("star", "Star"),
 )
 PLOTLY_DEFAULT_COLORS: tuple[str, ...] = (
-    "#1f77b4",
-    "#ff7f0e",
-    "#2ca02c",
-    "#d62728",
-    "#9467bd",
-    "#8c564b",
-    "#e377c2",
-    "#7f7f7f",
-    "#bcbd22",
-    "#17becf",
+    "#184e8b",
+    "#bcd233",
+    "#6cabe9",
+    "#cb5a2e",
+    "#6f8292",
+    "#81768e",
+    "#d9799c",
+    "#093566",
+    "#c9a95a",
+    "#9ac6f3",
 )
 PLOTLY_LINE_STYLES: tuple[str, ...] = ("solid", "dot", "dash", "dashdot")
 
@@ -238,7 +238,8 @@ def create_app(*, data_dir: str | Path | None = None):
     def version_frontend_assets(endpoint: str, values: dict[str, Any]) -> None:
         """Load updated frontend assets after a page refresh."""
         if endpoint == "static" and values.get("filename") in {
-            "web.js", "web.css", "geometry.js", "afm.js"
+            "web.js", "web.css", "geometry.js", "afm.js", "graxpy-logo.svg", "hzb-bessy2-logo.png",
+            "graxpy-hzb-logo.png",
         }:
             values.setdefault("v", _file_token(Path(app.static_folder) / values["filename"]))
 
@@ -278,9 +279,18 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.get("/")
     def index():
         data_dir = active_data_dir()
+        gratings = store().list()
+        gratings.sort(
+            key=lambda grating: (
+                str(grating.get("updated_at", "")),
+                str(grating.get("created_at", "")),
+                str(grating.get("name", "")).lower(),
+            ),
+            reverse=True,
+        )
         return render_template(
             "index.html",
-            gratings=store().list(),
+            gratings=gratings,
             runs=_list_plot_runs(data_dir / "runs"),
             results_dir=data_dir / "runs",
             plots_dir=data_dir / "plots",
@@ -316,7 +326,35 @@ def create_app(*, data_dir: str | Path | None = None):
             parent_path=str(browse_path.parent) if browse_path.parent != browse_path else None,
             breadcrumbs=_path_breadcrumbs(browse_path),
             entries=_list_directory_entries(browse_path),
+            message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
         )
+
+    @app.post("/workspace/create")
+    def create_workspace_folder():
+        parent_path = request.form.get("parent_path")
+        if _has_active_runs(app):
+            return redirect(url_for(
+                "browse_workspace",
+                path=parent_path,
+                message="Cannot switch workspace while active runs exist.",
+                kind="error",
+            ))
+        try:
+            target_dir = _create_workspace_folder(parent_path, request.form.get("folder_name"))
+        except (OSError, ValueError) as error:
+            return redirect(url_for(
+                "browse_workspace",
+                path=parent_path,
+                message=str(error),
+                kind="error",
+            ))
+        app.config["GRAx_DATA_DIR"] = target_dir
+        return redirect(url_for(
+            "index",
+            message=f"Created and switched workspace to {target_dir}",
+            kind="success",
+        ))
 
     @app.get("/gratings/new")
     def new_grating():
@@ -434,20 +472,63 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.get("/gratings/manage")
     def manage_gratings():
+        data_dir = active_data_dir()
+        run_counts: dict[str, int] = {}
+        for run in _list_plot_runs(data_dir / "runs"):
+            linked_grating_id = str(run.get("grating_id", ""))
+            if linked_grating_id:
+                run_counts[linked_grating_id] = run_counts.get(linked_grating_id, 0) + 1
         return render_template(
             "grating_manage.html",
             gratings=store().list(),
+            grating_run_counts=run_counts,
+            message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
         )
 
     @app.post("/gratings/manage")
     def update_gratings():
-        action = str(request.form.get("action", "delete"))
-        if action != "delete":
-            return redirect(url_for("manage_gratings"))
-        delete_mode = str(request.form.get("delete_mode", "grating_only")).strip()
+        action = str(request.form.get("action", "delete")).strip()
         selected_ids = [str(grating_id) for grating_id in request.form.getlist("delete_grating_id")]
         if not selected_ids:
+            return redirect(url_for("manage_gratings", message="Select at least one grating first.", kind="error"))
+        if action == "duplicate":
+            duplicated: list[str] = []
+            failures: list[str] = []
+            for grating_id in selected_ids:
+                saved: dict[str, Any] | None = None
+                try:
+                    source = store().load(grating_id)
+                    spec = deepcopy(source)
+                    for key in ("id", "created_at", "updated_at"):
+                        spec.pop(key, None)
+                    spec["name"] = f"{str(source.get('name') or 'Grating').strip()} (copy)"
+                    saved = store().save(spec)
+                    if saved.get("grating_type") == "afm":
+                        _persist_afm_artifacts(saved, active_data_dir())
+                        saved = store().save(saved)
+                    duplicated.append(str(saved["name"]))
+                except (KeyError, OSError, TypeError, ValueError) as error:
+                    if saved is not None:
+                        store().delete(str(saved["id"]))
+                        shutil.rmtree(store().directory / str(saved["id"]), ignore_errors=True)
+                    failures.append(str(error))
+            if failures:
+                message = f"Duplicated {len(duplicated)}; could not duplicate {len(failures)} selected grating{'s' if len(failures) != 1 else ''}."
+                if not duplicated:
+                    message += f" {failures[0]}"
+                return redirect(url_for("manage_gratings", message=message, kind="error"))
+            return redirect(url_for(
+                "manage_gratings",
+                message=f"Created {len(duplicated)} grating {'copy' if len(duplicated) == 1 else 'copies'}.",
+                kind="success",
+            ))
+        if action != "delete":
             return redirect(url_for("manage_gratings"))
+
+        delete_mode = str(request.form.get("delete_mode", "grating_only")).strip()
+        if delete_mode not in {"grating_only", "grating_and_runs"}:
+            delete_mode = "grating_only"
         if delete_mode == "grating_and_runs":
             active_linked = [
                 run_id
@@ -456,7 +537,7 @@ def create_app(*, data_dir: str | Path | None = None):
                 if _is_run_active(app, run_id)
             ]
             if active_linked:
-                return redirect(url_for("manage_gratings", message="Cannot delete linked runs while active runs exist."))
+                return redirect(url_for("manage_gratings", message="Cannot delete linked runs while active runs exist.", kind="error"))
         for grating_id in selected_ids:
             if delete_mode == "grating_and_runs":
                 run_store().delete_many([str(run["id"]) for run in _linked_runs(active_data_dir(), grating_id)])
@@ -464,7 +545,24 @@ def create_app(*, data_dir: str | Path | None = None):
             preview_path = active_data_dir() / "previews" / f"{grating_id}.png"
             if preview_path.exists():
                 preview_path.unlink()
-        return redirect(url_for("manage_gratings"))
+        return redirect(url_for(
+            "manage_gratings",
+            message=f"Deleted {len(selected_ids)} grating{'s' if len(selected_ids) != 1 else ''}.",
+            kind="success",
+        ))
+
+    @app.post("/gratings/<grating_id>/rename")
+    def rename_grating(grating_id: str):
+        grating_store = store()
+        spec = grating_store.load(grating_id)
+        name = str(request.form.get("name", "")).strip()
+        if not name:
+            return redirect(url_for("manage_gratings", message="A grating name cannot be empty.", kind="error"))
+        if len(name) > 128:
+            return redirect(url_for("manage_gratings", message="Grating names must be 128 characters or fewer.", kind="error"))
+        spec["name"] = name
+        grating_store.save(spec)
+        return redirect(url_for("manage_gratings", message=f"Renamed grating to “{name}”.", kind="success"))
 
     @app.get("/gratings/<grating_id>")
     def grating_detail(grating_id: str):
@@ -481,6 +579,7 @@ def create_app(*, data_dir: str | Path | None = None):
         return render_template(
             "grating_detail.html",
             grating=spec,
+            linked_runs=_linked_runs(active_data_dir(), grating_id),
             preview_url=url_for("data_file", filename=f"previews/{grating_id}.png", v=version),
             roughness_preview_url=(url_for("data_file", filename=f"previews/{rough_path.name}", v=version)
                                    if rough_path else None),
@@ -616,19 +715,53 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         return jsonify(preview)
 
-    @app.get("/runs/manage")
-    def manage_runs():
+    @app.get("/runs/gratings")
+    def manage_grating_runs():
         return render_template(
             "run_manage.html",
-            runs=_manage_run_entries(app.config["GRAx_DATA_DIR"], app=app),
+            runs=[
+                run for run in _manage_run_entries(app.config["GRAx_DATA_DIR"], app=app)
+                if _is_grating_run(run)
+            ],
+            message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
         )
 
-    @app.post("/runs/manage")
+    @app.get("/runs/manage")
+    def manage_runs():
+        """Keep the former run-management URL working for saved links."""
+        return redirect(url_for("manage_grating_runs"))
+
+    @app.post("/runs/gratings")
     def update_runs():
         action = str(request.form.get("action", "save"))
         store = run_store()
+        if action == "compare":
+            grating_run_ids = {
+                str(run.get("id")) for run in store.list() if _is_grating_run(run)
+            }
+            selected_ids = list(dict.fromkeys(
+                run_id for run_id in request.form.getlist("selected_run_id")
+                if run_id in grating_run_ids
+            ))
+            if len(selected_ids) != 2:
+                return redirect(url_for(
+                    "manage_grating_runs",
+                    message="Select exactly two grating runs to compare.",
+                    kind="error",
+                ))
+            return redirect(url_for("compare_grating_runs", run_ids=selected_ids))
         if action == "delete":
-            run_ids = request.form.getlist("delete_run_id")
+            grating_run_ids = {
+                str(run.get("id")) for run in store.list() if _is_grating_run(run)
+            }
+            run_ids = [
+                run_id for run_id in (
+                    request.form.getlist("selected_run_id")
+                    or request.form.getlist("delete_run_id")
+                )
+                if run_id in grating_run_ids
+            ]
             if request.form.get("confirm_delete") != "1":
                 references = _plot_references_for_runs(active_data_dir(), run_ids)
                 if references:
@@ -638,9 +771,11 @@ def create_app(*, data_dir: str | Path | None = None):
                         plots=references,
                     )
             store.delete_many(run_ids)
-            return redirect(url_for("manage_runs"))
+            return redirect(url_for("manage_grating_runs"))
 
         for run in store.list():
+            if not _is_grating_run(run):
+                continue
             run_id = str(run["id"])
             field_name = f"display_name_{run_id}"
             comment_field_name = f"comment_{run_id}"
@@ -648,7 +783,87 @@ def create_app(*, data_dir: str | Path | None = None):
                 store.rename(run_id, str(request.form.get(field_name, "")))
             if comment_field_name in request.form:
                 store.update_comment(run_id, str(request.form.get(comment_field_name, "")))
-        return redirect(url_for("manage_runs"))
+        return redirect(url_for("manage_grating_runs"))
+
+    # Keep POSTs from older saved forms working while the canonical form URL is
+    # now the grating-specific run page.
+    app.add_url_rule("/runs/manage", endpoint="legacy_update_runs", view_func=update_runs, methods=["POST"])
+
+    @app.get("/runs/gratings/compare")
+    def compare_grating_runs():
+        selected_ids = list(dict.fromkeys(str(value) for value in request.args.getlist("run_ids")))
+        if len(selected_ids) != 2:
+            return redirect(url_for(
+                "manage_grating_runs",
+                message="Select exactly two grating runs to compare.",
+                kind="error",
+            ))
+        manifests = []
+        for run_id in selected_ids:
+            manifest = _load_run_manifest(active_data_dir(), run_id)
+            if manifest is None or not _is_grating_run(manifest):
+                return redirect(url_for(
+                    "manage_grating_runs",
+                    message="One of the selected grating runs is no longer available.",
+                    kind="error",
+                ))
+            manifest["display_name"] = str(
+                manifest.get("display_name") or f"{manifest.get('grating_name', 'Run')} · {manifest.get('workflow', 'run')}"
+            )
+            manifests.append(manifest)
+
+        run_views = _list_plot_runs(active_data_dir() / "runs")
+        view_by_id = {str(run["id"]): run for run in run_views}
+        available_by_run = {
+            run_id: set(view_by_id.get(run_id, {}).get("available_orders", []))
+            for run_id in selected_ids
+        }
+        common_orders = sorted(set.intersection(*available_by_run.values())) if all(available_by_run.values()) else []
+        requested_order = request.args.get("order", "")
+        try:
+            selected_order = int(requested_order)
+        except (TypeError, ValueError):
+            selected_order = -1
+        if selected_order not in common_orders:
+            first_default = (manifests[0].get("run_input") or {}).get("diffraction_order")
+            try:
+                first_default = int(first_default)
+            except (TypeError, ValueError):
+                first_default = -1
+            selected_order = first_default if first_default in common_orders else (common_orders[0] if common_orders else None)
+
+        parameter_rows = _run_comparison_parameter_rows(manifests)
+        figure_json = None
+        plot_error = ""
+        if selected_order is None:
+            plot_error = "These runs have no diffraction order in common, so an efficiency overlay is unavailable."
+        else:
+            try:
+                _, figure_json, _ = _build_plotly_compare_payload(
+                    data_dir=active_data_dir(),
+                    run_ids=selected_ids,
+                    order_selection={run_id: [selected_order] for run_id in selected_ids},
+                    plot_options={
+                        "title": f"{manifests[0]['display_name']} vs {manifests[1]['display_name']}",
+                        "x_axis_value": "energy",
+                        "x_axis_type": "linear",
+                        "y_axis_type": "linear",
+                    },
+                )
+            except (ValueError, RuntimeError) as error:
+                plot_error = str(error)
+
+        return render_template(
+            "run_compare.html",
+            runs=manifests,
+            run_ids=selected_ids,
+            common_orders=common_orders,
+            selected_order=selected_order,
+            parameter_rows=parameter_rows,
+            figure_json=figure_json,
+            plot_error=plot_error,
+            plotly_bundle=_plotly_bundle_text() if figure_json else None,
+        )
 
     @app.get("/runs/<run_id>")
     def run_detail(run_id: str):
@@ -889,7 +1104,7 @@ def create_app(*, data_dir: str | Path | None = None):
             delete_after_abort=disposition == "delete",
         )
         if disposition == "delete" and _load_run_manifest(active_data_dir(), run_id) is None:
-            return redirect(url_for("manage_runs"))
+            return redirect(url_for("manage_grating_runs"))
         return redirect(url_for("run_detail", run_id=run_id))
 
     @app.get("/runs/<run_id>/status")
@@ -4576,6 +4791,12 @@ def _plot_references_for_runs(data_dir: Path, run_ids: list[str]) -> list[dict[s
     return references
 
 
+def _is_grating_run(run: dict[str, Any]) -> bool:
+    """Return whether a saved run manifest belongs to the grating workflow."""
+
+    return bool(run.get("grating_id") or run.get("grating_spec") or run.get("grating_name"))
+
+
 def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[str, Any]]:
     """Build the derived view model used by Manage Runs."""
 
@@ -4587,6 +4808,7 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
         input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
         artifacts = [str(name) for name in run.get("artifacts", [])]
         plot_path = _preferred_run_plot_path(data_dir, run_id)
+        material_stack_preview_url = _run_material_stack_preview_url(data_dir, run)
         run.update(
             {
                 "detail_url": f"/runs/{run_id}",
@@ -4596,6 +4818,7 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
                     relative_path=plot_path,
                     token="",
                 ),
+                "material_stack_preview_url": material_stack_preview_url,
                 "artifacts": artifacts,
                 "artifact_links": [
                     {"name": name, "url": f"/_data/runs/{run_id}/{name}"}
@@ -4613,6 +4836,57 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
         )
         entries.append(run)
     return entries
+
+
+def _run_material_stack_preview_url(data_dir: Path, run: dict[str, Any]) -> str | None:
+    """Return a cached material-map image URL for a run's saved grating spec."""
+    spec = run.get("grating_spec")
+    if not isinstance(spec, dict):
+        return None
+    run_id = str(run.get("id", ""))
+    if not run_id:
+        return None
+    relative_path = Path("previews") / "run-stacks" / f"{run_id}.png"
+    preview_path = data_dir / relative_path
+    if not preview_path.is_file():
+        try:
+            grating = build_grating_from_spec(spec)
+            x_grid, z_grid, material_map, material_labels = grating._material_plot_data(num_periods=3)
+            import matplotlib.pyplot as plt
+
+            figure, axes = plt.subplots(figsize=(8, 3.5))
+            colors = grating._plot_material_colors(
+                coating_stack=grating.resolved_stack(),
+                material_labels=material_labels,
+            )
+            color_map = plt.matplotlib.colors.ListedColormap(colors)
+            color_map.set_bad(color="#ffffff", alpha=1.0)
+            masked_material_map = np.ma.masked_less(material_map, 0)
+            axes.imshow(
+                masked_material_map,
+                origin="lower",
+                aspect="auto",
+                extent=[x_grid[0], x_grid[-1], z_grid[0], z_grid[-1]],
+                cmap=color_map,
+                interpolation="nearest",
+                vmin=0,
+                vmax=max(len(material_labels) - 1, 1),
+            )
+            legend_handles = [
+                plt.matplotlib.patches.Patch(color=color_map.colors[index], label=label)
+                for index, label in enumerate(material_labels)
+            ]
+            axes.set_xlabel("x (nm)")
+            axes.set_ylabel("z (nm)")
+            axes.set_title("Material Stack")
+            axes.legend(handles=legend_handles, loc="upper right")
+            figure.tight_layout()
+            preview_path.parent.mkdir(parents=True, exist_ok=True)
+            figure.savefig(preview_path, dpi=150, bbox_inches="tight")
+            plt.close(figure)
+        except Exception:
+            return None
+    return f"/_data/{relative_path.as_posix()}"
 
 
 def _scan_run_rows(manifest: dict[str, Any], run_dir: Path) -> list[dict[str, Any]]:
@@ -4681,6 +4955,109 @@ def _run_parameter_details(run: dict[str, Any]) -> list[tuple[str, str]]:
             value = json.dumps(value, ensure_ascii=False, sort_keys=True)
         details.append((labels.get(key, key.replace("_", " ").capitalize()), str(value)))
     return details
+
+
+def _run_comparison_parameter_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten saved run inputs into aligned comparison-table rows."""
+
+    field_labels = {
+        "workflow": "Workflow",
+        "cff": "CFF",
+        "fourier_orders": "Fourier orders",
+        "solver": "Solver",
+        "polarization": "Polarization",
+        "diffraction_order": "Diffraction order",
+        "grazing_angle_deg": "Grazing angle (deg)",
+        "energy_ev": "Energy (eV)",
+        "energy_start_ev": "Energy start (eV)",
+        "energy_stop_ev": "Energy stop (eV)",
+        "energy_points": "Energy points",
+        "angle_start_deg": "Angle start (deg)",
+        "angle_stop_deg": "Angle stop (deg)",
+        "angle_points": "Angle points",
+        "roughness_kind": "Roughness model",
+        "x_resolution_nm": "X resolution (nm)",
+        "z_resolution_nm": "Z resolution (nm)",
+    }
+    ignored_grating_fields = {"id", "name", "created_at", "updated_at", "source_path", "profile_path"}
+    flattened: list[dict[str, str]] = []
+
+    def add_value(target: dict[str, str], label: str, value: Any) -> None:
+        if value is None or (isinstance(value, str) and value == ""):
+            return
+        is_custom_grid = label == "Custom grid config" or label.startswith("Custom grid config ·")
+        if is_custom_grid and isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except (TypeError, ValueError):
+                decoded = value
+            if isinstance(decoded, (dict, list)):
+                add_value(target, label, decoded)
+                return
+        if isinstance(value, dict):
+            if not value:
+                target[label] = "{}"
+                return
+            for key in sorted(value, key=str):
+                if str(key) in ignored_grating_fields:
+                    continue
+                child_name = field_labels.get(str(key), str(key).replace("_", " ").capitalize())
+                add_value(target, f"{label} · {child_name}" if label else child_name, value[key])
+        elif isinstance(value, list):
+            if value and any(isinstance(item, (dict, list)) for item in value):
+                preview_items = value[:5] if is_custom_grid else value
+                for index, item in enumerate(preview_items, start=1):
+                    add_value(target, f"{label} [{index}]", item)
+                if is_custom_grid and len(value) > len(preview_items):
+                    target[f"{label} · additional entries"] = f"{len(value) - len(preview_items)} more"
+            else:
+                if is_custom_grid:
+                    preview_items = value[:5]
+                    preview = ", ".join(str(item) for item in preview_items)
+                    if len(value) > len(preview_items):
+                        preview += f" … ({len(value) - len(preview_items)} more)"
+                    target[label] = preview or "[]"
+                else:
+                    target[label] = ", ".join(str(item) for item in value) if value else "[]"
+        else:
+            target[label] = str(value)
+
+    for run in runs:
+        values: dict[str, str] = {}
+        source = dict(run.get("run_input") or {})
+        source.setdefault("workflow", run.get("workflow"))
+        source.setdefault("solver", run.get("solver"))
+        source.setdefault("polarization", run.get("polarization"))
+        source.setdefault("diffraction_order", run.get("diffraction_order"))
+        if run.get("custom_grid") and not source.get("custom_grid_config"):
+            source["custom_grid_config"] = run["custom_grid"]
+        for key, value in source.items():
+            if key == "comment":
+                continue
+            label = field_labels.get(key, key.replace("_", " ").capitalize())
+            add_value(values, label, value)
+
+        spec = run.get("grating_spec")
+        if isinstance(spec, dict):
+            for key in (
+                "grating_type", "period_lpermm", "x_resolution_nm", "z_resolution_nm",
+                "width_to_period_ratio", "depth_nm", "sinusoidal_depth_nm", "blaze_angle_deg",
+                "anti_blaze_angle_deg", "left_wall_angle_deg", "right_wall_angle_deg", "stack",
+                "roughness",
+            ):
+                if key in spec and spec[key] not in (None, ""):
+                    label = "Grating stack" if key == "stack" else field_labels.get(
+                        key, key.replace("_", " ").capitalize()
+                    )
+                    add_value(values, label, spec[key])
+        flattened.append(values)
+
+    all_labels = sorted({label for values in flattened for label in values}, key=str.casefold)
+    rows = []
+    for label in all_labels:
+        cells = [values.get(label, "Not recorded") for values in flattened]
+        rows.append({"label": label, "values": cells, "different": len(set(cells)) > 1})
+    return rows
 
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
@@ -5393,6 +5770,35 @@ def _validate_workspace_root(raw_path: Any) -> Path:
     probe_path.write_text("ok", encoding="utf-8")
     probe_path.unlink()
     return target_dir
+
+
+def _create_workspace_folder(parent_path: Any, raw_name: Any) -> Path:
+    """Create and validate a named workspace folder directly under a parent."""
+
+    parent_dir = _safe_browse_path(parent_path)
+    if not parent_dir.is_dir():
+        raise ValueError("Choose an existing parent folder.")
+
+    folder_name = str(raw_name or "").strip()
+    if not folder_name:
+        raise ValueError("Enter a name for the new database folder.")
+    if folder_name.startswith(".") or any(separator in folder_name for separator in ("/", "\\")):
+        raise ValueError("Use a folder name without path separators or a leading dot.")
+
+    target_dir = parent_dir / folder_name
+    try:
+        target_dir.mkdir()
+    except FileExistsError as error:
+        raise ValueError(f"A file or folder named {folder_name!r} already exists here.") from error
+
+    try:
+        return _validate_workspace_root(target_dir)
+    except OSError:
+        try:
+            target_dir.rmdir()
+        except OSError:
+            pass
+        raise
 
 
 def _has_active_runs(app: Any) -> bool:

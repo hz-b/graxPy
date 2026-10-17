@@ -3,7 +3,7 @@
 APIs for the multilayer-grating design workflow: a 2-D
 d-spacing / blaze-angle survey at one optimization energy, followed by per-design
 energy scans. For every `(d_spacing, blaze angle)` pair the survey builds the
-multilayer-coated blazed grating and runs graxPy's single-energy multilayer theta
+multilayer-coated blazed grating and runs GraxPy's single-energy multilayer theta
 search, which scans the incident angle and returns the angle that maximizes the
 selected-order efficiency for that pair.
 

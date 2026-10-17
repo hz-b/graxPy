@@ -1,7 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.5.5
 
+- Reworked the web interface with HZB blue and BESSY II lime, added bundled Source Sans Pro, and moved the supplied logo into the web app's static assets.
+- Added the GraxPy mark to the left of the HZB mark across the site, with an enlarged logo lockup on the landing page.
+- Reworked the landing page as a home page with database controls, a GraxPy overview, collaboration and documentation links, and scrollable newest-first grating and run lists.
+- Reorganized the header into hover-, focus-, and click-accessible menus for gratings, plane mirrors, multilayer designs, and plots.
+- Added Manage runs before Plots and made navigation menus exclusive, closing them when the pointer leaves.
+- Updated the home page to use the supplied complete GraxPy/HZB logo, with About before database selection and recent lists.
+- Applied the brand palette to new automatic plot colors and geometry diagrams; existing saved plot styles are unchanged.
+- Improved typography and spacing across the site, and added a database-folder browser that can create named folders.
+- Split run management by simulation type. Grating runs can be renamed, compared, duplicated, or deleted; plane-mirror and multilayer studies have their own management pages.
+- Added run comparison plots and a parameter table that highlights differences, plus material-stack diagrams beside saved grating-run plots.
+- Made multilayer survey plots appear while a study is running, so its live results are visible from the start.
 - Split the former Fixed angle workflow into Energy sweep, which holds grazing angle fixed while scanning energy, and Angle sweep, which scans grazing angle at one selected energy.
 - Group each Angle sweep's sampled angles into one curve per parameter combination, with angle-based plots and wide-table exports.
 - Restored live run plots for grouped Energy, Angle, and Monochromator sweeps; each parameter combination has its own curve, and missing saved plot images can be rebuilt from results.
