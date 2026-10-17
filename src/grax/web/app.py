@@ -6,6 +6,7 @@ import argparse
 import csv
 import importlib.metadata
 import io
+import itertools
 import json
 import warnings
 from copy import copy
@@ -89,6 +90,7 @@ from .plane_mirror import (
     plane_mirror_csv,
 )
 from .runs import RunStore
+from . import parameter_scans
 from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
 from .custom_grid import (
     LARGE_GRID_WARNING,
@@ -489,6 +491,7 @@ def create_app(*, data_dir: str | Path | None = None):
             ],
             custom_grid_default=default_custom_grid_configuration(spec),
             custom_grid_warning_threshold=LARGE_GRID_WARNING,
+            scan_catalogs={mode: [item.to_json() for item in parameter_scans.scan_catalog(spec, mode)] for mode in ("energy_sweep", "angle_sweep", "monochromator")},
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -617,7 +620,7 @@ def create_app(*, data_dir: str | Path | None = None):
     def manage_runs():
         return render_template(
             "run_manage.html",
-            runs=_manage_run_entries(app.config["GRAx_DATA_DIR"]),
+            runs=_manage_run_entries(app.config["GRAx_DATA_DIR"], app=app),
         )
 
     @app.post("/runs/manage")
@@ -652,7 +655,10 @@ def create_app(*, data_dir: str | Path | None = None):
         manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id)
         if manifest is None:
             abort(404)
+        _repair_saved_run_plot(app, app.config["GRAx_DATA_DIR"], run_id, manifest)
+        manifest = _load_run_manifest(app.config["GRAx_DATA_DIR"], run_id) or manifest
         manifest["results_dir"] = app.config["GRAx_DATA_DIR"] / "runs" / run_id
+        manifest["scan_rows"] = _scan_run_rows(manifest, manifest["results_dir"])
         return render_template(
             "run_detail.html",
             run=manifest,
@@ -661,7 +667,118 @@ def create_app(*, data_dir: str | Path | None = None):
             status_url=url_for("run_status", run_id=run_id),
             memory_url=url_for("system_memory"),
             abort_url=url_for("abort_run_dialog", run_id=run_id),
+            plotly_bundle=_plotly_bundle_text() if manifest.get("parameter_sweep") else None,
+            scan_orders=_available_orders(manifest["results_dir"]) or sorted({int(scan["settings"]["diffraction_order"]) for scan in manifest.get("parameter_sweep", {}).get("scans", [])}),
         )
+
+    @app.get("/runs/<run_id>/scan-series")
+    def scan_series(run_id: str):
+        """Return separate, gap-preserving energy curves for the selected order."""
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if not manifest or not manifest.get("parameter_sweep"):
+            abort(404)
+        sweep = manifest["parameter_sweep"]
+        try:
+            order = int(request.args.get("order", 1))
+        except ValueError:
+            abort(400, "Choose an integer diffraction order.")
+        run_dir = active_data_dir() / "runs" / run_id
+        series = parameter_scans.load_all_series(run_dir, sweep, order)
+        return jsonify(
+            {
+                "energies": parameter_scans.sample_values(sweep),
+                "sample_values": parameter_scans.sample_values(sweep),
+                "sample_axis": sweep.get("sample_axis", {"id": "energy_ev", "label": "Photon Energy (eV)"}),
+                "scans": [
+                    {
+                        "id": scan["id"],
+                        "label": scan["label"],
+                        "axis_indices": scan["axis_indices"],
+                        "efficiencies": [
+                            value if np.isfinite(value) else None for value in series[scan["id"]]
+                        ],
+                    }
+                    for scan in sweep["scans"]
+                ],
+            }
+        )
+
+    @app.post("/runs/<run_id>/resume")
+    def resume_parameter_run(run_id: str):
+        """Resume the saved grouped calculation without changing its inputs."""
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if not manifest or not manifest.get("parameter_sweep"):
+            abort(404)
+        if _is_run_active(app, run_id):
+            abort(409, "This run is already active.")
+        form = dict(manifest["run_input"])
+        sweep = manifest["parameter_sweep"]
+        completed = len(_load_checkpoint_results(active_data_dir() / "runs" / run_id))
+        worker_mode, setting, requested = _worker_settings_from_form(form)
+        _update_manifest_fields(
+            active_data_dir(),
+            run_id,
+            status="queued",
+            error_text="",
+            resume_count=int(manifest.get("resume_count", 0)) + 1,
+        )
+        _start_run_worker(
+            app=app,
+            data_dir=active_data_dir(),
+            run_id=run_id,
+            grating_id=manifest["grating_id"],
+            grating_name=manifest["grating_name"],
+            grating=build_grating_from_spec(manifest["grating_spec"]),
+            workflow=manifest["workflow"],
+            energies=np.asarray(sweep["energy_values"], dtype=float),
+            form_data=form,
+            diffraction_order=int(form["diffraction_order"]),
+            fourier_orders=int(form["fourier_orders"]),
+            max_workers_setting=setting,
+            worker_mode=worker_mode,
+            requested_workers=requested,
+            completed_points=completed,
+            resume=True,
+        )
+        return redirect(url_for("run_detail", run_id=run_id))
+
+    @app.post("/runs/<run_id>/export/energy-tables")
+    def export_energy_tables(run_id: str):
+        """Download wide parameter-slice tables with column metadata."""
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if not manifest or not manifest.get("parameter_sweep"):
+            abort(404)
+        try:
+            body = parameter_scans.export_tables(
+                active_data_dir() / "runs" / run_id,
+                manifest["parameter_sweep"],
+                orders=[int(value) for value in request.form.getlist("orders")],
+                axis_ids=request.form.getlist("axes"),
+                formats=set(request.form.getlist("formats")),
+            )
+        except (ValueError, TypeError) as error:
+            abort(400, str(error))
+        return Response(
+            body,
+            mimetype="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={run_id}_energy_tables.zip"},
+        )
+
+    @app.get("/runs/<run_id>/energy-tables")
+    def energy_tables(run_id: str):
+        """Offer scan axes, diffraction orders, and wide-table formats."""
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if not manifest or not manifest.get("parameter_sweep"):
+            abort(404)
+        orders = _available_orders(active_data_dir() / "runs" / run_id)
+        if not orders:
+            orders = sorted(
+                {
+                    int(scan["settings"]["diffraction_order"])
+                    for scan in manifest["parameter_sweep"]["scans"]
+                }
+            )
+        return render_template("energy_tables.html", run=manifest, orders=orders)
 
     @app.get("/runs/<run_id>/export/<export_format>")
     def export_run(run_id: str, export_format: str):
@@ -868,14 +985,18 @@ def create_app(*, data_dir: str | Path | None = None):
             form_data=request.form,
             run_ids=run_ids,
             order_selection=order_selection,
-        )
-        plot = _build_combined_plot(
             data_dir=app.config["GRAx_DATA_DIR"],
-            run_ids=run_ids,
-            order_selection=order_selection,
-            title=plot_options["title"],
-            plot_options=plot_options,
         )
+        try:
+            plot = _build_combined_plot(
+                data_dir=app.config["GRAx_DATA_DIR"],
+                run_ids=run_ids,
+                order_selection=order_selection,
+                title=plot_options["title"],
+                plot_options=plot_options,
+            )
+        except ValueError as error:
+            abort(400, str(error))
         return redirect(url_for("plot_detail", plot_id=plot["id"]))
 
     @app.get("/plots/<plot_id>")
@@ -1920,13 +2041,13 @@ def _parameter_study_configuration(form: Any, grating: Any) -> tuple[float, floa
     angle_text = str(form.get("study_grazing_angle_deg", "")).strip()
     # Keep compatibility with older clients/forms that submitted the shared
     # energy and angle fields before the dedicated parameter-study controls.
-    energy = float(energy_text or form.get("energy_start_ev", 100.0))
+    energy = float(energy_text or form.get("energy_ev", form.get("energy_start_ev", 100.0)))
     angle = float(angle_text or form.get("grazing_angle_deg", 1.5))
     if energy <= 0:
         raise ValueError("Study energy must be greater than 0 eV.")
     if not np.isfinite(angle):
         raise ValueError("Study grazing angle must be finite.")
-    fourier_default = int(float(form.get("fourier_orders", 5)))
+    fourier_default = int(float(form.get("fourier_orders", 15)))
     fourier = _parameter_study_range(form, "fourier", fourier_default, integer=True)
     x_default = float(form.get("run_x_resolution_nm") or getattr(grating, "x_resolution_nm", 1.0))
     z_default = float(form.get("run_z_resolution_nm") or getattr(grating, "z_resolution_nm", 1.0))
@@ -2009,10 +2130,61 @@ def _custom_grid_defaults_from_form(form: Any) -> dict[str, Any]:
         "energy_ev": float(form.get("custom_default_energy_ev", 100.0) or 100.0),
         "grazing_angle_deg": float(form.get("custom_default_grazing_angle_deg", 1.5) or 1.5),
         "diffraction_order": int(float(form.get("custom_default_diffraction_order", 1) or 1)),
-        "fourier_orders": int(float(form.get("custom_default_fourier_orders", 5) or 5)),
+        "fourier_orders": int(float(form.get("custom_default_fourier_orders", 15) or 15)),
         "polarization": str(form.get("custom_default_polarization", "s") or "s"),
         "solver": str(form.get("custom_default_solver", "rcwa") or "rcwa"),
     }
+
+
+def _parameter_scans_from_form(
+    form: Any, spec: dict[str, Any] | None, energies: np.ndarray
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Resolve a posted or checkpointed sweep using its saved grating snapshot."""
+    config = parameter_scans.parse_config(form.get("parameter_sweep_config"))
+    mode = str(form.get("workflow"))
+    angle_values = None
+    if mode == "angle_sweep" and not any(
+        axis.get("parameter") == "grazing_angle_deg" for axis in config.get("independent", [])
+    ):
+        lower = float(form.get("grazing_angle_start_deg", 1.0))
+        upper = float(form.get("grazing_angle_stop_deg", 2.0))
+        count = int(float(form.get("grazing_angle_points", 11)))
+        if not np.isfinite(lower + upper) or lower < 0 or upper < lower or count < 1:
+            raise ValueError("Grazing-angle bounds must be finite, nonnegative, and ordered, with at least one point.")
+        if (count == 1) != (lower == upper):
+            raise ValueError("A single angle point requires equal bounds; differing bounds require at least two points.")
+        angle_values = np.linspace(lower, upper, count).tolist()
+    variants = config.get("variants") or []
+    base_spec = dict(variants[0]["spec"]) if variants else dict(spec or {})
+    if not base_spec:
+        raise ValueError("Parameter variations require a saved grating snapshot.")
+    defaults = {
+        "diffraction_order": int(float(form.get("diffraction_order", 1))),
+        "fourier_orders": int(float(form.get("fourier_orders", 15))),
+        "grazing_angle_deg": float(form.get("grazing_angle_deg", 1.5)),
+        "cff": float(form.get("cff", 2.25)),
+        "solver": _normalized_solver(form.get("solver", "rcwa")),
+        "polarization": _normalized_polarization(form.get("polarization", "s")),
+        "roughness_kind": form.get("roughness_kind"),
+        "run_x_resolution_nm": form.get("run_x_resolution_nm"),
+        "run_z_resolution_nm": form.get("run_z_resolution_nm"),
+    }
+    return parameter_scans.build_scans(
+        config, base_spec, mode=mode, energies=energies, defaults=defaults,
+        angle_values=angle_values,
+    )
+
+
+def _parameter_scan_point_count(form: Any, energy_count: int) -> int:
+    """Count points from the canonical, already normalized parameter grid."""
+    config = parameter_scans.parse_config(form.get("parameter_sweep_config"))
+    legacy_angle_axis = any(axis.get("parameter") == "grazing_angle_deg" for axis in config.get("independent", []))
+    total = int(float(form.get("grazing_angle_points", 11))) if form.get("workflow") == "angle_sweep" and not legacy_angle_axis else energy_count
+    for axis in config.get("independent", []):
+        total *= len(axis["values"])
+    for group in config.get("coupled_groups", []):
+        total *= len(group["rows"])
+    return total
 
 
 def _snapshot_custom_grid_afm_profiles(config: dict[str, Any], run_dir: Path) -> None:
@@ -2067,7 +2239,13 @@ def _queue_run(
     run_dir.mkdir(parents=True, exist_ok=True)
     custom_config: dict[str, Any] | None = None
     custom_cases: list[dict[str, Any]] = []
-    if workflow == "custom_grid":
+    sweep = None
+    if workflow in {"angle_sweep", "fixed_angle"}:
+        energy = float(form.get("energy_ev", 100))
+        if not np.isfinite(energy) or energy <= 0:
+            raise ValueError("Energy must be finite and greater than 0 eV.")
+        energies = np.asarray([energy], dtype=float)
+    elif workflow == "custom_grid":
         custom_config, custom_cases = _custom_grid_from_form(form, grating_spec)
         _snapshot_custom_grid_afm_profiles(custom_config, run_dir)
         custom_config, custom_cases = expand_custom_grid(
@@ -2086,6 +2264,16 @@ def _queue_run(
             float(form["energy_stop_ev"]),
             int(float(form["energy_points"])),
         )
+    if workflow == "angle_sweep" or (
+        workflow == "fixed_angle" and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
+    ) or (
+        workflow in {"energy_sweep", "monochromator"}
+        and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
+    ):
+        sweep, sweep_cases = _parameter_scans_from_form(form, grating_spec, energies)
+        _snapshot_custom_grid_afm_profiles(sweep["grid"], run_dir)
+        scan_form = {**dict(form), "parameter_sweep_config": sweep["grid"]}
+        sweep, sweep_cases = _parameter_scans_from_form(scan_form, grating_spec, energies)
     diffraction_order = (
         int(custom_cases[0]["diffraction_order"])
         if custom_cases else int(float(form.get("diffraction_order", 1)))
@@ -2097,7 +2285,7 @@ def _queue_run(
     elif custom_cases:
         fourier_orders = int(custom_cases[0]["fourier_orders"])
     else:
-        fourier_orders = int(float(form.get("fourier_orders", 5)))
+        fourier_orders = int(float(form.get("fourier_orders", 15)))
     polarization = (
         str(custom_cases[0]["polarization"])
         if custom_cases else _normalized_polarization(form.get("polarization", "s"))
@@ -2127,6 +2315,7 @@ def _queue_run(
             _parameter_study_total_points(form, grating, energies.size)
             if workflow == "parameter_study"
             else len(custom_cases) if workflow == "custom_grid"
+            else len(sweep_cases) if sweep is not None
             else int(energies.size)
         ),
         "run_input": _run_input_from_form(form),
@@ -2139,9 +2328,14 @@ def _queue_run(
     if custom_config is not None:
         manifest["custom_grid"] = custom_config
         manifest["run_input"]["custom_grid_config"] = custom_config
+    if sweep is not None:
+        manifest["parameter_sweep"] = sweep
+        manifest["run_input"]["parameter_sweep_config"] = sweep["grid"]
     RunStore(data_dir / "runs").save(manifest)
 
     worker_form_data = dict(form)
+    if sweep is not None:
+        worker_form_data["parameter_sweep_config"] = sweep["grid"]
     if custom_config is not None:
         worker_form_data["custom_grid_config"] = custom_config
     _start_run_worker(
@@ -2219,7 +2413,7 @@ def _start_run_worker(
             _parameter_study_total_points(form_data, grating, energies.size)
             if workflow == "parameter_study"
             else _custom_grid_case_count_from_form(form_data) if workflow == "custom_grid"
-            else int(energies.size)
+            else _parameter_scan_point_count(form_data, int(energies.size))
         ),
         worker_mode=worker_mode,
         requested_workers=requested_workers,
@@ -2277,6 +2471,7 @@ def _execute_run_job(
     _attach_roughness(grating, form_data)
 
     run_dir = data_dir / "runs" / run_id
+    run_manifest = _load_run_manifest(data_dir, run_id) or {}
 
     # Block here until the global pool has room — run stays "queued" while waiting.
     granted_workers = allocate_workers(run_id)
@@ -2429,6 +2624,17 @@ def _execute_run_job(
                 title=f"{grating_name} {workflow}",
             )
 
+        if results:
+            _publish_live_progress_if_due(
+                app=app,
+                run_id=run_id,
+                results=results,
+                output_path=live_plot_path,
+                diffraction_order=diffraction_order,
+                title=f"{grating_name} {workflow}",
+                min_interval_seconds=0.0,
+            )
+
         is_aborted = _is_abort_requested(app, run_id) or runner.stopped_early
         _persist_run_outputs(
             data_dir=data_dir,
@@ -2440,15 +2646,6 @@ def _execute_run_job(
         )
 
         if is_aborted:
-            _publish_live_progress_if_due(
-                app=app,
-                run_id=run_id,
-                results=results,
-                output_path=live_plot_path,
-                diffraction_order=diffraction_order,
-                title=f"{grating_name} {workflow}",
-                min_interval_seconds=0.0,
-            )
             _update_manifest_fields(
                 data_dir,
                 run_id,
@@ -3104,7 +3301,7 @@ def _load_checkpoint_results(run_dir: Path) -> list[Any]:
     if not checkpoint_path.exists():
         return []
     results = list(_load_checkpoint_case_results(checkpoint_path).values())
-    return sorted(results, key=lambda result: (float(result.energy_ev), int(result.index)))
+    return sorted(results, key=parameter_scans.result_order)
 
 
 def _checkpoint_counts(run_dir: Path) -> tuple[int, int]:
@@ -3177,6 +3374,8 @@ def _wait_for_run_shutdown(app: Any, run_id: str, *, timeout_seconds: float = 10
 def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
     """Return manifest-ready case summaries for persisted run metadata."""
 
+    if any("scan_id" in result.case_data for result in results):
+        results = sorted(results, key=parameter_scans.result_order)
     cases: list[dict[str, Any]] = []
     for result in results:
         case = {
@@ -3188,6 +3387,9 @@ def _manifest_cases(results: list[Any]) -> list[dict[str, Any]]:
             "error_message": result.error_message,
         }
         case_data = getattr(result, "case_data", {})
+        if "scan_id" in case_data:
+            case["scan_id"] = case_data["scan_id"]
+            case["scan_parameters"] = case_data.get("scan_parameters", {})
         if "custom_parameters" in case_data:
             case["custom_parameters"] = case_data.get("custom_parameters")
             case["custom_parameter_order"] = case_data.get("custom_parameter_order", [])
@@ -3209,6 +3411,7 @@ def _run_artifacts_for_results(run_dir: Path, *, include_plot: bool) -> list[str
         artifact_names.append("selected_efficiency.png")
     if (run_dir / "parameter_study.png").exists():
         artifact_names.append("parameter_study.png")
+    artifact_names.extend(str(path.relative_to(run_dir)) for path in sorted((run_dir / "scans").glob("*/efficiency.png")))
     return artifact_names
 
 
@@ -3259,6 +3462,10 @@ def _persist_run_outputs(
     from grax import simulation
 
     run_dir = data_dir / "runs" / run_id
+    manifest = _load_run_manifest(data_dir, run_id) or {}
+    if manifest.get("parameter_sweep"):
+        parameter_scans.write_outputs(results, manifest["parameter_sweep"], run_dir, title=title, include_plot=include_plot)
+        return
     is_custom_grid = any("custom_parameters" in result.case_data for result in results)
     if is_custom_grid:
         write_custom_grid_summary(results, run_dir / "summary.csv")
@@ -3335,11 +3542,15 @@ def _publish_live_progress_snapshot(
         results,
         x_key="index" if is_custom_grid else "energy_ev",
     )
-    if not ordered_results:
+    grouped_results = any("scan_id" in result.case_data for result in results)
+    if not ordered_results and not grouped_results:
         return False
 
     temp_path = output_path.with_name(f"{output_path.stem}.tmp{output_path.suffix}")
-    if is_custom_grid:
+    if grouped_results:
+        manifest = _load_run_manifest(output_path.parent.parent.parent, output_path.parent.name) or {}
+        parameter_scans.plot_scans(results, manifest["parameter_sweep"], temp_path, title=title)
+    elif is_custom_grid:
         plot_custom_grid(ordered_results, temp_path, title=title)
     else:
         simulation.plot_order_subset(
@@ -3539,6 +3750,8 @@ def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, 
         payload["custom_grid"] = manifest.get("custom_grid") or run_input.get(
             "custom_grid_config"
         )
+    if manifest.get("parameter_sweep"):
+        payload["parameter_sweep"] = manifest["parameter_sweep"]
     return payload
 
 
@@ -3862,6 +4075,145 @@ def _preferred_run_plot_path(data_dir: Path, run_id: str) -> str | None:
     return None
 
 
+def _repair_saved_run_plot(app: Any, data_dir: Path, run_id: str, manifest: dict[str, Any]) -> None:
+    """Recreate a missing completed plot from checkpoints without rerunning cases."""
+
+    if manifest.get("status") not in {"completed", "aborted", "failed", "ok"}:
+        return
+    run_dir = data_dir / "runs" / run_id
+    study = manifest.get("workflow") == "parameter_study"
+    destination = run_dir / ("parameter_study.png" if study else "selected_efficiency.png")
+    if destination.exists():
+        return
+    results = [] if study else _load_checkpoint_results(run_dir)
+    if not study and not results and not (run_dir / "summary.csv").exists():
+        return
+    temporary = run_dir / f"{destination.stem}.{uuid4().hex}.tmp.png"
+    try:
+        sweep = manifest.get("parameter_sweep")
+        title = f"{manifest.get('grating_name', run_id)} {manifest.get('workflow', 'run')}"
+        if study:
+            if not _plot_saved_parameter_study(run_dir, manifest, temporary):
+                return
+        elif not results:
+            _plot_saved_summary(run_dir, manifest, temporary, title=title)
+        elif sweep:
+            parameter_scans.plot_scans(results, sweep, temporary, title=title)
+        elif any("custom_parameters" in result.case_data for result in results):
+            plot_custom_grid(results, temporary, title=title)
+        else:
+            from grax import simulation
+
+            simulation.plot_order_subset(
+                results, temporary,
+                diffraction_orders=[int(manifest.get("run_input", {}).get("diffraction_order", 1))],
+                title=title,
+            )
+        temporary.replace(destination)
+        _update_manifest_fields(
+            data_dir, run_id,
+            artifacts=_parameter_study_artifacts(run_dir) if study else _run_artifacts_for_results(run_dir, include_plot=True),
+        )
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        app.logger.exception("Could not rebuild plot for run %s", run_id)
+
+
+def _plot_saved_summary(run_dir: Path, manifest: dict[str, Any], output_path: Path, *, title: str) -> None:
+    """Plot saved CSV rows when a completed run has no checkpoint file."""
+
+    from types import SimpleNamespace
+
+    with (run_dir / "summary.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise ValueError("Saved summary has no result rows.")
+    sweep = manifest.get("parameter_sweep")
+    if sweep:
+        scan_orders = {scan["id"]: int(scan["settings"]["diffraction_order"]) for scan in sweep["scans"]}
+        results = []
+        for row in rows:
+            scan_id = row["scan_id"]
+            selected = float(row["selected_efficiency"] or "nan")
+            results.append(SimpleNamespace(
+                case_data={"scan_id": scan_id},
+                energy_ev=float(row["energy_ev"]),
+                grazing_angle_deg=float(row["grazing_angle_deg"]),
+                status=row["status"],
+                selected_efficiency=selected,
+                orders=np.asarray([scan_orders[scan_id]]),
+                efficiency_all=np.asarray([selected]),
+            ))
+        parameter_scans.plot_scans(results, sweep, output_path, title=title)
+        return
+    workflow = manifest.get("workflow")
+    x_key = "grazing_angle_deg" if workflow == "angle_sweep" else "energy_ev"
+    x_label = "Grazing angle (deg)" if workflow == "angle_sweep" else "Photon Energy (eV)"
+    if workflow == "custom_grid":
+        x_key, x_label = None, "Case"
+    points = [
+        (float(row[x_key]) if x_key else float(index + 1),
+         float(row["selected_efficiency"] or "nan") if row["status"] == "ok" else np.nan)
+        for index, row in enumerate(rows)
+    ]
+    points.sort(key=lambda item: item[0])
+    figure, axis = plt.subplots(figsize=(10, 6))
+    try:
+        axis.plot([x for x, _ in points], [y for _, y in points], marker=".", linewidth=1.2)
+        axis.set(xlabel=x_label, ylabel="Selected-order efficiency", title=title)
+        axis.grid(True, alpha=0.3)
+        figure.savefig(output_path, dpi=120, bbox_inches="tight")
+    finally:
+        plt.close(figure)
+
+
+def _plot_saved_parameter_study(run_dir: Path, manifest: dict[str, Any], output_path: Path) -> bool:
+    """Rebuild the numerical-stability figure from its saved sweep CSV files."""
+
+    from grax import parameter_sweep
+
+    by_energy: dict[float, dict[str, Any]] = {}
+    for path in sorted(run_dir.glob("parameter_study_*.csv")):
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            continue
+        parameter = rows[0].get("parameter")
+        if parameter not in {"fourier_orders", "x_resolution_nm", "z_resolution_nm"}:
+            continue
+        energy = float(rows[0]["energy_ev"])
+        by_energy.setdefault(energy, {})[parameter] = parameter_sweep.ParameterSweepSeries(
+            parameter=parameter,
+            values=np.asarray([float(row["value"]) for row in rows]),
+            efficiencies=np.asarray([float(row["efficiency"]) for row in rows]),
+            errors=np.asarray([row["error"].strip().lower() == "true" for row in rows]),
+            error_messages=np.asarray([row.get("error_message", "") for row in rows]),
+        )
+    required = {"fourier_orders", "x_resolution_nm", "z_resolution_nm"}
+    complete = [(energy, sweeps) for energy, sweeps in sorted(by_energy.items()) if required <= sweeps.keys()]
+    if not complete:
+        return False
+    form = manifest.get("run_input", {})
+    result = parameter_sweep.ParameterStudyResult(
+        energies_ev=np.asarray([energy for energy, _ in complete]),
+        grazing_angle_deg=float(form.get("study_grazing_angle_deg", form.get("grazing_angle_deg", 1.5))),
+        diffraction_order=int(form.get("diffraction_order", 1)),
+        fourier_orders_values=complete[0][1]["fourier_orders"].values,
+        x_resolution_values=complete[0][1]["x_resolution_nm"].values,
+        z_resolution_values=complete[0][1]["z_resolution_nm"].values,
+        results=[
+            parameter_sweep.ParameterStudyEnergyResult(
+                energy_ev=energy,
+                grazing_angle_deg=float(form.get("study_grazing_angle_deg", form.get("grazing_angle_deg", 1.5))),
+                sweeps=sweeps,
+            )
+            for energy, sweeps in complete
+        ],
+    )
+    parameter_sweep.plot_parameter_study(result, output_filename=output_path)
+    return True
+
+
 def _file_token(path: Path) -> str:
     """Return a cheap cache-busting token for one file path."""
 
@@ -3934,7 +4286,15 @@ def _cases_for_workflow(
     polarization = _normalized_polarization(form.get("polarization", "s"))
     solver = _normalized_solver(form.get("solver", "rcwa"))
 
-    if workflow == "fixed_angle":
+    if workflow == "angle_sweep" or (
+        workflow == "fixed_angle" and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
+    ) or (
+        workflow in {"energy_sweep", "monochromator"}
+        and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
+    ):
+        return _parameter_scans_from_form(form, None, energies)[1]
+
+    if workflow in {"energy_sweep", "fixed_angle"}:
         cases = list(
             simulation.fixed_angle_cases(
                 grating=grating,
@@ -4075,6 +4435,8 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
             **run,
             "status": state,
         }
+        custom_plot = _custom_grid_plot_definition(run) if not run.get("parameter_sweep") else None
+        plot_sweep = run.get("parameter_sweep") or custom_plot
         runs.append(
             {
                 **enriched_run,
@@ -4083,11 +4445,81 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
                 "summary_label": _run_summary_label(enriched_run),
                 "summary_meta": _run_summary_meta(enriched_run),
                 "selector_text": _run_selector_text(enriched_run),
+                "plot_scans": [{"id": scan["id"], "label": scan["label"]} for scan in (plot_sweep or {}).get("scans", [])],
+                "plot_loops": _plot_loop_options(plot_sweep),
                 "checkpoint_completed_points": checkpoint_completed_points,
                 "checkpoint_total_points": checkpoint_total_points or int(run.get("total_points") or 0),
             }
         )
     return runs
+
+
+def _plot_loop_options(sweep: dict[str, Any] | None) -> list[dict[str, str]]:
+    """Offer the parameters recorded as varied scan axes."""
+    if not sweep:
+        return []
+    options: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for axis in sweep.get("axes", []):
+        parameters = axis.get("parameters", [])
+        for parameter in parameters:
+            if parameter in seen:
+                continue
+            seen.add(parameter)
+            label = axis["label"] if len(parameters) == 1 else parameter.replace("_", " ")
+            options.append({"id": parameter, "label": label})
+    return options
+
+
+def _custom_grid_plot_definition(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """Describe energy curves in a saved Custom grid without changing its manifest."""
+    config = manifest.get("custom_grid") or (manifest.get("run_input") or {}).get("custom_grid_config")
+    if not isinstance(config, dict):
+        return None
+    independent = config.get("independent") or []
+    energy_axes = [axis for axis in independent if axis.get("parameter") == "energy_ev"]
+    if len(energy_axes) != 1 or any(
+        "energy_ev" in group.get("parameters", []) for group in config.get("coupled_groups") or []
+    ):
+        return None
+    energy_values = sorted({float(value) for value in energy_axes[0].get("values", [])})
+    if not energy_values:
+        return None
+    axes = []
+    for axis in independent:
+        if axis.get("parameter") != "energy_ev":
+            axes.append({"id": axis["parameter"], "label": axis["parameter"].replace("_", " "),
+                         "parameters": [axis["parameter"]], "values": axis["values"]})
+    for index, group in enumerate(config.get("coupled_groups") or []):
+        axes.append({"id": f"coupled-{index}", "label": group.get("name") or f"Coupled group {index + 1}",
+                     "parameters": [f"coupled-{index}"], "values": group["rows"],
+                     "row_parameters": group["parameters"]})
+    scans = []
+    case_map = {}
+    scan_keys = {}
+    original_axes = [
+        ("energy_ev", axis["values"]) if axis.get("parameter") == "energy_ev" else (axis["parameter"], axis["values"])
+        for axis in independent
+    ] + [(f"coupled-{index}", group["rows"]) for index, group in enumerate(config.get("coupled_groups") or [])]
+    for case_index, values in enumerate(itertools.product(*(axis_values for _, axis_values in original_axes))):
+        selection = dict(zip((name for name, _ in original_axes), values, strict=True))
+        key = tuple(json.dumps(selection[axis["id"]], sort_keys=True) for axis in axes)
+        if key not in scan_keys:
+            scan_id = f"custom-scan-{len(scans):06d}"
+            scan_keys[key] = scan_id
+            labels = []
+            parameters = {}
+            for axis in axes:
+                value = selection[axis["id"]]
+                parameters[axis["id"]] = value
+                if axis.get("row_parameters"):
+                    labels.extend(f"{name}={value[name]}" for name in axis["row_parameters"])
+                else:
+                    labels.append(f"{axis['label']}={value}")
+            scans.append({"id": scan_id, "label": "; ".join(labels) or "Default settings",
+                          "parameters": parameters})
+        case_map[f"custom_grid-{case_index:08d}"] = (scan_keys[key], float(selection["energy_ev"]))
+    return {"axes": axes, "scans": scans, "energy_values": energy_values, "case_map": case_map}
 
 
 def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
@@ -4136,7 +4568,7 @@ def _plot_references_for_runs(data_dir: Path, run_ids: list[str]) -> list[dict[s
             references.append(
                 {
                     "id": plot.get("id", ""),
-                    "title": plot.get("title", "Saved plot"),
+                    "title": plot.get("name") or plot.get("title", "Saved plot"),
                     "url": f"/plots/{plot.get('id', '')}",
                     "runs": matches,
                 }
@@ -4144,12 +4576,14 @@ def _plot_references_for_runs(data_dir: Path, run_ids: list[str]) -> list[dict[s
     return references
 
 
-def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
+def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[str, Any]]:
     """Build the derived view model used by Manage Runs."""
 
     entries: list[dict[str, Any]] = []
     for run in _list_plot_runs(data_dir / "runs"):
         run_id = str(run["id"])
+        if app is not None and run.get("parameter_sweep"):
+            run["status"] = _run_status_payload(app=app, data_dir=data_dir, run_id=run_id)["state"]
         input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
         artifacts = [str(name) for name in run.get("artifacts", [])]
         plot_path = _preferred_run_plot_path(data_dir, run_id)
@@ -4170,6 +4604,7 @@ def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
                 "related_plots": _plot_references_for_runs(data_dir, [run_id]),
                 "parameter_summary": _run_input_summary(input_data),
                 "parameter_details": _run_parameter_details(run),
+                "scan_rows": _scan_run_rows(run, data_dir / "runs" / run_id),
                 "progress_summary": (
                     f"{_run_completed_points(run, run.get('checkpoint_completed_points', 0))} / "
                     f"{run.get('checkpoint_total_points') or run.get('total_points', 0)} points"
@@ -4180,11 +4615,39 @@ def _manage_run_entries(data_dir: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def _scan_run_rows(manifest: dict[str, Any], run_dir: Path) -> list[dict[str, Any]]:
+    """Annotate scan definitions with checkpoint-backed progress and images."""
+    sweep = manifest.get("parameter_sweep")
+    if not sweep:
+        return []
+    counts: dict[str, int] = {}
+    failures: dict[str, int] = {}
+    for result in _load_checkpoint_results(run_dir):
+        scan_id = result.case_data.get("scan_id")
+        counts[scan_id] = counts.get(scan_id, 0) + 1
+        failures[scan_id] = failures.get(scan_id, 0) + (result.status != "ok")
+    return [
+        {
+            **scan,
+            "completed": counts.get(scan["id"], 0),
+            "failed": failures.get(scan["id"], 0),
+            "total": len(parameter_scans.sample_values(sweep)),
+            "plot_path": f"scans/{scan['id']}/efficiency.png"
+            if (run_dir / "scans" / scan["id"] / "efficiency.png").exists()
+            else None,
+        }
+        for scan in sweep["scans"]
+    ]
+
+
 def _run_input_summary(run_input: dict[str, Any]) -> str:
     """Return compact, stable run parameters for the management list."""
 
     fields = []
-    if run_input.get("energy_start_ev") is not None and run_input.get("energy_stop_ev") is not None:
+    if run_input.get("workflow") in {"angle_sweep", "fixed_angle"} and run_input.get("energy_ev") is not None:
+        fields.append(f"energy {run_input['energy_ev']} eV")
+        fields.append(f"grazing {run_input.get('grazing_angle_start_deg')}–{run_input.get('grazing_angle_stop_deg')}°")
+    elif run_input.get("energy_start_ev") is not None and run_input.get("energy_stop_ev") is not None:
         fields.append(f"energy {run_input['energy_start_ev']}–{run_input['energy_stop_ev']} eV")
     if run_input.get("grazing_angle_deg") is not None:
         fields.append(f"grazing {run_input['grazing_angle_deg']}°")
@@ -4249,6 +4712,7 @@ def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
         form_data=form_data,
         run_ids=run_ids,
         order_selection=order_selection,
+        data_dir=data_dir,
     )
     try:
         selected_runs, figure_json, series_controls = _build_plotly_compare_payload(
@@ -4280,12 +4744,14 @@ def _available_orders(run_dir: Path) -> list[int]:
     """Return positive diffraction orders available for one run."""
     all_orders_path = run_dir / "all_orders.csv"
     orders: set[int] = set()
+    grouped = bool((_load_run_manifest(run_dir.parent.parent, run_dir.name) or {}).get("parameter_sweep"))
     if all_orders_path.exists():
         with all_orders_path.open("r", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 try:
-                    orders.add(abs(int(float(row["order"]))))
+                    value = int(float(row["order"]))
+                    orders.add(value if grouped else abs(value))
                 except (KeyError, TypeError, ValueError):
                     continue
     if not orders:
@@ -4293,7 +4759,7 @@ def _available_orders(run_dir: Path) -> list[int]:
             if getattr(result, "status", "") != "ok":
                 continue
             for value in np.asarray(getattr(result, "orders", []), dtype=int).tolist():
-                orders.add(abs(int(value)))
+                orders.add(int(value) if grouped else abs(int(value)))
     return sorted(orders)
 
 
@@ -4306,12 +4772,6 @@ def _build_combined_plot(
     plot_options: dict[str, Any],
 ) -> dict[str, Any]:
     """Build and save a combined plot for several runs and selected orders."""
-    plot_root = data_dir / "plots"
-    plot_root.mkdir(parents=True, exist_ok=True)
-    plot_id = _plot_id()
-    plot_dir = plot_root / plot_id
-    plot_dir.mkdir(parents=True, exist_ok=True)
-
     run_summaries, figure_json, series_controls = _build_plotly_compare_payload(
         data_dir=data_dir,
         run_ids=run_ids,
@@ -4320,12 +4780,21 @@ def _build_combined_plot(
     )
     _, selected_series = _load_selected_plot_series(
         data_dir=data_dir, run_ids=run_ids, order_selection=order_selection,
+        scan_selection=plot_options.get("scan_selection", {}),
+        loop_selection=plot_options.get("loop_selection", {}),
     )
-    image_path = plot_dir / f"{_plot_filename_stem(title)}.png"
+    plot_root = data_dir / "plots"
+    plot_root.mkdir(parents=True, exist_ok=True)
+    plot_id = _plot_id()
+    plot_dir = plot_root / plot_id
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    name = str(plot_options.get("name") or title)
+    image_path = plot_dir / f"{_plot_filename_stem(name)}.png"
     _save_compare_image(
         selected_series=selected_series,
         series_controls=series_controls,
         title=title,
+        x_axis_value=plot_options["x_axis_value"],
         x_axis_type=plot_options["x_axis_type"],
         y_axis_type=plot_options["y_axis_type"],
         output_path=image_path,
@@ -4341,13 +4810,17 @@ def _build_combined_plot(
         "id": plot_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "title": title,
+        "name": name,
         "plot_path": image_path.name,
         "run_images": run_images,
         "selected_runs": run_summaries,
         "plot_config": {
             "title": title,
+            "x_axis_value": plot_options["x_axis_value"],
             "x_axis_type": plot_options["x_axis_type"],
             "y_axis_type": plot_options["y_axis_type"],
+            "scan_selection": plot_options.get("scan_selection", {}),
+            "loop_selection": plot_options.get("loop_selection", {}),
             "series_styles": {
                 item["series_key"]: {
                     "legend_label": item["legend_label"],
@@ -4387,7 +4860,7 @@ def _unused_plot_image_path(directory: Path, filename: str) -> Path:
 
 def _save_compare_image(
     *, selected_series: list[dict[str, Any]], series_controls: list[dict[str, Any]],
-    title: str, x_axis_type: str, y_axis_type: str, output_path: Path,
+    title: str, x_axis_value: str, x_axis_type: str, y_axis_type: str, output_path: Path,
 ) -> None:
     """Render the styled comparison as a PNG for run-folder access."""
 
@@ -4400,7 +4873,7 @@ def _save_compare_image(
         for series in selected_series:
             style = style_by_key[series["series_key"]]
             axis.plot(
-                np.asarray(series["energies"], dtype=float),
+                _compare_x_values(series, x_axis_value),
                 np.asarray(series["efficiencies"], dtype=float),
                 label=style["label"], color=style["color"],
                 linestyle=line_styles[style["line_style"]],
@@ -4409,7 +4882,7 @@ def _save_compare_image(
             )
         axis.set_xscale(x_axis_type)
         axis.set_yscale(y_axis_type)
-        axis.set_xlabel("Photon Energy (eV)")
+        axis.set_xlabel("Grazing angle (deg)" if selected_series[0].get("x_axis_id") == "grazing_angle_deg" else _compare_x_label(x_axis_value))
         axis.set_ylabel("Diffraction Efficiency")
         axis.set_title(title, pad=16)
         axis.grid(True, alpha=0.3)
@@ -4424,37 +4897,66 @@ def _plot_options_from_form(
     form_data: Any,
     run_ids: list[str],
     order_selection: dict[str, list[int]],
+    data_dir: Path,
 ) -> dict[str, Any]:
     """Return normalized compare-plot configuration from form data."""
 
     plot_options = {
         "title": str(form_data.get("title", "")).strip() or "Combined plot",
+        "name": str(form_data.get("plot_name", "")).strip(),
+        "x_axis_value": _normalize_compare_x_value(form_data.get("x_axis_value")),
         "x_axis_type": _normalize_axis_type(form_data.get("x_axis_type")),
         "y_axis_type": _normalize_axis_type(form_data.get("y_axis_type")),
         "series_styles": {},
+        "scan_selection": {},
+        "loop_selection": {},
     }
     for run_id in run_ids:
+        scan_ids = form_data.getlist(f"scans_{run_id}")
+        if f"scan_selection_{run_id}" in form_data:
+            plot_options["scan_selection"][run_id] = scan_ids
+        plot_options["loop_selection"][run_id] = list(dict.fromkeys(form_data.getlist(f"loops_{run_id}")))
+        manifest = _load_run_manifest(data_dir, run_id)
+        sweep = (manifest or {}).get("parameter_sweep") or _custom_grid_plot_definition(manifest or {})
+        all_scan_ids = [scan["id"] for scan in (sweep or {}).get("scans", [])]
         for order in order_selection.get(run_id, []):
-            token = _series_token(run_id, int(order))
-            series_key = _series_key(run_id, int(order))
-            marker_symbol = str(form_data.get(f"marker_symbol_{token}", "")).strip() or "circle"
-            valid_marker_symbols = {value for value, _ in PLOTLY_MARKER_SYMBOLS}
-            if marker_symbol not in valid_marker_symbols:
-                marker_symbol = "circle"
-            try:
-                marker_size = int(float(form_data.get(f"marker_size_{token}", 3) or 3))
-            except (TypeError, ValueError):
-                marker_size = 3
-            marker_size = max(1, min(marker_size, 24))
-            legend_label = str(form_data.get(f"legend_label_{token}", "")).strip()
-            plot_options["series_styles"][series_key] = {
-                "legend_label": legend_label,
-                "color": _normalize_hex_color(form_data.get(f"color_{token}")),
-                "marker_symbol": marker_symbol,
-                "marker_size": marker_size,
-                "line_style": str(form_data.get(f"line_style_{token}", "")).strip(),
-            }
+            for scan_id in (all_scan_ids if all_scan_ids else [None]):
+                token = _series_token(run_id, int(order), scan_id)
+                series_key = _series_key(run_id, int(order), scan_id)
+                marker_symbol = str(form_data.get(f"marker_symbol_{token}", "")).strip() or "circle"
+                valid_marker_symbols = {value for value, _ in PLOTLY_MARKER_SYMBOLS}
+                if marker_symbol not in valid_marker_symbols:
+                    marker_symbol = "circle"
+                try:
+                    marker_size = int(float(form_data.get(f"marker_size_{token}", 3) or 3))
+                except (TypeError, ValueError):
+                    marker_size = 3
+                marker_size = max(1, min(marker_size, 24))
+                legend_label = str(form_data.get(f"legend_label_{token}", "")).strip()
+                plot_options["series_styles"][series_key] = {
+                    "legend_label": legend_label,
+                    "color": _normalize_hex_color(form_data.get(f"color_{token}")),
+                    "marker_symbol": marker_symbol,
+                    "marker_size": marker_size,
+                    "line_style": str(form_data.get(f"line_style_{token}", "")).strip(),
+                }
     return plot_options
+
+
+def _normalize_compare_x_value(raw_value: Any) -> str:
+    """Default older saved plots to photon energy."""
+    return "energy_times_order" if str(raw_value or "") == "energy_times_order" else "energy"
+
+
+def _compare_x_label(x_axis_value: str) -> str:
+    return "Energy × Diffraction Order (eV)" if x_axis_value == "energy_times_order" else "Photon Energy (eV)"
+
+
+def _compare_x_values(series: dict[str, Any], x_axis_value: str) -> np.ndarray:
+    energies = np.asarray(series["energies"], dtype=float)
+    if series.get("x_axis_id") == "grazing_angle_deg":
+        return energies
+    return energies * int(series["order"]) if x_axis_value == "energy_times_order" else energies
 
 
 def _normalize_axis_type(raw_value: Any) -> str:
@@ -4477,17 +4979,17 @@ def _normalize_hex_color(raw_value: Any) -> str | None:
     return None
 
 
-def _series_key(run_id: str, order: int) -> str:
+def _series_key(run_id: str, order: int, scan_id: str | None = None) -> str:
     """Return the stable manifest key for one compare-plot series."""
 
-    return f"{run_id}::order::{int(order)}"
+    return f"{run_id}::scan::{scan_id}::order::{int(order)}" if scan_id else f"{run_id}::order::{int(order)}"
 
 
-def _series_token(run_id: str, order: int) -> str:
+def _series_token(run_id: str, order: int, scan_id: str | None = None) -> str:
     """Return the form-safe token for one compare-plot series."""
 
     safe_run_id = "".join(character if character.isalnum() else "_" for character in run_id)
-    return f"{safe_run_id}__order_{int(order)}"
+    return f"{safe_run_id}__{scan_id}__order_{int(order)}" if scan_id else f"{safe_run_id}__order_{int(order)}"
 
 
 def _default_series_style(index: int) -> dict[str, Any]:
@@ -4516,16 +5018,27 @@ def _build_plotly_compare_payload(
         data_dir=data_dir,
         run_ids=run_ids,
         order_selection=order_selection,
+        scan_selection=plot_options.get("scan_selection", {}),
+        loop_selection=plot_options.get("loop_selection", {}),
     )
     if not selected_series:
         raise ValueError("Select at least one run and one diffraction order.")
+    axis_ids = {series.get("x_axis_id", "energy_ev") for series in selected_series}
+    if len(axis_ids) > 1:
+        raise ValueError("Compare angle sweeps separately from energy scans; their horizontal axes differ.")
     series_controls = _series_controls_for_selected_series(
         selected_series=selected_series,
         saved_styles=dict(plot_options.get("series_styles", {})),
     )
+    x_axis_value = _normalize_compare_x_value(plot_options.get("x_axis_value"))
+    if plot_options["x_axis_type"] == "log" and any(
+        np.any(_compare_x_values(series, x_axis_value) <= 0) for series in selected_series
+    ):
+        raise ValueError("Energy × diffraction order must be positive for a logarithmic X axis.")
     figure = _build_plotly_compare_figure(
         selected_series=selected_series,
         title=str(plot_options["title"]),
+        x_axis_value=x_axis_value,
         x_axis_type=str(plot_options["x_axis_type"]),
         y_axis_type=str(plot_options["y_axis_type"]),
         series_controls=series_controls,
@@ -4539,6 +5052,8 @@ def _load_selected_plot_series(
     data_dir: Path,
     run_ids: list[str],
     order_selection: dict[str, list[int]],
+    scan_selection: dict[str, list[str]] | None = None,
+    loop_selection: dict[str, list[str]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return selected run summaries plus all order series requested for comparison."""
 
@@ -4555,14 +5070,87 @@ def _load_selected_plot_series(
         legend_name = str(manifest.get("display_name") or manifest.get("grating_name") or run_id)
         orders = order_selection.get(run_id) or _available_orders(run_dir)
         run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
+        sweep = manifest.get("parameter_sweep") or _custom_grid_plot_definition(manifest)
+        custom_grid_plot = bool(sweep and not manifest.get("parameter_sweep"))
+        if sweep:
+            chosen = (scan_selection or {}).get(run_id)
+            scan_ids = _expanded_plot_scan_ids(sweep, chosen, (loop_selection or {}).get(run_id, []))
+            run_summaries[-1]["scan_ids"] = scan_ids
+        else:
+            scan_ids = [None]
+        scan_definitions = {scan["id"]: scan for scan in sweep["scans"]} if sweep else {}
         for order in orders:
-            series = _load_order_series(run_dir, order=order, label=legend_name)
-            if series is not None:
-                series["series_key"] = _series_key(run_id, int(order))
-                series["series_token"] = _series_token(run_id, int(order))
-                series["run_id"] = run_id
-                selected_series.append(series)
+            scan_values = (
+                _custom_grid_plot_series(run_dir, sweep, int(order)) if custom_grid_plot
+                else parameter_scans.load_all_series(run_dir, sweep, order) if sweep else {}
+            )
+            for scan_id in scan_ids:
+                if sweep:
+                    scan = scan_definitions[scan_id]
+                    series = {
+                        "label": f"{legend_name} · {scan['label']}",
+                        "order": int(order),
+                        "scan_id": scan_id,
+                        "energies": sweep["energy_values"] if custom_grid_plot else parameter_scans.sample_values(sweep),
+                        "x_axis_id": sweep.get("sample_axis", {}).get("id", "energy_ev"),
+                        "efficiencies": scan_values[scan_id],
+                    }
+                else:
+                    series = _load_order_series(run_dir, order=order, label=legend_name)
+                if series is not None:
+                    series["series_key"] = _series_key(run_id, int(order), scan_id)
+                    series["series_token"] = _series_token(run_id, int(order), scan_id)
+                    series["run_id"] = run_id
+                    selected_series.append(series)
     return run_summaries, selected_series
+
+
+def _custom_grid_plot_series(run_dir: Path, sweep: dict[str, Any], order: int) -> dict[str, list[float]]:
+    """Keep Custom grid energy cases separate by their saved parameter values."""
+    energies = sweep["energy_values"]
+    energy_index = {value: index for index, value in enumerate(energies)}
+    values = {scan["id"]: [float("nan")] * len(energies) for scan in sweep["scans"]}
+    path = run_dir / "all_orders.csv"
+    if not path.exists():
+        return values
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                if abs(int(float(row["order"]))) != abs(order):
+                    continue
+                scan_id, energy = sweep["case_map"][row["case_id"]]
+                values[scan_id][energy_index[energy]] = float(row["efficiency"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    return values
+
+
+def _expanded_plot_scan_ids(
+    sweep: dict[str, Any], chosen: list[str] | None, loops: list[str]
+) -> list[str]:
+    """Expand seed scans over recorded values of the chosen parameters."""
+    scans = sweep["scans"]
+    available = {
+        parameter for axis in sweep.get("axes", []) for parameter in axis.get("parameters", [])
+    }
+    if len(loops) != len(set(loops)) or any(parameter not in available for parameter in loops):
+        raise ValueError("Choose each available loop parameter only once.")
+    chosen_ids = set(chosen) if chosen is not None else {scan["id"] for scan in scans}
+    if loops and not chosen_ids and scans:
+        chosen_ids = {scans[0]["id"]}
+    seeds = [scan for scan in scans if scan["id"] in chosen_ids]
+    if not loops:
+        return [scan["id"] for scan in seeds]
+    fixed_parameters = sorted(available - set(loops))
+
+    def fixed_key(scan: dict[str, Any]) -> tuple[str, ...]:
+        return tuple(
+            json.dumps(scan["parameters"].get(parameter), sort_keys=True, ensure_ascii=False)
+            for parameter in fixed_parameters
+        )
+
+    seed_keys = {fixed_key(scan) for scan in seeds}
+    return [scan["id"] for scan in scans if fixed_key(scan) in seed_keys]
 
 
 def _series_controls_for_selected_series(
@@ -4610,6 +5198,7 @@ def _build_plotly_compare_figure(
     *,
     selected_series: list[dict[str, Any]],
     title: str,
+    x_axis_value: str,
     x_axis_type: str,
     y_axis_type: str,
     series_controls: list[dict[str, Any]],
@@ -4619,12 +5208,13 @@ def _build_plotly_compare_figure(
     _require_plotly()
     assert go is not None
     control_map = {item["series_key"]: item for item in series_controls}
+    x_label = "Grazing angle (deg)" if selected_series[0].get("x_axis_id") == "grazing_angle_deg" else _compare_x_label(x_axis_value)
     figure = go.Figure()
     for series in selected_series:
         style = control_map[str(series["series_key"])]
         figure.add_trace(
             go.Scatter(
-                x=np.asarray(series["energies"], dtype=float),
+                x=_compare_x_values(series, x_axis_value),
                 y=np.asarray(series["efficiencies"], dtype=float),
                 mode="lines+markers",
                 name=style["label"],
@@ -4634,16 +5224,17 @@ def _build_plotly_compare_figure(
                     "symbol": style["marker_symbol"],
                     "size": style["marker_size"],
                 },
-                hovertemplate="Energy: %{x:.3f} eV<br>Efficiency: %{y:.6f}<extra>%{fullData.name}</extra>",
+                hovertemplate=f"{x_label}: %{{x:.3f}}<br>Efficiency: %{{y:.6f}}<extra>%{{fullData.name}}</extra>",
             )
         )
     figure.update_layout(
         title=title,
         template="plotly_white",
+        showlegend=True,
         legend={"orientation": "h", "yanchor": "top", "y": -0.25, "x": 0.0},
         margin={"l": 64, "r": 24, "t": 82, "b": 140},
     )
-    figure.update_xaxes(title_text="Photon Energy (eV)", type=x_axis_type, showgrid=True, zeroline=False)
+    figure.update_xaxes(title_text=x_label, type=x_axis_type, showgrid=True, zeroline=False)
     figure.update_yaxes(title_text="Diffraction Efficiency", type=y_axis_type, showgrid=True, zeroline=False)
     return figure
 
@@ -4699,9 +5290,27 @@ def _render_combined_plot_image(
     return run_summaries
 
 
-def _load_order_series(run_dir: Path, *, order: int, label: str) -> dict[str, Any] | None:
+def _load_order_series(
+    run_dir: Path, *, order: int, label: str, scan_id: str | None = None
+) -> dict[str, Any] | None:
     """Load one order-vs-energy series from a saved run."""
     all_orders_path = run_dir / "all_orders.csv"
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        sweep = manifest.get("parameter_sweep")
+        if sweep:
+            scan = next((scan for scan in sweep["scans"] if scan["id"] == scan_id), None)
+            if scan is None:
+                return None
+            return {
+                "label": f"{label} · {scan['label']}",
+                "order": int(order),
+                "scan_id": scan_id,
+                "energies": parameter_scans.sample_values(sweep),
+                "x_axis_id": sweep.get("sample_axis", {}).get("id", "energy_ev"),
+                "efficiencies": parameter_scans.load_series(run_dir, sweep, scan_id, int(order)),
+            }
 
     requested_order = abs(int(order))
     rows: list[dict[str, float]] = []

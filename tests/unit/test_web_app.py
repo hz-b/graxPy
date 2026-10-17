@@ -861,7 +861,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     run_response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
-            "workflow": "fixed_angle",
+            "workflow": "energy_sweep",
             "energy_start_ev": "100",
             "energy_stop_ev": "120",
             "energy_points": "3",
@@ -877,7 +877,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     )
 
     assert run_response.status_code == 200
-    assert b"fixed_angle" in run_response.data
+    assert b"energy_sweep" in run_response.data
     assert (tmp_path / "runs").exists()
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline and not captured_cases:
@@ -896,7 +896,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
             break
         time.sleep(0.02)
     assert manifest["status"] == "completed"
-    assert manifest["display_name"] == "Run grating · fixed_angle"
+    assert manifest["display_name"] == "Run grating · energy_sweep"
     assert manifest["comment"] == "Commissioning sample"
     assert manifest["polarization"] == "p"
     assert manifest["run_input"]["polarization"] == "p"
@@ -1060,14 +1060,22 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert response.status_code == 200
     assert b'data-run-workflow' in response.data
     assert b'data-run-workflow-description' in response.data
-    assert b'Use it to calculate the spectral response' in response.data
+    assert b'Scans energy at a fixed grazing incidence angle' in response.data
     assert b'data-workflow-fields=' in response.data
-    assert b'fixed_angle' in response.data
+    assert b'energy_sweep' in response.data
+    assert b'angle_sweep' in response.data
     assert b'monochromator' in response.data
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
     assert b'name="polarization"' in response.data
+    assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
+    assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
+    assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
+    assert b'name="energy_ev" type="number" step="0.1" value="100"' in response.data
+    assert b'name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"' in response.data
+    assert b'name="grazing_angle_stop_deg" type="number" step="0.01" value="35"' in response.data
+    assert b'name="grazing_angle_points" type="number" step="1" value="101"' in response.data
 
 
 def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
@@ -2014,11 +2022,11 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     response = client.post(
         f"/gratings/{grating_id}/runs",
         data={
-            "workflow": "fixed_angle",
-            "energy_start_ev": "100",
-            "energy_stop_ev": "140",
-            "energy_points": "4",
-            "grazing_angle_deg": "1.5",
+            "workflow": "angle_sweep",
+            "energy_ev": "100",
+            "grazing_angle_start_deg": "1",
+            "grazing_angle_stop_deg": "2",
+            "grazing_angle_points": "4",
             "diffraction_order": "1",
             "fourier_orders": "5",
             "max_workers_mode": "manual",
@@ -2047,15 +2055,18 @@ def test_create_run_redirects_immediately_and_exposes_live_status(
     final_payload = live_payload
     while time.monotonic() < deadline:
         final_payload = client.get(f"/runs/{run_id}/status").get_json()
-        if final_payload["state"] == "completed":
+        if final_payload["state"] == "completed" and final_payload["elapsed_seconds"] is not None:
             break
         time.sleep(0.05)
     assert final_payload["state"] == "completed"
     assert final_payload["completed_points"] == 4
     assert final_payload["remaining_points"] == 0
-    assert final_payload["plot_url"]
+    assert "/selected_efficiency.png?v=" in final_payload["plot_url"]
     assert final_payload["elapsed_seconds"] is not None
     assert b"data-run-reload-on-finish" not in client.get(location).data
+    detail = client.get(location).get_data(as_text=True)
+    assert "1 angle scan" in detail
+    assert "scans/scan-000000/efficiency.png" in detail
 
 
 def test_run_detail_page_exposes_live_monitor_hooks(tmp_path: Path) -> None:
@@ -2697,7 +2708,7 @@ def test_flask_app_plots_selected_orders_across_runs(
         client.post(
             f"/gratings/{grating_id}/runs",
             data={
-                "workflow": "fixed_angle",
+                "workflow": "energy_sweep",
                 "energy_start_ev": energy_start,
                 "energy_stop_ev": str(float(energy_start) + 20.0),
                 "energy_points": "3",

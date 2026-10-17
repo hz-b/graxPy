@@ -908,6 +908,14 @@ fieldset {
 .run-parameters dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0; }
 .run-parameters dt { color: var(--muted); }
 .run-parameters dd { margin: 0; overflow-wrap: anywhere; }
+.scan-item { padding: 12px; border-bottom: 1px solid var(--line); }
+.scan-list-scroll { max-height: 22rem; overflow-y: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.run-case-results-scroll { max-height: 28rem; overflow: auto; }
+.run-case-results-scroll thead { position: sticky; top: 0; background: var(--surface, #fff); z-index: 1; }
+.scan-settings { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+.scan-settings dd { margin: 0; }
+.scan-selection { max-height: 300px; overflow-y: auto; }
+[data-parameter-scans] { grid-column: 1 / -1; }
 .parameter-range { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(150px, 1fr) repeat(3, minmax(120px, 1fr)); gap: 10px; align-items: end; padding-top: 8px; border-top: 1px solid var(--line); }
 .parameter-range strong { align-self: center; }
 .parameter-range-warning { grid-column: 2 / -1; color: #9a3412; }

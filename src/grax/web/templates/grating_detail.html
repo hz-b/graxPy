@@ -36,7 +36,8 @@
     <div class="run-workflow-picker">
       <label>Workflow
         <select name="workflow" data-run-workflow aria-describedby="run-workflow-description">
-          <option value="fixed_angle">Fixed angle</option>
+          <option value="energy_sweep">Energy sweep</option>
+          <option value="angle_sweep">Angle sweep</option>
           <option value="monochromator">Monochromator</option>
           <option value="multilayer_theta_search">Multilayer theta search</option>
           <option value="parameter_study">Parameter study</option>
@@ -44,8 +45,8 @@
         </select>
       </label>
       <aside class="run-workflow-description" id="run-workflow-description" data-run-workflow-description aria-live="polite">
-        <strong data-run-workflow-title>Fixed angle</strong>
-        <p data-run-workflow-summary>Scans an energy range while keeping the grazing angle fixed. Use it to calculate the spectral response at one incidence angle.</p>
+        <strong data-run-workflow-title>Energy sweep</strong>
+        <p data-run-workflow-summary>Scans energy at a fixed grazing incidence angle, with optional independent and coupled parameter variations.</p>
       </aside>
     </div>
     <label>Workers
@@ -60,17 +61,27 @@
     </label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
+  <fieldset data-workflow-fields="energy_sweep monochromator multilayer_theta_search">
     <legend>Energy sweep</legend>
-    <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="100"></label>
-    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="120"></label>
-    <label>Energy points <input name="energy_points" type="number" step="1" value="3"></label>
+    <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"></label>
+    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"></label>
+    <label>Energy points <input name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle">
-    <legend>Angle selection</legend>
+  <fieldset data-workflow-fields="energy_sweep">
+    <legend>Fixed grazing angle</legend>
     <label>Incident (grazing) angle α, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
   </fieldset>
+
+  <fieldset data-workflow-fields="angle_sweep">
+    <legend>Angle sweep at fixed energy</legend>
+    <label>Energy, eV <input name="energy_ev" type="number" step="0.1" value="100"></label>
+    <label>Grazing angle start, deg <input name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"></label>
+    <label>Grazing angle stop, deg <input name="grazing_angle_stop_deg" type="number" step="0.01" value="35"></label>
+    <label>Angle points <input name="grazing_angle_points" type="number" step="1" value="101"></label>
+  </fieldset>
+
+  {% include "_parameter_variations.html" %}
 
   <fieldset data-workflow-fields="parameter_study" data-parameter-study-fields>
     <legend><span class="parameter-label">Parameter study <button type="button" class="roughness-help" aria-label="Help: parameter study" aria-describedby="parameter-study-help">?</button><span class="roughness-tip" role="tooltip" id="parameter-study-help">This study is only for verifying numerical stability. It compares simulations while varying Fourier orders, X resolution, and Z resolution, with energy and grazing angle held fixed.</span></span></legend>
@@ -92,7 +103,7 @@
       <label>Minimum <input name="study_x_resolution_min" type="number" min="0.000001" step="any" value="0.1"></label>
       <label>Maximum <input name="study_x_resolution_max" type="number" min="0.000001" step="any" value="1.0"></label>
       <label>Values <input name="study_x_resolution_points" type="number" min="1" step="1" value="51"></label>
-      <label>Fixed Fourier orders <input name="study_x_fixed_fourier" type="number" min="1" step="1" value="20"></label>
+      <label>Fixed Fourier orders <input name="study_x_fixed_fourier" type="number" min="1" step="1" value="15"></label>
       <label>Fixed Z resolution, nm <input name="study_x_fixed_z_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
     </div>
     <div class="parameter-range">
@@ -100,7 +111,7 @@
       <label>Minimum <input name="study_z_resolution_min" type="number" min="0.000001" step="any" value="0.1"></label>
       <label>Maximum <input name="study_z_resolution_max" type="number" min="0.000001" step="any" value="1.0"></label>
       <label>Values <input name="study_z_resolution_points" type="number" min="1" step="1" value="51"></label>
-      <label>Fixed Fourier orders <input name="study_z_fixed_fourier" type="number" min="1" step="1" value="20"></label>
+      <label>Fixed Fourier orders <input name="study_z_fixed_fourier" type="number" min="1" step="1" value="15"></label>
       <label>Fixed X resolution, nm <input name="study_z_fixed_x_resolution" type="number" min="0.000001" step="any" value="0.5"></label>
     </div>
   </fieldset>
@@ -141,7 +152,7 @@
           <input name="custom_default_diffraction_order" type="number" step="1" value="1">
         </label>
         <label>Default Fourier orders
-          <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="5">
+          <input name="custom_default_fourier_orders" type="number" min="1" step="1" value="15">
         </label>
         <label>Default polarization
           <select name="custom_default_polarization">
@@ -192,7 +203,7 @@
     <label>CFF <input name="cff" type="number" step="0.01" value="2.25"></label>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search parameter_study">
+  <fieldset data-workflow-fields="energy_sweep angle_sweep monochromator multilayer_theta_search parameter_study">
     <legend>Shared simulation settings</legend>
     <label>Diffraction order <input name="diffraction_order" type="number" step="1" value="1"></label>
     <label>Polarization
@@ -222,11 +233,11 @@
     </div>
   </fieldset>
 
-  <fieldset data-workflow-fields="fixed_angle monochromator multilayer_theta_search">
+  <fieldset data-workflow-fields="energy_sweep angle_sweep monochromator multilayer_theta_search">
     <legend>Numerical resolution</legend>
-    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="5"></label>
-    <label><span class="parameter-label">X resolution, nm {{ roughness_help('run_x_resolution_nm', 'x_resolution') }}</span> <input name="run_x_resolution_nm" type="number" step="0.01" value="{{ grating.x_resolution_nm }}"></label>
-    <label><span class="parameter-label">Z resolution, nm {{ roughness_help('run_z_resolution_nm', 'z_resolution') }}</span> <input name="run_z_resolution_nm" type="number" step="0.01" value="{{ grating.z_resolution_nm }}"></label>
+    <label>Fourier orders <input name="fourier_orders" type="number" step="1" value="15"></label>
+    <label><span class="parameter-label">X resolution, nm {{ roughness_help('run_x_resolution_nm', 'x_resolution') }}</span> <input name="run_x_resolution_nm" type="number" step="0.01" value="0.5"></label>
+    <label><span class="parameter-label">Z resolution, nm {{ roughness_help('run_z_resolution_nm', 'z_resolution') }}</span> <input name="run_z_resolution_nm" type="number" step="0.01" value="0.5"></label>
   </fieldset>
   <div class="actions">
     <button class="button primary" type="submit">Run sweep</button>

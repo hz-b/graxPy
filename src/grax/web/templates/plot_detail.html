@@ -3,7 +3,7 @@
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>{{ plot.title }}</h1>
+    <h1>{{ plot.name or plot.title }}</h1>
     <p>{{ plot.created_at }}</p>
   </div>
   <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>

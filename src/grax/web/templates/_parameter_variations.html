@@ -1,0 +1,22 @@
+<fieldset data-workflow-fields="energy_sweep angle_sweep monochromator" data-custom-grid-builder data-parameter-scans data-warning-threshold="{{ custom_grid_warning_threshold }}">
+  <legend>Parameter variations (optional)</legend>
+  <script type="application/json" data-custom-grid-catalog>{{ scan_catalogs.energy_sweep | tojson }}</script>
+  <script type="application/json" data-scan-catalogs>{{ scan_catalogs | tojson }}</script>
+  <script type="application/json" data-custom-grid-default>{{ custom_grid_default | tojson }}</script>
+  <input type="hidden" name="parameter_sweep_config" data-custom-grid-config value="{{ custom_grid_default | tojson | forceescape }}">
+  <p class="hint">Independent parameters combine with one another; coupled values move together row by row. Energy sweep evaluates each combination over the energy range at the fixed grazing angle. Angle sweep evaluates it over the grazing-angle range at one energy. Monochromator evaluates it over the energy range at constant CFF.</p>
+  <section class="custom-grid-section">
+    <div class="section-head"><h3>Independent parameters</h3><button class="button" type="button" data-custom-add-axis>Add independent parameter</button></div>
+    <div class="list compact" data-custom-axes></div>
+  </section>
+  <section class="custom-grid-section">
+    <div class="section-head"><h3>Coupled parameters</h3><button class="button" type="button" data-custom-add-group>Add coupled parameter</button></div>
+    <p class="hint">Choose an independent parameter, then pair another parameter with its values. Each row forms one coordinated combination.</p>
+    <div class="list compact" data-custom-groups></div>
+  </section>
+  <section class="notice" data-custom-grid-summary>
+    <strong data-custom-grid-count>1 scan</strong>
+    <p class="subtle" data-custom-grid-warning></p>
+    <pre class="custom-grid-preview" data-custom-grid-preview tabindex="0" aria-label="Parameter combinations">Default settings</pre>
+  </section>
+</fieldset>

@@ -150,9 +150,13 @@ function syncWorkerFields(select) {
 function syncRunWorkflow(select) {
   const workflow = select.value;
   const descriptions = {
-    fixed_angle: {
-      title: "Fixed angle",
-      summary: "Scans an energy range while keeping the grazing angle fixed. Use it to calculate the spectral response at one incidence angle.",
+    energy_sweep: {
+      title: "Energy sweep",
+      summary: "Scans energy at a fixed grazing incidence angle. Optional independent and coupled parameters create a scan for every combination.",
+    },
+    angle_sweep: {
+      title: "Angle sweep",
+      summary: "Scans a grazing-angle range at one photon energy.",
     },
     monochromator: {
       title: "Monochromator",
@@ -172,6 +176,16 @@ function syncRunWorkflow(select) {
     },
   };
   const description = descriptions[workflow];
+  if (select.dataset.previousWorkflow && select.dataset.previousWorkflow !== workflow) {
+    select.closest("form")?.querySelectorAll("[data-monochromator-default]").forEach((field) => {
+      if (field.dataset.userEdited === "true") return;
+      field.value = workflow === "monochromator" ? field.dataset.monochromatorDefault : field.dataset.defaultValue;
+      field.dataset.applyingDefaults = "true";
+      field.dispatchEvent(new Event("input", {bubbles: true}));
+      delete field.dataset.applyingDefaults;
+    });
+  }
+  select.dataset.previousWorkflow = workflow;
   const panel = select.closest("form")?.querySelector("[data-run-workflow-description]");
   if (panel && description) {
     panel.querySelector("[data-run-workflow-title]").textContent = description.title;
@@ -195,13 +209,90 @@ function syncRunWorkflow(select) {
     toggleSectionFields(section, allowed.includes(workflow));
   });
   select.closest("form")?.querySelectorAll("[data-custom-axis]").forEach(syncCustomGridAxisInputs);
-  select.closest("form")?.querySelector("[data-custom-grid-builder]")?.dispatchEvent(new Event("workflowchange"));
+  select.closest("form")?.querySelectorAll("[data-custom-grid-builder]").forEach((root) => root.dispatchEvent(new Event("workflowchange")));
   syncFourierRangeWarning(select.closest("form"));
+}
+
+function initLinkedRange(minimum, maximum, count, fixedCount = false) {
+  if (!minimum || !maximum || !count || count.dataset.linkedRange) return;
+  count.dataset.linkedRange = "true";
+  const label = document.createElement("label"); label.textContent = "Step size (fits endpoints)";
+  for (const attr of ["data-scan-field", "data-grading-field"]) {
+    if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
+  }
+  const step = document.createElement("input");
+  step.type = "number"; step.step = "any"; step.min = "0"; step.dataset.linkedStep = "";
+  const hint = document.createElement("span"); hint.className = "subtle"; hint.setAttribute("aria-live", "polite");
+  label.append(step, hint); count.closest("label").after(label);
+  const sync = (force = false) => {
+    const lower = Number(minimum.value), upper = Number(maximum.value), size = Number(count.value);
+    const actual = Number.isFinite(lower + upper) && Number.isInteger(size) && size >= 1
+      ? String(size === 1 ? 0 : Number((Math.abs(upper - lower) / (size - 1)).toPrecision(12))) : "";
+    if (force || document.activeElement !== step) { step.value = actual; step.setCustomValidity(""); }
+    hint.textContent = step.value !== actual && actual ? `Actual spacing: ${actual}` : "";
+    step.disabled = count.disabled;
+  };
+  count._syncLinkedRange = sync;
+  count.addEventListener("input", () => { if (!fixedCount && Number(count.value) === 1) maximum.value = minimum.value; sync(); });
+  for (const field of [minimum, maximum]) field.addEventListener("input", () => {
+    if (!fixedCount && minimum.value === maximum.value) count.value = "1";
+    else if (!fixedCount && Number(count.value) < 2) count.value = "2";
+    sync();
+  });
+  step.addEventListener("input", () => {
+    const requested = Number(step.value), lower = Number(minimum.value), upper = Number(maximum.value);
+    step.setCustomValidity("");
+    if (!Number.isFinite(requested) || requested < 0 || (requested === 0 && lower !== upper)) {
+      step.setCustomValidity("Enter a positive step size, or zero for a single-point range."); return;
+    }
+    if (fixedCount) {
+      maximum.value = String(lower + (upper < lower ? -1 : 1) * requested * Math.max(0, Number(count.value) - 1));
+      maximum.dispatchEvent(new Event("input", {bubbles: true}));
+    } else {
+      const intervals = lower === upper ? 0 : Math.max(1, Math.round(Math.abs(upper - lower) / requested));
+      count.value = String(Math.min(intervals + 1, Number(count.max) || Infinity));
+      count.dispatchEvent(new Event("input", {bubbles: true}));
+    }
+    sync();
+  });
+  step.addEventListener("change", () => sync(true));
+  sync();
+}
+
+function initNamedRanges() {
+  document.querySelectorAll("form").forEach((form) => {
+    const field = (name) => form.querySelector(`[name="${name}"]`);
+    const mappings = [
+      ["energy_start_ev", "energy_stop_ev", "energy_points"],
+      ["grazing_angle_start_deg", "grazing_angle_stop_deg", "grazing_angle_points"],
+      ["study_fourier_min", "study_fourier_max", "study_fourier_points"],
+      ["study_x_resolution_min", "study_x_resolution_max", "study_x_resolution_points"],
+      ["study_z_resolution_min", "study_z_resolution_max", "study_z_resolution_points"],
+      ["energy_min", "energy_max", "energy_points"], ["angle_min", "angle_max", "angle_points"],
+      ["energy_min", "energy_max", "map_energy_points"], ["angle_min", "angle_max", "map_angle_points"],
+      ["d_min_nm", "d_max_nm", "d_points"], ["blaze_min_deg", "blaze_max_deg", "blaze_points"],
+      ["energy_scan_min_ev", "energy_scan_max_ev", "energy_scan_points"],
+    ];
+    mappings.forEach(([lower, upper, size]) => initLinkedRange(field(lower), field(upper), field(size)));
+    form.querySelectorAll('[name$="_scan_points"], [name="footprint_points"]').forEach((count) => {
+      if (count.dataset.linkedRange) return;
+      const width = field(count.name === "footprint_points" ? "footprint_length_mm" : count.name.replace("_points", "_half_width_deg"));
+      if (!width) return;
+      const minimum = document.createElement("input"), maximum = document.createElement("input");
+      const update = () => { minimum.value = "0"; maximum.value = String(Number(width.value) * (count.name === "footprint_points" ? 1 : 2)); count._syncLinkedRange?.(); };
+      update(); initLinkedRange(minimum, maximum, count); width.addEventListener("input", update); count.addEventListener("input", update);
+    });
+  });
+}
+
+function gridIsActive(root) {
+  const mode = root.closest("form").querySelector("[data-run-workflow]").value;
+  return root.hasAttribute("data-parameter-scans") ? ["energy_sweep", "angle_sweep", "monochromator"].includes(mode) : mode === "custom_grid";
 }
 
 function syncCustomGridAxisInputs(row) {
   const isRange = row.querySelector("[data-axis-mode]").value === "range";
-  const active = row.closest("form").querySelector("[data-run-workflow]").value === "custom_grid";
+  const active = gridIsActive(row.closest("[data-custom-grid-builder]"));
   const list = row.querySelector("[data-axis-list]");
   const range = row.querySelector("[data-axis-range]");
   list.classList.toggle("is-hidden", isRange);
@@ -799,6 +890,7 @@ function initPlotWorkspace(form) {
   const saveButton = document.querySelector("[data-save-plot]");
   const selectedRunSummary = document.querySelector("[data-selected-run-summary]");
   const seriesStyleList = document.querySelector("[data-series-style-list]");
+  const styleDrafts = new Map();
   let requestId = 0;
 
   function setPreviewFeedback(state, message) {
@@ -833,34 +925,58 @@ function initPlotWorkspace(form) {
 
   function attachStyleInputHandlers(item) {
     item.querySelectorAll("input, select").forEach((field) => {
+      if (field.matches("[data-series-legend-label]")) {
+        field.addEventListener("input", () => {
+          const index = [...seriesStyleList.querySelectorAll("[data-series-style-item]")].indexOf(item);
+          const name = field.value.trim();
+          if (name && index >= 0 && previewContainer?.data?.[index] && window.Plotly) {
+            window.Plotly.restyle(previewContainer, {name: [name]}, [index]);
+          }
+        });
+      }
       field.addEventListener("input", refreshPreview);
       field.addEventListener("change", refreshPreview);
+    });
+  }
+
+  function rememberStyles() {
+    seriesStyleList.querySelectorAll("[data-series-style-item]").forEach((item) => {
+      const key = item.dataset.seriesKey;
+      styleDrafts.set(key, {
+        legend: item.querySelector("[data-series-legend-label]").value,
+        color: item.querySelector("[data-series-color]").value,
+        marker: item.querySelector("[data-series-marker-symbol]").value,
+        size: item.querySelector("[data-series-marker-size]").value,
+        line: item.querySelector("[data-series-line-style]").value,
+      });
     });
   }
 
   function syncSeriesControls(seriesControls) {
     const existing = new Map([...seriesStyleList.querySelectorAll("[data-series-style-item]")]
       .map((item) => [item.dataset.seriesKey, item]));
+    rememberStyles();
     seriesControls.forEach((series) => {
       let item = existing.get(series.series_key);
       if (!item) {
         item = seriesTemplate.content.firstElementChild.cloneNode(true);
         item.dataset.seriesKey = series.series_key;
+        const draft = styleDrafts.get(series.series_key);
         const legendLabelInput = item.querySelector("[data-series-legend-label]");
         legendLabelInput.name = `legend_label_${series.series_token}`;
-        legendLabelInput.value = series.legend_label;
+        legendLabelInput.value = draft?.legend ?? series.legend_label;
         const colorInput = item.querySelector("[data-series-color]");
         colorInput.name = `color_${series.series_token}`;
-        colorInput.value = series.color;
+        colorInput.value = draft?.color ?? series.color;
         const markerSelect = item.querySelector("[data-series-marker-symbol]");
         markerSelect.name = `marker_symbol_${series.series_token}`;
-        markerSelect.value = series.marker_symbol;
+        markerSelect.value = draft?.marker ?? series.marker_symbol;
         const markerSizeInput = item.querySelector("[data-series-marker-size]");
         markerSizeInput.name = `marker_size_${series.series_token}`;
-        markerSizeInput.value = String(series.marker_size);
+        markerSizeInput.value = draft?.size ?? String(series.marker_size);
         const lineStyleSelect = item.querySelector("[data-series-line-style]");
         lineStyleSelect.name = `line_style_${series.series_token}`;
-        lineStyleSelect.value = series.line_style;
+        lineStyleSelect.value = draft?.line ?? series.line_style;
         attachStyleInputHandlers(item);
       }
       item.querySelector("[data-series-style-title]").textContent = series.label;
@@ -869,12 +985,15 @@ function initPlotWorkspace(form) {
     existing.forEach((item, key) => {
       if (!seriesControls.some((series) => series.series_key === key)) item.remove();
     });
+    if (seriesControls.some((series) => styleDrafts.has(series.series_key) && !existing.has(series.series_key))) {
+      refreshPreview();
+    }
   }
 
   const refreshPreview = debounce(async () => {
     requestId += 1;
     const currentRequest = requestId;
-    setPreviewFeedback("rendering", "Updating the live preview…");
+    setPreviewFeedback("rendering", "Updating the preview…");
     saveButton.disabled = true;
     try {
       const response = await fetch(previewUrl, {
@@ -894,6 +1013,7 @@ function initPlotWorkspace(form) {
       } else {
         setPreviewFeedback("error", payload.error || "Select runs and orders.");
         saveButton.disabled = true;
+        rememberStyles();
         seriesStyleList.replaceChildren();
       }
     } catch (error) {
@@ -902,6 +1022,7 @@ function initPlotWorkspace(form) {
       }
       setPreviewFeedback("error", "The preview could not be updated. Try again.");
       saveButton.disabled = true;
+      rememberStyles();
       seriesStyleList.replaceChildren();
     }
   }, 250);
@@ -913,6 +1034,56 @@ function initPlotWorkspace(form) {
     item.querySelector("[data-remove-run]").addEventListener("click", () => {
       item.remove();
       refreshPreview();
+    });
+  }
+
+  function bindLoopControls(item, options) {
+    if (!options.length) return;
+    const root = item.querySelector("[data-loop-controls]");
+    const list = root.querySelector("[data-loop-list]");
+    const add = root.querySelector("[data-add-loop]");
+    root.hidden = false;
+
+    function updateChoices() {
+      const selected = new Set([...list.querySelectorAll("select")].map((field) => field.value).filter(Boolean));
+      list.querySelectorAll("select").forEach((field) => {
+        [...field.options].forEach((option) => {
+          if (option.value) option.disabled = selected.has(option.value) && option.value !== field.value;
+        });
+      });
+      add.disabled = selected.size === options.length;
+    }
+
+    add.addEventListener("click", () => {
+      const row = document.createElement("div");
+      row.className = "row";
+      const label = document.createElement("label");
+      label.textContent = "Loop parameter";
+      const select = document.createElement("select");
+      select.append(new Option("Choose a parameter", ""));
+      options.forEach((option) => select.append(new Option(option.label, option.id)));
+      select.addEventListener("change", () => {
+        select.name = select.value ? `loops_${item.dataset.runId}` : "";
+        if (select.value && !item.querySelector('[data-scan-grid] input[type="checkbox"]:checked')) {
+          const firstScan = item.querySelector('[data-scan-grid] input[type="checkbox"]');
+          if (firstScan) firstScan.checked = true;
+        }
+        updateChoices();
+        refreshPreview();
+      });
+      label.append(select);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button";
+      remove.textContent = "Remove loop";
+      remove.addEventListener("click", () => {
+        row.remove();
+        updateChoices();
+        refreshPreview();
+      });
+      row.append(label, remove);
+      list.append(row);
+      updateChoices();
     });
   }
 
@@ -936,17 +1107,29 @@ function initPlotWorkspace(form) {
       .map((value) => Number.parseInt(value, 10));
     orders.forEach((order, index) => {
       const checkbox = createOrderCheckbox(option.value, order);
-      checkbox.querySelector("input").checked = index === 0;
+      checkbox.querySelector("input").checked = option.dataset.runDefaultOrder
+        ? order === Number(option.dataset.runDefaultOrder) : index === 0;
       orderGrid.append(checkbox);
     });
+    const scans = JSON.parse(option.dataset.runScans || "[]");
+    if (scans.length) {
+      const scanGrid = item.querySelector("[data-scan-grid]");
+      const marker = document.createElement("input"); marker.type = "hidden"; marker.name = `scan_selection_${option.value}`; marker.value = "1"; scanGrid.append(marker);
+      scans.forEach((scan, index) => {
+        const label = document.createElement("label"); label.className = "inline-check";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.name = `scans_${option.value}`; checkbox.value = scan.id; checkbox.checked = index === 0;
+        const text = document.createElement("span"); text.textContent = scan.label; label.append(checkbox, text); scanGrid.append(label);
+      });
+    }
+    bindLoopControls(item, JSON.parse(option.dataset.runLoops || "[]"));
     runList.append(item);
     bindRunItem(item);
     picker.value = "";
     refreshPreview();
   });
 
-  form.querySelectorAll('input[name="title"], select[name="x_axis_type"], select[name="y_axis_type"]').forEach((field) => {
-    field.addEventListener("input", refreshPreview);
+  form.querySelector('input[name="title"]')?.addEventListener("change", refreshPreview);
+  form.querySelectorAll('select[name="x_axis_value"], select[name="x_axis_type"], select[name="y_axis_type"]').forEach((field) => {
     field.addEventListener("change", refreshPreview);
   });
 }
@@ -959,6 +1142,52 @@ function initSavedPlotFigure(container) {
   renderPlotlyFigure(container, JSON.parse(figureJson));
 }
 
+function initScanViewer(root) {
+  const sweep = JSON.parse(root.querySelector("[data-scan-definition]").textContent);
+  const axisPicker = root.querySelector("[data-scan-axis]");
+  const orderPicker = root.querySelector("[data-scan-order]");
+  const filters = root.querySelector("[data-scan-filters]");
+  const feedback = root.querySelector("[data-scan-feedback]");
+  const plot = root.querySelector("[data-scan-plot]");
+  let payload = null, requestId = 0;
+  const choices = new Map();
+  function draw() {
+    if (!payload) return;
+    const selected = payload.scans.filter((scan) => [...choices].every(([axis, value]) => scan.axis_indices[axis] === value));
+    const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"];
+    renderPlotlyFigure(plot, {data: selected.map((scan, index) => ({
+      x: payload.sample_values || payload.energies, y: scan.efficiencies, name: scan.label, mode: "lines+markers", connectgaps: false,
+      line: {color: colors[index % colors.length], dash: ["solid", "dot", "dash", "dashdot"][index % 4]}, marker: {size: 3},
+    })), layout: {title: `Order ${orderPicker.value} — scans`, template: "plotly_white",
+      xaxis: {title: payload.sample_axis?.label || "Photon Energy (eV)"}, yaxis: {title: "Diffraction efficiency"},
+      legend: {orientation: "h", y: -0.25}, margin: {t: 70, b: 150}}});
+    feedback.textContent = `${selected.length} curves. Failed or missing points are gaps.`;
+  }
+  function updateFilters() {
+    const previous = new Map(choices); choices.clear(); filters.replaceChildren();
+    sweep.axes.filter((axis) => axis.id !== axisPicker.value).forEach((axis) => {
+      const label = document.createElement("label"); label.append(`Fix ${axis.label}`);
+      const select = document.createElement("select");
+      axis.rows.forEach((row, index) => select.append(new Option(Object.entries(row).map(([key, value]) => `${key}=${typeof value === "object" ? JSON.stringify(value) : value}`).join("; "), String(index))));
+      select.value = String(previous.get(axis.id) || 0); choices.set(axis.id, Number(select.value));
+      select.addEventListener("change", () => {choices.set(axis.id, Number(select.value)); draw();});
+      label.append(select); filters.append(label);
+    });
+    draw();
+  }
+  async function load() {
+    const id = ++requestId; feedback.textContent = "Loading energy curves…";
+    try {
+      const response = await fetch(`${root.dataset.seriesUrl}?order=${encodeURIComponent(orderPicker.value)}`);
+      if (!response.ok) throw new Error("Unable to load energy scans.");
+      const data = await response.json(); if (id !== requestId) return;
+      payload = data; draw();
+    } catch (error) { if (id === requestId) feedback.textContent = error.message; }
+  }
+  axisPicker.addEventListener("change", updateFilters); orderPicker.addEventListener("change", load);
+  updateFilters(); load();
+}
+
 function initCustomGridBuilder(root) {
   const catalogNode = root.querySelector("[data-custom-grid-catalog]");
   const defaultNode = root.querySelector("[data-custom-grid-default]");
@@ -967,7 +1196,10 @@ function initCustomGridBuilder(root) {
   const groupsRoot = root.querySelector("[data-custom-groups]");
   if (!catalogNode || !defaultNode || !configField || !axesRoot || !groupsRoot) return;
 
-  const baseCatalog = JSON.parse(catalogNode.textContent || "[]");
+  let baseCatalog = JSON.parse(catalogNode.textContent || "[]");
+  const scanCatalogs = root.querySelector("[data-scan-catalogs]");
+  const catalogsByMode = scanCatalogs ? JSON.parse(scanCatalogs.textContent) : null;
+  if (catalogsByMode) baseCatalog = catalogsByMode[root.closest("form").querySelector("[data-run-workflow]").value] || baseCatalog;
   const initial = JSON.parse(defaultNode.textContent || "{}");
   const threshold = Number(root.dataset.warningThreshold || 1000);
   const countNode = root.querySelector("[data-custom-grid-count]");
@@ -1183,12 +1415,12 @@ function initCustomGridBuilder(root) {
           materialSignature = signature;
         }
       }
-      const active = root.closest("form").querySelector("[data-run-workflow]").value === "custom_grid";
+      const active = gridIsActive(root);
       materials.querySelectorAll("input").forEach((field) => { field.disabled = !active || !isMaterial; });
     }
     materialAxes.set(row, {sync: syncMaterials, read: () => materialValues.map((value) => castPreview(value, descriptor(parameter.value)))});
     const range = document.createElement("div"); range.className = "custom-grid-range"; range.dataset.axisRange = "";
-    [["Minimum", "minimum"], ["Maximum", "maximum"], ["Count", "count"]].forEach(([label, key]) => {
+    [["Minimum", "minimum"], ["Maximum", "maximum"], ["Point count", "count"]].forEach(([label, key]) => {
       const fieldLabel = document.createElement("label"); const input = document.createElement("input");
       input.type = "number"; input.step = key === "count" ? "1" : "any"; input.dataset[key] = "";
       input.value = axis[key] ?? (key === "count" ? 2 : key === "minimum" ? 0 : 1);
@@ -1208,7 +1440,9 @@ function initCustomGridBuilder(root) {
     }
     parameter.addEventListener("change", () => { syncMode(); refresh(); }); mode.addEventListener("change", () => { syncMode(); refresh(); });
     row.addEventListener("input", refresh); row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refresh(); });
-    axesRoot.append(row); syncMode();
+    axesRoot.append(row);
+    initLinkedRange(range.querySelector("[data-minimum]"), range.querySelector("[data-maximum]"), range.querySelector("[data-count]"));
+    syncMode();
   }
 
   function makeGroup(group = {}) {
@@ -1237,6 +1471,10 @@ function initCustomGridBuilder(root) {
     const start = row.querySelector("[data-couple-start]");
     const stop = row.querySelector("[data-couple-stop]");
     const count = row.querySelector("[data-couple-count]");
+    const savedInput = group.input_settings?.[target.value];
+    if (savedInput) { mode.value = savedInput.mode; start.value = savedInput.start; stop.value = savedInput.stop; }
+    count.readOnly = true;
+    initLinkedRange(start, stop, count, true);
     const body = row.querySelector("tbody");
     const state = {manual: (group.rows || []).map((values) => values[group.parameters[1]] ?? ""), values: [], error: "", signature: "", source: "", target: target.value};
     groupsRoot.append(row);
@@ -1244,7 +1482,7 @@ function initCustomGridBuilder(root) {
     source.value = group.parameters?.[0] || sourceAxes()[0]?.querySelector(".custom-grid-parameter").value || "";
 
     function update() {
-      const active = root.closest("form").querySelector("[data-run-workflow]").value === "custom_grid";
+      const active = gridIsActive(root);
       const item = descriptor(target.value);
       const rangeAllowed = ["int", "float", "optional_float"].includes(item?.kind);
       mode.querySelector('[value="range"]').disabled = !rangeAllowed;
@@ -1261,6 +1499,9 @@ function initCustomGridBuilder(root) {
         const axis = sourceAxes().find((axis) => axis.querySelector(".custom-grid-parameter").value === source.value);
         if (!axis) throw new Error("Choose an existing independent parameter to couple to.");
         state.values = axisValues(axis);
+        count.value = state.values.length;
+        if (state.values.length === 1) stop.value = start.value;
+        count._syncLinkedRange?.();
         if (source.value !== state.source) {
           if (state.source) state.manual = [];
           state.source = source.value;
@@ -1329,7 +1570,8 @@ function initCustomGridBuilder(root) {
         if (raw === "") throw new Error(`Enter ${descriptor(target.value).label} for row ${index + 1}.`);
         return {[source.value]: value, [target.value]: castPreview(raw, descriptor(target.value))};
       });
-      return {name: `Coupled to ${descriptor(source.value).label}`, parameters: [source.value, target.value], rows};
+      return {name: `Coupled to ${descriptor(source.value).label}`, parameters: [source.value, target.value], rows,
+        input_settings: {[target.value]: {mode: mode.value, start: start.value, stop: stop.value}}};
     }
 
     coupledEditors.set(row, {update, read});
@@ -1364,6 +1606,7 @@ function initCustomGridBuilder(root) {
       const existing = bySource.get(group.parameters[0]);
       if (existing) {
         existing.parameters.push(group.parameters[1]);
+        Object.assign(existing.input_settings, group.input_settings);
         existing.rows.forEach((values, index) => Object.assign(values, group.rows[index]));
       } else {
         bySource.set(group.parameters[0], group);
@@ -1387,7 +1630,11 @@ function initCustomGridBuilder(root) {
       ...independent.map((axis) => ({kind: "independent", parameter: axis.parameter})),
       ...coupled_groups.map((group, index) => ({kind: "coupled_group", index, name: group.name})),
     ];
-    return {schema_version: 1, independent, coupled_groups, display_order};
+    const editor_axes = sourceAxes().map((row) => ({parameter: row.querySelector('.custom-grid-parameter').value,
+      mode: row.querySelector('[data-axis-mode]').value, values: axisValues(row),
+      minimum: Number(row.querySelector('[data-minimum]').value), maximum: Number(row.querySelector('[data-maximum]').value),
+      count: Number(row.querySelector('[data-count]').value)}));
+    return {schema_version: 1, independent, coupled_groups, display_order, editor_axes};
   }
 
   function gridSummary(config) {
@@ -1405,10 +1652,20 @@ function initCustomGridBuilder(root) {
       coupledEditors.forEach((editor) => editor.update());
       const config = buildConfig(); const summary = gridSummary(config);
       configField.value = JSON.stringify(config);
-      countNode.textContent = `${summary.count.toLocaleString()} ${summary.count === 1 ? "case" : "cases"}`;
+      const form = root.closest("form");
+      const mode = form.querySelector("[data-run-workflow]").value;
+      const axisCount = mode === "angle_sweep"
+        ? Number(form.querySelector('[name="grazing_angle_points"]')?.value || 1)
+        : Number(form.querySelector('[name="energy_points"]')?.value || 1);
+      const terms = [...config.independent.map((axis) => `${axisValues(sourceAxes().find((row) => row.querySelector('.custom-grid-parameter').value === axis.parameter)).length} ${descriptor(axis.parameter)?.label || axis.parameter}`),
+        ...config.coupled_groups.map((group) => `${group.rows.length} ${group.name}`)];
+      countNode.textContent = root.hasAttribute("data-parameter-scans")
+        ? `${terms.join(" × ") || "1 combination"} × ${axisCount} ${mode === "angle_sweep" ? "angles" : "energies"} = ${(summary.count * axisCount).toLocaleString()} simulation points`
+        : `${summary.count.toLocaleString()} ${summary.count === 1 ? "case" : "cases"}`;
       const duplicateCount = summary.duplicateCount;
       const warnings = [];
-      if (summary.count > threshold) warnings.push(`Large grid: ${summary.count.toLocaleString()} cases exceeds the ${threshold.toLocaleString()}-case warning threshold.`);
+      const total = summary.count * (root.hasAttribute("data-parameter-scans") ? axisCount : 1);
+      if (total > threshold) warnings.push(`Large grid: ${total.toLocaleString()} points exceeds the ${threshold.toLocaleString()}-point warning threshold.`);
       if (duplicateCount) warnings.push(`${duplicateCount} resolved duplicate ${duplicateCount === 1 ? "case is" : "cases are"} retained.`);
       warningNode.textContent = warnings.join(" "); warningNode.classList.toggle("notice-error", warnings.length > 0);
       casePreview = {...summary, rendered: 0};
@@ -1424,13 +1681,35 @@ function initCustomGridBuilder(root) {
     }
   }
 
-  root.addEventListener("workflowchange", refresh);
-  (initial.independent || []).forEach(makeAxis);
-  (initial.coupled_groups || []).forEach(makeGroup);
+  root.addEventListener("workflowchange", () => {
+    if (catalogsByMode) {
+      const next = catalogsByMode[root.closest("form").querySelector("[data-run-workflow]").value];
+      if (next && JSON.stringify(next) !== JSON.stringify(baseCatalog)) {
+        baseCatalog = next;
+        root.querySelectorAll(".custom-grid-parameter").forEach((select) => {
+          const selected = select.value;
+          const options = descriptorOptions(selected);
+          select.replaceChildren(...options.children);
+          if (!descriptor(selected)) select.append(new Option(`${selected} (unavailable in this mode)`, selected));
+          select.value = selected;
+        });
+      }
+    }
+    refresh();
+  });
+  root.closest("form").querySelectorAll('[name="energy_points"], [name="energy_start_ev"], [name="energy_stop_ev"], [name="grazing_angle_points"], [name="grazing_angle_start_deg"], [name="grazing_angle_stop_deg"]').forEach((field) => field.addEventListener("input", refresh));
+  (initial.editor_axes || initial.independent || []).forEach(makeAxis);
+  (initial.coupled_groups || []).forEach((group) => {
+    const source = group.parameters[0];
+    if (!sourceAxes().some((axis) => axis.querySelector('.custom-grid-parameter').value === source)) {
+      makeAxis({parameter: source, mode: 'list', values: group.rows.map((row) => row[source])});
+    }
+    group.parameters.slice(1).forEach((target) => makeGroup({...group, parameters: [source, target]}));
+  });
   root.querySelector("[data-custom-add-axis]").addEventListener("click", () => { makeAxis(); refresh(); });
   root.querySelector("[data-custom-add-group]").addEventListener("click", () => { makeGroup(); refresh(); });
   root.closest("form")?.addEventListener("submit", (event) => {
-    if (root.closest("form").querySelector("[data-run-workflow]")?.value !== "custom_grid") return;
+    if (!gridIsActive(root)) return;
     refresh();
     if (root.dataset.customGridValid !== "true") { event.preventDefault(); window.alert(warningNode.textContent); }
   });
@@ -1439,15 +1718,28 @@ function initCustomGridBuilder(root) {
 
 document.addEventListener("DOMContentLoaded", () => {
   initMaterialDensitySync();
+  document.querySelectorAll("[data-scan-viewer]").forEach(initScanViewer);
   const runForm = document.querySelector("[data-run-form]");
   let draft = null;
   if (runForm) {
     const draftKey = `grax:run-draft:${runForm.dataset.gratingId}`;
     try { draft = JSON.parse(sessionStorage.getItem(draftKey) || "null"); } catch { sessionStorage.removeItem(draftKey); }
     if (draft && !Array.isArray(draft.fields)) { draft = null; sessionStorage.removeItem(draftKey); }
-    if (draft?.customGrid) {
-      const defaultNode = runForm.querySelector("[data-custom-grid-default]");
-      if (defaultNode) defaultNode.textContent = draft.customGrid;
+    if (draft) {
+      const fields = [...runForm.querySelectorAll("[name]")];
+      draft.fields.forEach((saved) => {
+        const field = fields.find((item) => item.name === saved.name);
+        if (!field) return;
+        if (["checkbox", "radio"].includes(field.type)) field.checked = saved.checked;
+        else field.value = saved.value;
+        if (field.hasAttribute("data-monochromator-default")) field.dataset.userEdited = "true";
+        if (saved.name.startsWith("study_")) field.dataset.userEdited = "true";
+      });
+      runForm.querySelectorAll("[data-custom-grid-builder]").forEach((root) => {
+        const name = root.querySelector("[data-custom-grid-config]").name;
+        const saved = draft.grids?.[name] || (name === "custom_grid_config" ? draft.customGrid : null);
+        if (saved) root.querySelector("[data-custom-grid-default]").textContent = saved;
+      });
     }
     runForm.querySelectorAll("[data-edit-run-grating]").forEach((link) => link.addEventListener("click", () => {
       const fields = [...runForm.querySelectorAll("[name]")]
@@ -1455,23 +1747,16 @@ document.addEventListener("DOMContentLoaded", () => {
         .map((field) => ({name: field.name, value: field.value, checked: field.checked}));
       sessionStorage.setItem(draftKey, JSON.stringify({
         fields,
-        customGrid: runForm.querySelector("[data-custom-grid-config]")?.value || "",
+        grids: Object.fromEntries([...runForm.querySelectorAll("[data-custom-grid-config]")].map((field) => [field.name, field.value])),
       }));
     }));
     runForm.addEventListener("submit", (event) => {
       if (!event.defaultPrevented) sessionStorage.removeItem(draftKey);
     });
   }
+  initNamedRanges();
   document.querySelectorAll("[data-custom-grid-builder]").forEach(initCustomGridBuilder);
   if (runForm && draft) {
-    const fields = [...runForm.querySelectorAll("[name]")].filter((field) => !field.matches("[data-custom-grid-config]"));
-    draft.fields.forEach((saved, index) => {
-      const field = fields[index];
-      if (!field || field.name !== saved.name) return;
-      if (field.type === "checkbox" || field.type === "radio") field.checked = saved.checked;
-      else field.value = saved.value;
-      if (saved.name === "study_energy_ev" || saved.name === "study_grazing_angle_deg") field.dataset.userEdited = "true";
-    });
     sessionStorage.removeItem(`grax:run-draft:${runForm.dataset.gratingId}`);
   }
 });
@@ -1524,7 +1809,7 @@ function initRunMonitor(container) {
   // monitors have no abort link, so the page-level lookup is unambiguous.
   const abortButton = document.querySelector("[data-run-abort-action]");
   let latestPlotToken = "";
-  let latestPlotUrl = plotImage.getAttribute("src") || "";
+  let latestPlotUrl = plotImage?.getAttribute("src") || "";
   let statusTimerId = null;
   let memoryTimerId = null;
 
@@ -1533,13 +1818,17 @@ function initRunMonitor(container) {
     candidate.addEventListener("load", () => {
       latestPlotToken = token;
       latestPlotUrl = url;
-      plotImage.src = url;
-      plotImage.classList.remove("is-hidden");
+      if (plotImage) {
+        plotImage.src = url;
+        plotImage.classList.remove("is-hidden");
+      }
     });
     candidate.addEventListener("error", () => {
       if (latestPlotUrl) {
-        plotImage.src = latestPlotUrl;
-        plotImage.classList.remove("is-hidden");
+        if (plotImage) {
+          plotImage.src = latestPlotUrl;
+          plotImage.classList.remove("is-hidden");
+        }
       }
     });
     candidate.src = url;
@@ -1569,7 +1858,7 @@ function initRunMonitor(container) {
         abortButton.setAttribute("aria-disabled", "true");
       }
     }
-    if (payload.plot_url && payload.plot_token !== latestPlotToken) {
+    if (plotImage && payload.plot_url && payload.plot_token !== latestPlotToken) {
       preloadAndSwapPlot(payload.plot_url, payload.plot_token);
     }
     if (terminal) {
@@ -1790,6 +2079,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.querySelectorAll("[data-run-workflow]").forEach((select) => {
+    select.closest("form")?.querySelectorAll("[data-monochromator-default]").forEach((field) => {
+      field.dataset.defaultValue = field.value;
+      field.addEventListener("input", () => { if (field.dataset.applyingDefaults !== "true") field.dataset.userEdited = "true"; });
+    });
     select.closest("form")?.querySelectorAll(
       '[name="study_energy_ev"], [name="study_grazing_angle_deg"]',
     ).forEach((field) => {
