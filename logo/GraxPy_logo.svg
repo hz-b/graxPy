@@ -227,7 +227,10 @@
      height="1024"
      fill="#fff" />
   <g
-     id="grating">
+     id="grating"
+     inkscape:export-filename="graxpy_logo.png"
+     inkscape:export-xdpi="600"
+     inkscape:export-ydpi="600">
     <path
        id="gold-substrate"
        d="M84,574 438,444 Q445,441 450,451 L514,579 906,459 Q912,456 916,466 L970,587 1374,444 Q1382,441 1387,455 L1451,590 1451,666 84,666Z"
@@ -309,7 +312,7 @@
   <text
      xml:space="preserve"
      id="text1597"
-     style="fill:#ff000c;text-orientation:auto;stroke-width:8.518;stroke:#00a434;-inkscape-font-specification:'Source Sans Pro, Semi-Bold';font-family:'Source Sans Pro';font-size:8.70944023px;font-weight:600;writing-mode:lr-tb;direction:ltr;stroke-dasharray:none;stroke-linecap:round;fill-opacity:1;stroke-opacity:1;white-space:pre;shape-inside:url(#rect1597)" />
+     style="font-weight:600;font-size:8.70944px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Semi-Bold';writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect1597);display:inline;fill:#ff000c;fill-opacity:1;stroke:#00a434;stroke-width:8.518;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1" />
   <text
      xml:space="preserve"
      style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:260.647px;font-family:'Source Sans Pro';-inkscape-font-specification:'Source Sans Pro, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:#00234c;fill-opacity:1;stroke:none;stroke-width:227.498;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1"
