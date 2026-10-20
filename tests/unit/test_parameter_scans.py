@@ -277,6 +277,43 @@ def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, 
     assert launched["form_data"]["parameter_sweep_config"] == manifest["parameter_sweep"]["grid"]
 
 
+def test_monochromator_run_keeps_multidict_form_for_run_input(tmp_path, monkeypatch):
+    """Monochromator CFF preprocessing must not break form-list access."""
+    launched = {}
+    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    app = web_app.create_app(data_dir=tmp_path)
+    form = MultiDict(
+        [
+            ("workflow", "monochromator"),
+            ("energy_start_ev", "100"),
+            ("energy_stop_ev", "120"),
+            ("energy_points", "3"),
+            ("cff", "2.25"),
+            ("diffraction_order", "1"),
+            ("fourier_orders", "5"),
+            ("polarization", "s"),
+            ("orders", "-1"),
+            ("orders", "1"),
+            ("parameter_sweep_config", json.dumps(default_configuration(spec()))),
+        ]
+    )
+    from grax.web.persistence import build_grating_from_spec
+
+    manifest = web_app._queue_run(
+        app=app,
+        data_dir=tmp_path,
+        grating_id="mono-grating",
+        grating_name="Monochromator test",
+        grating_spec=spec(),
+        grating=build_grating_from_spec(spec()),
+        form=form,
+    )
+
+    assert manifest["run_input"]["orders"] == ["-1", "1"]
+    assert manifest["run_input"]["parameter_sweep_config"]
+    assert launched["form_data"]["parameter_sweep_config"]
+
+
 def test_angle_sweep_is_one_curve_with_ordered_angles_and_nan_gaps(tmp_path):
     form = {
         "workflow": "angle_sweep",

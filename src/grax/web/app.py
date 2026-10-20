@@ -5,18 +5,22 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib.metadata
+import ipaddress
 import io
 import itertools
 import json
-import warnings
-from copy import copy, deepcopy
 import os
+import platform
 import shutil
+import subprocess
 import threading
 import time
+import tomllib
 import traceback
+import warnings
 import webbrowser
 import zipfile
+from copy import copy, deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -93,7 +97,6 @@ from .runs import RunStore
 from . import parameter_scans
 from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
 from .custom_grid import (
-    LARGE_GRID_WARNING,
     default_configuration as default_custom_grid_configuration,
     expand_custom_grid,
     parameter_catalog as custom_grid_parameter_catalog,
@@ -306,55 +309,54 @@ def create_app(*, data_dir: str | Path | None = None):
             workspace_root=active_data_dir(),
         )
 
-    @app.post("/workspace")
-    def switch_workspace():
+    @app.post("/workspace/pick")
+    def pick_workspace():
         if _has_active_runs(app):
-            return redirect(url_for("index", message="Cannot switch workspace while active runs exist.", kind="error"))
+            return redirect(
+                url_for(
+                    "index",
+                    message="Cannot change the database folder while runs are active.",
+                    kind="error",
+                )
+            )
+        if not _is_loopback_address(request.remote_addr):
+            return redirect(
+                url_for(
+                    "index",
+                    message=(
+                        "System folder selection is available only from the local machine."
+                    ),
+                    kind="error",
+                )
+            )
         try:
-            target_dir = _validate_workspace_root(request.form.get("workspace_root"))
+            selected_dir = _pick_native_directory()
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            return redirect(
+                url_for(
+                    "index",
+                    message=(
+                        f"The system folder picker is unavailable ({error}). "
+                        "Use a local desktop session with a supported folder picker."
+                    ),
+                    kind="error",
+                )
+            )
+        if selected_dir is None:
+            return redirect(
+                url_for(
+                    "index",
+                    message="Folder selection canceled. The active database folder was not changed.",
+                )
+            )
+        try:
+            target_dir = _validate_workspace_root(selected_dir)
         except (OSError, ValueError) as error:
             return redirect(url_for("index", message=str(error), kind="error"))
         app.config["GRAx_DATA_DIR"] = target_dir
-        return redirect(url_for("index", message=f"Workspace switched to {target_dir}", kind="success"))
-
-    @app.get("/workspace/browse")
-    def browse_workspace():
-        browse_path = _safe_browse_path(request.args.get("path"))
-        return render_template(
-            "workspace_browser.html",
-            current_path=str(browse_path),
-            parent_path=str(browse_path.parent) if browse_path.parent != browse_path else None,
-            breadcrumbs=_path_breadcrumbs(browse_path),
-            entries=_list_directory_entries(browse_path),
-            message=str(request.args.get("message", "")).strip(),
-            message_kind=str(request.args.get("kind", "info")).strip() or "info",
+        return redirect(
+            url_for("index", message=f"Database folder set to {target_dir}", kind="success")
         )
-
-    @app.post("/workspace/create")
-    def create_workspace_folder():
-        parent_path = request.form.get("parent_path")
-        if _has_active_runs(app):
-            return redirect(url_for(
-                "browse_workspace",
-                path=parent_path,
-                message="Cannot switch workspace while active runs exist.",
-                kind="error",
-            ))
-        try:
-            target_dir = _create_workspace_folder(parent_path, request.form.get("folder_name"))
-        except (OSError, ValueError) as error:
-            return redirect(url_for(
-                "browse_workspace",
-                path=parent_path,
-                message=str(error),
-                kind="error",
-            ))
-        app.config["GRAx_DATA_DIR"] = target_dir
-        return redirect(url_for(
-            "index",
-            message=f"Created and switched workspace to {target_dir}",
-            kind="success",
-        ))
 
     @app.get("/gratings/new")
     def new_grating():
@@ -589,7 +591,6 @@ def create_app(*, data_dir: str | Path | None = None):
                 descriptor.to_json() for descriptor in custom_grid_parameter_catalog(spec)
             ],
             custom_grid_default=default_custom_grid_configuration(spec),
-            custom_grid_warning_threshold=LARGE_GRID_WARNING,
             scan_catalogs={mode: [item.to_json() for item in parameter_scans.scan_catalog(spec, mode)] for mode in ("energy_sweep", "angle_sweep", "monochromator")},
         )
 
@@ -2351,12 +2352,71 @@ def _custom_grid_defaults_from_form(form: Any) -> dict[str, Any]:
     }
 
 
+def _prepare_monochromator_cff_config(form: Any, config: dict[str, Any]) -> dict[str, Any]:
+    """Drop CFF = 1 from generated ranges and reject it in explicit inputs."""
+    prepared = deepcopy(config)
+    varied_cff = False
+
+    def is_forbidden(value: Any) -> bool:
+        try:
+            return bool(np.isclose(float(value), 1.0, rtol=0.0, atol=1e-12))
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    for axis in prepared.get("independent") or []:
+        if not isinstance(axis, dict):
+            raise ValueError("Independent parameter axes must be objects.")
+        if axis.get("parameter") != "cff":
+            continue
+        varied_cff = True
+        if str(axis.get("mode", "list")).lower() == "range":
+            try:
+                minimum = float(axis["minimum"])
+                maximum = float(axis["maximum"])
+                count = int(axis["count"])
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise ValueError("The CFF linear range needs finite bounds and a positive point count.") from error
+            if not np.isfinite(minimum + maximum) or count < 1:
+                raise ValueError("The CFF linear range needs finite bounds and a positive point count.")
+            values = np.linspace(minimum, maximum, count).tolist()
+            values = [value for value in values if not is_forbidden(value)]
+            if not values:
+                raise ValueError("The CFF linear range has no usable values after CFF = 1 is removed.")
+            axis.clear()
+            axis.update({"parameter": "cff", "mode": "list", "values": values})
+        elif any(is_forbidden(value) for value in axis.get("values") or []):
+            raise ValueError("CFF = 1 is not allowed. Remove it from the explicit values.")
+
+    for group in prepared.get("coupled_groups") or []:
+        if not isinstance(group, dict):
+            raise ValueError("Coupled parameter groups must be objects.")
+        parameters = group.get("parameters") or []
+        if "cff" not in parameters:
+            continue
+        varied_cff = True
+        range_settings = (group.get("input_settings") or {}).get("cff") or {}
+        rows = group.get("rows") or []
+        if str(range_settings.get("mode", "manual")).lower() == "range":
+            rows = [row for row in rows if not is_forbidden(row.get("cff"))]
+            if not rows:
+                raise ValueError("The CFF linear range has no usable values after CFF = 1 is removed.")
+            group["rows"] = rows
+        elif any(is_forbidden(row.get("cff")) for row in rows):
+            raise ValueError("CFF = 1 is not allowed. Remove it from the explicit values.")
+
+    if not varied_cff and is_forbidden(form.get("cff", 2.25) or 2.25):
+        raise ValueError("CFF = 1 cannot be used for a monochromator run. Choose a different value.")
+    return prepared
+
+
 def _parameter_scans_from_form(
     form: Any, spec: dict[str, Any] | None, energies: np.ndarray
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Resolve a posted or checkpointed sweep using its saved grating snapshot."""
     config = parameter_scans.parse_config(form.get("parameter_sweep_config"))
     mode = str(form.get("workflow"))
+    if mode == "monochromator":
+        config = _prepare_monochromator_cff_config(form, config)
     angle_values = None
     if mode == "angle_sweep" and not any(
         axis.get("parameter") == "grazing_angle_deg" for axis in config.get("independent", [])
@@ -2449,6 +2509,14 @@ def _queue_run(
     """Create a queued run manifest and start background execution."""
 
     workflow = str(form["workflow"])
+    if workflow == "monochromator":
+        prepared_config = _prepare_monochromator_cff_config(
+            form, parameter_scans.parse_config(form.get("parameter_sweep_config"))
+        )
+        # Keep Werkzeug's MultiDict interface: run-input persistence uses
+        # getlist() to retain repeated form fields such as selected orders.
+        form = form.copy() if hasattr(form, "copy") else dict(form)
+        form["parameter_sweep_config"] = json.dumps(prepared_config)
     run_id = _run_id(workflow, grating_id)
     run_dir = data_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -3985,7 +4053,17 @@ def _run_metadata_yaml(manifest: dict[str, Any], run_dir: Path) -> str:
 
 
 def _grax_version() -> str:
-    """Return the installed graxpy version for exported provenance."""
+    """Return the project version, preferring pyproject.toml in a source checkout."""
+
+    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    try:
+        with pyproject_path.open("rb") as pyproject_file:
+            project = tomllib.load(pyproject_file).get("project", {})
+        version = str(project.get("version", "")).strip()
+        if version:
+            return version
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
 
     try:
         return importlib.metadata.version("graxpy")
@@ -5760,6 +5838,129 @@ def _safe_browse_path(raw_path: Any) -> Path:
     return Path(str(raw_path)).expanduser().resolve()
 
 
+def _is_loopback_address(raw_address: str | None) -> bool:
+    """Return whether a request came from the local machine."""
+    if not raw_address:
+        return False
+    try:
+        address = ipaddress.ip_address(raw_address)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.is_loopback
+
+
+def _pick_native_directory() -> Path | None:
+    """Open a platform folder dialog, returning ``None`` when the user cancels."""
+    system = platform.system()
+    if system == "Darwin":
+        command = [
+            "osascript",
+            "-e",
+            'POSIX path of (choose folder with prompt "Select GraxPy database folder" with invisibles)',
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
+        if result.returncode:
+            # AppleScript uses -128 for a user cancellation; other errors mean unavailable.
+            if "-128" in result.stderr:
+                return None
+            raise RuntimeError(result.stderr.strip() or "macOS folder selection failed")
+        selected = result.stdout.strip()
+    elif system == "Windows":
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            raise RuntimeError("PowerShell is not available")
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
+            "$dialog.Description = 'Select GraxPy database folder'; "
+            "$dialog.ShowHiddenFiles = $true; "
+            "if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath }"
+        )
+        result = subprocess.run(
+            [powershell, "-NoProfile", "-STA", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or "Windows folder selection failed")
+        selected = result.stdout.strip()
+    elif system == "Linux":
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            raise RuntimeError("no desktop session is available")
+        python = shutil.which("python3")
+        if python:
+            gtk_script = (
+                "import gi; gi.require_version('Gtk', '3.0'); "
+                "from gi.repository import Gtk; "
+                "dialog = Gtk.FileChooserDialog(title='Select GraxPy database folder', "
+                "action=Gtk.FileChooserAction.SELECT_FOLDER); "
+                "dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "
+                "Gtk.STOCK_OPEN, Gtk.ResponseType.OK); "
+                "dialog.set_show_hidden(True); "
+                "response = dialog.run(); "
+                "print(dialog.get_filename() or '') if response == Gtk.ResponseType.OK else None; "
+                "dialog.destroy()"
+            )
+            gtk_result = subprocess.run(
+                [python, "-c", gtk_script],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+            if gtk_result.returncode == 0:
+                selected = gtk_result.stdout.strip()
+                if not selected:
+                    return None
+                return Path(selected).expanduser().resolve()
+        zenity = shutil.which("zenity")
+        kdialog = shutil.which("kdialog")
+        if zenity:
+            result = subprocess.run(
+                [
+                    zenity,
+                    "--file-selection",
+                    "--directory",
+                    "--title=Select GraxPy database folder",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        elif kdialog:
+            result = subprocess.run(
+                [
+                    kdialog,
+                    "--getexistingdirectory",
+                    str(Path.home()),
+                    "Select GraxPy database folder",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        else:
+            raise RuntimeError("neither zenity nor kdialog is available")
+        if result.returncode == 1:
+            return None
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or "Linux folder selection failed")
+        selected = result.stdout.strip()
+    else:
+        unsupported = system or "this platform"
+        raise RuntimeError(f"native folder selection is not supported on {unsupported}")
+
+    if not selected:
+        return None
+    return Path(selected).expanduser().resolve()
+
+
 def _validate_workspace_root(raw_path: Any) -> Path:
     """Return a writable workspace root path for the current session."""
 
@@ -5771,35 +5972,6 @@ def _validate_workspace_root(raw_path: Any) -> Path:
     probe_path.write_text("ok", encoding="utf-8")
     probe_path.unlink()
     return target_dir
-
-
-def _create_workspace_folder(parent_path: Any, raw_name: Any) -> Path:
-    """Create and validate a named workspace folder directly under a parent."""
-
-    parent_dir = _safe_browse_path(parent_path)
-    if not parent_dir.is_dir():
-        raise ValueError("Choose an existing parent folder.")
-
-    folder_name = str(raw_name or "").strip()
-    if not folder_name:
-        raise ValueError("Enter a name for the new database folder.")
-    if folder_name.startswith(".") or any(separator in folder_name for separator in ("/", "\\")):
-        raise ValueError("Use a folder name without path separators or a leading dot.")
-
-    target_dir = parent_dir / folder_name
-    try:
-        target_dir.mkdir()
-    except FileExistsError as error:
-        raise ValueError(f"A file or folder named {folder_name!r} already exists here.") from error
-
-    try:
-        return _validate_workspace_root(target_dir)
-    except OSError:
-        try:
-            target_dir.rmdir()
-        except OSError:
-            pass
-        raise
 
 
 def _has_active_runs(app: Any) -> bool:

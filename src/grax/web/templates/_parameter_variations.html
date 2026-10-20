@@ -1,4 +1,4 @@
-<fieldset data-workflow-fields="energy_sweep angle_sweep monochromator" data-custom-grid-builder data-parameter-scans data-warning-threshold="{{ custom_grid_warning_threshold }}">
+<fieldset data-workflow-fields="energy_sweep angle_sweep monochromator" data-custom-grid-builder data-parameter-scans>
   <legend>Parameter variations (optional)</legend>
   <script type="application/json" data-custom-grid-catalog>{{ scan_catalogs.energy_sweep | tojson }}</script>
   <script type="application/json" data-scan-catalogs>{{ scan_catalogs | tojson }}</script>
@@ -17,6 +17,7 @@
   <section class="notice" data-custom-grid-summary>
     <strong data-custom-grid-count>1 scan</strong>
     <p class="subtle" data-custom-grid-warning></p>
+    <p class="notice notice-error is-hidden" data-cff-variation-warning role="alert">This monochromator sweep includes CFF = 1, which cannot be used. Remove that value or choose a different CFF before starting the calculation.</p>
     <pre class="custom-grid-preview" data-custom-grid-preview tabindex="0" aria-label="Parameter combinations">Default settings</pre>
   </section>
 </fieldset>

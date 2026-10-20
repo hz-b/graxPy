@@ -1,8 +1,22 @@
 # Changelog
 
+## 0.5.7
+
+- Added a system folder picker for local desktop use and kept folder selection on the home page.
+- System folder pickers now show hidden folders by default on Windows and Linux too.
+- Moved the step-size rounding explanation to a help icon beside the label.
+- Kept the step-size help icon inline after “(fits endpoints)”.
+- Automatically removed CFF = 1 from monochromator linear ranges, and showed an error and disabled Run sweep for explicit CFF = 1 values.
+- Kept sweep point counts when a range is temporarily reduced to one point, and made variation values and step sizes easier to read while preserving their full values on hover.
+- Renamed multilayer navigation items to describe multilayer gratings instead of mirrors.
+- Kept the site navigation visible while scrolling and added the current GraxPy version to the header.
+- Displayed the combined GraxPy and HZB logo alongside a separate HZB logo in the header, and reduced the navigation controls to 80% of their previous size.
+- Removed the sweep-size warning threshold so users can run parameter grids larger than 1,000 points without a size warning.
+- Fixed monochromator sweep submissions failing while saving repeated form values.
+- Doubled the header version text size and read the version from `pyproject.toml` in source checkouts.
+
 ## 0.5.6
 
-- Kept the site navigation visible while scrolling and added the current GraxPy version to the header.
 - Moved the RETICOLO citation to the end of the documentation home page, placed installer availability information before that citation, and added project contact and pre-1.0 API information to the documentation footer.
 - Clarified the documentation home page overview with HZB attribution and a brief explanation of both roughness models; placed the installer notice before the RETICOLO citation and removed the redundant home-page outline.
 - Applied HZB and BESSY II colors and Source Sans Pro typography to the online documentation.

@@ -213,30 +213,97 @@ function syncRunWorkflow(select) {
   syncFourierRangeWarning(select.closest("form"));
 }
 
+let linkedStepHelpId = 0;
+
+function formatRoundedNumber(value) {
+  return Number(value.toFixed(3)).toString();
+}
+
+function syncRunSweepButton(form) {
+  const button = form?.querySelector('button[type="submit"]');
+  if (!button) return;
+  const workflow = form.querySelector("[data-run-workflow]")?.value;
+  const gridInvalid = [...form.querySelectorAll("[data-custom-grid-builder]")].some((root) =>
+    gridIsActive(root) && root.dataset.customGridValid !== "true",
+  );
+  const cffVaried = [...form.querySelectorAll("[data-custom-grid-builder]")].some((root) =>
+    gridIsActive(root) && root.dataset.cffIsVaried === "true",
+  );
+  const directCffInvalid = workflow === "monochromator" && !cffVaried
+    && Number(form.querySelector('[name="cff"]')?.value) === 1;
+  form.querySelector("[data-cff-warning]")?.classList.toggle("is-hidden", !directCffInvalid);
+  button.disabled = gridInvalid || directCffInvalid;
+}
+
 function initLinkedRange(minimum, maximum, count, fixedCount = false) {
   if (!minimum || !maximum || !count || count.dataset.linkedRange) return;
   count.dataset.linkedRange = "true";
-  const label = document.createElement("label"); label.textContent = "Step size (fits endpoints)";
+  const label = document.createElement("label");
+  const labelText = document.createElement("span");
+  labelText.textContent = "Step size (fits endpoints)";
   for (const attr of ["data-scan-field", "data-grading-field"]) {
     if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
   }
   const step = document.createElement("input");
   step.type = "number"; step.step = "any"; step.min = "0"; step.dataset.linkedStep = "";
+  const help = document.createElement("span"); help.className = "roughness-help-wrap";
+  const helpButton = document.createElement("button");
+  helpButton.type = "button"; helpButton.className = "roughness-help"; helpButton.textContent = "?";
+  helpButton.setAttribute("aria-label", "Help: step size");
+  const tooltip = document.createElement("span");
+  tooltip.className = "roughness-tip"; tooltip.setAttribute("role", "tooltip");
+  tooltip.id = `linked-step-help-${++linkedStepHelpId}`;
+  helpButton.setAttribute("aria-describedby", tooltip.id);
+  help.append(helpButton, tooltip);
+  const labelHead = document.createElement("span"); labelHead.className = "linked-step-label-head";
+  labelHead.append(labelText, help);
   const hint = document.createElement("span"); hint.className = "subtle"; hint.setAttribute("aria-live", "polite");
-  label.append(step, hint); count.closest("label").after(label);
+  label.append(labelHead, step, hint); count.closest("label").after(label);
+  let lastNonSingleCount = Number(count.value) > 1 ? Number(count.value) : 2;
+  let collapsedRange = minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value);
   const sync = (force = false) => {
     const lower = Number(minimum.value), upper = Number(maximum.value), size = Number(count.value);
     const actual = Number.isFinite(lower + upper) && Number.isInteger(size) && size >= 1
-      ? String(size === 1 ? 0 : Number((Math.abs(upper - lower) / (size - 1)).toPrecision(12))) : "";
-    if (force || document.activeElement !== step) { step.value = actual; step.setCustomValidity(""); }
-    hint.textContent = step.value !== actual && actual ? `Actual spacing: ${actual}` : "";
+      ? (size === 1 ? 0 : Math.abs(upper - lower) / (size - 1)) : null;
+    const exact = actual === null ? "" : String(actual);
+    const display = actual === null ? "" : formatRoundedNumber(actual);
+    if (force || document.activeElement !== step) { step.value = display; step.setCustomValidity(""); }
+    tooltip.textContent = exact
+      ? `Full calculated value: ${exact}. The visible value is rounded to at most three decimal places.`
+      : "Enter a positive step size, or zero for a single-point range.";
+    hint.textContent = step.value !== display && display ? `Actual spacing: ${display}` : "";
     step.disabled = count.disabled;
   };
   count._syncLinkedRange = sync;
-  count.addEventListener("input", () => { if (!fixedCount && Number(count.value) === 1) maximum.value = minimum.value; sync(); });
+  count.addEventListener("input", () => {
+    if (!fixedCount) {
+      const value = Number(count.value);
+      if (Number.isInteger(value) && value > 1) lastNonSingleCount = value;
+      if (minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value)) {
+        if (value > 1) lastNonSingleCount = value;
+        count.value = "1";
+        collapsedRange = true;
+      } else if (value === 1) {
+        maximum.value = minimum.value;
+        collapsedRange = true;
+      }
+    }
+    sync();
+  });
   for (const field of [minimum, maximum]) field.addEventListener("input", () => {
-    if (!fixedCount && minimum.value === maximum.value) count.value = "1";
-    else if (!fixedCount && Number(count.value) < 2) count.value = "2";
+    if (!fixedCount) {
+      const equalBounds = minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value);
+      if (equalBounds) {
+        if (!collapsedRange && Number(count.value) > 1) lastNonSingleCount = Number(count.value);
+        count.value = "1";
+        collapsedRange = true;
+      } else {
+        if (collapsedRange && Number(count.value) === 1) count.value = String(lastNonSingleCount);
+        else if (Number(count.value) < 2) count.value = String(lastNonSingleCount);
+        if (Number(count.value) > 1) lastNonSingleCount = Number(count.value);
+        collapsedRange = false;
+      }
+    }
     sync();
   });
   step.addEventListener("input", () => {
@@ -1201,18 +1268,18 @@ function initCustomGridBuilder(root) {
   const catalogsByMode = scanCatalogs ? JSON.parse(scanCatalogs.textContent) : null;
   if (catalogsByMode) baseCatalog = catalogsByMode[root.closest("form").querySelector("[data-run-workflow]").value] || baseCatalog;
   const initial = JSON.parse(defaultNode.textContent || "{}");
-  const threshold = Number(root.dataset.warningThreshold || 1000);
   const countNode = root.querySelector("[data-custom-grid-count]");
   const warningNode = root.querySelector("[data-custom-grid-warning]");
   const previewNode = root.querySelector("[data-custom-grid-preview]");
   const coupledEditors = new Map();
   const materialAxes = new WeakMap();
   let casePreview = null;
+  let cffRangeAutoRemoved = false;
+  let cffExplicitInvalid = false;
 
   function appendPreviewCases() {
     if (!casePreview) return;
     const end = Math.min(casePreview.rendered + 100, casePreview.count);
-    const lines = [];
     for (let index = casePreview.rendered; index < end; index += 1) {
       let remainder = index;
       const selected = new Array(casePreview.axes.length);
@@ -1222,9 +1289,26 @@ function initCustomGridBuilder(root) {
         remainder = Math.floor(remainder / values.length);
       }
       const item = Object.assign({}, ...selected);
-      lines.push(`${index + 1}. ${Object.entries(item).map(([key, value]) => `${descriptor(key)?.label || key}=${materialText(value)}`).join("; ") || "Default settings"}`);
+      if (casePreview.rendered || index > 0) previewNode.append(document.createTextNode("\n"));
+      previewNode.append(document.createTextNode(`${index + 1}. `));
+      const entries = Object.entries(item);
+      if (!entries.length) {
+        previewNode.append(document.createTextNode("Default settings"));
+        continue;
+      }
+      entries.forEach(([key, value], valueIndex) => {
+        if (valueIndex) previewNode.append(document.createTextNode("; "));
+        previewNode.append(document.createTextNode(`${descriptor(key)?.label || key}=`));
+        if (typeof value === "number" && Number.isFinite(value)) {
+          const rounded = document.createElement("span");
+          rounded.textContent = formatRoundedNumber(value);
+          rounded.title = `Full value: ${String(value)}. The visible value is rounded to at most three decimal places.`;
+          previewNode.append(rounded);
+        } else {
+          previewNode.append(document.createTextNode(materialText(value)));
+        }
+      });
     }
-    if (lines.length) previewNode.append(document.createTextNode((casePreview.rendered ? "\n" : "") + lines.join("\n")));
     casePreview.rendered = end;
   }
 
@@ -1521,12 +1605,23 @@ function initCustomGridBuilder(root) {
           // Keep every paired row when integer rounding produces repeated values.
           if (item.kind === "int") generated = generated.map(roundHalfEven);
           generated = generated.map((value) => castPreview(value, item));
+          if (item.id === "cff" && root.closest("form")?.querySelector("[data-run-workflow]")?.value === "monochromator") {
+            const retained = generated.map((value, index) => ({value, index}))
+              .filter(({value}) => Math.abs(Number(value) - 1) > 1e-12);
+            if (retained.length !== generated.length) {
+              cffRangeAutoRemoved = true;
+              state.values = retained.map(({index}) => state.values[index]);
+              generated = retained.map(({value}) => value);
+              count.value = String(state.values.length);
+              if (!generated.length) state.error = "The CFF linear range has no usable values after CFF = 1 is removed.";
+            }
+          }
         }
       } catch (error) {
         state.error = error.message;
       }
       row.querySelector("[data-couple-hint]").textContent = isRange
-        ? `Match the ${state.values.length} existing values. The table is read-only.${item?.kind === "int" ? " Generated values are rounded to integers; paired rows are retained." : ""}`
+        ? `Match the ${state.values.length} existing values. The table is read-only.${item?.kind === "int" ? " Generated values are rounded to integers; paired rows are retained." : ""}${item?.id === "cff" && cffRangeAutoRemoved ? " CFF = 1 was automatically removed." : ""}`
         : "The first column comes from the selected parameter. Enter one coupled value in each row of the second column.";
       row.querySelector("[data-couple-error]").textContent = state.error;
       const signature = JSON.stringify([source.value, target.value, mode.value, state.values, isRange ? generated : null]);
@@ -1570,6 +1665,11 @@ function initCustomGridBuilder(root) {
         if (raw === "") throw new Error(`Enter ${descriptor(target.value).label} for row ${index + 1}.`);
         return {[source.value]: value, [target.value]: castPreview(raw, descriptor(target.value))};
       });
+      if (target.value === "cff" && root.closest("form")?.querySelector("[data-run-workflow]")?.value === "monochromator") {
+        if (mode.value !== "range" && rows.some((item) => item.cff === 1)) {
+          cffExplicitInvalid = true;
+        }
+      }
       return {name: `Coupled to ${descriptor(source.value).label}`, parameters: [source.value, target.value], rows,
         input_settings: {[target.value]: {mode: mode.value, start: start.value, stop: stop.value}}};
     }
@@ -1583,19 +1683,44 @@ function initCustomGridBuilder(root) {
   function axisValues(row) {
     const item = descriptor(row.querySelector(".custom-grid-parameter").value);
     const mode = row.querySelector("[data-axis-mode]").value;
+    const monochromatorCff = item.id === "cff"
+      && root.closest("form")?.querySelector("[data-run-workflow]")?.value === "monochromator";
     if (mode === "list") {
       const values = splitValues(row.querySelector("[data-axis-list] textarea").value);
       if (!values.length) throw new Error(`${item.label} needs at least one value.`);
       if (item.kind === "material") { materialAxes.get(row).sync(); return materialAxes.get(row).read(); }
-      return values.map((value) => castPreview(value, item));
+      const castValues = values.map((value) => castPreview(value, item));
+      if (monochromatorCff && castValues.some((value) => value === 1)) cffExplicitInvalid = true;
+      row.dataset.cffRangeFiltered = "false";
+      return castValues;
     }
     const minimum = Number(row.querySelector("[data-minimum]").value);
     const maximum = Number(row.querySelector("[data-maximum]").value);
     const count = Number(row.querySelector("[data-count]").value);
     if (!Number.isInteger(count) || count < 1 || !Number.isFinite(minimum) || !Number.isFinite(maximum)) throw new Error("Every range needs finite bounds and a positive integer count.");
     const values = Array.from({length: count}, (_, index) => count === 1 ? minimum : minimum + ((maximum - minimum) * index) / (count - 1));
-    const exact = item.kind === "int" ? [...new Set(values.map(roundHalfEven))] : values;
-    row.querySelector("[data-axis-generated]").textContent = item.kind === "int" ? `Exact integer values: ${exact.join(", ")}${exact.length !== count ? ` (requested ${count}; reduced to ${exact.length})` : ""}` : `Generated ${exact.length} values.`;
+    let exact = item.kind === "int" ? [...new Set(values.map(roundHalfEven))] : values;
+    if (monochromatorCff) {
+      const usable = exact.filter((value) => Math.abs(Number(value) - 1) > 1e-12);
+      if (usable.length !== exact.length) {
+        cffRangeAutoRemoved = true;
+        row.dataset.cffRangeFiltered = "true";
+        exact = usable;
+      } else {
+        row.dataset.cffRangeFiltered = "false";
+      }
+      if (!exact.length) throw new Error("The CFF linear range has no usable values after CFF = 1 is removed.");
+    } else {
+      row.dataset.cffRangeFiltered = "false";
+    }
+    const generated = row.querySelector("[data-axis-generated]");
+    if (monochromatorCff && row.dataset.cffRangeFiltered === "true") {
+      generated.textContent = `Generated ${exact.length} usable values. CFF = 1 was automatically removed.`;
+      generated.classList.add("notice-error");
+    } else {
+      generated.textContent = item.kind === "int" ? `Exact integer values: ${exact.join(", ")}${exact.length !== count ? ` (requested ${count}; reduced to ${exact.length})` : ""}` : `Generated ${exact.length} values.`;
+      generated.classList.remove("notice-error");
+    }
     return exact.map((value) => castPreview(value, item));
   }
 
@@ -1623,6 +1748,9 @@ function initCustomGridBuilder(root) {
       const parameter = row.querySelector(".custom-grid-parameter").value;
       if (used.has(parameter)) throw new Error("A parameter can appear only once across all axes and coupled groups."); used.add(parameter);
       const mode = row.querySelector("[data-axis-mode]").value;
+      if (mode === "range" && parameter === "cff" && root.closest("form")?.querySelector("[data-run-workflow]")?.value === "monochromator") {
+        return {parameter, mode: "list", values: axisValues(row)};
+      }
       if (mode === "range") return {parameter, mode, minimum: Number(row.querySelector("[data-minimum]").value), maximum: Number(row.querySelector("[data-maximum]").value), count: Number(row.querySelector("[data-count]").value)};
       return {parameter, mode, values: axisValues(row)};
     });
@@ -1646,6 +1774,8 @@ function initCustomGridBuilder(root) {
   }
 
   function refresh() {
+    cffRangeAutoRemoved = false;
+    cffExplicitInvalid = false;
     try {
       syncParameterOptions();
       sourceAxes().forEach((row) => materialAxes.get(row)?.sync());
@@ -1654,6 +1784,19 @@ function initCustomGridBuilder(root) {
       configField.value = JSON.stringify(config);
       const form = root.closest("form");
       const mode = form.querySelector("[data-run-workflow]").value;
+      const cffVariationWarning = root.querySelector("[data-cff-variation-warning]");
+      const hasCffVariation = config.independent.some((axis) => axis.parameter === "cff")
+        || config.coupled_groups.some((group) => group.parameters.includes("cff"));
+      root.dataset.cffIsVaried = String(hasCffVariation);
+      if (cffRangeAutoRemoved) {
+        cffVariationWarning.textContent = "CFF = 1 was included in the linear range, but has been automatically removed because it cannot be used.";
+        cffVariationWarning.classList.remove("is-hidden");
+      } else if (cffExplicitInvalid) {
+        cffVariationWarning.textContent = "The explicit CFF values include 1, which cannot be used. Remove CFF = 1 from the values before starting the calculation.";
+        cffVariationWarning.classList.remove("is-hidden");
+      } else {
+        cffVariationWarning?.classList.add("is-hidden");
+      }
       const axisCount = mode === "angle_sweep"
         ? Number(form.querySelector('[name="grazing_angle_points"]')?.value || 1)
         : Number(form.querySelector('[name="energy_points"]')?.value || 1);
@@ -1664,20 +1807,26 @@ function initCustomGridBuilder(root) {
         : `${summary.count.toLocaleString()} ${summary.count === 1 ? "case" : "cases"}`;
       const duplicateCount = summary.duplicateCount;
       const warnings = [];
-      const total = summary.count * (root.hasAttribute("data-parameter-scans") ? axisCount : 1);
-      if (total > threshold) warnings.push(`Large grid: ${total.toLocaleString()} points exceeds the ${threshold.toLocaleString()}-point warning threshold.`);
       if (duplicateCount) warnings.push(`${duplicateCount} resolved duplicate ${duplicateCount === 1 ? "case is" : "cases are"} retained.`);
+      if (cffExplicitInvalid) warnings.push("CFF = 1 is not allowed. Remove it from the explicit values.");
       warningNode.textContent = warnings.join(" "); warningNode.classList.toggle("notice-error", warnings.length > 0);
       casePreview = {...summary, rendered: 0};
       previewNode.textContent = "";
       previewNode.scrollTop = 0;
       appendPreviewCases();
-      root.dataset.customGridValid = "true";
+      root.dataset.customGridValid = String(!cffExplicitInvalid);
+      syncRunSweepButton(form);
     } catch (error) {
       casePreview = null;
       configField.value = "";
       previewNode.textContent = "Enter valid values to preview the grid.";
       countNode.textContent = "Grid configuration needs attention"; warningNode.textContent = error.message; warningNode.classList.add("notice-error"); root.dataset.customGridValid = "false";
+      const cffVariationWarning = root.querySelector("[data-cff-variation-warning]");
+      if (cffRangeAutoRemoved) {
+        cffVariationWarning.textContent = "CFF = 1 was included in the linear range, but has been automatically removed because it cannot be used.";
+        cffVariationWarning.classList.remove("is-hidden");
+      }
+      syncRunSweepButton(root.closest("form"));
     }
   }
 
@@ -2145,6 +2294,15 @@ function initDesignPicker(form) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll('[name="cff"]').forEach((field) => {
+    const warning = field.closest("fieldset")?.querySelector("[data-cff-warning]");
+    const syncWarning = () => syncRunSweepButton(field.form);
+    warning?.classList.add("is-hidden");
+    syncWarning();
+    field.addEventListener("input", syncWarning);
+    field.addEventListener("change", syncWarning);
+  });
+
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
     select.addEventListener("change", () => {
@@ -2174,7 +2332,10 @@ document.addEventListener("DOMContentLoaded", () => {
       field.addEventListener("input", () => { field.dataset.userEdited = "true"; });
     });
     syncRunWorkflow(select);
-    select.addEventListener("change", () => syncRunWorkflow(select));
+    select.addEventListener("change", () => {
+      syncRunWorkflow(select);
+      syncRunSweepButton(select.closest("form"));
+    });
   });
 
   document.querySelectorAll('[name="study_fourier_min"], [name="study_fourier_max"], [name="study_fourier_points"]').forEach((field) => {

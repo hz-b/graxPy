@@ -11,7 +11,6 @@ import pytest
 
 from grax.web import app as web_app_module
 from grax.web.custom_grid import (
-    LARGE_GRID_WARNING,
     common_parameter_catalog,
     expand_custom_grid,
     parameter_catalog,
@@ -255,14 +254,14 @@ def test_variant_axis_rebuilds_each_complete_structure() -> None:
 
 def test_large_grid_has_no_hard_limit() -> None:
     spec = _laminar_spec()
-    values = list(range(LARGE_GRID_WARNING + 1))
+    values = list(range(1_001))
     _, cases = expand_custom_grid(
         _config(
             spec, independent=[{"parameter": "diffraction_order", "mode": "list", "values": values}]
         ),
         spec,
     )
-    assert len(cases) == LARGE_GRID_WARNING + 1
+    assert len(cases) == 1_001
 
 
 def test_roughness_parameters_can_be_added_to_a_smooth_base_variant() -> None:

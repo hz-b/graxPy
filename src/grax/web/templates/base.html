@@ -16,7 +16,7 @@
     <header class="topbar">
       <div class="brand-lockup" aria-label="GraxPy and HZB BESSY II">
         <a class="brand" href="{{ url_for('index') }}" aria-label="Grax Web home">
-          <img class="graxpy-logo" src="{{ url_for('static', filename='graxpy-logo.svg') }}" alt="GraxPy — Gratings made easy">
+          <img class="graxpy-logo" src="{{ url_for('static', filename='graxpy-hzb-logo.png') }}" alt="Complete GraxPy and HZB BESSY II logo">
         </a>
         <span class="brand-divider" aria-hidden="true"></span>
         <img class="hzb-logo" src="{{ url_for('static', filename='hzb-bessy2-logo.png') }}" alt="HZB BESSY II Light Source">
@@ -43,8 +43,8 @@
         <details class="nav-dropdown">
           <summary>Multilayer grating <span aria-hidden="true">⌄</span></summary>
           <div class="nav-menu">
-            <a href="{{ url_for('multilayer_design_new') }}">New multilayer mirror</a>
-            <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer mirrors</a>
+            <a href="{{ url_for('multilayer_design_new') }}">New multilayer grating</a>
+            <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer gratings</a>
             <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer runs</a>
           </div>
         </details>
