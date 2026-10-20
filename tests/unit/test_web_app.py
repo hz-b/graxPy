@@ -1676,7 +1676,8 @@ def test_run_management_is_grouped_in_navigation_and_legacy_url_redirects(tmp_pa
     page = home.data.decode("utf-8")
     assert page.index("Manage gratings") < page.index("Manage grating runs")
     assert page.index("Manage plane mirrors") < page.index("Manage plane-mirror runs")
-    assert page.index("Manage multilayer mirrors") < page.index("Manage multilayer runs")
+    assert page.index("New multilayer grating") < page.index("Manage multilayer gratings")
+    assert page.index("Manage multilayer gratings") < page.index("Manage multilayer runs")
     assert "Manage runs</a>" not in page
 
     legacy = client.get("/runs/manage")
@@ -1804,7 +1805,9 @@ def test_manage_gratings_page_bulk_deletes_selected_gratings(tmp_path: Path) -> 
     assert gratings[1]["id"] in remaining_ids
 
 
-def test_index_can_switch_active_workspace_root(tmp_path: Path) -> None:
+def test_index_picks_database_folder_and_stays_on_home_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import create_app
@@ -1816,30 +1819,204 @@ def test_index_can_switch_active_workspace_root(tmp_path: Path) -> None:
 
     app = create_app(data_dir=primary)
     client = app.test_client()
+    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: secondary)
 
     initial = client.get("/")
     assert b"name: Demo grating" in initial.data
     assert b"Secondary run" not in initial.data
 
     switched = client.post(
-        "/workspace",
-        data={"workspace_root": str(secondary)},
+        "/workspace/pick",
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
         follow_redirects=True,
     )
 
     assert switched.status_code == 200
+    assert switched.request.path == "/"
     assert b"name: Demo grating" in switched.data
     assert b"Primary run" not in switched.data
     assert bytes(str(secondary), "utf-8") in switched.data
+    assert app.config["GRAx_DATA_DIR"] == secondary.resolve()
+    assert b"Switch workspace" not in switched.data
+    assert b"Browse folders" not in switched.data
 
 
-def test_workspace_switch_is_rejected_when_active_runs_exist(tmp_path: Path) -> None:
+def test_workspace_native_picker_switches_only_for_local_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    primary = tmp_path / "primary"
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    app = create_app(data_dir=primary)
+    client = app.test_client()
+    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: selected)
+
+    response = client.post("/workspace/pick", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+
+    assert response.status_code == 302
+    assert app.config["GRAx_DATA_DIR"] == selected.resolve()
+
+
+def test_workspace_native_picker_fallback_and_cancel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    app = create_app(data_dir=tmp_path / "primary")
+    client = app.test_client()
+    monkeypatch.setattr(
+        web_app_module,
+        "_pick_native_directory",
+        lambda: (_ for _ in ()).throw(RuntimeError("no desktop session")),
+    )
+    fallback = client.post("/workspace/pick", follow_redirects=True)
+    assert fallback.status_code == 200
+    assert fallback.request.path == "/"
+    assert b"no desktop session" in fallback.data
+    assert b"Choose folder" in fallback.data
+
+    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: None)
+    canceled = client.post("/workspace/pick", follow_redirects=True)
+    assert canceled.status_code == 200
+    assert canceled.request.path == "/"
+    assert b"Folder selection canceled" in canceled.data
+    assert app.config["GRAx_DATA_DIR"] == (tmp_path / "primary").resolve()
+
+
+def test_workspace_native_picker_uses_browser_fallback_for_remote_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    app = create_app(data_dir=tmp_path / "primary")
+    client = app.test_client()
+    monkeypatch.setattr(
+        web_app_module,
+        "_pick_native_directory",
+        lambda: pytest.fail("remote request must not launch a local dialog"),
+    )
+
+    response = client.post(
+        "/workspace/pick",
+        environ_base={"REMOTE_ADDR": "192.0.2.10"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert response.request.path == "/"
+    assert b"available only from the local machine" in response.data
+
+
+def test_native_workspace_picker_uses_macos_folder_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(web_app_module.platform, "system", lambda: "Darwin")
+    calls: list[list[str]] = []
+
+    def pick_folder(command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="/tmp/selected/\n", stderr="")
+
+    monkeypatch.setattr(web_app_module.subprocess, "run", pick_folder)
+
+    selected = web_app_module._pick_native_directory()
+
+    assert selected == Path("/tmp/selected").resolve()
+    assert calls[0][0] == "osascript"
+    assert "choose folder" in calls[0][2]
+    assert "with invisibles" in calls[0][2]
+
+
+def test_native_workspace_picker_shows_hidden_folders_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(web_app_module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(web_app_module.shutil, "which", lambda name: "powershell.exe")
+    calls: list[list[str]] = []
+
+    def pick_folder(command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="C:\\\\selected\n", stderr="")
+
+    monkeypatch.setattr(web_app_module.subprocess, "run", pick_folder)
+
+    selected = web_app_module._pick_native_directory()
+
+    assert selected is not None
+    assert "$dialog.ShowHiddenFiles = $true" in calls[0][4]
+
+
+def test_native_workspace_picker_prefers_hidden_enabled_gtk_on_linux(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(web_app_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(web_app_module.os, "environ", {"DISPLAY": ":0"})
+    monkeypatch.setattr(web_app_module.shutil, "which", lambda name: "/usr/bin/" + name)
+    calls: list[list[str]] = []
+
+    def pick_folder(command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="/tmp/.selected\n", stderr="")
+
+    monkeypatch.setattr(web_app_module.subprocess, "run", pick_folder)
+
+    selected = web_app_module._pick_native_directory()
+
+    assert selected == Path("/tmp/.selected").resolve()
+    assert calls[0][1] == "-c"
+    assert "set_show_hidden(True)" in calls[0][2]
+
+
+def test_home_exposes_only_the_native_workspace_picker(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    home = client.get("/")
+
+    assert b"Choose folder" in home.data
+    assert b"Switch workspace" not in home.data
+    assert b"Browse folders" not in home.data
+    assert b'name="workspace_root"' not in home.data
+    assert client.get("/workspace/browse").status_code == 404
+
+
+def test_sweep_display_rounding_and_range_count_restore_are_configured() -> None:
+    web_js = (
+        Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js"
+    ).read_text(encoding="utf-8")
+
+    assert "function formatRoundedNumber(value)" in web_js
+    assert "value.toFixed(3)" in web_js
+    assert (
+        "Full value: ${String(value)}. The visible value is rounded to at most "
+        "three decimal places."
+        in web_js
+    )
+    assert "lastNonSingleCount" in web_js
+    assert (
+        "Full calculated value: ${exact}. The visible value is rounded to at most "
+        "three decimal places."
+        in web_js
+    )
+    assert "toPrecision(12)" not in web_js
+
+
+def test_native_workspace_picker_is_blocked_when_active_runs_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pytest.importorskip("flask")
 
     from grax.web.app import ActiveRunState, create_app
 
     primary = tmp_path / "primary"
-    secondary = tmp_path / "secondary"
     app = create_app(data_dir=primary)
     app.extensions["grax_active_runs"] = {
         "run-1": ActiveRunState(
@@ -1854,15 +2031,20 @@ def test_workspace_switch_is_rejected_when_active_runs_exist(tmp_path: Path) -> 
         )
     }
     client = app.test_client()
+    monkeypatch.setattr(
+        web_app_module,
+        "_pick_native_directory",
+        lambda: pytest.fail("active runs must block the folder dialog"),
+    )
 
     response = client.post(
-        "/workspace",
-        data={"workspace_root": str(secondary)},
+        "/workspace/pick",
+        environ_base={"REMOTE_ADDR": "127.0.0.1"},
         follow_redirects=True,
     )
 
     assert response.status_code == 200
-    assert b"active runs" in response.data.lower()
+    assert b"runs are active" in response.data.lower()
     assert app.config["GRAx_DATA_DIR"] == primary.resolve()
 
 

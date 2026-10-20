@@ -1777,6 +1777,7 @@ fieldset {
 
 .parameter-label { position: relative; display: inline-block; }
 .roughness-help-wrap { position: relative; display: inline-flex; vertical-align: middle; }
+.linked-step-label-head { display: inline-flex; align-items: center; }
 .roughness-help { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; padding: 0; margin-left: 4px; border: 1px solid currentColor; border-radius: 50%; color: var(--muted); background: transparent; font: inherit; font-size: 0.8rem; cursor: help; }
 .roughness-tip { display: none; position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 20; width: min(320px, 75vw); padding: 12px; border: 1px solid #b6c2cf; border-radius: 8px; background: #fff; color: #243447; box-shadow: 0 4px 16px #0002; font-size: var(--font-compact); line-height: 1.5; font-weight: var(--weight-regular); pointer-events: none; }
 .roughness-help:hover + .roughness-tip,

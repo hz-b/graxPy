@@ -30,16 +30,15 @@
 
 <section class="home-database">
   <h1>Database folder</h1>
-  <form class="home-database-form" method="post" action="{{ url_for('switch_workspace') }}">
-    <label>
-      Active database folder
-      <input name="workspace_root" type="text" value="{{ active_workspace }}">
-    </label>
-    <div class="actions">
-      <button class="button primary" type="submit">Switch workspace</button>
-      <a class="button" href="{{ url_for('browse_workspace', path=active_workspace) }}">Browse folders</a>
+  <div class="home-database-form">
+    <div>
+      <strong>Active database folder</strong>
+      <p><code>{{ active_workspace }}</code></p>
     </div>
-  </form>
+    <form method="post" action="{{ url_for('pick_workspace') }}">
+      <button class="button primary" type="submit">Choose folder…</button>
+    </form>
+  </div>
 </section>
 
 <div class="grid halves home-recent-grid">

@@ -213,30 +213,81 @@ function syncRunWorkflow(select) {
   syncFourierRangeWarning(select.closest("form"));
 }
 
+let linkedStepHelpId = 0;
+
+function formatRoundedNumber(value) {
+  return Number(value.toFixed(3)).toString();
+}
+
 function initLinkedRange(minimum, maximum, count, fixedCount = false) {
   if (!minimum || !maximum || !count || count.dataset.linkedRange) return;
   count.dataset.linkedRange = "true";
-  const label = document.createElement("label"); label.textContent = "Step size (fits endpoints)";
+  const label = document.createElement("label");
+  const labelText = document.createElement("span");
+  labelText.textContent = "Step size (fits endpoints)";
   for (const attr of ["data-scan-field", "data-grading-field"]) {
     if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
   }
   const step = document.createElement("input");
   step.type = "number"; step.step = "any"; step.min = "0"; step.dataset.linkedStep = "";
+  const help = document.createElement("span"); help.className = "roughness-help-wrap";
+  const helpButton = document.createElement("button");
+  helpButton.type = "button"; helpButton.className = "roughness-help"; helpButton.textContent = "?";
+  helpButton.setAttribute("aria-label", "Help: step size");
+  const tooltip = document.createElement("span");
+  tooltip.className = "roughness-tip"; tooltip.setAttribute("role", "tooltip");
+  tooltip.id = `linked-step-help-${++linkedStepHelpId}`;
+  helpButton.setAttribute("aria-describedby", tooltip.id);
+  help.append(helpButton, tooltip);
+  const labelHead = document.createElement("span"); labelHead.className = "linked-step-label-head";
+  labelHead.append(labelText, help);
   const hint = document.createElement("span"); hint.className = "subtle"; hint.setAttribute("aria-live", "polite");
-  label.append(step, hint); count.closest("label").after(label);
+  label.append(labelHead, step, hint); count.closest("label").after(label);
+  let lastNonSingleCount = Number(count.value) > 1 ? Number(count.value) : 2;
+  let collapsedRange = minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value);
   const sync = (force = false) => {
     const lower = Number(minimum.value), upper = Number(maximum.value), size = Number(count.value);
     const actual = Number.isFinite(lower + upper) && Number.isInteger(size) && size >= 1
-      ? String(size === 1 ? 0 : Number((Math.abs(upper - lower) / (size - 1)).toPrecision(12))) : "";
-    if (force || document.activeElement !== step) { step.value = actual; step.setCustomValidity(""); }
-    hint.textContent = step.value !== actual && actual ? `Actual spacing: ${actual}` : "";
+      ? (size === 1 ? 0 : Math.abs(upper - lower) / (size - 1)) : null;
+    const exact = actual === null ? "" : String(actual);
+    const display = actual === null ? "" : formatRoundedNumber(actual);
+    if (force || document.activeElement !== step) { step.value = display; step.setCustomValidity(""); }
+    tooltip.textContent = exact
+      ? `Full calculated value: ${exact}. The visible value is rounded to at most three decimal places.`
+      : "Enter a positive step size, or zero for a single-point range.";
+    hint.textContent = step.value !== display && display ? `Actual spacing: ${display}` : "";
     step.disabled = count.disabled;
   };
   count._syncLinkedRange = sync;
-  count.addEventListener("input", () => { if (!fixedCount && Number(count.value) === 1) maximum.value = minimum.value; sync(); });
+  count.addEventListener("input", () => {
+    if (!fixedCount) {
+      const value = Number(count.value);
+      if (Number.isInteger(value) && value > 1) lastNonSingleCount = value;
+      if (minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value)) {
+        if (value > 1) lastNonSingleCount = value;
+        count.value = "1";
+        collapsedRange = true;
+      } else if (value === 1) {
+        maximum.value = minimum.value;
+        collapsedRange = true;
+      }
+    }
+    sync();
+  });
   for (const field of [minimum, maximum]) field.addEventListener("input", () => {
-    if (!fixedCount && minimum.value === maximum.value) count.value = "1";
-    else if (!fixedCount && Number(count.value) < 2) count.value = "2";
+    if (!fixedCount) {
+      const equalBounds = minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value);
+      if (equalBounds) {
+        if (!collapsedRange && Number(count.value) > 1) lastNonSingleCount = Number(count.value);
+        count.value = "1";
+        collapsedRange = true;
+      } else {
+        if (collapsedRange && Number(count.value) === 1) count.value = String(lastNonSingleCount);
+        else if (Number(count.value) < 2) count.value = String(lastNonSingleCount);
+        if (Number(count.value) > 1) lastNonSingleCount = Number(count.value);
+        collapsedRange = false;
+      }
+    }
     sync();
   });
   step.addEventListener("input", () => {
@@ -1212,7 +1263,6 @@ function initCustomGridBuilder(root) {
   function appendPreviewCases() {
     if (!casePreview) return;
     const end = Math.min(casePreview.rendered + 100, casePreview.count);
-    const lines = [];
     for (let index = casePreview.rendered; index < end; index += 1) {
       let remainder = index;
       const selected = new Array(casePreview.axes.length);
@@ -1222,9 +1272,26 @@ function initCustomGridBuilder(root) {
         remainder = Math.floor(remainder / values.length);
       }
       const item = Object.assign({}, ...selected);
-      lines.push(`${index + 1}. ${Object.entries(item).map(([key, value]) => `${descriptor(key)?.label || key}=${materialText(value)}`).join("; ") || "Default settings"}`);
+      if (casePreview.rendered || index > 0) previewNode.append(document.createTextNode("\n"));
+      previewNode.append(document.createTextNode(`${index + 1}. `));
+      const entries = Object.entries(item);
+      if (!entries.length) {
+        previewNode.append(document.createTextNode("Default settings"));
+        continue;
+      }
+      entries.forEach(([key, value], valueIndex) => {
+        if (valueIndex) previewNode.append(document.createTextNode("; "));
+        previewNode.append(document.createTextNode(`${descriptor(key)?.label || key}=`));
+        if (typeof value === "number" && Number.isFinite(value)) {
+          const rounded = document.createElement("span");
+          rounded.textContent = formatRoundedNumber(value);
+          rounded.title = `Full value: ${String(value)}. The visible value is rounded to at most three decimal places.`;
+          previewNode.append(rounded);
+        } else {
+          previewNode.append(document.createTextNode(materialText(value)));
+        }
+      });
     }
-    if (lines.length) previewNode.append(document.createTextNode((casePreview.rendered ? "\n" : "") + lines.join("\n")));
     casePreview.rendered = end;
   }
 
@@ -1654,6 +1721,11 @@ function initCustomGridBuilder(root) {
       configField.value = JSON.stringify(config);
       const form = root.closest("form");
       const mode = form.querySelector("[data-run-workflow]").value;
+      const invalidCffVariation = mode === "monochromator" && summary.axes.some((axis) =>
+        axis.some((item) => Object.hasOwn(item, "cff") && Number(item.cff) === 1),
+      );
+      const cffVariationWarning = root.querySelector("[data-cff-variation-warning]");
+      cffVariationWarning?.classList.toggle("is-hidden", !invalidCffVariation);
       const axisCount = mode === "angle_sweep"
         ? Number(form.querySelector('[name="grazing_angle_points"]')?.value || 1)
         : Number(form.querySelector('[name="energy_points"]')?.value || 1);
@@ -2145,6 +2217,14 @@ function initDesignPicker(form) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll('[name="cff"]').forEach((field) => {
+    const warning = field.closest("fieldset")?.querySelector("[data-cff-warning]");
+    const syncWarning = () => warning?.classList.toggle("is-hidden", Number(field.value) !== 1);
+    syncWarning();
+    field.addEventListener("input", syncWarning);
+    field.addEventListener("change", syncWarning);
+  });
+
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
     select.addEventListener("change", () => {
