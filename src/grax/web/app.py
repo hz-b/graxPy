@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import threading
 import time
+import tomllib
 import traceback
 import warnings
 import webbrowser
@@ -96,7 +97,6 @@ from .runs import RunStore
 from . import parameter_scans
 from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
 from .custom_grid import (
-    LARGE_GRID_WARNING,
     default_configuration as default_custom_grid_configuration,
     expand_custom_grid,
     parameter_catalog as custom_grid_parameter_catalog,
@@ -591,7 +591,6 @@ def create_app(*, data_dir: str | Path | None = None):
                 descriptor.to_json() for descriptor in custom_grid_parameter_catalog(spec)
             ],
             custom_grid_default=default_custom_grid_configuration(spec),
-            custom_grid_warning_threshold=LARGE_GRID_WARNING,
             scan_catalogs={mode: [item.to_json() for item in parameter_scans.scan_catalog(spec, mode)] for mode in ("energy_sweep", "angle_sweep", "monochromator")},
         )
 
@@ -2353,12 +2352,71 @@ def _custom_grid_defaults_from_form(form: Any) -> dict[str, Any]:
     }
 
 
+def _prepare_monochromator_cff_config(form: Any, config: dict[str, Any]) -> dict[str, Any]:
+    """Drop CFF = 1 from generated ranges and reject it in explicit inputs."""
+    prepared = deepcopy(config)
+    varied_cff = False
+
+    def is_forbidden(value: Any) -> bool:
+        try:
+            return bool(np.isclose(float(value), 1.0, rtol=0.0, atol=1e-12))
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    for axis in prepared.get("independent") or []:
+        if not isinstance(axis, dict):
+            raise ValueError("Independent parameter axes must be objects.")
+        if axis.get("parameter") != "cff":
+            continue
+        varied_cff = True
+        if str(axis.get("mode", "list")).lower() == "range":
+            try:
+                minimum = float(axis["minimum"])
+                maximum = float(axis["maximum"])
+                count = int(axis["count"])
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise ValueError("The CFF linear range needs finite bounds and a positive point count.") from error
+            if not np.isfinite(minimum + maximum) or count < 1:
+                raise ValueError("The CFF linear range needs finite bounds and a positive point count.")
+            values = np.linspace(minimum, maximum, count).tolist()
+            values = [value for value in values if not is_forbidden(value)]
+            if not values:
+                raise ValueError("The CFF linear range has no usable values after CFF = 1 is removed.")
+            axis.clear()
+            axis.update({"parameter": "cff", "mode": "list", "values": values})
+        elif any(is_forbidden(value) for value in axis.get("values") or []):
+            raise ValueError("CFF = 1 is not allowed. Remove it from the explicit values.")
+
+    for group in prepared.get("coupled_groups") or []:
+        if not isinstance(group, dict):
+            raise ValueError("Coupled parameter groups must be objects.")
+        parameters = group.get("parameters") or []
+        if "cff" not in parameters:
+            continue
+        varied_cff = True
+        range_settings = (group.get("input_settings") or {}).get("cff") or {}
+        rows = group.get("rows") or []
+        if str(range_settings.get("mode", "manual")).lower() == "range":
+            rows = [row for row in rows if not is_forbidden(row.get("cff"))]
+            if not rows:
+                raise ValueError("The CFF linear range has no usable values after CFF = 1 is removed.")
+            group["rows"] = rows
+        elif any(is_forbidden(row.get("cff")) for row in rows):
+            raise ValueError("CFF = 1 is not allowed. Remove it from the explicit values.")
+
+    if not varied_cff and is_forbidden(form.get("cff", 2.25) or 2.25):
+        raise ValueError("CFF = 1 cannot be used for a monochromator run. Choose a different value.")
+    return prepared
+
+
 def _parameter_scans_from_form(
     form: Any, spec: dict[str, Any] | None, energies: np.ndarray
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Resolve a posted or checkpointed sweep using its saved grating snapshot."""
     config = parameter_scans.parse_config(form.get("parameter_sweep_config"))
     mode = str(form.get("workflow"))
+    if mode == "monochromator":
+        config = _prepare_monochromator_cff_config(form, config)
     angle_values = None
     if mode == "angle_sweep" and not any(
         axis.get("parameter") == "grazing_angle_deg" for axis in config.get("independent", [])
@@ -2451,6 +2509,14 @@ def _queue_run(
     """Create a queued run manifest and start background execution."""
 
     workflow = str(form["workflow"])
+    if workflow == "monochromator":
+        prepared_config = _prepare_monochromator_cff_config(
+            form, parameter_scans.parse_config(form.get("parameter_sweep_config"))
+        )
+        # Keep Werkzeug's MultiDict interface: run-input persistence uses
+        # getlist() to retain repeated form fields such as selected orders.
+        form = form.copy() if hasattr(form, "copy") else dict(form)
+        form["parameter_sweep_config"] = json.dumps(prepared_config)
     run_id = _run_id(workflow, grating_id)
     run_dir = data_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -3987,7 +4053,17 @@ def _run_metadata_yaml(manifest: dict[str, Any], run_dir: Path) -> str:
 
 
 def _grax_version() -> str:
-    """Return the installed graxpy version for exported provenance."""
+    """Return the project version, preferring pyproject.toml in a source checkout."""
+
+    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    try:
+        with pyproject_path.open("rb") as pyproject_file:
+            project = tomllib.load(pyproject_file).get("project", {})
+        version = str(project.get("version", "")).strip()
+        if version:
+            return version
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
 
     try:
         return importlib.metadata.version("graxpy")

@@ -18,7 +18,6 @@ from grax.simulation.core import normalize_polarization
 from .persistence import build_grating_from_spec
 
 SCHEMA_VERSION = 1
-LARGE_GRID_WARNING = 1_000
 
 
 @dataclass(frozen=True)
@@ -847,7 +846,6 @@ def _cell(value: Any) -> Any:
 
 
 __all__ = [
-    "LARGE_GRID_WARNING",
     "SCHEMA_VERSION",
     "ParameterDescriptor",
     "common_parameter_catalog",

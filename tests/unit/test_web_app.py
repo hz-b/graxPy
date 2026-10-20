@@ -6,6 +6,7 @@ import json
 import sys
 import threading
 import time
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,14 @@ from grax.web.persistence import (
     build_grating_from_spec,
     grating_to_spec,
 )
+
+
+def test_site_version_comes_from_project_toml():
+    pyproject = Path(web_app_module.__file__).resolve().parents[3] / "pyproject.toml"
+    with pyproject.open("rb") as stream:
+        expected = tomllib.load(stream)["project"]["version"]
+
+    assert web_app_module._grax_version() == expected
 
 
 def _write_run_fixture(
