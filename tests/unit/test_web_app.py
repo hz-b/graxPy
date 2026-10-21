@@ -657,8 +657,8 @@ def test_index_mentions_result_locations(tmp_path: Path) -> None:
     response = create_app(data_dir=tmp_path / ".grax-web").test_client().get("/")
 
     assert response.status_code == 200
-    assert b".grax-web/runs/" in response.data
-    assert b".grax-web/plots/" in response.data
+    assert str(tmp_path / ".grax-web").encode() in response.data
+    assert b"Active database folder" in response.data
 
 
 def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> None:
@@ -1250,7 +1250,14 @@ def test_parameter_study_run_uses_selected_polarization(
     assert status["completed_points"] == 9
     assert status["remaining_points"] == 0
     assert b"9 / 9" in client.get(f"/runs/{run_id}").data
-    assert b"completed \xc2\xb7 9 / 9 points" in client.get("/runs/gratings").data
+    from bs4 import BeautifulSoup
+
+    completed_run = BeautifulSoup(client.get("/runs/gratings").data, "html.parser").select_one(
+        ".run-manage-status"
+    )
+    assert completed_run is not None
+    assert completed_run.select_one(".status-pill").get_text(strip=True) == "completed"
+    assert completed_run.select_one(".subtle").get_text(strip=True) == "9 / 9 points"
 
 
 def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
@@ -1362,7 +1369,83 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
         assert b"parameter_study.png" in detail
         assert b"parameter_study_Fourier_orders_E100.0eV.csv" in detail
     manage = client.get("/runs/gratings").data
-    assert f"failed · {completed_points} / 9 points".encode() in manage
+    from bs4 import BeautifulSoup
+
+    failed_run = BeautifulSoup(manage, "html.parser").select_one(".run-manage-status")
+    assert failed_run is not None
+    assert failed_run.select_one(".status-pill").get_text(strip=True) == "failed"
+    assert failed_run.select_one(".subtle").get_text(strip=True) == f"{completed_points} / 9 points"
+
+
+def test_parameter_study_continues_when_windows_locks_live_plot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from grax.web.app import create_app
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_bytes(b"new partial plot")
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        run_dir = Path(kwargs["output_dir"])
+        (run_dir / "parameter_study.png").write_bytes(b"last available plot")
+        kwargs["sweep_progress_callback"](1, 9, SimpleNamespace())
+        return SimpleNamespace()
+
+    original_replace = Path.replace
+
+    def replace_unlocked_files(source: Path, target: Path) -> Path:
+        if Path(target).name == "parameter_study.png":
+            raise PermissionError("simulated Windows image-file lock")
+        return original_replace(source, target)
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+    monkeypatch.setattr(Path, "replace", replace_unlocked_files)
+
+    client = create_app(data_dir=tmp_path).test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Locked preview test",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+        },
+    )
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    run_dir = tmp_path / "runs" / run_id
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        if manifest["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.02)
+
+    assert manifest["status"] == "completed"
+    assert (run_dir / "parameter_study.png").read_bytes() == b"last available plot"
+    assert not (run_dir / "parameter_study.tmp.png").exists()
 
 
 def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path) -> None:
@@ -1382,8 +1465,17 @@ def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path)
     assert legacy["completed_points"] == 2
     assert checkpoint["completed_points"] == 2
     manage = client.get("/runs/gratings").data
-    assert b"ok \xc2\xb7 2 / 3 points" in manage
-    assert b"aborted \xc2\xb7 2 / 4 points" in manage
+    from bs4 import BeautifulSoup
+
+    run_statuses = [
+        (
+            status.select_one(".status-pill").get_text(strip=True),
+            status.select_one(".subtle").get_text(strip=True),
+        )
+        for status in BeautifulSoup(manage, "html.parser").select(".run-manage-status")
+    ]
+    assert ("ok", "2 / 3 points") in run_statuses
+    assert ("aborted", "2 / 4 points") in run_statuses
 
 
 def test_load_run_manifest_ignores_transient_invalid_json(tmp_path: Path) -> None:
@@ -1400,6 +1492,39 @@ def test_write_text_atomically_replaces_existing_diagnostic(tmp_path: Path) -> N
 
     assert path.read_text(encoding="utf-8") == "new traceback"
     assert list(path.parent.glob("error.txt.*.tmp")) == []
+
+
+def test_replace_plot_retries_transient_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "parameter_study.tmp.png"
+    destination = tmp_path / "parameter_study.png"
+    source.write_bytes(b"new plot")
+    destination.write_bytes(b"old plot")
+    original_replace = Path.replace
+    attempts = 0
+
+    def temporarily_locked(source_path: Path, destination_path: Path) -> Path:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError("simulated temporary Windows lock")
+        return original_replace(source_path, destination_path)
+
+    monkeypatch.setattr(Path, "replace", temporarily_locked)
+
+    replaced = web_app_module._replace_plot_with_retry(
+        source,
+        destination,
+        attempts=3,
+        retry_delay=0,
+    )
+
+    assert replaced is True
+    assert attempts == 3
+    assert destination.read_bytes() == b"new plot"
+    assert not source.exists()
 
 
 def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
@@ -1795,7 +1920,7 @@ def test_manage_gratings_page_bulk_deletes_selected_gratings(tmp_path: Path) -> 
 
     page = client.get("/gratings/manage")
     assert page.status_code == 200
-    assert b"Manage saved gratings" in page.data
+    assert b"Manage gratings" in page.data
     assert b"Delete selected gratings?" in page.data
 
     response = client.post(

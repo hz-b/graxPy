@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Kept parameter-study sweeps running when Windows temporarily locks the live plot during refresh.
+- Added CI browser checks that run a real short energy scan through the Flask website.
+
 ## 0.5.7
 
 - Added a system folder picker for local desktop use and kept folder selection on the home page.

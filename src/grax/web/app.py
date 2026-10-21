@@ -2797,13 +2797,22 @@ def _execute_run_job(
                     partial_result,
                     output_filename=temporary_plot_path,
                 )
-                temporary_plot_path.replace(partial_plot_path)
-                _update_active_run(
-                    app,
-                    run_id,
-                    plot_relative_path=partial_plot_path.name,
-                    bump_plot_token=True,
-                )
+                if _replace_plot_with_retry(temporary_plot_path, partial_plot_path):
+                    _update_active_run(
+                        app,
+                        run_id,
+                        plot_relative_path=partial_plot_path.name,
+                        bump_plot_token=True,
+                    )
+                else:
+                    # Windows can deny replacement while Flask is serving the
+                    # previous preview. Keep the sweep running and retain the
+                    # last plot until a later update can be published.
+                    app.logger.debug(
+                        "Could not refresh the live plot for run %s; keeping the previous preview",
+                        run_id,
+                    )
+                    temporary_plot_path.unlink(missing_ok=True)
 
             result = parameter_sweep.run_parameter_study(
                 grating=grating,
@@ -2827,10 +2836,14 @@ def _execute_run_job(
                 sweep_progress_callback=_parameter_study_progress,
             )
             plot_path = run_dir / "parameter_study.png"
-            if not plot_path.exists():
-                temporary_plot_path = run_dir / "parameter_study.tmp.png"
-                parameter_sweep.plot_parameter_study(result, output_filename=temporary_plot_path)
-                temporary_plot_path.replace(plot_path)
+            temporary_plot_path = run_dir / "parameter_study.tmp.png"
+            parameter_sweep.plot_parameter_study(result, output_filename=temporary_plot_path)
+            if not _replace_plot_with_retry(temporary_plot_path, plot_path):
+                temporary_plot_path.unlink(missing_ok=True)
+                app.logger.warning(
+                    "Could not publish the final parameter-study plot for run %s; keeping the last available preview",
+                    run_id,
+                )
             _update_active_run(
                 app,
                 run_id,
@@ -3710,6 +3723,26 @@ def _parameter_study_artifacts(run_dir: Path) -> list[str]:
             or (path.name.startswith("parameter_study_") and path.suffix == ".csv")
         )
     )
+
+
+def _replace_plot_with_retry(
+    source: Path,
+    destination: Path,
+    *,
+    attempts: int = 5,
+    retry_delay: float = 0.05,
+) -> bool:
+    """Replace a live plot, tolerating brief Windows file-sharing locks."""
+
+    for attempt in range(attempts):
+        try:
+            source.replace(destination)
+            return True
+        except PermissionError:
+            if attempt + 1 == attempts:
+                return False
+            time.sleep(retry_delay)
+    return False
 
 
 def _write_text_atomically(path: Path, text: str) -> None:

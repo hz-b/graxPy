@@ -25,6 +25,7 @@ jobs:
       - name: Run unit and smoke tests
         run: >
           uv run pytest tests/unit tests/smoke
+          -m "not browser"
           --ignore=tests/unit/test_reticolopy_opt.py
           --cov=grax --cov-report=term-missing --cov-report=xml
 
@@ -34,3 +35,35 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
+
+  browser-smoke:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MPLBACKEND: Agg
+      GRAX_TEST_ARTIFACTS: test-results/browser
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --extra web
+
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run browser and real-scan checks
+        run: uv run pytest tests/smoke/test_web_browser.py -m browser -v
+
+      - name: Upload browser failure artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-artifacts
+          path: test-results/browser/
+          if-no-files-found: warn
