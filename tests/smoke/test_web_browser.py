@@ -113,6 +113,7 @@ def test_browser_runs_real_two_point_energy_sweep_and_downloads_csv(
     page.get_by_role("button", name="Save grating").click()
     expect(page.get_by_role("heading", name="CI energy scan")).to_be_visible(timeout=20_000)
 
+    expect(page.locator("select[name='polarization']")).to_have_value("p")
     page.locator("select[name='workflow']").select_option("energy_sweep")
     page.locator("input[name='energy_start_ev']").fill("800")
     page.locator("input[name='energy_stop_ev']").fill("810")

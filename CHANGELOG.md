@@ -4,6 +4,7 @@
 
 - Kept parameter-study sweeps running when Windows temporarily locks the live plot during refresh.
 - Added CI browser checks that run a real short energy scan through the Flask website.
+- Made p polarization the default across grating runs, custom grids, plane-mirror scans, and saved-run fallbacks.
 
 ## 0.5.7
 

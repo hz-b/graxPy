@@ -1078,6 +1078,8 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
     assert b'name="polarization"' in response.data
+    assert b'<option value="s">s (TE)</option>' in response.data
+    assert response.data.count(b'<option value="p" selected>p (TM)</option>') == 2
     assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
     assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
     assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
@@ -1260,14 +1262,21 @@ def test_parameter_study_run_uses_selected_polarization(
     assert completed_run.select_one(".subtle").get_text(strip=True) == "9 / 9 points"
 
 
-def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
+def test_load_run_manifest_defaults_missing_polarization_to_p(tmp_path: Path) -> None:
     _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
 
     manifest = web_app_module._load_run_manifest(tmp_path, "run-checkpoint")
 
     assert manifest is not None
-    assert manifest["polarization"] == "s"
-    assert manifest["run_input"]["polarization"] == "s"
+    assert manifest["polarization"] == "p"
+    assert manifest["run_input"]["polarization"] == "p"
+
+
+def test_web_simulation_helpers_default_polarization_to_p() -> None:
+    """Use p polarization when a web run omits its polarization field."""
+    assert web_app_module._normalized_polarization(None) == "p"
+    assert web_app_module._run_input_from_form(MultiDict())["polarization"] == "p"
+    assert web_app_module._custom_grid_defaults_from_form({})["polarization"] == "p"
 
 
 def test_parameter_study_artifacts_include_partial_csv_and_diagnostics(tmp_path: Path) -> None:

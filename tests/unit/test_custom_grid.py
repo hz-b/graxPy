@@ -12,6 +12,7 @@ import pytest
 from grax.web import app as web_app_module
 from grax.web.custom_grid import (
     common_parameter_catalog,
+    default_configuration,
     expand_custom_grid,
     parameter_catalog,
     write_custom_grid_all_orders,
@@ -61,6 +62,16 @@ def test_catalog_contains_conditions_numerics_geometry_and_coating() -> None:
     assert {"width_to_period_ratio", "depth_nm", "left_wall_angle_deg"} <= ids
     assert "stack.substrate_material" in ids
     assert "stack.substrate_material.density_g_cm3" in ids
+
+
+def test_custom_grid_defaults_to_p_polarization() -> None:
+    """Use p polarization when custom-grid cases omit an override."""
+    spec = _laminar_spec()
+    config = default_configuration(spec)
+
+    _, cases = expand_custom_grid(config, spec)
+
+    assert cases[0]["polarization"] == "p"
 
 
 def test_integer_range_is_rounded_deduplicated_and_ordered() -> None:

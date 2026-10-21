@@ -48,6 +48,7 @@ def test_page_renders_and_is_linked_from_navigation(client) -> None:
     page = client.get("/plane-mirror")
     assert page.status_code == 200
     assert b"data-plane-mirror-form" in page.data
+    assert b'<option value="p" selected>p</option>' in page.data
     assert b"/plane-mirror" in client.get("/").data
 
 

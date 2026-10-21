@@ -2347,7 +2347,7 @@ def _custom_grid_defaults_from_form(form: Any) -> dict[str, Any]:
         "grazing_angle_deg": float(form.get("custom_default_grazing_angle_deg", 1.5) or 1.5),
         "diffraction_order": int(float(form.get("custom_default_diffraction_order", 1) or 1)),
         "fourier_orders": int(float(form.get("custom_default_fourier_orders", 15) or 15)),
-        "polarization": str(form.get("custom_default_polarization", "s") or "s"),
+        "polarization": str(form.get("custom_default_polarization", "p") or "p"),
         "solver": str(form.get("custom_default_solver", "rcwa") or "rcwa"),
     }
 
@@ -2439,7 +2439,7 @@ def _parameter_scans_from_form(
         "grazing_angle_deg": float(form.get("grazing_angle_deg", 1.5)),
         "cff": float(form.get("cff", 2.25)),
         "solver": _normalized_solver(form.get("solver", "rcwa")),
-        "polarization": _normalized_polarization(form.get("polarization", "s")),
+        "polarization": _normalized_polarization(form.get("polarization", "p")),
         "roughness_kind": form.get("roughness_kind"),
         "run_x_resolution_nm": form.get("run_x_resolution_nm"),
         "run_z_resolution_nm": form.get("run_z_resolution_nm"),
@@ -2571,7 +2571,7 @@ def _queue_run(
         fourier_orders = int(float(form.get("fourier_orders", 15)))
     polarization = (
         str(custom_cases[0]["polarization"])
-        if custom_cases else _normalized_polarization(form.get("polarization", "s"))
+        if custom_cases else _normalized_polarization(form.get("polarization", "p"))
     )
     solver = (
         str(custom_cases[0]["solver"])
@@ -2819,7 +2819,7 @@ def _execute_run_job(
                 energies_ev=energies,
                 grazing_angle_deg=study_angle,
                 diffraction_order=diffraction_order,
-                polarization=_normalized_polarization(form_data.get("polarization", "s")),
+                polarization=_normalized_polarization(form_data.get("polarization", "p")),
                 solver=_normalized_solver(form_data.get("solver", "rcwa")),
                 fourier_orders_values=fourier_values,
                 x_resolution_values=x_values,
@@ -3532,7 +3532,7 @@ def _run_input_from_form(form: Any) -> dict[str, Any]:
     for key in form.keys():
         values = form.getlist(key)
         input_data[key] = values if len(values) > 1 else form.get(key)
-    input_data["polarization"] = _normalized_polarization(input_data.get("polarization", "s"))
+    input_data["polarization"] = _normalized_polarization(input_data.get("polarization", "p"))
     input_data["solver"] = _normalized_solver(input_data.get("solver", "rcwa"))
     return input_data
 
@@ -3545,7 +3545,7 @@ def _normalized_polarization(value: Any) -> str:
     ``"s"``/``"p"``.
     """
 
-    return normalize_polarization(value or "s")
+    return normalize_polarization(value or "p")
 
 
 def _normalized_solver(value: Any) -> str:
@@ -3931,7 +3931,7 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
         return None
     payload.setdefault("id", run_id)
     payload.setdefault("display_name", f"{payload.get('grating_name', 'Run')} · {payload.get('workflow', 'run')}")
-    payload.setdefault("polarization", _normalized_polarization(payload.get("run_input", {}).get("polarization", "s")))
+    payload.setdefault("polarization", _normalized_polarization(payload.get("run_input", {}).get("polarization", "p")))
     payload.setdefault("solver", _normalized_solver(payload.get("run_input", {}).get("solver", "rcwa")))
     if isinstance(payload.get("run_input"), dict):
         payload["run_input"].setdefault("polarization", payload["polarization"])
@@ -4039,7 +4039,7 @@ def _run_metadata_payload(manifest: dict[str, Any], run_dir: Path) -> dict[str, 
         },
         "grating": grating,
         "simulation": {
-            "polarization": manifest.get("polarization", run_input.get("polarization", "s")),
+            "polarization": manifest.get("polarization", run_input.get("polarization", "p")),
             "solver": manifest.get("solver", run_input.get("solver", "rcwa")),
             "diffraction_order": run_input.get("diffraction_order"),
             "input": run_input,
@@ -4610,7 +4610,7 @@ def _cases_for_workflow(
     """Return batch cases for one supported workflow."""
     run_x_resolution_nm = float(form.get("run_x_resolution_nm") or grating.x_resolution_nm)
     run_z_resolution_nm = float(form.get("run_z_resolution_nm") or grating.z_resolution_nm)
-    polarization = _normalized_polarization(form.get("polarization", "s"))
+    polarization = _normalized_polarization(form.get("polarization", "p"))
     solver = _normalized_solver(form.get("solver", "rcwa"))
 
     if workflow == "angle_sweep" or (

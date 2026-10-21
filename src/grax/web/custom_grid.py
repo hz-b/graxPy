@@ -335,7 +335,7 @@ def expand_custom_grid(
         "grazing_angle_deg": 1.5,
         "diffraction_order": 1,
         "fourier_orders": 5,
-        "polarization": "s",
+        "polarization": "p",
         "solver": "rcwa",
         **(defaults or {}),
     }

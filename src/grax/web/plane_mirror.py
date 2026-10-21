@@ -31,7 +31,7 @@ PLANE_MIRROR_DEFAULTS: dict[str, str] = {
     "map_angle_points": "1000",
     "fixed_angle_deg": "0.4",
     "fixed_energy_ev": "1000",
-    "polarization": "s",
+    "polarization": "p",
     "roughness_sigma_nm": "0",
     "grading_mode": "none",
     "grading_percent_per_mm": "0.05",
