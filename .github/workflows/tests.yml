@@ -51,8 +51,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install locked dependencies
-        run: uv sync --locked --extra dev --extra web
+      - name: Install dependencies
+        run: uv sync --extra dev --extra web
 
       - name: Install Chromium
         run: uv run playwright install --with-deps chromium

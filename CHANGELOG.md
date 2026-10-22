@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Kept browser checks running automatically after a release version changes.
+
 ## 0.6.0
 
 - Added a constant-deviation grating mount and improved AFM processing feedback, plot controls, numerical inputs, and scan previews.
