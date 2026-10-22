@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.0
+
+- Added a constant-deviation grating mount and improved AFM processing feedback, plot controls, numerical inputs, and scan previews.
+- Reorganized AFM upload inputs beside a scrollable status panel with copyable output and retry controls.
+- Included the full server traceback with the readable AFM error when copying failed processing output.
+- Kept saved-run plots available when a selected run has no individual scan checkbox selected.
+- Added resumable checkpoints for individual parameter-study points, and added Resume and Restart actions for incomplete runs.
+- Added a PyPI prerelease workflow for opt-in testing before a stable release.
 - Kept parameter-study sweeps running when Windows temporarily locks the live plot during refresh.
 - Added CI browser checks that run a real short energy scan through the Flask website.
 - Made p polarization the default across grating runs, custom grids, plane-mirror scans, and saved-run fallbacks.

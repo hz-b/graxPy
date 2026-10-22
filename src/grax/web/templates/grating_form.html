@@ -18,13 +18,24 @@
   {% if existing_afm_source_url %}<p class="subtle">Stored AFM scan: <a href="{{ existing_afm_source_url }}">{{ defaults.afm_source_filename or 'Download scan' }}</a>. Choose a new file to replace it.</p>{% endif %}
   <form method="post" action="{{ url_for('process_afm') }}" enctype="multipart/form-data" data-afm-process-form data-afm-preview-url="{{ url_for('preview_afm') }}">
     {% if existing_afm_source_url %}<input type="hidden" name="afm_existing_grating_id" value="{{ existing_afm_grating_id }}">{% endif %}
-    <div class="afm-file-target-row">
-      <label><span class="parameter-label">AFM file {{ afm_help('file', 'AFM file') }}</span><input type="file" name="afm_file" accept=".csv,.tsv,.txt,.dat,text/plain" {% if not existing_afm_source_url %}required{% endif %}></label>
-      <label><span class="parameter-label">Target period, lines/mm {{ afm_help('target', 'target period') }}</span><input name="afm_target_period_lpermm" type="number" min="1" step="1" value="{{ defaults.period_lpermm }}" data-afm-target-period required></label>
-      <label><span class="parameter-label">Profile {{ afm_help('profile', 'profile type') }}</span><select name="afm_profile_type" data-afm-profile-type><option value="blazed" {% if defaults.afm_profile_type|default('blazed') == 'blazed' %}selected{% endif %}>Blazed</option><option value="laminar" {% if defaults.afm_profile_type|default('blazed') == 'laminar' %}selected{% endif %}>Laminar</option></select></label>
+    <div class="afm-upload-layout">
+      <div class="afm-upload-fields">
+        <label><span class="parameter-label">AFM file {{ afm_help('file', 'AFM file') }}</span><input type="file" name="afm_file" accept=".csv,.tsv,.txt,.dat,text/plain" {% if not existing_afm_source_url %}required{% endif %}></label>
+        <label><span class="parameter-label">Target period, lines/mm {{ afm_help('target', 'target period') }}</span><input name="afm_target_period_lpermm" type="number" min="1" step="1" value="{{ defaults.period_lpermm }}" data-afm-target-period required></label>
+        <label><span class="parameter-label">Profile {{ afm_help('profile', 'profile type') }}</span><select name="afm_profile_type" data-afm-profile-type><option value="blazed" {% if defaults.afm_profile_type|default('blazed') == 'blazed' %}selected{% endif %}>Blazed</option><option value="laminar" {% if defaults.afm_profile_type|default('blazed') == 'laminar' %}selected{% endif %}>Laminar</option></select></label>
+        <label><span class="parameter-label">Coordinate units {{ afm_help('units', 'coordinate units') }}</span><select name="afm_units"><option value="nm" {% if defaults.afm_units|default('nm') == 'nm' %}selected{% endif %}>nm</option><option value="um" {% if defaults.afm_units|default('nm') == 'um' %}selected{% endif %}>µm</option><option value="m" {% if defaults.afm_units|default('nm') == 'm' %}selected{% endif %}>m</option></select></label>
+        <button class="button" type="submit" data-afm-process>Process AFM profile</button>
+      </div>
+      <aside class="afm-status-panel" aria-label="AFM processing status">
+        <strong>Processing status</strong>
+        <p class="afm-process-feedback" data-afm-result role="status" aria-live="polite">{% if existing_afm_source_url %}Stored AFM file available. Choose a new file or process the stored scan.{% else %}Waiting for file. Choose an AFM data file to begin.{% endif %}</p>
+        <div class="afm-status-actions">
+          <button class="button is-hidden" type="button" data-afm-retry>Retry processing</button>
+          <button class="button" type="button" data-afm-copy-output>Copy output</button>
+        </div>
+      </aside>
     </div>
     <figure class="afm-stage-plot is-hidden" data-afm-plot="raw"><figcaption>Uploaded scan</figcaption><svg role="img" aria-label="Uploaded AFM scan"></svg></figure>
-    <label><span class="parameter-label">Coordinate units {{ afm_help('units', 'coordinate units') }}</span><select name="afm_units"><option value="nm" {% if defaults.afm_units|default('nm') == 'nm' %}selected{% endif %}>nm</option><option value="um" {% if defaults.afm_units|default('nm') == 'um' %}selected{% endif %}>µm</option><option value="m" {% if defaults.afm_units|default('nm') == 'm' %}selected{% endif %}>m</option></select></label>
     <p class="subtle is-hidden" data-afm-units-hint role="status"></p>
     <label class="afm-check"><input type="checkbox" name="afm_reverse" value="1" {% if defaults.afm_reverse|default('0') == '1' %}checked{% endif %}><span class="parameter-label">Reverse scan {{ afm_help('reverse', 'reverse scan') }}</span></label>
     <figure class="afm-stage-plot is-hidden" data-afm-plot="reverse"><figcaption>Reversed scan</figcaption><svg role="img" aria-label="Reversed AFM scan"></svg></figure>
@@ -41,9 +52,8 @@
     <label class="afm-check"><input type="checkbox" name="afm_periodicity_ramp" value="1" {% if defaults.afm_periodicity_ramp|default('0') == '1' %}checked{% endif %}><span class="parameter-label">Apply periodicity-ramp correction {{ afm_help('ramp', 'periodicity-ramp correction') }}</span></label>
     <figure class="afm-stage-plot is-hidden" data-afm-plot="ramp"><figcaption>Periodicity-ramp correction (before and after)</figcaption><svg role="img" aria-label="AFM period before and after ramp correction"></svg></figure>
     <figure class="afm-stage-plot is-hidden" data-afm-plot="rescaled"><figcaption>Final profile at expected period</figcaption><svg role="img" aria-label="Final rescaled AFM profile"></svg></figure>
-    <p class="subtle is-hidden" data-afm-preview-message role="status"></p>
-    <button class="button" type="submit">Process AFM profile</button><span class="parameter-label">{{ afm_help('process', 'process AFM profile') }}</span>
-    <p class="notice is-hidden" data-afm-result role="status"></p>
+    <p class="subtle is-hidden" data-afm-preview-message role="status" aria-live="polite"></p>
+    <button class="button" type="submit" data-afm-process>Process AFM profile</button><span class="parameter-label">{{ afm_help('process', 'process AFM profile') }}</span>
   </form>
 </section>
 

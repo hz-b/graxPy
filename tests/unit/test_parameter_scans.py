@@ -15,6 +15,7 @@ from grax import simulation
 from grax.web import app as web_app
 from grax.web import parameter_scans as scans
 from grax.web.custom_grid import default_configuration
+from grax.web.persistence import build_grating_from_spec
 
 
 def spec():
@@ -133,6 +134,52 @@ def test_monochromator_recomputes_geometry_per_energy_and_line_density():
             case["grazing_angle_deg"] for case in reference
         ]
     assert cases[0]["grazing_angle_deg"] != cases[6]["grazing_angle_deg"]
+
+
+def test_constant_deviation_keeps_beam_deviation_fixed_and_solves_grating_equation():
+    """Keep 2θ and the grating equation satisfied at each sampled energy."""
+    cases = list(simulation.constant_deviation_cases(
+        grating=build_grating_from_spec(spec()),
+        energies_ev=[200.0, 400.0, 800.0],
+        total_deviation_deg=174.0,
+    ))
+    assert len(cases) == 3
+    for case in cases:
+        alpha = np.deg2rad(case["grazing_angle_deg"])
+        beta = np.deg2rad(case["diffraction_angle_deg"])
+        assert np.rad2deg(alpha + beta) == pytest.approx(6.0)
+        wavelength_nm = 1239.8 / case["energy_ev"]
+        period_nm = 1e6 / spec()["period_lpermm"]
+        assert period_nm * (np.cos(alpha) - np.cos(beta)) == pytest.approx(wavelength_nm)
+
+
+def test_constant_deviation_rejects_unphysical_angles():
+    """Reject energy and deviation combinations without physical grazing angles."""
+    grating = build_grating_from_spec(spec())
+    with pytest.raises(ValueError, match="No (real|physical) grazing angles"):
+        list(simulation.constant_deviation_cases(
+            grating=grating, energies_ev=[10.0], total_deviation_deg=174.0,
+        ))
+
+
+def test_constant_deviation_parameter_scan_reuses_solver_and_resolved_grating():
+    """Keep parameter combinations and solver choices in the shared scan builder."""
+    value = default_configuration(spec())
+    value["independent"] = [
+        {"parameter": "period_lpermm", "mode": "list", "values": [400, 600]},
+    ]
+    sweep, cases = scans.build_scans(
+        value,
+        spec(),
+        mode="constant_deviation",
+        energies=np.array([200.0, 300.0]),
+        defaults={"total_deviation_deg": 170.0, "diffraction_order": 1,
+                  "fourier_orders": 5, "grazing_angle_deg": 1.5,
+                  "solver": "neviere", "polarization": "p"},
+    )
+    assert len(sweep["scans"]) == 2
+    assert all(case["solver"] == "neviere" for case in cases)
+    assert [case["energy_ev"] for case in cases[:2]] == [200.0, 300.0]
 
 
 def test_forbidden_mount_parameters_are_rejected():
@@ -403,6 +450,28 @@ def test_angle_comparison_uses_grazing_angle_axis(tmp_path):
     )
     figure = json.loads(figure_json)
     assert figure["layout"]["xaxis"]["title"]["text"] == "Grazing angle (deg)"
+
+
+def test_empty_scan_selection_defaults_to_all_scans_for_selected_run_and_order(tmp_path):
+    sweep, cases = build()
+    run_id = "empty-scan-selection"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "id": run_id, "workflow": "energy_sweep", "status": "completed",
+        "grating_name": "Laminar", "run_input": {"diffraction_order": 1},
+        "parameter_sweep": sweep,
+    }))
+    scans.write_outputs(fake_results(cases), sweep, run_dir, title="Laminar", include_plot=False)
+
+    _, series = web_app._load_selected_plot_series(
+        data_dir=tmp_path,
+        run_ids=[run_id],
+        order_selection={run_id: [1]},
+        scan_selection={run_id: []},
+    )
+
+    assert len(series) == len(sweep["scans"])
 
 
 def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatch):

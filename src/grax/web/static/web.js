@@ -162,6 +162,10 @@ function syncRunWorkflow(select) {
       title: "Monochromator",
       summary: "Scans energy while adjusting the incidence and diffraction geometry for a constant CFF. Use it to model a grating operated as a monochromator.",
     },
+    constant_deviation: {
+      title: "Constant deviation (2θ)",
+      summary: "Scans energy while adjusting incidence and diffraction angles to keep the total beam deviation fixed.",
+    },
     multilayer_theta_search: {
       title: "Multilayer theta search",
       summary: "Searches for the best grazing angle at each energy for a multilayer grating. Use it to follow the multilayer efficiency peak across an energy range.",
@@ -245,7 +249,7 @@ function initLinkedRange(minimum, maximum, count, fixedCount = false) {
     if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
   }
   const step = document.createElement("input");
-  step.type = "number"; step.step = "any"; step.min = "0"; step.dataset.linkedStep = "";
+  step.type = "number"; step.step = count.closest("[data-custom-axis]")?.querySelector(".custom-grid-parameter")?.value === "blaze_angle_deg" ? "0.1" : "any"; step.min = "0"; step.dataset.linkedStep = "";
   const help = document.createElement("span"); help.className = "roughness-help-wrap";
   const helpButton = document.createElement("button");
   helpButton.type = "button"; helpButton.className = "roughness-help"; helpButton.textContent = "?";
@@ -279,18 +283,18 @@ function initLinkedRange(minimum, maximum, count, fixedCount = false) {
     if (!fixedCount) {
       const value = Number(count.value);
       if (Number.isInteger(value) && value > 1) lastNonSingleCount = value;
-      if (minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value)) {
-        if (value > 1) lastNonSingleCount = value;
-        count.value = "1";
-        collapsedRange = true;
-      } else if (value === 1) {
-        maximum.value = minimum.value;
-        collapsedRange = true;
-      }
     }
     sync();
   });
-  for (const field of [minimum, maximum]) field.addEventListener("input", () => {
+  count.addEventListener("change", () => {
+    if (!fixedCount && count.value !== "" && Number.isInteger(Number(count.value)) && Number(count.value) >= 1) {
+      if (Number(count.value) === 1) maximum.value = minimum.value;
+      else if (Number(minimum.value) === Number(maximum.value)) maximum.value = String(Number(minimum.value) + 1);
+      collapsedRange = Number(minimum.value) === Number(maximum.value);
+    }
+    sync(true);
+  });
+  for (const field of [minimum, maximum]) field.addEventListener("change", () => {
     if (!fixedCount) {
       const equalBounds = minimum.value !== "" && maximum.value !== "" && Number(minimum.value) === Number(maximum.value);
       if (equalBounds) {
@@ -354,7 +358,7 @@ function initNamedRanges() {
 
 function gridIsActive(root) {
   const mode = root.closest("form").querySelector("[data-run-workflow]").value;
-  return root.hasAttribute("data-parameter-scans") ? ["energy_sweep", "angle_sweep", "monochromator"].includes(mode) : mode === "custom_grid";
+  return root.hasAttribute("data-parameter-scans") ? ["energy_sweep", "angle_sweep", "monochromator", "constant_deviation", "fixed_angle"].includes(mode) : mode === "custom_grid";
 }
 
 function syncCustomGridAxisInputs(row) {
@@ -1078,6 +1082,8 @@ function initPlotWorkspace(form) {
         summarizeRuns(payload.selected_runs || []);
         syncSeriesControls(payload.series_controls || []);
       } else {
+        previewContainer.replaceChildren();
+        selectedRunSummary.replaceChildren();
         setPreviewFeedback("error", payload.error || "Select runs and orders.");
         saveButton.disabled = true;
         rememberStyles();
@@ -1087,6 +1093,8 @@ function initPlotWorkspace(form) {
       if (currentRequest !== requestId) {
         return;
       }
+      previewContainer.replaceChildren();
+      selectedRunSummary.replaceChildren();
       setPreviewFeedback("error", "The preview could not be updated. Try again.");
       saveButton.disabled = true;
       rememberStyles();
@@ -1517,6 +1525,9 @@ function initCustomGridBuilder(root) {
     row.append(controls, values, materials, range, generated, couplingHint);
     function syncMode() {
       const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind);
+      const numericStep = parameter.value === "blaze_angle_deg" ? "0.1" : "any";
+      range.querySelectorAll("[data-minimum], [data-maximum]").forEach((input) => { input.step = numericStep; });
+      range.querySelector("[data-linked-step]")?.setAttribute("step", numericStep);
       if (!rangeAllowed) mode.value = "list";
       mode.querySelector('[value="range"]').disabled = !rangeAllowed;
       syncCustomGridAxisInputs(row);

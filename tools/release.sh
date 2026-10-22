@@ -20,6 +20,95 @@ echo "============================================================"
 echo "Current version: ${CURRENT_VERSION}"
 echo "============================================================"
 
+echo
+echo "Select workflow:"
+echo "1) stable release (existing workflow)"
+echo "2) PyPI prerelease (for opt-in testing)"
+read -rp "Choice [1-2]: " WORKFLOW_CHOICE
+
+if [[ "${WORKFLOW_CHOICE}" == "2" ]]; then
+    echo
+    read -rp "Target stable version (for example 0.6.0): " TARGET_VERSION
+    if [[ ! "${TARGET_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "Error: target version must be major.minor.patch (for example 0.6.0)."
+        exit 1
+    fi
+
+    echo "Prerelease stage:"
+    echo "1) alpha (a)"
+    echo "2) beta (b)"
+    echo "3) release candidate (rc)"
+    read -rp "Choice [1-3, default 3]: " STAGE_CHOICE
+    case "${STAGE_CHOICE:-3}" in
+        1) STAGE="a" ;;
+        2) STAGE="b" ;;
+        3) STAGE="rc" ;;
+        *) echo "Invalid prerelease stage."; exit 1 ;;
+    esac
+    read -rp "Prerelease number [1]: " PRE_NUMBER
+    PRE_NUMBER="${PRE_NUMBER:-1}"
+    if [[ ! "${PRE_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: prerelease number must be a positive integer."
+        exit 1
+    fi
+    NEW_VERSION="${TARGET_VERSION}${STAGE}${PRE_NUMBER}"
+    echo
+    echo "Prerelease version: ${NEW_VERSION}"
+    echo "Testers install it with: pip install --pre --upgrade graxpy"
+    echo "Ordinary pip installs continue to select the latest stable version."
+    read -rp "Set package version to ${NEW_VERSION}? [y/N]: " CONFIRM
+    if [[ "${CONFIRM}" != "y" && "${CONFIRM}" != "Y" ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+
+    python3 - "${PYPROJECT_FILE}" "${NEW_VERSION}" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+version = sys.argv[2]
+content = path.read_text()
+updated, count = re.subn(r'(?m)^version\s*=\s*"[^"]+"', f'version = "{version}"', content, count=1)
+if count != 1:
+    raise SystemExit("Error: could not find project version in pyproject.toml")
+path.write_text(updated)
+PY
+
+    echo
+    git status --short
+    read -rp "Create git commit and tag v${NEW_VERSION}? [y/N]: " GIT_CONFIRM
+    if [[ "${GIT_CONFIRM}" == "y" || "${GIT_CONFIRM}" == "Y" ]]; then
+        git add "${PYPROJECT_FILE}"
+        if ! git diff --cached --quiet; then
+            git commit -m "Prepare prerelease v${NEW_VERSION}"
+        fi
+        if git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "Git tag v${NEW_VERSION} already exists."
+        else
+            git tag "v${NEW_VERSION}"
+        fi
+        read -rp "Push commit and tag to origin? [y/N]: " PUSH_CONFIRM
+        if [[ "${PUSH_CONFIRM}" == "y" || "${PUSH_CONFIRM}" == "Y" ]]; then
+            CURRENT_BRANCH="$(git branch --show-current)"
+            git push origin "${CURRENT_BRANCH}"
+            git push origin "v${NEW_VERSION}"
+        fi
+    fi
+
+    read -rp "Build, check, and upload this prerelease to PyPI? [y/N]: " PYPI_CONFIRM
+    if [[ "${PYPI_CONFIRM}" == "y" || "${PYPI_CONFIRM}" == "Y" ]]; then
+        "${SCRIPT_DIR}/publish_pypi.sh"
+    fi
+    echo
+    echo "Prerelease workflow completed. No GitHub release or PR was created."
+    exit 0
+elif [[ "${WORKFLOW_CHOICE}" != "1" ]]; then
+    echo "Invalid choice."
+    exit 1
+fi
+
 IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT_VERSION}"
 
 echo

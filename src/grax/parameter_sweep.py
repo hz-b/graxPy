@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Callable, Sequence
 from copy import copy
 from dataclasses import dataclass
@@ -143,6 +144,7 @@ def run_parameter_study(
     backend: str = "numba",
     progress_callback: Callable[[int, int, "ParameterStudyResult"], None] | None = None,
     sweep_progress_callback: Callable[[int, int, "ParameterStudyResult"], None] | None = None,
+    resume: bool = False,
 ) -> ParameterStudyResult:
     """Run a convergence study across Fourier orders and x/z discretization.
 
@@ -183,6 +185,8 @@ def run_parameter_study(
             point in the Fourier, X-resolution, and Z-resolution sweeps. Its
             progress count spans all three sweeps for every requested energy
             and includes a partial result suitable for live plotting.
+        resume: Reuse successful point results from
+            ``output_dir/parameter_study_checkpoints.jsonl`` when available.
 
     Returns:
         Structured parameter-study result containing all sweep data and metadata.
@@ -232,6 +236,22 @@ def run_parameter_study(
     )
 
     completed_points = 0
+    checkpoint_path = (
+        csv_output_dir / "parameter_study_checkpoints.jsonl"
+        if csv_output_dir is not None
+        else None
+    )
+    checkpointed: dict[str, dict[str, object]] = {}
+    if resume and checkpoint_path is not None and checkpoint_path.exists():
+        with checkpoint_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                    checkpointed[str(record["point_id"])] = record
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    continue
+    if checkpoint_path is not None:
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     for energy_ev in energies:
         sweeps: dict[str, ParameterSweepSeries] = {}
         for parameter, values in (
@@ -239,17 +259,42 @@ def run_parameter_study(
             ("x_resolution_nm", x_values),
             ("z_resolution_nm", z_values),
         ):
-            def _point_progress(partial_sweep: ParameterSweepSeries) -> None:
+            point_ids = [
+                f"E{float(energy_ev):.17g}:{parameter}:{index}:{float(value):.17g}"
+                for index, value in enumerate(values)
+            ]
+            cached = [checkpointed.get(point_id) for point_id in point_ids]
+            cached_efficiencies = np.full(values.shape, np.nan, dtype=float)
+            cached_errors = np.zeros(values.shape, dtype=bool)
+            cached_messages = np.full(values.shape, "", dtype=object)
+            for index, record in enumerate(cached):
+                if record is not None and resume and bool(record.get("error", False)):
+                    checkpointed.pop(point_ids[index], None)
+                    continue
+                if record is not None and (not resume or not bool(record.get("error", False))):
+                    cached_efficiencies[index] = float(record.get("efficiency", np.nan))
+                    cached_errors[index] = bool(record.get("error", False))
+                    cached_messages[index] = str(record.get("error_message", ""))
+                    completed_points += 1
+                    progress_bar.update(1)
+
+            def _point_progress(
+                partial_sweep: ParameterSweepSeries,
+                *,
+                _sweeps: dict[str, ParameterSweepSeries] = sweeps,
+                _parameter: str = parameter,
+                _energy_ev: float = float(energy_ev),
+            ) -> None:
                 nonlocal completed_points
                 completed_points += 1
                 progress_bar.update(1)
-                sweeps[parameter] = partial_sweep
+                _sweeps[_parameter] = partial_sweep
                 if sweep_progress_callback is None:
                     return
                 partial_energy = ParameterStudyEnergyResult(
-                    energy_ev=float(energy_ev),
+                    energy_ev=_energy_ev,
                     grazing_angle_deg=float(grazing_angle_deg),
-                    sweeps=dict(sweeps),
+                    sweeps=dict(_sweeps),
                 )
                 sweep_progress_callback(
                     completed_points,
@@ -265,6 +310,40 @@ def run_parameter_study(
                     ),
                 )
 
+            def checkpoint_progress(
+                partial_sweep: ParameterSweepSeries,
+                *,
+                _point_ids: list[str] = point_ids,
+                _energy_ev: float = float(energy_ev),
+                _parameter: str = parameter,
+                _values: np.ndarray = values,
+            ) -> None:
+                # Identify the one newly populated point by comparing against the
+                # checkpoint state, then append it before publishing progress.
+                if checkpoint_path is not None:
+                    for index, point_id in enumerate(_point_ids):
+                        if point_id in checkpointed:
+                            continue
+                        if (
+                            np.isfinite(partial_sweep.efficiencies[index])
+                            or partial_sweep.errors[index]
+                        ):
+                            record = {
+                                "point_id": point_id,
+                                "energy_ev": _energy_ev,
+                                "parameter": _parameter,
+                                "value": float(_values[index]),
+                                "efficiency": float(partial_sweep.efficiencies[index]),
+                                "error": bool(partial_sweep.errors[index]),
+                                "error_message": str(partial_sweep.error_messages[index]),
+                            }
+                            with checkpoint_path.open("a", encoding="utf-8") as handle:
+                                handle.write(json.dumps(record) + "\n")
+                                handle.flush()
+                            checkpointed[point_id] = record
+                            break
+                _point_progress(partial_sweep)
+
             sweeps[parameter] = _run_single_parameter_sweep(
                 grating=grating,
                 parameter=parameter,
@@ -277,10 +356,35 @@ def run_parameter_study(
                 solver=solver,
                 solver_options=solver_options,
                 backend=backend,
-                fixed_x_resolution_nm=(default_x if parameter == "z_resolution_nm" and z_fixed_x_resolution_nm is None else z_fixed_x_resolution_nm if parameter == "z_resolution_nm" else fourier_fixed_x_resolution_nm or default_x),
-                fixed_z_resolution_nm=(default_z if parameter == "x_resolution_nm" and x_fixed_z_resolution_nm is None else x_fixed_z_resolution_nm if parameter == "x_resolution_nm" else fourier_fixed_z_resolution_nm or default_z),
-                fixed_fourier_orders=(default_fourier if parameter == "x_resolution_nm" and x_fixed_fourier_orders is None else x_fixed_fourier_orders if parameter == "x_resolution_nm" else default_fourier if parameter == "z_resolution_nm" and z_fixed_fourier_orders is None else z_fixed_fourier_orders if parameter == "z_resolution_nm" else default_fourier),
-                progress_callback=_point_progress,
+                fixed_x_resolution_nm=(
+                    default_x
+                    if parameter == "z_resolution_nm" and z_fixed_x_resolution_nm is None
+                    else z_fixed_x_resolution_nm
+                    if parameter == "z_resolution_nm"
+                    else fourier_fixed_x_resolution_nm or default_x
+                ),
+                fixed_z_resolution_nm=(
+                    default_z
+                    if parameter == "x_resolution_nm" and x_fixed_z_resolution_nm is None
+                    else x_fixed_z_resolution_nm
+                    if parameter == "x_resolution_nm"
+                    else fourier_fixed_z_resolution_nm or default_z
+                ),
+                fixed_fourier_orders=(
+                    default_fourier
+                    if parameter == "x_resolution_nm" and x_fixed_fourier_orders is None
+                    else x_fixed_fourier_orders
+                    if parameter == "x_resolution_nm"
+                    else default_fourier
+                    if parameter == "z_resolution_nm" and z_fixed_fourier_orders is None
+                    else z_fixed_fourier_orders
+                    if parameter == "z_resolution_nm"
+                    else default_fourier
+                ),
+                progress_callback=checkpoint_progress,
+                initial_efficiencies=cached_efficiencies,
+                initial_errors=cached_errors,
+                initial_error_messages=cached_messages,
             )
         results.append(
             ParameterStudyEnergyResult(
@@ -534,6 +638,9 @@ def _run_single_parameter_sweep(
     fixed_z_resolution_nm: float,
     fixed_fourier_orders: int,
     progress_callback: Callable[[ParameterSweepSeries], None] | None = None,
+    initial_efficiencies: np.ndarray | None = None,
+    initial_errors: np.ndarray | None = None,
+    initial_error_messages: np.ndarray | None = None,
 ) -> ParameterSweepSeries:
     """Run one parameter sweep for one energy.
 
@@ -563,11 +670,25 @@ def _run_single_parameter_sweep(
         - Failed points (after all retries) receive NaN efficiency and error=True.
     """
 
-    efficiencies = np.full(values.shape, np.nan, dtype=float)
-    errors = np.zeros(values.shape, dtype=bool)
-    error_messages = np.full(values.shape, "", dtype=object)
+    efficiencies = (
+        np.full(values.shape, np.nan, dtype=float)
+        if initial_efficiencies is None
+        else initial_efficiencies.copy()
+    )
+    errors = (
+        np.zeros(values.shape, dtype=bool)
+        if initial_errors is None
+        else initial_errors.copy()
+    )
+    error_messages = (
+        np.full(values.shape, "", dtype=object)
+        if initial_error_messages is None
+        else initial_error_messages.copy()
+    )
 
     for index, value in enumerate(values):
+        if np.isfinite(efficiencies[index]) or errors[index]:
+            continue
         success = False
         retries = 0
         while not success and retries <= max_retries:

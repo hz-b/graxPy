@@ -115,6 +115,9 @@
     const periodHint = processForm.querySelector("[data-afm-period-hint]");
     const previewMessage = processForm.querySelector("[data-afm-preview-message]");
     const result = processForm.querySelector("[data-afm-result]");
+    const retryButton = processForm.querySelector("[data-afm-retry]");
+    const copyOutputButton = processForm.querySelector("[data-afm-copy-output]");
+    const processButton = processForm.querySelector("[data-afm-process]");
     const gratingError = document.querySelector("[data-grating-preview-error]");
     const gratingStatus = document.querySelector("[data-grating-preview-status]");
     const liveFigure = document.querySelector("[data-afm-live-preview]");
@@ -128,6 +131,43 @@
     let liveCurve = null;
     let settingsRevision = 0;
     let processingPromise = null;
+    let lastErrorTraceback = "";
+
+    function setFeedback(message, state, errorTraceback) {
+      result.textContent = message;
+      result.dataset.state = state || "info";
+      result.classList.remove("is-hidden");
+      lastErrorTraceback = state === "error" ? (errorTraceback || "") : "";
+    }
+
+    async function copyOutput() {
+      const humanOutput = result.textContent || "";
+      const output = lastErrorTraceback
+        ? `${humanOutput}\n\nFull traceback:\n${lastErrorTraceback}`
+        : humanOutput;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(output);
+        } else {
+          const temporary = document.createElement("textarea");
+          temporary.value = output;
+          temporary.setAttribute("readonly", "");
+          temporary.style.position = "fixed";
+          temporary.style.opacity = "0";
+          document.body.append(temporary);
+          temporary.select();
+          const copied = document.execCommand("copy");
+          temporary.remove();
+          if (!copied) throw new Error("Clipboard access is unavailable.");
+        }
+        const original = copyOutputButton.textContent;
+        copyOutputButton.textContent = "Copied";
+        window.setTimeout(() => { copyOutputButton.textContent = original; }, 1400);
+      } catch (_error) {
+        copyOutputButton.textContent = "Copy failed";
+        window.setTimeout(() => { copyOutputButton.textContent = "Copy output"; }, 1800);
+      }
+    }
 
     function updateLivePreview() {
       if (!liveFigure) return;
@@ -169,8 +209,7 @@
       profilePath.value = "";
       gratingForm.querySelector("[data-afm-source-filename]").value = "";
       gratingForm.dispatchEvent(new Event("change", {bubbles: true}));
-      result.textContent = "Settings changed. Process the AFM profile again before saving.";
-      result.classList.remove("is-hidden");
+      setFeedback("Settings changed. Process the AFM profile again before saving.", "info");
     }
 
     function showTraces(traces) {
@@ -188,8 +227,10 @@
       if (!fileInput.files.length && !existingSourceInput?.value) {
         showTraces({});
         previewMessage.classList.add("is-hidden");
+        if (!profilePath.value) setFeedback("Waiting for file. Choose an AFM data file to begin.", "info");
         return;
       }
+      setFeedback("Reading AFM data…", "loading");
       previewMessage.textContent = "Updating AFM previews…";
       previewMessage.classList.remove("is-hidden");
       try {
@@ -198,7 +239,16 @@
         });
         const payload = await response.json();
         if (currentRequest !== previewRequest) return;
-        if (!response.ok || !payload.ok) throw new Error(payload.error || "AFM preview failed.");
+        if (!response.ok || !payload.ok) {
+          const message = payload.error || "AFM preview failed.";
+          showTraces({});
+          previewMessage.textContent = message;
+          previewMessage.classList.remove("is-hidden");
+          setFeedback(message, "error", payload.traceback);
+          if (retryButton) retryButton.classList.remove("is-hidden");
+          return;
+        }
+        setFeedback("File loaded. Preparing the AFM profile…", "loading");
         showTraces(payload.traces || {});
         if (payload.suggested_units && unitsInput.value !== payload.suggested_units) {
           if (allowUnitSuggestion) {
@@ -240,6 +290,8 @@
         showTraces({});
         previewMessage.textContent = error.message || "AFM preview failed.";
         previewMessage.classList.remove("is-hidden");
+        setFeedback(error.message || "AFM preview failed.", "error");
+        if (retryButton) retryButton.classList.remove("is-hidden");
       }
     }
 
@@ -259,6 +311,10 @@
         periodHint.textContent = "The AFM analysis uses the period from the Profile section below.";
         allowUnitSuggestion = event.target === fileInput;
         unitsHint.classList.add("is-hidden");
+        if (event.target === fileInput && fileInput.files.length) {
+          setFeedback(`Selected ${fileInput.files[0].name}. Reading AFM data…`, "loading");
+          if (retryButton) retryButton.classList.add("is-hidden");
+        }
       }
       if (event.target === processForm.querySelector("[data-afm-profile-type]")) {
         gratingForm.querySelector("[data-afm-profile-type]").value = event.target.value;
@@ -300,12 +356,24 @@
       if (processingPromise) return processingPromise;
       const startedRevision = settingsRevision;
       result.classList.remove("is-hidden");
-      result.textContent = "Processing AFM profile…";
+      setFeedback("Uploading AFM file…", "loading");
+      if (retryButton) retryButton.classList.add("is-hidden");
+      if (processButton) processButton.disabled = true;
+      const startedAt = Date.now();
+      let stage = setTimeout(() => { setFeedback("Reading AFM data…", "loading"); }, 900);
+      const preprocessingStage = setTimeout(() => { setFeedback("Preprocessing AFM profile…", "loading"); }, 1800);
+      const slowNotice = setTimeout(() => {
+        setFeedback("AFM processing is taking longer than usual. It is still running; you can wait or retry if it fails.", "loading");
+      }, 10000);
       processingPromise = (async () => {
+        let errorTraceback = "";
         try {
           const response = await fetch(processForm.action, {method: "POST", body: afmFormData()});
           const payload = await response.json();
-          if (!response.ok || !payload.ok) throw new Error(payload.error || "AFM processing failed.");
+          if (!response.ok || !payload.ok) {
+            errorTraceback = payload.traceback || "";
+            throw new Error(payload.error || "AFM processing failed.");
+          }
           if (startedRevision !== settingsRevision) {
             throw new Error("AFM settings changed during processing. Try again with the current settings.");
           }
@@ -320,23 +388,28 @@
           gratingForm.querySelector("[name=grating_type]").dispatchEvent(new Event("change", {bubbles: true}));
           delete gratingForm.dataset.afmProcessingError;
           if (gratingError) gratingError.classList.add("is-hidden");
-          result.textContent = "AFM profile processing complete.";
+          setFeedback(`AFM profile processed successfully in ${((Date.now() - startedAt) / 1000).toFixed(1)} s.`, "completed");
           return true;
         } catch (error) {
-          result.textContent = error.message || "AFM processing failed.";
+          setFeedback(error.message || "AFM processing failed.", "error", errorTraceback);
           gratingForm.dataset.afmProcessingError = result.textContent;
           if (gratingError) {
             gratingError.textContent = result.textContent;
             gratingError.classList.remove("is-hidden");
           }
           if (gratingStatus) gratingStatus.textContent = "AFM processing failed";
+          if (retryButton) retryButton.classList.remove("is-hidden");
           return false;
         }
       })();
       try {
         return await processingPromise;
       } finally {
+        clearTimeout(stage);
+        clearTimeout(preprocessingStage);
+        clearTimeout(slowNotice);
         processingPromise = null;
+        if (processButton) processButton.disabled = false;
       }
     }
 
@@ -344,6 +417,8 @@
       event.preventDefault();
       await processCurrentProfile();
     });
+    retryButton?.addEventListener("click", () => processCurrentProfile());
+    copyOutputButton?.addEventListener("click", copyOutput);
 
     gratingForm.addEventListener("grax:afm-save-requested", async function () {
       if (await processCurrentProfile()) gratingForm.requestSubmit();

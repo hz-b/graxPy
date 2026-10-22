@@ -396,11 +396,20 @@ def create_app(*, data_dir: str | Path | None = None):
             )
             return jsonify({"ok": True, **preview})
         except (FileNotFoundError, TypeError, ValueError, OSError) as error:
-            return jsonify({"ok": False, "error": str(error)}), 422
+            app.logger.exception("AFM preview failed")
+            return jsonify({"ok": False, "error": str(error), "traceback": traceback.format_exc()}), 422
+        except Exception as error:
+            app.logger.exception("AFM preview crashed")
+            return jsonify({
+                "ok": False,
+                "error": "AFM preview failed unexpectedly. Check the server log or retry.",
+                "traceback": traceback.format_exc(),
+            }), 500
 
     @app.post("/gratings/afm/process")
     def process_afm():
         """Process one uploaded AFM scan into a temporary profile workflow."""
+        started = time.monotonic()
         workflow_id = uuid4().hex
         workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
         try:
@@ -429,10 +438,23 @@ def create_app(*, data_dir: str | Path | None = None):
             )
             metadata["workflow_id"] = workflow_id
             metadata["profile_path"] = str((workflow_dir / "profile.csv").resolve())
+            metadata["processing_seconds"] = round(time.monotonic() - started, 3)
             (workflow_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            app.logger.info("AFM processing completed in %.3fs (%s)", metadata["processing_seconds"], filename)
             return jsonify({"ok": True, **metadata})
         except (FileNotFoundError, TypeError, ValueError, OSError) as error:
-            return jsonify({"ok": False, "error": str(error), "workflow_id": workflow_id}), 422
+            app.logger.warning("AFM processing failed after %.3fs: %s", time.monotonic() - started, error)
+            return jsonify({
+                "ok": False, "error": str(error), "traceback": traceback.format_exc(),
+                "workflow_id": workflow_id,
+            }), 422
+        except Exception:
+            app.logger.exception("AFM processing crashed after %.3fs", time.monotonic() - started)
+            return jsonify({
+                "ok": False,
+                "error": "AFM processing failed unexpectedly. Check the server log or retry.",
+                "traceback": traceback.format_exc(), "workflow_id": workflow_id,
+            }), 500
     def invalid_grating_form(error, grating_id=None):
         """Keep submitted values visible when validation fails."""
         defaults = _default_form_values()
@@ -591,7 +613,7 @@ def create_app(*, data_dir: str | Path | None = None):
                 descriptor.to_json() for descriptor in custom_grid_parameter_catalog(spec)
             ],
             custom_grid_default=default_custom_grid_configuration(spec),
-            scan_catalogs={mode: [item.to_json() for item in parameter_scans.scan_catalog(spec, mode)] for mode in ("energy_sweep", "angle_sweep", "monochromator")},
+            scan_catalogs={mode: [item.to_json() for item in parameter_scans.scan_catalog(spec, mode)] for mode in ("energy_sweep", "angle_sweep", "monochromator", "constant_deviation")},
         )
 
     @app.get("/gratings/<grating_id>/delete")
@@ -921,15 +943,38 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.post("/runs/<run_id>/resume")
     def resume_parameter_run(run_id: str):
-        """Resume the saved grouped calculation without changing its inputs."""
+        """Resume any checkpoint-backed run without changing its saved inputs."""
         manifest = _load_run_manifest(active_data_dir(), run_id)
-        if not manifest or not manifest.get("parameter_sweep"):
+        if not manifest:
             abort(404)
         if _is_run_active(app, run_id):
             abort(409, "This run is already active.")
         form = dict(manifest["run_input"])
-        sweep = manifest["parameter_sweep"]
-        completed = len(_load_checkpoint_results(active_data_dir() / "runs" / run_id))
+        workflow = str(manifest.get("workflow", ""))
+        sweep = manifest.get("parameter_sweep")
+        run_dir = active_data_dir() / "runs" / run_id
+        completed = _parameter_study_checkpoint_count(run_dir) if workflow == "parameter_study" else len(_load_checkpoint_results(run_dir))
+        if sweep:
+            energies = np.asarray(sweep["energy_values"], dtype=float)
+        elif workflow in {"angle_sweep", "fixed_angle"}:
+            energies = np.asarray([float(form.get("energy_ev", 100.0))])
+        elif workflow == "custom_grid":
+            config = _custom_grid_configuration_from_value(
+                manifest.get("custom_grid") or form.get("custom_grid_config")
+            )
+            variants = config.get("variants") or []
+            if not variants or not isinstance(variants[0].get("spec"), dict):
+                abort(409, "Saved custom-grid inputs are incomplete and cannot be resumed.")
+            _, cases = _custom_grid_from_form(form, dict(variants[0]["spec"]))
+            energies = np.asarray([float(case["energy_ev"]) for case in cases], dtype=float)
+        elif workflow == "parameter_study":
+            energies = np.asarray([float(form.get("study_energy_ev", form.get("energy_ev", 100.0)))])
+        else:
+            energies = np.linspace(
+                float(form.get("energy_start_ev", 100.0)),
+                float(form.get("energy_stop_ev", 100.0)),
+                int(float(form.get("energy_points", 1))),
+            )
         worker_mode, setting, requested = _worker_settings_from_form(form)
         _update_manifest_fields(
             active_data_dir(),
@@ -945,8 +990,8 @@ def create_app(*, data_dir: str | Path | None = None):
             grating_id=manifest["grating_id"],
             grating_name=manifest["grating_name"],
             grating=build_grating_from_spec(manifest["grating_spec"]),
-            workflow=manifest["workflow"],
-            energies=np.asarray(sweep["energy_values"], dtype=float),
+            workflow=workflow,
+            energies=energies,
             form_data=form,
             diffraction_order=int(form["diffraction_order"]),
             fourier_orders=int(form["fourier_orders"]),
@@ -955,6 +1000,48 @@ def create_app(*, data_dir: str | Path | None = None):
             requested_workers=requested,
             completed_points=completed,
             resume=True,
+        )
+        return redirect(url_for("run_detail", run_id=run_id))
+
+    @app.post("/runs/<run_id>/restart")
+    def restart_parameter_run(run_id: str):
+        """Restart a terminal run from its saved inputs after clearing old outputs."""
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if not manifest:
+            abort(404)
+        if _is_run_active(app, run_id):
+            abort(409, "This run is already active. Abort it before restarting.")
+        run_dir = active_data_dir() / "runs" / run_id
+        for child in run_dir.iterdir():
+            if child.name == "manifest.json":
+                continue
+            shutil.rmtree(child) if child.is_dir() else child.unlink()
+        form = dict(manifest["run_input"])
+        workflow = str(manifest.get("workflow", ""))
+        if workflow in {"angle_sweep", "fixed_angle"}:
+            energies = np.asarray([float(form.get("energy_ev", 100.0))])
+        elif workflow == "custom_grid":
+            config = _custom_grid_configuration_from_value(manifest.get("custom_grid") or form.get("custom_grid_config"))
+            variants = config.get("variants") or []
+            if not variants or not isinstance(variants[0].get("spec"), dict):
+                abort(409, "Saved custom-grid inputs are incomplete and cannot be restarted.")
+            _, cases = _custom_grid_from_form(form, dict(variants[0]["spec"]))
+            energies = np.asarray([float(case["energy_ev"]) for case in cases], dtype=float)
+        elif workflow == "parameter_study":
+            energies = np.asarray([float(form.get("study_energy_ev", form.get("energy_ev", 100.0)))])
+        else:
+            energies = np.linspace(float(form.get("energy_start_ev", 100.0)), float(form.get("energy_stop_ev", 100.0)), int(float(form.get("energy_points", 1))))
+        worker_mode, setting, requested = _worker_settings_from_form(form)
+        _update_manifest_fields(active_data_dir(), run_id, status="queued", error_text="", completed_points=0, cases=[], restart_count=int(manifest.get("restart_count", 0)) + 1)
+        _start_run_worker(
+            app=app, data_dir=active_data_dir(), run_id=run_id,
+            grating_id=manifest["grating_id"], grating_name=manifest["grating_name"],
+            grating=build_grating_from_spec(manifest["grating_spec"]), workflow=workflow,
+            energies=energies, form_data=form,
+            diffraction_order=int(float(form.get("diffraction_order", 1))),
+            fourier_orders=int(float(form.get("fourier_orders", 15))),
+            max_workers_setting=setting, worker_mode=worker_mode,
+            requested_workers=requested, completed_points=0, resume=False,
         )
         return redirect(url_for("run_detail", run_id=run_id))
 
@@ -2438,6 +2525,7 @@ def _parameter_scans_from_form(
         "fourier_orders": int(float(form.get("fourier_orders", 15))),
         "grazing_angle_deg": float(form.get("grazing_angle_deg", 1.5)),
         "cff": float(form.get("cff", 2.25)),
+        "total_deviation_deg": float(form.get("total_deviation_deg", 174.0)),
         "solver": _normalized_solver(form.get("solver", "rcwa")),
         "polarization": _normalized_polarization(form.get("polarization", "p")),
         "roughness_kind": form.get("roughness_kind"),
@@ -2550,7 +2638,7 @@ def _queue_run(
     if workflow == "angle_sweep" or (
         workflow == "fixed_angle" and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
     ) or (
-        workflow in {"energy_sweep", "monochromator"}
+        workflow in {"energy_sweep", "monochromator", "constant_deviation"}
         and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
     ):
         sweep, sweep_cases = _parameter_scans_from_form(form, grating_spec, energies)
@@ -2656,6 +2744,7 @@ def _abort_run(
         return None
     if _is_run_active(app, run_id):
         _request_run_abort(app, data_dir, run_id, delete_after_abort=delete_after_abort)
+        _terminate_run_processes(app, run_id)
         _wait_for_run_shutdown(app, run_id)
         if delete_after_abort and _load_run_manifest(data_dir, run_id) is not None:
             RunStore(data_dir / "runs").delete_many([run_id])
@@ -2834,6 +2923,7 @@ def _execute_run_job(
                 save_csv=True,
                 show_progress=False,
                 sweep_progress_callback=_parameter_study_progress,
+                resume=resume,
             )
             plot_path = run_dir / "parameter_study.png"
             temporary_plot_path = run_dir / "parameter_study.tmp.png"
@@ -3609,6 +3699,22 @@ def _checkpoint_counts(run_dir: Path) -> tuple[int, int]:
     return completed_points, total_points
 
 
+def _parameter_study_checkpoint_count(run_dir: Path) -> int:
+    """Count successful, deduplicated parameter-study point checkpoints."""
+    path = run_dir / "parameter_study_checkpoints.jsonl"
+    latest: dict[str, dict[str, Any]] = {}
+    if not path.exists():
+        return 0
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+                latest[str(record["point_id"])] = record
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+    return sum(not bool(record.get("error", False)) for record in latest.values())
+
+
 def _run_completed_points(manifest: dict[str, Any], checkpoint_completed_points: int) -> int:
     """Combine persisted study progress with case-backed run progress."""
 
@@ -4250,7 +4356,7 @@ def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, A
     normalized_state = "completed" if manifest_state == "ok" else manifest_state
     can_abort = manifest_state not in {"ok", "completed", "failed", "aborted"}
     active_job_missing = normalized_state in {"queued", "running", "aborting"}
-    if active_job_missing and checkpoint_completed_points > 0:
+    if active_job_missing:
         normalized_state = "aborted"
     elif normalized_state in {"paused", "interrupted"}:
         normalized_state = "aborted"
@@ -4616,7 +4722,7 @@ def _cases_for_workflow(
     if workflow == "angle_sweep" or (
         workflow == "fixed_angle" and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
     ) or (
-        workflow in {"energy_sweep", "monochromator"}
+        workflow in {"energy_sweep", "monochromator", "constant_deviation"}
         and parameter_scans.has_variations(parameter_scans.parse_config(form.get("parameter_sweep_config")))
     ):
         return _parameter_scans_from_form(form, None, energies)[1]
@@ -4637,6 +4743,16 @@ def _cases_for_workflow(
                 energies_ev=energies,
                 diffraction_order=diffraction_order,
                 cff=float(form.get("cff", 2.25) or 2.25),
+                polarization=polarization,
+            )
+        )
+    elif workflow == "constant_deviation":
+        cases = list(
+            simulation.constant_deviation_cases(
+                grating=grating,
+                energies_ev=energies,
+                total_deviation_deg=float(form.get("total_deviation_deg", 174.0)),
+                diffraction_order=diffraction_order,
                 polarization=polarization,
             )
         )
@@ -5624,9 +5740,14 @@ def _expanded_plot_scan_ids(
     }
     if len(loops) != len(set(loops)) or any(parameter not in available for parameter in loops):
         raise ValueError("Choose each available loop parameter only once.")
-    chosen_ids = set(chosen) if chosen is not None else {scan["id"] for scan in scans}
-    if loops and not chosen_ids and scans:
-        chosen_ids = {scans[0]["id"]}
+    # A run and order are sufficient to create a plot. An empty explicit scan
+    # selection can occur when every grouped/custom-grid checkbox is cleared;
+    # treat that as "show all scans" instead of producing zero series and a
+    # misleading run/order validation error.
+    available_scan_ids = {scan["id"] for scan in scans}
+    chosen_ids = (set(chosen) & available_scan_ids) if chosen else available_scan_ids
+    if not chosen_ids:
+        chosen_ids = available_scan_ids
     seeds = [scan for scan in scans if scan["id"] in chosen_ids]
     if not loops:
         return [scan["id"] for scan in seeds]

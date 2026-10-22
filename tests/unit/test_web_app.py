@@ -1069,11 +1069,14 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert response.status_code == 200
     assert b'data-run-workflow' in response.data
     assert b'data-run-workflow-description' in response.data
+    assert b'data-geometry-bind="[data-run-form]"' in response.data
     assert b'Scans energy at a fixed grazing incidence angle' in response.data
     assert b'data-workflow-fields=' in response.data
     assert b'energy_sweep' in response.data
     assert b'angle_sweep' in response.data
     assert b'monochromator' in response.data
+    assert b'constant_deviation' in response.data
+    assert b'name="total_deviation_deg"' in response.data
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
@@ -2506,6 +2509,18 @@ def test_run_status_marks_disk_backed_incomplete_run_as_interrupted(tmp_path: Pa
     assert payload["total_points"] == 4
 
 
+def test_orphaned_run_without_checkpoints_is_recoverable(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="orphan-run", status="running")
+    (tmp_path / "runs" / "orphan-run" / "checkpoints" / "results.jsonl").unlink()
+    payload = create_app(data_dir=tmp_path).test_client().get("/runs/orphan-run/status").get_json()
+
+    assert payload["state"] == "aborted"
+    assert payload["active_job_missing"] is True
+
+
 def test_incomplete_run_exposes_available_orders_from_checkpoints(tmp_path: Path) -> None:
     from grax.web.app import _available_orders
 
@@ -2546,6 +2561,61 @@ def test_run_detail_shows_abort_action_for_paused_run(tmp_path: Path) -> None:
     assert b"Machine RAM" in response.data
     assert b"Web RSS" not in response.data
     assert b"Simulation RSS" not in response.data
+
+
+def test_run_detail_offers_resume_and_restart_for_parameter_study(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
+    manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["workflow"] = "parameter_study"
+    manifest_path.write_text(json.dumps(manifest))
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/study-run")
+
+    assert response.status_code == 200
+    assert b"Resume unfinished run" in response.data
+    assert b"Restart from scratch" in response.data
+
+
+def test_parameter_study_resume_launches_from_saved_energy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("flask")
+    from grax.web import app as web_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
+    manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["workflow"] = "parameter_study"
+    manifest["run_input"].update({
+        "workflow": "parameter_study", "study_energy_ev": 120.0,
+        "study_grazing_angle_deg": 1.5, "fourier_orders": 5,
+    })
+    manifest_path.write_text(json.dumps(manifest))
+    launched: dict[str, object] = {}
+    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/study-run/resume")
+
+    assert response.status_code == 302
+    assert launched["workflow"] == "parameter_study"
+    assert launched["resume"] is True
+    assert launched["energies"].tolist() == [120.0]
+
+
+def test_restart_run_clears_checkpoints_and_starts_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("flask")
+    from grax.web import app as web_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="restart-run", status="failed")
+    checkpoint = tmp_path / "runs" / "restart-run" / "checkpoints" / "results.jsonl"
+    launched: dict[str, object] = {}
+    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/restart-run/restart")
+
+    assert response.status_code == 302
+    assert launched["resume"] is False
+    assert launched["completed_points"] == 0
+    assert not checkpoint.exists()
 
 
 def test_run_status_prefers_persisted_aborted_state_when_active_entry_is_stale(
@@ -3246,3 +3316,5 @@ def test_geometry_static_script_and_switch_hooks_are_available() -> None:
     assert "applyGroups" in geometry
     assert "focusin" in geometry
     assert "profilePoints" in geometry
+    assert 'mount.workflow === "constant_deviation"' in geometry
+    assert "2θ = ${fmt(mount.totalDeviationDeg)}° (fixed)" in geometry

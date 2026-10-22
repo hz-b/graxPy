@@ -491,7 +491,7 @@
     add("angles", null, label(X1, BASE_Y + 104, exaggeration > 1.05 ? `heights exaggerated ×${fmt(exaggeration, 1)}; angle labels give the real values` : "to scale; angle labels give the real values", "geo-note", "end"));
   }
 
-  function drawNominalGrating(svg, type, status) {
+  function drawNominalGrating(svg, type, status, mount = {}) {
     const add = makeScene(svg);
     status.textContent = "Schematic only; the measured or calculated profile is shown below.";
     const periodPx = (X1 - X0) / 3;
@@ -530,6 +530,12 @@
     add("angles", "grazing", line(hx - 92, hy, hx, hy, "geo-ref"));
     add("angles", "grazing", arc(hx, hy, 48, 180, 198, "geo-arc").path);
     add("angles", "grazing", label(hx - 86, hy - 38, "α", "geo-angle-text"));
+    if (mount.workflow === "constant_deviation" && finite(mount.totalDeviationDeg)) {
+      const deviationArc = arc(hx, hy, 66, 198, 342, "geo-arc geo-deviation-arc");
+      add("angles", "deviation", deviationArc.path);
+      add("angles", "deviation", label(hx + 110, hy - 91,
+        `2θ = ${fmt(mount.totalDeviationDeg)}° (fixed)`, "geo-angle-text geo-deviation-text", "middle"));
+    }
     add("angles", null, label(hx, hy - 88, "N", "geo-ref-text"));
     add("angles", null, line(hx, hy - 78, hx, hy + 30, "geo-ref"));
 
@@ -688,7 +694,10 @@
         const shapeType = selectedType === "afm"
           ? first(sources, ["afm_profile_type"]) || "blazed"
           : selectedType;
-        drawNominalGrating(svg, shapeType, status);
+        drawNominalGrating(svg, shapeType, status, {
+          workflow: first(sources, ["workflow"]),
+          totalDeviationDeg: number(sources, ["total_deviation_deg"]),
+        });
         return;
       }
       const params = kind === "mirror" ? readMirror(sources) : readGrating(sources);
