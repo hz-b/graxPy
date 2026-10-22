@@ -64,7 +64,7 @@ def build_scans(
     """Resolve combinations before applying the chosen mounting at each energy."""
     from grax import simulation
 
-    if mode not in {"energy_sweep", "angle_sweep", "fixed_angle", "monochromator"}:
+    if mode not in {"energy_sweep", "angle_sweep", "fixed_angle", "monochromator", "constant_deviation"}:
         raise ValueError("Parameter scans require Energy sweep, Angle sweep, or Monochromator.")
     allowed = {item.id for item in scan_catalog(spec, mode)}
     # Fixed-angle runs inject their sampled grazing-angle values as a resolved
@@ -195,11 +195,19 @@ def build_scans(
                 grazing_angle_deg=settings["grazing_angle_deg"],
                 polarization=settings["polarization"],
             )
-        else:
+        elif mode == "monochromator":
             generated = simulation.monochromator_cases(
                 grating=combination["grating"],
                 energies_ev=energies,
                 cff=settings["cff"],
+                diffraction_order=settings["diffraction_order"],
+                polarization=settings["polarization"],
+            )
+        else:
+            generated = simulation.constant_deviation_cases(
+                grating=combination["grating"],
+                energies_ev=energies,
+                total_deviation_deg=float(defaults["total_deviation_deg"]),
                 diffraction_order=settings["diffraction_order"],
                 polarization=settings["polarization"],
             )

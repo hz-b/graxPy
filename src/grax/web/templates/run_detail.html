@@ -48,10 +48,11 @@
 </section>
 {% include "_run_export_dialog.html" %}
 
-{% if run.parameter_sweep %}
 {% if initial_status.state in ['aborted', 'error', 'failed'] %}
-<form method="post" action="{{ url_for('resume_parameter_run', run_id=run.id) }}"><button class="button primary" type="submit">Resume unfinished {{ 'angle' if run.parameter_sweep.sample_axis else 'energy' }} scans</button></form>
-{% endif %}
+<section class="actions" aria-label="Run recovery actions">
+  <form method="post" action="{{ url_for('resume_parameter_run', run_id=run.id) }}"><button class="button primary" type="submit">Resume unfinished run</button></form>
+  <form method="post" action="{{ url_for('restart_parameter_run', run_id=run.id) }}" onsubmit="return window.confirm('Restart this run from the beginning and replace its partial results?')"><button class="button" type="submit">Restart from scratch</button></form>
+</section>
 {% endif %}
 
 <section

@@ -12,6 +12,7 @@ from ..peak_fitting import PeakSelectionMode
 
 _FIXED_CASE_ID_PREFIX = "fixed"
 _MONOCHROMATOR_CASE_ID_PREFIX = "mono"
+_CONSTANT_DEVIATION_CASE_ID_PREFIX = "constant-deviation"
 _ENERGY_ANGLE_CASE_ID_PREFIX = "pair"
 _THETA_SEARCH_CASE_ID_PREFIX = "theta-search"
 
@@ -119,6 +120,59 @@ def monochromator_cases(
             "energy_ev": float(energy_ev),
             "grazing_angle_deg": grazing_angle,
             "diffraction_order": diffraction_order,
+        }
+        if polarization is not None:
+            case["polarization"] = polarization
+        yield case
+
+
+def constant_deviation_cases(
+    *,
+    grating: BaseGrating,
+    energies_ev: Iterable[float],
+    total_deviation_deg: float,
+    diffraction_order: int = 1,
+    polarization: str | None = None,
+) -> Iterator[dict[str, object]]:
+    """Yield cases at fixed total beam deviation (2θ).
+
+    Incidence and diffraction are positive grazing-angle magnitudes on opposite
+    sides of the grating. Their sum is ``180° - total_deviation_deg``. In the
+    normal-angle convention ``m λ = d (sin α_normal - sin β_normal)``; in this
+    grazing-angle convention that is ``m λ = d (cos α - cos β)``.
+    """
+    if not np.isfinite(total_deviation_deg) or not 0 < total_deviation_deg < 180:
+        raise ValueError("Total beam deviation 2θ must be between 0° and 180°.")
+    if not isinstance(diffraction_order, (int, np.integer)) or diffraction_order == 0:
+        raise ValueError("Diffraction order must be a nonzero integer.")
+    period_nm = 1e6 / float(grating.period_lpermm)
+    angle_sum = np.deg2rad(180.0 - float(total_deviation_deg))
+    half_sum = angle_sum / 2.0
+    for index, energy_ev in enumerate(energies_ev):
+        energy = float(energy_ev)
+        if not np.isfinite(energy) or energy <= 0:
+            raise ValueError("Energy values must be finite and positive.")
+        wavelength_nm = 1239.8 / energy
+        ratio = int(diffraction_order) * wavelength_nm / (2.0 * period_nm * np.sin(half_sum))
+        if not np.isfinite(ratio) or abs(ratio) > 1.0:
+            raise ValueError(
+                f"No real angles satisfy the selected 2θ at {energy:g} eV and order {diffraction_order}."
+            )
+        delta = float(np.arcsin(np.clip(ratio, -1.0, 1.0)))
+        alpha = half_sum - delta
+        beta = half_sum + delta
+        if alpha < 0 or beta > np.pi / 2:
+            raise ValueError(
+                f"No physical grazing angles satisfy the selected 2θ at {energy:g} eV."
+            )
+        case: dict[str, object] = {
+            "case_id": f"{_CONSTANT_DEVIATION_CASE_ID_PREFIX}-{index:08d}",
+            "grating": grating,
+            "energy_ev": energy,
+            "grazing_angle_deg": float(np.rad2deg(alpha)),
+            "diffraction_order": int(diffraction_order),
+            "diffraction_angle_deg": float(np.rad2deg(beta)),
+            "total_deviation_deg": float(total_deviation_deg),
         }
         if polarization is not None:
             case["polarization"] = polarization

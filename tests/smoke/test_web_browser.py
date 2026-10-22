@@ -91,6 +91,66 @@ def test_navigation_and_grating_form_use_javascript(browser_page: Page) -> None:
 
 
 @pytest.mark.browser
+def test_afm_upload_status_panel_reports_errors_and_copies_output(browser_page: Page) -> None:
+    """Keep AFM progress visible beside compact inputs and make long errors usable."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("afm")
+    expect(page.locator("[data-afm-result]")).to_contain_text("Waiting for file")
+    fields = page.locator(".afm-upload-fields").bounding_box()
+    status = page.locator(".afm-status-panel").bounding_box()
+    assert fields and status and status["x"] > fields["x"] + fields["width"]
+
+    bad_file = Path(__file__).resolve().parents[2] / "examples/grating/data/bad_afm_upload_test.txt"
+    page.locator("input[name='afm_file']").set_input_files(str(bad_file))
+    expect(page.locator("[data-afm-result]")).to_contain_text("numeric", timeout=10_000)
+    expect(page.locator("[data-afm-retry]")).to_be_visible()
+    page.context.grant_permissions(
+        ["clipboard-read", "clipboard-write"], origin=page.evaluate("location.origin")
+    )
+    page.locator("[data-afm-copy-output]").click()
+    expect(page.locator("[data-afm-copy-output]")).to_have_text("Copied")
+    copied_error = page.evaluate("navigator.clipboard.readText()")
+    assert "AFM file must contain at least three numeric rows." in copied_error
+    assert "Full traceback:" in copied_error
+    assert "Traceback (most recent call last)" in copied_error
+    page.locator("[data-afm-result]").evaluate(
+        "node => { node.textContent = 'Failure details\\n' + 'x'.repeat(12000); }"
+    )
+    assert page.locator("[data-afm-result]").evaluate("node => node.scrollHeight > node.clientHeight")
+    assert page.locator("[data-afm-result]").evaluate("node => getComputedStyle(node).overflowY") == "auto"
+    page.locator("[data-afm-copy-output]").click()
+    expect(page.locator("[data-afm-copy-output]")).to_have_text("Copied")
+    copied = page.evaluate("navigator.clipboard.readText()")
+    assert copied.startswith("Failure details") and len(copied) > 10_000
+
+
+@pytest.mark.browser
+def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Page) -> None:
+    """Show the fixed 2θ angle on the nominal grating schematic only when selected."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("input[name='name']").fill("Deviation schematic check")
+    page.locator("select[name='grating_type']").select_option("blazed")
+    page.locator("input[name='period_lpermm']").fill("600")
+    page.locator("input[name='blaze_angle_deg']").fill("0.75")
+    page.locator("input[name='x_resolution_nm']").fill("4")
+    page.locator("input[name='z_resolution_nm']").fill("4")
+    page.locator("select[name='stack_type']").select_option("single_layer")
+    page.locator("input[name='substrate_material']").fill("Si")
+    page.locator("input[name='layer_material']").fill("Au")
+    page.locator("input[name='layer_thickness_nm']").fill("30")
+    page.get_by_role("button", name="Save grating").click()
+    expect(page.locator("[data-run-form]")).to_be_visible(timeout=20_000)
+    angle_label = page.locator(".geo-deviation-text")
+    expect(angle_label).to_have_count(0)
+    page.locator("select[name='workflow']").select_option("constant_deviation")
+    expect(angle_label).to_have_text("2θ = 174° (fixed)")
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+    expect(angle_label).to_have_count(0)
+
+
+@pytest.mark.browser
 @pytest.mark.smoke
 def test_browser_runs_real_two_point_energy_sweep_and_downloads_csv(
     website, browser_page: Page
