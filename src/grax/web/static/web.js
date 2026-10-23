@@ -6,6 +6,12 @@ function decimalSeparator() {
 function parseDecimal(value) { return Number(String(value).trim().replace(",", ".")); }
 function displayDecimal(value) { return decimalSeparator() === "comma" ? String(value).replace(".", ",") : String(value); }
 function applyDecimalLanguage() { document.documentElement.lang = decimalSeparator() === "comma" ? "de-DE" : "en"; }
+// Some Chromium builds ignore the page language for number-field keyboard input.
+document.addEventListener("keydown", (event) => {
+  if (decimalSeparator() !== "comma" || event.key !== "," || !event.target.matches?.('input[type="number"]')) return;
+  event.preventDefault();
+  document.execCommand("insertText", false, ".");
+}, true);
 function initDecimalSeparator() {
   applyDecimalLanguage();
   const picker = document.querySelector("[data-decimal-separator]");
