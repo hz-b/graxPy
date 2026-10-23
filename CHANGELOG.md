@@ -8,6 +8,7 @@
 
 - Added a remembered dot or comma preference for decimal input.
 - Fixed valid constant-deviation angles and sweep step sizes being rejected.
+- Allowed any decimal precision in energy and grazing-angle fields, such as an energy stop of 1234.56 eV.
 - Clarified how to enter no coating and s or p polarization in variations.
 - Made AFM threshold arrows finer and the simulation preview easier to read.
 - Kept plot selections when changing a loop.

@@ -87,8 +87,8 @@
 
   <fieldset data-workflow-fields="energy_sweep monochromator constant_deviation multilayer_theta_search">
     <legend>Energy sweep</legend>
-    <label>Energy start, eV <input name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"></label>
-    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"></label>
+    <label>Energy start, eV <input name="energy_start_ev" type="number" step="any" value="200" data-monochromator-default="200"></label>
+    <label>Energy stop, eV <input name="energy_stop_ev" type="number" step="any" value="2200" data-monochromator-default="2200"></label>
     <label>Energy points <input name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"></label>
   </fieldset>
 
@@ -100,14 +100,14 @@
 
   <fieldset data-workflow-fields="energy_sweep">
     <legend>Fixed grazing angle</legend>
-    <label>Incident (grazing) angle α, deg <input name="grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+    <label>Incident (grazing) angle α, deg <input name="grazing_angle_deg" type="number" step="any" value="1.5"></label>
   </fieldset>
 
   <fieldset data-workflow-fields="angle_sweep">
     <legend>Angle sweep at fixed energy</legend>
-    <label>Energy, eV <input name="energy_ev" type="number" step="0.1" value="100"></label>
-    <label>Grazing angle start, deg <input name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"></label>
-    <label>Grazing angle stop, deg <input name="grazing_angle_stop_deg" type="number" step="0.01" value="35"></label>
+    <label>Energy, eV <input name="energy_ev" type="number" step="any" value="100"></label>
+    <label>Grazing angle start, deg <input name="grazing_angle_start_deg" type="number" step="any" value="0.1"></label>
+    <label>Grazing angle stop, deg <input name="grazing_angle_stop_deg" type="number" step="any" value="35"></label>
     <label>Angle points <input name="grazing_angle_points" type="number" step="1" value="101"></label>
   </fieldset>
 
@@ -117,8 +117,8 @@
     <legend><span class="parameter-label">Parameter study <button type="button" class="roughness-help" aria-label="Help: parameter study" aria-describedby="parameter-study-help">?</button><span class="roughness-tip" role="tooltip" id="parameter-study-help">This study is only for verifying numerical stability. It compares simulations while varying Fourier orders, X resolution, and Z resolution, with energy and grazing angle held fixed.</span></span></legend>
     <p class="hint">Choose the energy and angle for the study, then define the numerical ranges to compare.</p>
     <p class="hint">For each sweep, choose the other two numerical parameters to hold fixed. Defaults use the highest X/Z resolutions and the lowest Fourier order in the study.</p>
-    <label>Energy, eV <input name="study_energy_ev" type="number" step="0.1" value="100"></label>
-    <label>Incident (grazing) angle α, deg <input name="study_grazing_angle_deg" type="number" step="0.01" value="1.5"></label>
+    <label>Energy, eV <input name="study_energy_ev" type="number" step="any" value="100"></label>
+    <label>Incident (grazing) angle α, deg <input name="study_grazing_angle_deg" type="number" step="any" value="1.5"></label>
     <div class="parameter-range">
       <strong><span class="parameter-label">Fourier orders <button type="button" class="roughness-help" aria-label="Help: Fourier orders" aria-describedby="fourier-orders-help">?</button><span class="roughness-tip" role="tooltip" id="fourier-orders-help">Fourier orders are integer values only. The number of distinct steps cannot exceed maximum minus minimum plus one.</span></span></strong>
       <label>Minimum <input name="study_fourier_min" type="number" min="1" step="1" value="5"></label>

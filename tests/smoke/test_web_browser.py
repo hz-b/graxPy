@@ -190,6 +190,11 @@ def test_decimal_comma_in_coupled_grid(browser_page: Page) -> None:
     page.locator("input[name='layer_thickness_nm']").fill("30")
     page.get_by_role("button", name="Save grating").click()
     expect(page.locator("[data-run-form]")).to_be_visible(timeout=20_000)
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+    for name, value in (("energy_start_ev", "103.37"), ("energy_stop_ev", "1234.56"), ("grazing_angle_deg", "1.505")):
+        field = page.locator(f"input[name='{name}']:visible").first
+        field.fill(value)
+        assert field.evaluate("node => node.validity.valid"), name
     page.locator("select[name='workflow']").select_option("custom_grid")
     builder = page.locator("[data-workflow-fields=custom_grid][data-custom-grid-builder]")
     builder.locator("[data-custom-add-axis]").click()
