@@ -1,16 +1,16 @@
 # Changelog
 
-## 0.6.0rc3
+## Unreleased
+
+- Kept browser checks running automatically after a release version changes.
+
+## 0.6.0
 
 - Added a remembered dot or comma preference for decimal input.
 - Fixed valid constant-deviation angles and sweep step sizes being rejected.
 - Clarified how to enter no coating and s or p polarization in variations.
 - Made AFM threshold arrows finer and the simulation preview easier to read.
 - Kept plot selections when changing a loop.
-- Kept browser checks running automatically after a release version changes.
-
-## 0.6.0
-
 - Added a constant-deviation grating mount and improved AFM processing feedback, plot controls, numerical inputs, and scan previews.
 - Reorganized AFM upload inputs beside a scrollable status panel with copyable output and retry controls.
 - Included the full server traceback with the readable AFM error when copying failed processing output.
