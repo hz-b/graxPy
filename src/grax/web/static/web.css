@@ -1898,7 +1898,9 @@ fieldset {
 .custom-grid-coupling-table { width: 100%; table-layout: fixed; }
 .custom-grid-coupling-table th { position: sticky; top: 0; background: #eef3f8; }
 .custom-grid-coupling-table input, .custom-grid-coupling-table select { width: 100%; box-sizing: border-box; }
-.custom-grid-preview { max-height: 12em; overflow: auto; white-space: pre-wrap; font-size: var(--font-compact); line-height: 1.5; scrollbar-gutter: stable; }
+.custom-grid-preview { max-height: min(32rem, 65vh); overflow: auto; white-space: pre-wrap; font-size: var(--font-compact); line-height: 1.5; scrollbar-gutter: stable; }
+[data-parameter-scans] [data-custom-grid-summary] { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+[data-parameter-scans] .custom-grid-preview { flex: 1; min-height: 12em; max-height: none; }
 [data-custom-grid-warning]:empty { display: none; }
 
 @media (max-width: 760px) {

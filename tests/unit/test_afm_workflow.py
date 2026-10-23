@@ -285,7 +285,7 @@ def test_processed_afm_profile_can_be_previewed_and_saved(tmp_path: Path) -> Non
     edit = client.get(f"/gratings/{spec['id']}/edit")
     assert edit.status_code == 200
     assert b"Stored AFM scan:" in edit.data
-    assert b'name="afm_min_prominence" type="number" min="0" step="0.1" value="0.2"' in edit.data
+    assert b'name="afm_min_prominence" type="number" min="0" step="0.01" value="0.2"' in edit.data
     assert b'name="afm_reverse" value="1" checked' in edit.data
     source_response = client.get(f"/gratings/{spec['id']}/afm/source")
     assert source_response.data == raw

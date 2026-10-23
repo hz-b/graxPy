@@ -15,6 +15,7 @@ from playwright.sync_api import Browser, Page, expect, sync_playwright
 from werkzeug.serving import make_server
 
 from grax.web.app import create_app
+from tests.unit.test_saved_plot_loops import _write_sweep
 
 
 @pytest.fixture
@@ -146,8 +147,116 @@ def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Pag
     expect(angle_label).to_have_count(0)
     page.locator("select[name='workflow']").select_option("constant_deviation")
     expect(angle_label).to_have_text("2θ = 174° (fixed)")
+    angle = page.locator("input[name='total_deviation_deg']")
+    angle.fill("174.0")
+    assert angle.evaluate("node => node.validity.valid")
     page.locator("select[name='workflow']").select_option("energy_sweep")
     expect(angle_label).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_decimal_preference_persists_after_reload(browser_page: Page) -> None:
+    """Keep the chosen decimal separator in browser storage across page loads."""
+    page = browser_page
+    picker = page.locator("[data-decimal-separator]")
+    expect(picker).to_have_value("dot")
+    picker.select_option("comma")
+    page.reload()
+    expect(page.locator("[data-decimal-separator]")).to_have_value("comma")
+    assert page.evaluate("localStorage.getItem('grax:decimal-separator')") == "comma"
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("blazed")
+    angle = page.locator("input[name='blaze_angle_deg']")
+    angle.fill("")
+    angle.press_sequentially("4,5")
+    expect(angle).to_have_value("4.5")
+
+
+@pytest.mark.browser
+def test_decimal_comma_in_coupled_grid(browser_page: Page) -> None:
+    """Accept the reported 4,5 value and keep the grid preview usable."""
+    page = browser_page
+    page.locator("[data-decimal-separator]").select_option("comma")
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("input[name='name']").fill("Comma grid check")
+    page.locator("select[name='grating_type']").select_option("blazed")
+    page.locator("input[name='period_lpermm']").fill("600")
+    page.locator("input[name='blaze_angle_deg']").fill("0.75")
+    page.locator("input[name='x_resolution_nm']").fill("4")
+    page.locator("input[name='z_resolution_nm']").fill("4")
+    page.locator("select[name='stack_type']").select_option("single_layer")
+    page.locator("input[name='substrate_material']").fill("Si")
+    page.locator("input[name='layer_material']").fill("Au")
+    page.locator("input[name='layer_thickness_nm']").fill("30")
+    page.get_by_role("button", name="Save grating").click()
+    expect(page.locator("[data-run-form]")).to_be_visible(timeout=20_000)
+    page.locator("select[name='workflow']").select_option("custom_grid")
+    builder = page.locator("[data-workflow-fields=custom_grid][data-custom-grid-builder]")
+    builder.locator("[data-custom-add-axis]").click()
+    axis = builder.locator("[data-custom-axis]").first
+    axis.locator(".custom-grid-parameter").select_option("blaze_angle_deg")
+    axis.locator("[data-axis-mode]").select_option("range")
+    step = axis.locator("[data-linked-step]")
+    step.fill("0.2")
+    assert step.evaluate("node => node.validity.valid")
+    axis.locator("[data-axis-mode]").select_option("list")
+    axis.locator("textarea").fill("0,2; 0,4")
+    builder.locator("[data-custom-add-group]").click()
+    group = builder.locator("[data-custom-group]").first
+    group.locator(".custom-grid-parameter").select_option("anti_blaze_angle_deg")
+    group.locator("tbody input").first.fill("4,5")
+    group.locator("tbody input").nth(1).fill("7")
+    count_text = builder.locator("[data-custom-grid-count]").inner_text()
+    warning_text = builder.locator("[data-custom-grid-warning]").inner_text()
+    assert "2 cases" in count_text, warning_text
+    assert builder.get_attribute("data-custom-grid-valid") == "true"
+    config = builder.locator("[data-custom-grid-config]").input_value()
+    assert '"anti_blaze_angle_deg":4.5' in config
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+    scans = page.locator("[data-parameter-scans]")
+    scans.locator("[data-custom-add-axis]").click()
+    scan_axis = scans.locator("[data-custom-axis]").first
+    scan_axis.locator(".custom-grid-parameter").select_option("blaze_angle_deg")
+    scan_axis.locator("[data-axis-mode]").select_option("range")
+    scan_axis.locator("[data-count]").fill("50")
+    preview = scans.locator("[data-custom-grid-preview]")
+    assert preview.evaluate("node => node.scrollHeight > node.clientHeight")
+    summary_box = scans.locator("[data-custom-grid-summary]").bounding_box()
+    axis_box = scans.locator(".custom-grid-section").first.bounding_box()
+    assert summary_box and axis_box and abs(summary_box["height"] - axis_box["height"]) < 36
+
+
+@pytest.mark.browser
+def test_afm_fraction_spinner_uses_hundredths(browser_page: Page) -> None:
+    """Fine tune AFM thresholds using the number field arrows."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("afm")
+    separation = page.locator("input[name='afm_min_separation']")
+    separation.fill("0.4")
+    separation.press("ArrowUp")
+    expect(separation).to_have_value("0.41")
+    prominence = page.locator("input[name='afm_min_prominence']")
+    prominence.fill("0.1")
+    prominence.press("ArrowUp")
+    expect(prominence).to_have_value("0.11")
+
+
+@pytest.mark.browser
+def test_plot_loop_keeps_scan_checkbox_selection(website, browser_page: Page) -> None:
+    """Changing loop parameters must not silently select a cleared scan."""
+    base_url, data_dir = website
+    _write_sweep(data_dir)
+    page = browser_page
+    page.goto(f"{base_url}/plots/new")
+    page.locator("[data-run-picker]").select_option("sweep")
+    run = page.locator("[data-plot-run-item]")
+    first_scan = run.locator("[data-scan-grid] input[type=checkbox]").first
+    first_scan.uncheck()
+    run.locator("[data-add-loop]").click()
+    run.locator("[data-loop-list] select").select_option("diffraction_order")
+    expect(first_scan).not_to_be_checked()
+    expect(page.locator("[data-plot-preview-loading]")).to_have_text("Ready")
 
 
 @pytest.mark.browser

@@ -94,7 +94,7 @@
 
   <fieldset data-workflow-fields="constant_deviation">
     <legend>Constant deviation mount</legend>
-    <label>Total beam deviation 2θ, deg <input name="total_deviation_deg" type="number" min="0.001" max="179.999" step="0.1" value="174"></label>
+    <label>Total beam deviation 2θ, deg <input name="total_deviation_deg" type="number" min="0.001" max="179.999" step="any" value="174"></label>
     <p class="hint">Incidence and diffraction angles are grazing-angle magnitudes on opposite sides of the grating. Their sum is 180° − 2θ.</p>
   </fieldset>
 
@@ -202,7 +202,7 @@
       <div class="section-head preview-head">
         <div>
           <h3>Independent parameters</h3>
-          <p class="subtle">Use a linear range or an explicit comma-separated list.</p>
+          <p class="subtle">Use a linear range or an explicit list. Separate numeric values with semicolons or new lines when using decimal commas.</p>
         </div>
         <button class="button" type="button" data-custom-add-axis>Add independent parameter</button>
       </div>

@@ -1,3 +1,22 @@
+const DECIMAL_SEPARATOR_KEY = "grax:decimal-separator";
+function decimalSeparator() {
+  try { return localStorage.getItem(DECIMAL_SEPARATOR_KEY) === "comma" ? "comma" : "dot"; }
+  catch { return "dot"; }
+}
+function parseDecimal(value) { return Number(String(value).trim().replace(",", ".")); }
+function displayDecimal(value) { return decimalSeparator() === "comma" ? String(value).replace(".", ",") : String(value); }
+function applyDecimalLanguage() { document.documentElement.lang = decimalSeparator() === "comma" ? "de-DE" : "en"; }
+function initDecimalSeparator() {
+  applyDecimalLanguage();
+  const picker = document.querySelector("[data-decimal-separator]");
+  if (!picker) return;
+  picker.value = decimalSeparator();
+  picker.addEventListener("change", () => {
+    try { localStorage.setItem(DECIMAL_SEPARATOR_KEY, picker.value); } catch { /* Storage may be disabled. */ }
+    applyDecimalLanguage();
+  });
+}
+
 function toggleSectionFields(section, enabled) {
   section.classList.toggle("is-hidden", !enabled);
   section.querySelectorAll("input, select, textarea").forEach((field) => {
@@ -1077,8 +1096,9 @@ function initPlotWorkspace(form) {
       }
       if (payload.ok) {
         renderPlotlyFigure(previewContainer, payload.figure_json);
-        setPreviewFeedback("ready", "Preview is up to date.");
-        saveButton.disabled = false;
+        const hasSeries = (payload.series_controls || []).length > 0;
+        setPreviewFeedback(hasSeries ? "ready" : "idle", hasSeries ? "Preview is up to date." : "No plots are available for this loop and selection.");
+        saveButton.disabled = !hasSeries;
         summarizeRuns(payload.selected_runs || []);
         syncSeriesControls(payload.series_controls || []);
       } else {
@@ -1139,10 +1159,6 @@ function initPlotWorkspace(form) {
       options.forEach((option) => select.append(new Option(option.label, option.id)));
       select.addEventListener("change", () => {
         select.name = select.value ? `loops_${item.dataset.runId}` : "";
-        if (select.value && !item.querySelector('[data-scan-grid] input[type="checkbox"]:checked')) {
-          const firstScan = item.querySelector('[data-scan-grid] input[type="checkbox"]');
-          if (firstScan) firstScan.checked = true;
-        }
         updateChoices();
         refreshPreview();
       });
@@ -1279,6 +1295,22 @@ function initCustomGridBuilder(root) {
   const countNode = root.querySelector("[data-custom-grid-count]");
   const warningNode = root.querySelector("[data-custom-grid-warning]");
   const previewNode = root.querySelector("[data-custom-grid-preview]");
+  function sizePreview() {
+    if (!root.hasAttribute("data-parameter-scans")) return;
+    const panels = [...root.querySelectorAll(":scope > .custom-grid-section")];
+    const summary = root.querySelector("[data-custom-grid-summary]");
+    if (panels.length < 2 || !summary) return;
+    const sideBySide = Math.abs(panels[0].getBoundingClientRect().top - summary.getBoundingClientRect().top) < 5;
+    if (!sideBySide) { previewNode.style.maxHeight = "65vh"; return; }
+    const panelHeight = Math.max(...panels.map((panel) => {
+      const head = panel.querySelector(".section-head");
+      const list = panel.querySelector(".list");
+      return (head?.scrollHeight || 0) + (list?.scrollHeight || 0) + 70;
+    }));
+    const summaryChrome = summary.scrollHeight - previewNode.clientHeight;
+    previewNode.style.maxHeight = `${Math.max(192, panelHeight - summaryChrome)}px`;
+  }
+  window.addEventListener("resize", () => requestAnimationFrame(sizePreview));
   const coupledEditors = new Map();
   const materialAxes = new WeakMap();
   let casePreview = null;
@@ -1309,7 +1341,7 @@ function initCustomGridBuilder(root) {
         previewNode.append(document.createTextNode(`${descriptor(key)?.label || key}=`));
         if (typeof value === "number" && Number.isFinite(value)) {
           const rounded = document.createElement("span");
-          rounded.textContent = formatRoundedNumber(value);
+          rounded.textContent = displayDecimal(formatRoundedNumber(value));
           rounded.title = `Full value: ${String(value)}. The visible value is rounded to at most three decimal places.`;
           previewNode.append(rounded);
         } else {
@@ -1390,8 +1422,9 @@ function initCustomGridBuilder(root) {
     root.querySelector("[data-custom-add-group]").disabled = !availableParameters().length || !axes.length;
   }
 
-  function splitValues(text) {
-    return text.split(/[\n,;]/).map((value) => value.trim()).filter(Boolean);
+  function splitValues(text, numeric = false) {
+    const separator = numeric && decimalSeparator() === "comma" ? /[\n;]/ : /[\n,;]/;
+    return text.split(separator).map((value) => value.trim()).filter(Boolean);
   }
 
   function roundHalfEven(value) {
@@ -1406,14 +1439,14 @@ function initCustomGridBuilder(root) {
   function castPreview(value, item) {
     if (!item) throw new Error("Choose a valid parameter.");
     if (item.kind === "int") {
-      const number = Number(value);
+      const number = parseDecimal(value);
       if (!Number.isInteger(number)) throw new Error(`${item.label} only accepts integers.`);
       if (item.minimum !== null && item.minimum !== undefined && number < item.minimum) throw new Error(`${item.label} must be at least ${item.minimum}.`);
       return number;
     }
     if (["float", "optional_float"].includes(item.kind)) {
       if (item.kind === "optional_float" && value === "") return null;
-      const number = Number(value);
+      const number = parseDecimal(value);
       if (!Number.isFinite(number)) throw new Error(`${item.label} needs numeric values.`);
       if (item.minimum !== null && item.minimum !== undefined && number < item.minimum) throw new Error(`${item.label} must be at least ${item.minimum}.`);
       return number;
@@ -1425,7 +1458,7 @@ function initCustomGridBuilder(root) {
       for (const key of ["density_g_cm3", "roughness_sigma_nm"]) {
         const raw = material[key];
         if (raw === "" || raw === null || raw === undefined) { material[key] = null; continue; }
-        const number = Number(raw);
+        const number = parseDecimal(raw);
         if (!Number.isFinite(number) || (key === "density_g_cm3" ? number <= 0 : number < 0)) throw new Error(`${item.label}: density must be positive and roughness must be non-negative.`);
         material[key] = number;
       }
@@ -1481,13 +1514,15 @@ function initCustomGridBuilder(root) {
     const values = document.createElement("label"); values.dataset.axisList = ""; values.append("Values");
     const textarea = document.createElement("textarea"); textarea.rows = 2; textarea.placeholder = "100, 200, 300";
     textarea.value = (axis.values || []).map((value) => typeof value === "object" ? value.name : value).join(", "); values.append(textarea);
+    const valuesHint = document.createElement("small"); valuesHint.className = "muted"; values.append(valuesHint);
     const materials = document.createElement("div"); materials.dataset.axisMaterials = "";
     let materialSignature = "";
     let materialValues = (axis.values || []).map((value) => typeof value === "object" ? {...value} : {name: String(value)});
     function syncMaterials() {
       const item = descriptor(parameter.value);
       const isMaterial = item?.kind === "material";
-      textarea.placeholder = isMaterial ? "Au, Pt, Si" : "100, 200, 300";
+      textarea.placeholder = isMaterial ? "None, Au, Pt (None means no coating)" : item?.id === "polarization" ? "s (TE), p (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
+      valuesHint.textContent = isMaterial ? "Example: None, Au, Pt. None means no coating." : item?.id === "polarization" ? "Enter s for TE and p for TM; for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
       materials.classList.toggle("is-hidden", !isMaterial);
       if (isMaterial) {
         const names = splitValues(textarea.value);
@@ -1525,7 +1560,7 @@ function initCustomGridBuilder(root) {
     row.append(controls, values, materials, range, generated, couplingHint);
     function syncMode() {
       const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind);
-      const numericStep = parameter.value === "blaze_angle_deg" ? "0.1" : "any";
+      const numericStep = "any";
       range.querySelectorAll("[data-minimum], [data-maximum]").forEach((input) => { input.step = numericStep; });
       range.querySelector("[data-linked-step]")?.setAttribute("step", numericStep);
       if (!rangeAllowed) mode.value = "list";
@@ -1697,7 +1732,7 @@ function initCustomGridBuilder(root) {
     const monochromatorCff = item.id === "cff"
       && root.closest("form")?.querySelector("[data-run-workflow]")?.value === "monochromator";
     if (mode === "list") {
-      const values = splitValues(row.querySelector("[data-axis-list] textarea").value);
+      const values = splitValues(row.querySelector("[data-axis-list] textarea").value, ["float", "optional_float", "int"].includes(item.kind));
       if (!values.length) throw new Error(`${item.label} needs at least one value.`);
       if (item.kind === "material") { materialAxes.get(row).sync(); return materialAxes.get(row).read(); }
       const castValues = values.map((value) => castPreview(value, item));
@@ -1825,12 +1860,14 @@ function initCustomGridBuilder(root) {
       previewNode.textContent = "";
       previewNode.scrollTop = 0;
       appendPreviewCases();
+      requestAnimationFrame(sizePreview);
       root.dataset.customGridValid = String(!cffExplicitInvalid);
       syncRunSweepButton(form);
     } catch (error) {
       casePreview = null;
       configField.value = "";
       previewNode.textContent = "Enter valid values to preview the grid.";
+      requestAnimationFrame(sizePreview);
       countNode.textContent = "Grid configuration needs attention"; warningNode.textContent = error.message; warningNode.classList.add("notice-error"); root.dataset.customGridValid = "false";
       const cffVariationWarning = root.querySelector("[data-cff-variation-warning]");
       if (cffRangeAutoRemoved) {
@@ -1959,6 +1996,7 @@ function initNavigationDropdowns() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initNavigationDropdowns();
+  initDecimalSeparator();
 });
 
 document.addEventListener("DOMContentLoaded", () => {
