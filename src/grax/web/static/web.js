@@ -12,6 +12,21 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
   document.execCommand("insertText", false, ".");
 }, true);
+// Keep the fine arrow step (such as 0.1) but accept typed values with more decimals.
+document.addEventListener("input", (event) => {
+  const field = event.target;
+  if (!field.matches?.('input[type="number"]')) return;
+  if (field.dataset.arrowStep === undefined) {
+    const step = Number(field.getAttribute("step"));
+    if (!(step > 0 && step < 1)) { field.dataset.arrowStep = ""; return; }
+    field.dataset.arrowStep = String(step);
+  }
+  const step = Number(field.dataset.arrowStep);
+  if (!step) return;
+  const value = Number(field.value);
+  const onStep = !Number.isFinite(value) || Math.abs(value / step - Math.round(value / step)) < 1e-6;
+  field.step = onStep ? field.dataset.arrowStep : "any";
+}, true);
 function initDecimalSeparator() {
   applyDecimalLanguage();
   const picker = document.querySelector("[data-decimal-separator]");

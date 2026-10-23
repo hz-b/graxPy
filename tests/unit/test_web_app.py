@@ -1083,12 +1083,12 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'name="polarization"' in response.data
     assert b'<option value="s">s (TE)</option>' in response.data
     assert response.data.count(b'<option value="p" selected>p (TM)</option>') == 2
-    assert b'name="energy_start_ev" type="number" step="any" value="200" data-monochromator-default="200"' in response.data
-    assert b'name="energy_stop_ev" type="number" step="any" value="2200" data-monochromator-default="2200"' in response.data
+    assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
+    assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
     assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
-    assert b'name="energy_ev" type="number" step="any" value="100"' in response.data
-    assert b'name="grazing_angle_start_deg" type="number" step="any" value="0.1"' in response.data
-    assert b'name="grazing_angle_stop_deg" type="number" step="any" value="35"' in response.data
+    assert b'name="energy_ev" type="number" step="0.1" value="100"' in response.data
+    assert b'name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"' in response.data
+    assert b'name="grazing_angle_stop_deg" type="number" step="0.01" value="35"' in response.data
     assert b'name="grazing_angle_points" type="number" step="1" value="101"' in response.data
 
 

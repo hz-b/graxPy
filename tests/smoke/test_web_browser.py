@@ -195,6 +195,11 @@ def test_decimal_comma_in_coupled_grid(browser_page: Page) -> None:
         field = page.locator(f"input[name='{name}']:visible").first
         field.fill(value)
         assert field.evaluate("node => node.validity.valid"), name
+    stop = page.locator("input[name='energy_stop_ev']:visible").first
+    stop.fill("100")
+    assert stop.get_attribute("step") == "0.1"
+    stop.press("ArrowUp")
+    assert stop.input_value() == "100.1"
     page.locator("select[name='workflow']").select_option("custom_grid")
     builder = page.locator("[data-workflow-fields=custom_grid][data-custom-grid-builder]")
     builder.locator("[data-custom-add-axis]").click()
