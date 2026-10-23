@@ -14,10 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
         run: uv sync --extra dev --extra web
@@ -45,10 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
         run: uv sync --extra dev --extra web
@@ -57,7 +63,22 @@ jobs:
         run: uv run playwright install --with-deps chromium
 
       - name: Run browser and real-scan checks
-        run: uv run pytest tests/smoke/test_web_browser.py -m browser -v
+        run: uv run pytest tests/smoke/test_web_browser.py -m browser -v --junitxml=browser-results.xml
+
+      - name: Annotate browser failures
+        if: failure()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          report = Path("browser-results.xml")
+          if report.exists():
+              for case in ElementTree.parse(report).iter("testcase"):
+                  for failure in (*case.findall("failure"), *case.findall("error")):
+                      detail = (failure.get("message") or "Browser test failed").splitlines()[0]
+                      print(f"::error file=tests/smoke/test_web_browser.py::{case.get('name')}: {detail}")
+          PY
 
       - name: Upload browser failure artifacts
         uses: actions/upload-artifact@v4
