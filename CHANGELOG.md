@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.0rc3
 
-- Let users choose and remember a decimal separator, and accept decimal commas in parameter variation values.
-- Allow ordinary constant-deviation angles and flexible sweep step sizes.
-- Clarify coating and polarization variation entries.
-- Make AFM threshold arrows adjust by smaller amounts and give the simulation preview more room.
-- Preserve plot selections when changing loop parameters.
+- Added a remembered dot or comma preference for decimal input.
+- Fixed valid constant-deviation angles and sweep step sizes being rejected.
+- Clarified how to enter no coating and s or p polarization in variations.
+- Made AFM threshold arrows finer and the simulation preview easier to read.
+- Kept plot selections when changing a loop.
 - Kept browser checks running automatically after a release version changes.
 
 ## 0.6.0
