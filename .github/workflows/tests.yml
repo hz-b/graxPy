@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'codex/**']
   pull_request:
     branches: [main, develop]
 
@@ -37,7 +37,6 @@ jobs:
           path: coverage.xml
 
   browser-smoke:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
