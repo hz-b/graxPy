@@ -1976,8 +1976,17 @@ td {
 }
 
 .plane-mirror-form {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
+}
+
+.plane-mirror-form > .plane-mirror-layer-stack {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
+.plane-mirror-layer-stack > label:first-of-type {
+  max-width: 320px;
 }
 
 .plane-mirror-editor-layout {
