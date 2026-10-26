@@ -259,6 +259,10 @@ function syncRunWorkflow(select) {
       title: "Monochromator",
       summary: "Scans energy while adjusting the incidence and diffraction geometry for a constant CFF. Use it to model a grating operated as a monochromator.",
     },
+    map: {
+      title: "Legacy angle vs energy map",
+      summary: "This saved scan preset uses the previous mirror map workflow. New runs can use Energy sweep, Angle sweep, or Monochromator.",
+    },
     constant_deviation: {
       title: "Constant deviation (2θ)",
       summary: "Scans energy while adjusting incidence and diffraction angles to keep the total beam deviation fixed.",
@@ -2464,6 +2468,7 @@ document.addEventListener("DOMContentLoaded", () => {
       field.addEventListener("input", () => { field.dataset.userEdited = "true"; });
     });
     syncRunWorkflow(select);
+    syncRunSweepButton(select.closest("form"));
     select.addEventListener("change", () => {
       syncRunWorkflow(select);
       syncRunSweepButton(select.closest("form"));
@@ -2681,6 +2686,9 @@ function initPlaneMirror(form) {
   };
 
   const update = debounce(async () => {
+    if (!figure || !status || !loading || !computeUrl) {
+      return;
+    }
     requestId += 1;
     const currentRequest = requestId;
     loading.textContent = "Computing";
@@ -2753,6 +2761,70 @@ function initPlaneMirror(form) {
   });
   update();
   updateStack();
+}
+
+function initPlaneMirrorScanForm(form) {
+  const figure = form.querySelector("[data-plane-mirror-figure]");
+  const status = form.querySelector("[data-plane-mirror-preview-status]");
+  const workflow = form.querySelector("[data-run-workflow]");
+  const nameField = form.querySelector("[data-plane-mirror-run-name]");
+  let requestId = 0;
+  form.querySelectorAll("[data-mirror-variation-axes], [data-mirror-coupled-variations]").forEach((group) => {
+    const rows = group.querySelector("[data-variation-rows]");
+    const template = group.querySelector("[data-variation-template]");
+    group.querySelector("[data-variation-add]")?.addEventListener("click", () => rows.append(template.content.cloneNode(true)));
+    group.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-variation-remove]");
+      if (remove && rows.querySelectorAll("[data-variation-row]").length > 1) remove.closest("[data-variation-row]").remove();
+    });
+  });
+  if (workflow && nameField) {
+    const presetName = nameField.value;
+    nameField.addEventListener("input", () => { nameField.dataset.autoName = String(nameField.value === presetName); });
+    workflow.addEventListener("change", () => {
+      if (nameField.dataset.autoName !== "false") nameField.value = `${nameField.dataset.runPrefix} · ${workflow.value} scan`;
+      updatePreview();
+    });
+  }
+  const draw = (payload) => {
+    if (!figure || !window.Plotly) return;
+    const traces = [{
+      x: payload.x,
+      y: payload.reflectivity,
+      mode: "lines",
+      name: "Reflectivity",
+    }];
+    if (payload.graded) traces.push({x: payload.x, y: payload.graded, mode: "lines", name: "Footprint average"});
+    window.Plotly.react(figure, traces, {
+      xaxis: {title: {text: payload.x_label}},
+      yaxis: {title: {text: "Reflectivity"}, range: [0, 1]},
+      margin: {t: 20},
+      legend: {orientation: "h", y: -0.3},
+    }, {responsive: true, displaylogo: false});
+  };
+  const updatePreview = debounce(async () => {
+    requestId += 1;
+    const current = requestId;
+    status.textContent = "Updating preview…";
+    try {
+      const response = await fetch(form.dataset.previewUrl, {method: "POST", body: new FormData(form)});
+      const payload = await response.json();
+      if (current !== requestId) return;
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Preview calculation failed.");
+      draw(payload);
+      if (payload.mode === "monochromator" && payload.grazing_angles_deg?.length) {
+        const values = payload.grazing_angles_deg;
+        status.textContent = `Preview ready · grazing angle ${formatRoundedNumber(values[0])}°–${formatRoundedNumber(values.at(-1))}°`;
+      } else {
+        status.textContent = "Preview ready.";
+      }
+    } catch (error) {
+      if (current === requestId) status.textContent = error.message || "Preview calculation failed.";
+    }
+  }, 350);
+  form.addEventListener("input", updatePreview);
+  form.addEventListener("change", updatePreview);
+  updatePreview();
 }
 
 function initRunExport() {
@@ -2834,4 +2906,5 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-plane-mirror-form]").forEach((form) => {
     initPlaneMirror(form);
   });
+  document.querySelectorAll("[data-plane-mirror-scan-form]").forEach(initPlaneMirrorScanForm);
 });

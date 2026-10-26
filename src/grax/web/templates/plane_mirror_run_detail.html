@@ -16,6 +16,14 @@
   <strong>{{ run.status }}</strong> · <span>{{ run.completed_points }} / {{ run.total_points }} variations</span>
   {% if run.error_text %}<p class="notice-error">{{ run.error_text }}</p>{% endif %}
 </section>
+{% if run.scan_details %}
+<section>
+  <h2>Scan settings</h2>
+  <dl class="plane-mirror-parameter-list">
+    {% for label, value in run.scan_details %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+  </dl>
+</section>
+{% endif %}
 {% if run.completed_points %}<section class="preview-panel"><h2>Results</h2><img class="plane-mirror-result-plot" src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/plot.png', v=run.completed_points) }}" alt="Plane-mirror scan results"></section>{% endif %}
 {% if results %}
 <section><h2>Variation results</h2><div class="run-compare-table-wrap"><table class="run-compare-table"><thead><tr><th>Case</th><th>Parameters</th><th>Scan</th></tr></thead><tbody>

@@ -20,8 +20,12 @@ MAX_TOTAL_SAMPLES = _MAX_TOTAL_SAMPLES
 
 
 SCAN_FIELDS = {
+    "scan_mode",
     "fixed_angle_deg",
     "fixed_energy_ev",
+    "grating_density_lpermm",
+    "cff",
+    "diffraction_order",
     "roughness_sigma_nm",
     "grading_percent_per_mm",
     "footprint_length_mm",
@@ -84,6 +88,7 @@ INTEGER_FIELDS = {
     "map_energy_points",
     "map_angle_points",
     "footprint_points",
+    "diffraction_order",
     "n_bilayers",
     "cl_repeats",
 }
@@ -194,7 +199,11 @@ def total_sample_count(scan):
     mode = str(values["scan_mode"])
     if mode == "map":
         return int(values["map_energy_points"]) * int(values["map_angle_points"])
-    return int(values["energy_points"] if mode == "energy" else values["angle_points"])
+    return int(
+        values["energy_points"]
+        if mode in {"energy", "energy_sweep", "monochromator"}
+        else values["angle_points"]
+    )
 
 
 def start_worker(app, data_dir: Path, run_id: str, *, resume=False):

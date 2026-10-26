@@ -12,6 +12,7 @@ import numpy as np
 from grax.materials import MaterialSpec, validate_material_input
 from grax.planar_mirror import LateralGrading, footprint_reflectivity, parratt_reflectivity
 from grax.stacks import BaseStack, CustomStack, LayerSpec, assemble_custom_stack
+from grax.simulation.cases import monochromator_grazing_angles_deg
 
 MAX_SCAN_POINTS = 5000
 MAX_FOOTPRINT_POINTS = 500
@@ -31,6 +32,9 @@ PLANE_MIRROR_DEFAULTS: dict[str, str] = {
     "map_angle_points": "1000",
     "fixed_angle_deg": "0.4",
     "fixed_energy_ev": "1000",
+    "grating_density_lpermm": "1200",
+    "cff": "2.25",
+    "diffraction_order": "1",
     "polarization": "p",
     "roughness_sigma_nm": "0",
     "grading_mode": "none",
@@ -205,6 +209,9 @@ class PlaneMirrorOptions:
     angle_points: int
     fixed_angle_deg: float
     fixed_energy_ev: float
+    grating_density_lpermm: float
+    cff: float
+    diffraction_order: int
     polarization: str
     roughness_sigma_nm: float
     grading: LateralGrading | None
@@ -233,7 +240,7 @@ def _too_many_points_message(
         if positions > 1:
             message += ", or reduce the footprint sample points or turn grading off"
         return message + "."
-    points = energy_points if scan_mode == "energy" else angle_points
+    points = energy_points if scan_mode in {"energy", "energy_sweep", "monochromator"} else angle_points
     return (
         f"{points:,} points x {positions} footprint positions = {points * positions:,} samples exceeds the limit of "
         f"{MAX_TOTAL_SAMPLES:,}. With {positions} footprint positions use at most {min(max_points, MAX_SCAN_POINTS):,} points, "
@@ -262,8 +269,8 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
         return value
 
     scan_mode = text("scan_mode")
-    if scan_mode not in {"energy", "angle", "map"}:
-        raise ValueError("scan_mode must be 'energy', 'angle' or 'map'.")
+    if scan_mode not in {"energy", "energy_sweep", "angle", "angle_sweep", "map", "monochromator"}:
+        raise ValueError("Choose Energy sweep, Angle sweep, or Monochromator.")
 
     def axis(prefix: str, label: str, upper: float | None = None) -> tuple[float, float, int]:
         # Maps use their own (smaller) point counts; the ranges are shared.
@@ -281,8 +288,8 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
             raise ValueError(f"The {label} range is limited to {upper:g}.")
         return low, high, points
 
-    energy_min, energy_max, energy_points = axis("energy", "energy") if scan_mode in {"energy", "map"} else (0.0, 0.0, 1)
-    angle_min, angle_max, angle_points = axis("angle", "angle", 90.0) if scan_mode in {"angle", "map"} else (0.0, 0.0, 1)
+    energy_min, energy_max, energy_points = axis("energy", "energy") if scan_mode in {"energy", "energy_sweep", "monochromator", "map"} else (0.0, 0.0, 1)
+    angle_min, angle_max, angle_points = axis("angle", "angle", 90.0) if scan_mode in {"angle", "angle_sweep", "map"} else (0.0, 0.0, 1)
 
     grading_mode = text("grading_mode")
     grading: LateralGrading | None
@@ -311,7 +318,8 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
             _too_many_points_message(scan_mode, energy_points, angle_points, footprint_points, positions)
         )
 
-    return PlaneMirrorOptions(
+    diffraction_order_value = number("diffraction_order")
+    options = PlaneMirrorOptions(
         scan_mode=scan_mode,
         energy_min=energy_min,
         energy_max=energy_max,
@@ -321,12 +329,34 @@ def parse_plane_mirror_options(form: Any) -> PlaneMirrorOptions:
         angle_points=angle_points,
         fixed_angle_deg=number("fixed_angle_deg"),
         fixed_energy_ev=number("fixed_energy_ev"),
+        grating_density_lpermm=number("grating_density_lpermm"),
+        cff=number("cff"),
+        diffraction_order=int(diffraction_order_value),
         polarization=text("polarization"),
         roughness_sigma_nm=number("roughness_sigma_nm"),
         grading=grading,
         footprint_length_mm=footprint_length_mm,
         footprint_points=footprint_points,
     )
+
+    if scan_mode == "monochromator":
+        if options.grating_density_lpermm <= 0:
+            raise ValueError("Grating line density must be greater than zero.")
+        if options.cff <= 0 or np.isclose(options.cff, 1.0):
+            raise ValueError("CFF must be positive and cannot equal 1.")
+        if options.diffraction_order < 1 or diffraction_order_value != options.diffraction_order:
+            raise ValueError("Diffraction order must be a positive whole number.")
+        try:
+            monochromator_grazing_angles_deg(
+                np.linspace(energy_min, energy_max, energy_points),
+                period_lpermm=options.grating_density_lpermm,
+                diffraction_order=options.diffraction_order,
+                cff=options.cff,
+            )
+        except (ValueError, RuntimeError) as error:
+            raise ValueError(f"Monochromator geometry is unavailable in this energy range: {error}") from error
+
+    return options
 
 
 def compute_plane_mirror(stack: BaseStack, options: PlaneMirrorOptions) -> dict[str, Any]:
@@ -341,10 +371,18 @@ def compute_plane_mirror(stack: BaseStack, options: PlaneMirrorOptions) -> dict[
     """
 
     mode = options.scan_mode
-    if mode == "energy":
+    if mode in {"energy", "energy_sweep", "monochromator"}:
         energies = np.linspace(options.energy_min, options.energy_max, options.energy_points)
-        angles = np.array([options.fixed_angle_deg])
-    elif mode == "angle":
+        if mode == "monochromator":
+            angles = monochromator_grazing_angles_deg(
+                energies,
+                period_lpermm=options.grating_density_lpermm,
+                diffraction_order=options.diffraction_order,
+                cff=options.cff,
+            )
+        else:
+            angles = np.array([options.fixed_angle_deg])
+    elif mode in {"angle", "angle_sweep"}:
         energies = np.array([options.fixed_energy_ev])
         angles = np.linspace(options.angle_min, options.angle_max, options.angle_points)
     else:
@@ -375,14 +413,17 @@ def compute_plane_mirror(stack: BaseStack, options: PlaneMirrorOptions) -> dict[
         }
 
     def curve(values: np.ndarray) -> list[float]:
-        return (values[:, 0] if mode == "energy" else values[0, :]).tolist()
+        if mode == "monochromator":
+            return np.diag(values).tolist()
+        return (values[:, 0] if mode in {"energy", "energy_sweep"} else values[0, :]).tolist()
 
     return {
         "mode": mode,
-        "x": (energies if mode == "energy" else angles).tolist(),
-        "x_label": "Photon energy (eV)" if mode == "energy" else "Grazing angle (deg)",
+        "x": (angles if mode in {"angle", "angle_sweep"} else energies).tolist(),
+        "x_label": "Grazing angle (deg)" if mode in {"angle", "angle_sweep"} else "Photon energy (eV)",
         "reflectivity": curve(parratt_reflectivity(stack, energies, angles, **common)),
         "graded": None if options.grading is None else curve(graded_average()),
+        **({"grazing_angles_deg": angles.tolist()} if mode == "monochromator" else {}),
     }
 
 

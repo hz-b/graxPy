@@ -1684,7 +1684,12 @@ def create_app(*, data_dir: str | Path | None = None):
         )
         return redirect(url_for("multilayer_design_detail", study_id=study_id))
 
-    def render_plane_mirror_page(mirror: dict[str, Any] | None = None, scan_id: str | None = None):
+    def render_plane_mirror_page(
+        mirror: dict[str, Any] | None = None,
+        scan_id: str | None = None,
+        *,
+        editing: bool = False,
+    ):
         stack_form: dict[str, Any] = {} if mirror is None else dict(mirror.get("stack_form", {}))
         scans = [] if mirror is None else list(mirror.get("scans", []))
         active_scan = next((scan for scan in scans if scan["id"] == scan_id), None)
@@ -1704,6 +1709,7 @@ def create_app(*, data_dir: str | Path | None = None):
             allow_custom=True,
             custom_layers=custom_layers,
             mirror=mirror,
+            editing=editing,
             scans=scans,
             active_scan_id=None if active_scan is None else active_scan["id"],
             mirror_numeric_parameters=_plane_mirror_variation_catalog(
@@ -1803,8 +1809,7 @@ def create_app(*, data_dir: str | Path | None = None):
                 clean_form.add(key, value)
         try:
             _, scan_form = split_plane_mirror_form(clean_form)
-            stack_form, _ = split_plane_mirror_form(clean_form)
-            _plane_mirror_stack(clean_form)
+            stack_form = dict(mirror.get("stack_form", {}))
             parse_plane_mirror_options(clean_form)
             axis_rows = list(zip(
                 request.form.getlist("axis_parameter"),
@@ -1955,7 +1960,47 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.get("/plane-mirrors/<mirror_id>")
     def plane_mirror_detail(mirror_id: str):
         mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
-        return render_plane_mirror_page(mirror, request.args.get("scan"))
+        scans = list(mirror.get("scans", []))
+        scan_id = request.args.get("scan")
+        active_scan = next((scan for scan in scans if scan["id"] == scan_id), None)
+        if active_scan is None and scans and scan_id is None:
+            active_scan = scans[0]
+        stack_form = dict(mirror.get("stack_form", {}))
+        defaults = _plane_mirror_page_defaults(
+            stack_form, {} if active_scan is None else active_scan.get("form", {})
+        )
+        # Legacy scans remain stored as-is, while their settings load into the
+        # equivalent current run workflow when selected as a preset.
+        defaults["scan_mode"] = {
+            "energy": "energy_sweep",
+            "angle": "angle_sweep",
+        }.get(defaults.get("scan_mode", "energy"), defaults.get("scan_mode", "energy_sweep"))
+        if active_scan is None:
+            defaults["polarization"] = load_user_settings()["standard_polarization"]
+        custom_layers = _custom_layer_rows(stack_form)
+        custom_variation_count = len(custom_layers) if stack_form.get("stack_type") == "custom" else 0
+        return render_template(
+            "plane_mirror_scan.html",
+            mirror=mirror,
+            mirror_summary=plane_mirror_summary(mirror),
+            scans=scans,
+            runs=[run for run in run_store().list() if run.get("mirror_id") == mirror_id][:5],
+            active_scan_id=None if active_scan is None else active_scan["id"],
+            defaults=defaults,
+            custom_layers=custom_layers,
+            mirror_numeric_parameters=_plane_mirror_variation_catalog(
+                numeric_only=True, custom_layer_count=custom_variation_count
+            ),
+            mirror_variation_parameters=_plane_mirror_variation_catalog(
+                custom_layer_count=custom_variation_count
+            ),
+            plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
+        )
+
+    @app.get("/plane-mirrors/<mirror_id>/edit")
+    def plane_mirror_edit(mirror_id: str):
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        return render_plane_mirror_page(mirror, editing=True)
 
     @app.get("/plane-mirrors/<mirror_id>/scans/<scan_id>/preview.png")
     def plane_mirror_scan_preview(mirror_id: str, scan_id: str):
@@ -2100,7 +2145,21 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.post("/_compute/plane-mirror")
     def plane_mirror_compute():
         try:
-            return jsonify({"ok": True, **_plane_mirror_result(request.form)})
+            mirror_id = str(request.form.get("mirror_id", "")).strip()
+            if mirror_id:
+                mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+                from werkzeug.datastructures import MultiDict
+                form = MultiDict()
+                for key, value in mirror.get("stack_form", {}).items():
+                    for item in value if isinstance(value, list) else [value]:
+                        form.add(key, item)
+                for key in request.form.keys():
+                    for value in request.form.getlist(key):
+                        form.add(key, value)
+                result = _plane_mirror_result(form)
+            else:
+                result = _plane_mirror_result(request.form)
+            return jsonify({"ok": True, **result})
         except (KeyError, TypeError, ValueError) as error:
             return jsonify({"ok": False, "error": str(error)}), 400
 
@@ -2547,19 +2606,28 @@ def _plane_mirror_scan_parameter_details(scan_form: dict[str, Any]) -> list[tupl
     mode = str(values.get("scan_mode", "energy"))
     mode_labels = {
         "energy": "Energy scan at fixed grazing angle",
+        "energy_sweep": "Energy sweep",
         "angle": "Angle scan at fixed photon energy",
+        "angle_sweep": "Angle sweep",
         "map": "Angle vs energy map",
+        "monochromator": "Monochromator",
     }
     details = [("Scan", mode_labels.get(mode, mode))]
-    if mode in {"energy", "map"}:
+    if mode in {"energy", "energy_sweep", "monochromator", "map"}:
         points_key = "map_energy_points" if mode == "map" else "energy_points"
         details.append(("Photon energy", f"{values['energy_min']}–{values['energy_max']} eV · {values[points_key]} points"))
-    if mode == "energy":
+    if mode in {"energy", "energy_sweep"}:
         details.append(("Grazing angle", f"{values['fixed_angle_deg']}°"))
-    if mode in {"angle", "map"}:
+    if mode == "monochromator":
+        details.extend([
+            ("Coupled grating density", f"{values['grating_density_lpermm']} lines/mm"),
+            ("CFF", str(values["cff"])),
+            ("Diffraction order", str(values["diffraction_order"])),
+        ])
+    if mode in {"angle", "angle_sweep", "map"}:
         points_key = "map_angle_points" if mode == "map" else "angle_points"
         details.append(("Grazing angle", f"{values['angle_min']}–{values['angle_max']}° · {values[points_key]} points"))
-    if mode == "angle":
+    if mode in {"angle", "angle_sweep"}:
         details.append(("Photon energy", f"{values['fixed_energy_ev']} eV"))
     polarization = str(values.get("polarization", "p")).lower()
     details.append(("Polarization", _polarization_display_label(polarization)))
@@ -2584,6 +2652,9 @@ def _plane_mirror_variation_catalog(
     numeric = {
         "fixed_angle_deg": "Fixed grazing angle (deg)",
         "fixed_energy_ev": "Fixed photon energy (eV)",
+        "grating_density_lpermm": "Coupled grating density (lines/mm)",
+        "cff": "Monochromator CFF",
+        "diffraction_order": "Diffraction order",
         "roughness_sigma_nm": "Scan roughness (nm)",
         "grading_percent_per_mm": "Grading (%/mm)",
         "footprint_length_mm": "Footprint length (mm)",
