@@ -889,6 +889,7 @@ class MultilayerDesignStudyStore:
         display_name: str,
         config: dict[str, Any],
         auto_energy_scan: str = "none",
+        family_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new study directory + manifest and return it."""
 
@@ -901,6 +902,7 @@ class MultilayerDesignStudyStore:
             suffix += 1
         manifest = {
             "id": candidate,
+            "family_id": family_id or candidate,
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "display_name": display_name.strip() or candidate,
             "comment": "",
@@ -911,6 +913,26 @@ class MultilayerDesignStudyStore:
             "stages": {stage: _blank_stage() for stage in STAGES},
         }
         return self.save(manifest)
+
+    def related(self, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return the named studies belonging to the same design."""
+
+        family_id = manifest.get("family_id") or manifest["id"]
+        return [
+            study for study in self.list()
+            if (study.get("family_id") or study["id"]) == family_id
+        ]
+
+    def name_exists(
+        self, manifest: dict[str, Any], name: str, *, except_id: str | None = None
+    ) -> bool:
+        """Check names within a design without making unrelated designs conflict."""
+
+        return any(
+            study["id"] != except_id
+            and str(study.get("display_name", "")).casefold() == name.casefold()
+            for study in self.related(manifest)
+        )
 
     def delete_many(self, study_ids: list[str]) -> None:
         """Delete several study directories."""

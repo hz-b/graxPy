@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import io
+import zipfile
+import subprocess
 import sys
 import threading
 import time
@@ -1790,11 +1793,44 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert b"#ff0000" in detail_response.data
     assert b"Reference scan" in detail_response.data
     assert b"Download plot PNG" in detail_response.data
+    assert b"Download CSV data" in detail_response.data
+    assert b"Download script + data" in detail_response.data
+    assert f'/plots/{plot_id}/edit'.encode() in detail_response.data
+
+    for kind in ("data", "script-data"):
+        download = client.get(f"/plots/{plot_id}/download/{kind}")
+        assert download.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(download.data)) as archive:
+            csv_files = [name for name in archive.namelist() if name.endswith(".csv")]
+            assert len(csv_files) == 3
+            assert archive.read(csv_files[0]).startswith(b"x,y\r\n")
+            assert ("plot.py" in archive.namelist()) == (kind == "script-data")
+            if kind == "script-data":
+                compile(archive.read("plot.py"), "plot.py", "exec")
+                export_dir = tmp_path / "plot-export"
+                archive.extractall(export_dir)
+                subprocess.run([sys.executable, str(export_dir / "plot.py")], check=True, capture_output=True)
+                assert (export_dir / "plot.html").is_file()
 
     repeat = client.post("/plots", data={"title": "Saved interactive plot", "run_ids": ["run-1", "run-2"], "orders_run-1": ["0"], "orders_run-2": ["2"]})
     assert repeat.status_code == 302
     assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot_2.png").is_file()
     assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot_2.png").is_file()
+
+    edit_form = client.get(f"/plots/{plot_id}/edit")
+    assert edit_form.status_code == 200
+    assert b'Saved interactive plot' in edit_form.data
+    assert b'data-editing-plot=' in edit_form.data
+    edited = client.post(
+        f"/plots/{plot_id}/edit",
+        data={"title": "Revised plot title", "plot_name": "Revised file", "run_ids": ["run-1"], "orders_run-1": ["0"]},
+    )
+    assert edited.status_code == 302
+    assert edited.headers["Location"].endswith(f"/plots/{plot_id}")
+    revised = json.loads((tmp_path / "plots" / plot_id / "manifest.json").read_text(encoding="utf-8"))
+    assert revised["title"] == "Revised plot title"
+    assert revised["name"] == "Revised file"
+    assert len(json.loads(revised["figure_json"])["data"]) == 1
 
 
 def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 {% from "_multilayer_design_macros.html" import render_field, material_datalist %}
 {% from "_geometry_view.html" import geometry_view %}
 {% set editing = study is defined %}
-{% block title %}{% if editing %}Edit {{ study.display_name }}{% else %}New multilayer design{% endif %}{% endblock %}
+{% block title %}{% if editing %}Edit {{ study.display_name }}{% elif related_new %}New related study{% else %}New multilayer design{% endif %}{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
@@ -14,14 +14,14 @@
         re-run or reset it.
       </p>
     {% else %}
-      <h1>New multilayer design</h1>
+      <h1>{% if related_new %}New study for this multilayer design{% else %}New multilayer design{% endif %}</h1>
       <p>
         Step 1 surveys a d-spacing × blaze-angle grid at one energy; step 2 scans the
         designs you pick from it over an energy range.
       </p>
       {% if seeded_from %}
         <p class="subtle">
-          Pre-filled from your most recent study,
+          {% if related_new %}Parameters copied from{% else %}Pre-filled from your most recent study,{% endif %}
           <a href="{{ url_for('multilayer_design_detail', study_id=seeded_from.id) }}">{{ seeded_from.display_name }}</a>.
         </p>
       {% endif %}
@@ -32,17 +32,17 @@
 {{ material_datalist(materials, material_density_map) }}
 
 <form class="form" method="post"
-      action="{% if editing %}{{ url_for('multilayer_design_update', study_id=study.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}"
+      action="{% if editing %}{{ url_for('multilayer_design_update', study_id=study.id) }}{% elif related_new %}{{ url_for('multilayer_design_create_related', study_id=seeded_from.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}"
       data-survey-cell-counter data-cell-warning-threshold="{{ cell_warning_threshold }}">
   <fieldset>
     <legend>Study</legend>
     <label>Name
-      <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"
+      <input name="display_name" type="text" placeholder="Ru/B4C 2nd order" {% if related_new %}required{% endif %}
              value="{{ study.display_name if editing else '' }}">
     </label>
     <label class="inline-check">
       <input type="checkbox" name="auto_energy_scan" value="1"
-             {% if editing and study.auto_energy_scan == "best" %}checked{% endif %}>
+             {% if (editing and study.auto_energy_scan == "best") or (related_new and seeded_from.auto_energy_scan == "best") %}checked{% endif %}>
       <span>When the survey finishes, scan the best design over energy automatically</span>
     </label>
   </fieldset>
@@ -96,7 +96,7 @@
       <a class="button" href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">Cancel</a>
     {% else %}
       <button class="button primary" type="submit">Create study</button>
-      <a class="button" href="{{ url_for('multilayer_design_index') }}">Cancel</a>
+      <a class="button" href="{% if related_new %}{{ url_for('multilayer_design_detail', study_id=seeded_from.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}">Cancel</a>
     {% endif %}
   </div>
 </form>

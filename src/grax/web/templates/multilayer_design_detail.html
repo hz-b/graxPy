@@ -13,6 +13,15 @@
     <p>{{ study.id }} · created {{ study.created_at }}</p>
   </div>
   <div class="actions">
+    <select class="study-switcher" aria-label="Switch study" data-study-switcher>
+      {% for related in related_studies %}
+        <option value="{{ url_for('multilayer_design_detail', study_id=related.id) }}"
+                {% if related.id == study.id %}selected{% endif %}>
+          {{ related.display_name }}
+        </option>
+      {% endfor %}
+    </select>
+    <a class="button primary" href="{{ url_for('multilayer_design_new_related', study_id=study.id) }}">New study</a>
     <a class="button primary" href="{{ url_for('multilayer_design_edit', study_id=study.id) }}">Edit parameters</a>
     <a class="button" href="{{ url_for('multilayer_design_script', study_id=study.id) }}"
        download>Download script</a>
@@ -145,10 +154,8 @@
         <div class="plotly-stage" data-energy-scan-figure></div>
       </div>
     {% endif %}
-  {% elif survey.status != "completed" %}
-    <p class="subtle">Run the survey first — its results decide which designs are worth scanning.</p>
   {% elif not design_options.best %}
-    <p class="subtle">The survey produced no usable cell, so there is nothing to scan.</p>
+    <p class="subtle">Run the survey first — its results decide which designs are worth scanning.</p>
   {% else %}
     <form method="post"
           action="{{ url_for('multilayer_design_run_stage', study_id=study.id, stage='energy_scan') }}"
@@ -174,7 +181,7 @@
         <div class="row">
           <div>
             <strong>Choose manually</strong>
-            <p class="subtle">Pick any (d, blaze) combinations from the survey grid.</p>
+            <p class="subtle">Click solved cells on the survey map or add combinations here.</p>
           </div>
           <button class="button" type="button" data-design-toggle>Choose manually…</button>
         </div>

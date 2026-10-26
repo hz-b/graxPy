@@ -6,7 +6,14 @@
     <h1>{{ plot.name or plot.title }}</h1>
     <p>{{ plot.created_at }}</p>
   </div>
-  <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
+  <div class="actions">
+    {% if plot.plot_config %}<a class="button primary" href="{{ url_for('plot_edit', plot_id=plot.id) }}">Edit plot</a>{% endif %}
+    {% if plot.figure_json %}
+      <a class="button" href="{{ url_for('plot_download', plot_id=plot.id, kind='data') }}">Download CSV data</a>
+      <a class="button" href="{{ url_for('plot_download', plot_id=plot.id, kind='script-data') }}">Download script + data</a>
+    {% endif %}
+    <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
+  </div>
 </section>
 
 {% if plot.plot_path %}
