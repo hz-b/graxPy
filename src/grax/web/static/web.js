@@ -1063,7 +1063,20 @@ function initPlotWorkspace(form) {
   const selectedRunSummary = document.querySelector("[data-selected-run-summary]");
   const seriesStyleList = document.querySelector("[data-series-style-list]");
   const styleDrafts = new Map();
+  const energyTimesOrderOption = form.querySelector('select[name="x_axis_value"] option[value="energy_times_order"]');
   let requestId = 0;
+
+  function syncOrderAxisOption() {
+    const hasMirror = [...runList.querySelectorAll("[data-plot-run-item]")]
+      .some((item) => item.dataset.runKind === "mirror");
+    if (energyTimesOrderOption) {
+      energyTimesOrderOption.hidden = hasMirror;
+      energyTimesOrderOption.disabled = hasMirror;
+      if (hasMirror && energyTimesOrderOption.selected) {
+        form.querySelector('select[name="x_axis_value"]').value = "energy";
+      }
+    }
+  }
 
   function setPreviewFeedback(state, message) {
     const labels = {
@@ -1088,9 +1101,9 @@ function initPlotWorkspace(form) {
       row.className = "row";
       const title = document.createElement("strong");
       title.textContent = run.name;
-      const orders = document.createElement("span");
-      orders.textContent = `Orders: ${run.orders.join(", ")}`;
-      row.append(title, orders);
+      const kind = document.createElement("span");
+      kind.textContent = run.is_plane_mirror ? "Plane-mirror reflectivity" : `Orders: ${run.orders.join(", ")}`;
+      row.append(title, kind);
       selectedRunSummary.append(row);
     });
   }
@@ -1210,6 +1223,7 @@ function initPlotWorkspace(form) {
     });
     item.querySelector("[data-remove-run]").addEventListener("click", () => {
       item.remove();
+      syncOrderAxisOption();
       refreshPreview();
     });
   }
@@ -1271,6 +1285,7 @@ function initPlotWorkspace(form) {
     }
     const item = template.content.firstElementChild.cloneNode(true);
     item.dataset.runId = option.value;
+    item.dataset.runKind = option.dataset.runKind || "grating";
     item.querySelector("[data-run-title]").textContent = option.dataset.runName;
     item.querySelector("[data-run-id-field]").value = option.value;
     const orderGrid = item.querySelector("[data-order-grid]");
@@ -1278,12 +1293,20 @@ function initPlotWorkspace(form) {
       .split(",")
       .filter((value) => value !== "")
       .map((value) => Number.parseInt(value, 10));
-    orders.forEach((order, index) => {
-      const checkbox = createOrderCheckbox(option.value, order);
-      checkbox.querySelector("input").checked = option.dataset.runDefaultOrder
-        ? order === Number(option.dataset.runDefaultOrder) : index === 0;
-      orderGrid.append(checkbox);
-    });
+    if (item.dataset.runKind === "mirror") {
+      const orderField = document.createElement("input");
+      orderField.type = "hidden";
+      orderField.name = `orders_${option.value}`;
+      orderField.value = "0";
+      orderGrid.append(orderField);
+    } else {
+      orders.forEach((order, index) => {
+        const checkbox = createOrderCheckbox(option.value, order);
+        checkbox.querySelector("input").checked = option.dataset.runDefaultOrder
+          ? order === Number(option.dataset.runDefaultOrder) : index === 0;
+        orderGrid.append(checkbox);
+      });
+    }
     const scans = JSON.parse(option.dataset.runScans || "[]");
     if (scans.length) {
       const scanGrid = item.querySelector("[data-scan-grid]");
@@ -1296,6 +1319,7 @@ function initPlotWorkspace(form) {
     }
     bindLoopControls(item, JSON.parse(option.dataset.runLoops || "[]"));
     runList.append(item);
+    syncOrderAxisOption();
     bindRunItem(item);
     picker.value = "";
     refreshPreview();

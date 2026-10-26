@@ -47,7 +47,7 @@
       {% for run in selected_runs %}
         <div class="row">
           {% if run.available %}<strong><a href="{{ run.url }}">{{ run.name }}</a></strong>{% else %}<strong>Run unavailable: {{ run.name }}</strong>{% endif %}
-          <span>Orders: {{ run.orders | join(', ') }}</span>
+          {% if run.is_plane_mirror %}<span>Plane-mirror reflectivity</span>{% else %}<span>Orders: {{ run.orders | join(', ') }}</span>{% endif %}
         </div>
       {% endfor %}
     </div>

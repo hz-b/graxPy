@@ -1338,13 +1338,17 @@ def create_app(*, data_dir: str | Path | None = None):
         run_ids = request.form.getlist("run_ids")
         if not run_ids:
             abort(400, "Select at least one saved run.")
-        order_selection = {
-            run_id: [int(value) for value in request.form.getlist(f"orders_{run_id}")]
-            for run_id in run_ids
-        }
-        for run_id, orders in order_selection.items():
+        order_selection: dict[str, list[int]] = {}
+        for run_id in run_ids:
+            manifest = _load_run_manifest(active_data_dir(), run_id)
+            is_mirror = bool(manifest and _is_plane_mirror_run(manifest))
+            orders = [int(value) for value in request.form.getlist(f"orders_{run_id}")]
+            if is_mirror:
+                order_selection[run_id] = [0]
+                continue
             if not orders:
                 abort(400, f"Select at least one diffraction order for run {run_id}.")
+            order_selection[run_id] = orders
         plot_options = _plot_options_from_form(
             form_data=request.form,
             run_ids=run_ids,
@@ -5326,6 +5330,8 @@ def _list_runs(run_dir: Path) -> list[dict[str, Any]]:
 def _run_summary_label(run: dict[str, Any]) -> str:
     """Return the primary saved-run descriptor used in plot selection."""
 
+    if _is_plane_mirror_run(run):
+        return f"mirror: {run.get('mirror_name', 'Plane mirror')}"
     return (
         f"name: {run.get('grating_name', 'Run')} · "
         f"date/time: {run.get('created_at', '')} · "
@@ -5337,6 +5343,8 @@ def _run_summary_meta(run: dict[str, Any]) -> str:
     """Return a secondary metadata line for one saved run."""
 
     comment = str(run.get("comment", "")).strip() or "—"
+    if _is_plane_mirror_run(run):
+        return f"scan type: {run.get('scan_details', [['Scan', 'reflectivity']])[0][1]} · comment: {comment}"
     return (
         f"sweep type: {run.get('workflow', 'run')} · "
         f"comment: {comment}"
@@ -5361,6 +5369,97 @@ def _run_selector_text(run: dict[str, Any]) -> str:
     return f"{_run_summary_label(run)} · {_run_summary_meta(run)}"
 
 
+def _is_plane_mirror_run(run: dict[str, Any]) -> bool:
+    """Return whether a saved run contains plane-mirror reflectivity results."""
+
+    return bool(run.get("mirror_id") or run.get("workflow") == "plane_mirror")
+
+
+def _plane_mirror_plot_definition(manifest: dict[str, Any], run_dir: Path) -> dict[str, Any] | None:
+    """Adapt saved mirror case results to the scan-and-loop controls used by plot selection."""
+
+    try:
+        results = json.loads((run_dir / "mirror_results.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    cases = manifest.get("cases") or []
+    if not isinstance(results, list) or not results or not isinstance(cases, list):
+        return None
+
+    axes: list[dict[str, Any]] = []
+    covered: set[str] = set()
+    for axis in manifest.get("variation_axes") or []:
+        parameter = str(axis.get("parameter") or "") if isinstance(axis, dict) else ""
+        if not parameter:
+            continue
+        values = list(dict.fromkeys(
+            str((result.get("parameters") or {}).get(parameter))
+            for result in results
+            if parameter in (result.get("parameters") or {})
+        ))
+        if values:
+            axes.append({"id": parameter, "label": parameter.replace("_", " "),
+                         "parameters": [parameter], "values": values})
+            covered.add(parameter)
+
+    for index, group in enumerate(manifest.get("variation_coupled") or []):
+        if not isinstance(group, dict) or not group:
+            continue
+        parameters = list(group)
+        rows = []
+        for result in results:
+            values = result.get("parameters") or {}
+            if all(parameter in values for parameter in parameters):
+                row = {parameter: str(values[parameter]) for parameter in parameters}
+                if row not in rows:
+                    rows.append(row)
+        if rows:
+            axis_id = f"coupled-{index}"
+            axes.append({"id": axis_id, "label": f"Coupled: {', '.join(parameters)}",
+                         "parameters": [axis_id], "values": rows,
+                         "row_parameters": parameters})
+            covered.update(parameters)
+
+    all_parameters = sorted({
+        str(parameter)
+        for result in results
+        for parameter in (result.get("parameters") or {})
+    } - covered)
+    for parameter in all_parameters:
+        values = list(dict.fromkeys(
+            str((result.get("parameters") or {}).get(parameter))
+            for result in results
+            if parameter in (result.get("parameters") or {})
+        ))
+        if len(values) > 1:
+            axes.append({"id": parameter, "label": parameter.replace("_", " "),
+                         "parameters": [parameter], "values": values})
+
+    scans = []
+    for index, result in enumerate(results):
+        values = {str(key): str(value) for key, value in (result.get("parameters") or {}).items()}
+        scan_parameters = dict(values)
+        labels = [f"{key}={value}" for key, value in values.items()]
+        for axis in axes:
+            if axis.get("row_parameters"):
+                row = {key: values[key] for key in axis["row_parameters"] if key in values}
+                if row:
+                    scan_parameters[axis["id"]] = row
+        scans.append({"id": f"mirror-case-{index:06d}",
+                      "label": "; ".join(labels) or "Base settings",
+                      "parameters": scan_parameters})
+
+    mode = str(results[0].get("mode") or "energy_sweep")
+    return {
+        "axes": axes,
+        "scans": scans,
+        "energy_values": results[0].get("x", []),
+        "sample_axis": {"id": "grazing_angle_deg" if mode == "angle_sweep" else "energy_ev",
+                        "label": results[0].get("x_label", "Photon Energy (eV)")},
+        "mirror_results": results,
+    }
+
+
 def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
     """Return run manifests augmented with available plot orders."""
     runs = []
@@ -5378,12 +5477,14 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
             "status": state,
         }
         custom_plot = _custom_grid_plot_definition(run) if not run.get("parameter_sweep") else None
-        plot_sweep = run.get("parameter_sweep") or custom_plot
+        mirror_plot = _plane_mirror_plot_definition(run, run_dir_for_id) if _is_plane_mirror_run(run) else None
+        plot_sweep = run.get("parameter_sweep") or custom_plot or mirror_plot
         runs.append(
             {
                 **enriched_run,
                 "results_dir": run_dir_for_id,
-                "available_orders": _available_orders(run_dir_for_id),
+                "available_orders": [0] if _is_plane_mirror_run(run) else _available_orders(run_dir_for_id),
+                "is_plane_mirror": _is_plane_mirror_run(run),
                 "summary_label": _run_summary_label(enriched_run),
                 "summary_meta": _run_summary_meta(enriched_run),
                 "selector_text": _run_selector_text(enriched_run),
@@ -5492,8 +5593,13 @@ def _plot_selected_run_entries(data_dir: Path, plot: dict[str, Any]) -> list[dic
         entry = dict(selected)
         run_id = str(entry.get("id", ""))
         entry["id"] = run_id
-        entry["available"] = _load_run_manifest(data_dir, run_id) is not None
-        entry["url"] = f"/runs/{run_id}" if entry["available"] else None
+        run_manifest = _load_run_manifest(data_dir, run_id)
+        entry["available"] = run_manifest is not None
+        entry["is_plane_mirror"] = bool(run_manifest and _is_plane_mirror_run(run_manifest))
+        entry["url"] = (
+            f"/plane-mirror-runs/{run_id}" if entry["is_plane_mirror"]
+            else f"/runs/{run_id}" if entry["available"] else None
+        )
         entries.append(entry)
     return entries
 
@@ -5817,6 +5923,10 @@ def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
     order_selection: dict[str, list[int]] = {}
     for run_id in run_ids:
         orders = [int(value) for value in form_data.getlist(f"orders_{run_id}") if str(value).strip() != ""]
+        manifest = _load_run_manifest(data_dir, run_id)
+        if manifest and _is_plane_mirror_run(manifest):
+            order_selection[run_id] = [0]
+            continue
         if not orders:
             return {
                 "ok": False,
@@ -6036,7 +6146,12 @@ def _plot_options_from_form(
             plot_options["scan_selection"][run_id] = scan_ids
         plot_options["loop_selection"][run_id] = list(dict.fromkeys(form_data.getlist(f"loops_{run_id}")))
         manifest = _load_run_manifest(data_dir, run_id)
-        sweep = (manifest or {}).get("parameter_sweep") or _custom_grid_plot_definition(manifest or {})
+        run_dir = data_dir / "runs" / run_id
+        sweep = (
+            (manifest or {}).get("parameter_sweep")
+            or _custom_grid_plot_definition(manifest or {})
+            or (_plane_mirror_plot_definition(manifest, run_dir) if manifest and _is_plane_mirror_run(manifest) else None)
+        )
         all_scan_ids = [scan["id"] for scan in (sweep or {}).get("scans", [])]
         for order in order_selection.get(run_id, []):
             for scan_id in (all_scan_ids if all_scan_ids else [None]):
@@ -6073,7 +6188,7 @@ def _compare_x_label(x_axis_value: str) -> str:
 
 def _compare_x_values(series: dict[str, Any], x_axis_value: str) -> np.ndarray:
     energies = np.asarray(series["energies"], dtype=float)
-    if series.get("x_axis_id") == "grazing_angle_deg":
+    if series.get("is_plane_mirror") or series.get("x_axis_id") == "grazing_angle_deg":
         return energies
     return energies * int(series["order"]) if x_axis_value == "energy_times_order" else energies
 
@@ -6141,15 +6256,17 @@ def _build_plotly_compare_payload(
         loop_selection=plot_options.get("loop_selection", {}),
     )
     if not selected_series:
-        raise ValueError("Select at least one run and one diffraction order.")
+        raise ValueError("Select at least one scan or mirror reflectivity series.")
     axis_ids = {series.get("x_axis_id", "energy_ev") for series in selected_series}
     if len(axis_ids) > 1:
         raise ValueError("Compare angle sweeps separately from energy scans; their horizontal axes differ.")
+    x_axis_value = _normalize_compare_x_value(plot_options.get("x_axis_value"))
+    if x_axis_value == "energy_times_order" and any(series.get("is_plane_mirror") for series in selected_series):
+        raise ValueError("Energy × diffraction order is only available for grating runs. Choose Energy for mirror reflectivity.")
     series_controls = _series_controls_for_selected_series(
         selected_series=selected_series,
         saved_styles=dict(plot_options.get("series_styles", {})),
     )
-    x_axis_value = _normalize_compare_x_value(plot_options.get("x_axis_value"))
     if plot_options["x_axis_type"] == "log" and any(
         np.any(_compare_x_values(series, x_axis_value) <= 0) for series in selected_series
     ):
@@ -6187,6 +6304,40 @@ def _load_selected_plot_series(
             manifest = json.load(handle)
         run_label = _run_selector_text(manifest)
         legend_name = str(manifest.get("display_name") or manifest.get("grating_name") or run_id)
+        if _is_plane_mirror_run(manifest):
+            sweep = _plane_mirror_plot_definition(manifest, run_dir)
+            if not sweep:
+                continue
+            run_summaries.append({"id": run_id, "name": run_label, "orders": [],
+                                  "is_plane_mirror": True})
+            chosen = (scan_selection or {}).get(run_id)
+            scan_ids = _expanded_plot_scan_ids(sweep, chosen, (loop_selection or {}).get(run_id, []))
+            run_summaries[-1]["scan_ids"] = scan_ids
+            scan_definitions = {scan["id"]: scan for scan in sweep["scans"]}
+            results_by_id = {
+                f"mirror-case-{index:06d}": result
+                for index, result in enumerate(sweep["mirror_results"])
+            }
+            for scan_id in scan_ids:
+                result = results_by_id.get(scan_id)
+                if not result:
+                    continue
+                scan = scan_definitions[scan_id]
+                mode = str(result.get("mode") or "energy_sweep")
+                series = {
+                    "label": f"{legend_name} · {scan['label']}",
+                    "order": 0,
+                    "scan_id": scan_id,
+                    "energies": result.get("x", []),
+                    "x_axis_id": "grazing_angle_deg" if mode == "angle_sweep" else "energy_ev",
+                    "efficiencies": result.get("reflectivity", []),
+                    "is_plane_mirror": True,
+                }
+                series["series_key"] = _series_key(run_id, 0, scan_id)
+                series["series_token"] = _series_token(run_id, 0, scan_id)
+                series["run_id"] = run_id
+                selected_series.append(series)
+            continue
         orders = order_selection.get(run_id) or _available_orders(run_dir)
         run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
         sweep = manifest.get("parameter_sweep") or _custom_grid_plot_definition(manifest)
@@ -6299,7 +6450,11 @@ def _series_controls_for_selected_series(
         line_style = str(saved_style.get("line_style", "solid" if saved_style else default_style["line_style"]))
         if line_style not in PLOTLY_LINE_STYLES:
             line_style = str(default_style["line_style"])
-        default_label = f"{series['label']} · order: {series['order']}"
+        default_label = (
+            str(series["label"])
+            if series.get("is_plane_mirror")
+            else f"{series['label']} · order: {series['order']}"
+        )
         legend_label = str(saved_style.get("legend_label", "")).strip()
         series_controls.append(
             {
@@ -6307,6 +6462,7 @@ def _series_controls_for_selected_series(
                 "series_token": str(series["series_token"]),
                 "run_id": str(series["run_id"]),
                 "order": int(series["order"]),
+                "is_plane_mirror": bool(series.get("is_plane_mirror")),
                 "label": legend_label or default_label,
                 "legend_label": legend_label,
                 "color": _normalize_hex_color(saved_style.get("color")) or str(default_style["color"]),
@@ -6359,7 +6515,12 @@ def _build_plotly_compare_figure(
         margin={"l": 64, "r": 24, "t": 82, "b": 140},
     )
     figure.update_xaxes(title_text=x_label, type=x_axis_type, showgrid=True, zeroline=False)
-    figure.update_yaxes(title_text="Diffraction Efficiency", type=y_axis_type, showgrid=True, zeroline=False)
+    y_label = (
+        "Reflectivity" if all(series.get("is_plane_mirror") for series in selected_series)
+        else "Efficiency / reflectivity" if any(series.get("is_plane_mirror") for series in selected_series)
+        else "Diffraction Efficiency"
+    )
+    figure.update_yaxes(title_text=y_label, type=y_axis_type, showgrid=True, zeroline=False)
     return figure
 
 
