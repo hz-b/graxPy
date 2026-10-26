@@ -10,6 +10,7 @@
   </div>
   <div class="actions">
     <a class="button" href="{{ url_for('plane_mirror_index') }}">All plane mirrors</a>
+    {% if mirror %}<a class="button" href="{{ url_for('plane_mirror_runs') }}">Manage runs</a>{% endif %}
   </div>
 </section>
 
@@ -92,16 +93,14 @@
     <legend>{% if mirror %}Saved plane mirror{% else %}Save{% endif %}</legend>
     <label>Mirror name <input name="mirror_name" value="{{ mirror.name if mirror else '' }}" placeholder="e.g. Pt mirror on Si" maxlength="120"></label>
     <label>Mirror label / note <input name="mirror_label" value="{{ mirror.label if mirror and mirror.label else '' }}" placeholder="Optional" maxlength="300"></label>
-    <label>Scan name <input name="scan_name" value="{{ (scans|selectattr('id','equalto',active_scan_id)|first).name if active_scan_id else 'Scan 1' }}" maxlength="120"></label>
-    <label>Scan label / note <input name="scan_label" value="{{ ((scans|selectattr('id','equalto',active_scan_id)|first).label or '') if active_scan_id else '' }}" placeholder="Optional" maxlength="300"></label>
     <div class="actions">
       {% if mirror %}
         <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_update', mirror_id=mirror.id) }}" formnovalidate>Update mirror (name, label, stack)</button>
-        <button class="button" type="submit" formaction="{{ url_for('plane_mirror_save_scan', mirror_id=mirror.id) }}" formnovalidate>Save scan (same name overwrites)</button>
+        <button class="button" type="submit" formaction="{{ url_for('plane_mirror_save_scan', mirror_id=mirror.id) }}" formnovalidate>Save scan as preset</button>
       {% else %}
-        <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_create') }}" formnovalidate>Save plane mirror with this scan</button>
+        <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_create') }}" formnovalidate>Create mirror</button>
       {% endif %}
-      <button class="button" type="submit" formaction="{{ url_for('plane_mirror_download') }}" formnovalidate>Download CSV</button>
+      {% if mirror %}<button class="button" type="submit" formaction="{{ url_for('plane_mirror_download') }}" formnovalidate>Download preview CSV</button>{% endif %}
     </div>
   </fieldset>
 
@@ -113,6 +112,73 @@
 
   {% include "_stack_fields.html" %}
 
+  <div {% if not mirror %}class="is-hidden"{% endif %}>
+  {% if mirror %}
+  <label>Preset name <input name="scan_name" value="{{ (scans|selectattr('id','equalto',active_scan_id)|first).name if active_scan_id else 'Scan 1' }}" maxlength="120"></label>
+  <label>Preset label / note <input name="scan_label" value="{{ ((scans|selectattr('id','equalto',active_scan_id)|first).label or '') if active_scan_id else '' }}" placeholder="Optional" maxlength="300"></label>
+  {% if scans %}
+  <fieldset class="plane-mirror-presets">
+    <legend>Saved scan presets</legend>
+    <p class="hint">Choose a previous scan to load its settings as a starting point.</p>
+    <div class="actions">
+      {% for scan in scans %}
+        <a class="button{% if scan.id == active_scan_id %} primary{% endif %}" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">{{ scan.name }}</a>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endif %}
+  <fieldset class="plane-mirror-run-options">
+    <legend>Start scan run</legend>
+    <label>Run name <input name="run_name" data-plane-mirror-run-name data-run-prefix="{{ mirror.name }}" value="{{ mirror.name }} · {{ defaults.scan_mode }} scan" maxlength="120"></label>
+    <fieldset class="variation-axes" data-mirror-variation-axes>
+      <legend>Independent ranges</legend>
+      <p class="hint">Each range runs independently. Use for scan values or layer-stack settings.</p>
+      <div class="variation-axis-rows" data-variation-rows>
+        <div class="variation-axis-row" data-variation-row>
+          <label>Parameter <select name="axis_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_numeric_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>From <input name="axis_start" type="number" step="any" value=""></label>
+          <label>To <input name="axis_stop" type="number" step="any" value=""></label>
+          <label>Points <input name="axis_points" type="number" min="2" max="1000" step="1" value="5"></label>
+          <button class="button" type="button" data-variation-remove aria-label="Remove range">&times;</button>
+        </div>
+      </div>
+      <template data-variation-template>
+        <div class="variation-axis-row" data-variation-row>
+          <label>Parameter <select name="axis_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_numeric_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>From <input name="axis_start" type="number" step="any" value=""></label>
+          <label>To <input name="axis_stop" type="number" step="any" value=""></label>
+          <label>Points <input name="axis_points" type="number" min="2" max="1000" step="1" value="5"></label>
+          <button class="button" type="button" data-variation-remove aria-label="Remove range">&times;</button>
+        </div>
+      </template>
+      <button class="button" type="button" data-variation-add="range">Add independent range</button>
+    </fieldset>
+    <fieldset class="variation-coupled" data-mirror-coupled-variations>
+      <legend>Coupled values</legend>
+      <p class="hint">Values in each pair are evaluated together by position. Enter comma-separated values.</p>
+      <div class="variation-coupled-rows" data-variation-rows>
+        <div class="variation-coupled-row" data-variation-row>
+          <label>First parameter <select name="coupled_left_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>Values <input name="coupled_left_values" type="text" placeholder="0.2, 0.5"></label>
+          <label>Second parameter <select name="coupled_right_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>Values <input name="coupled_right_values" type="text" placeholder="6.8, 7.0"></label>
+          <button class="button" type="button" data-variation-remove aria-label="Remove coupled values">&times;</button>
+        </div>
+      </div>
+      <template data-variation-template>
+        <div class="variation-coupled-row" data-variation-row>
+          <label>First parameter <select name="coupled_left_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>Values <input name="coupled_left_values" type="text" placeholder="0.2, 0.5"></label>
+          <label>Second parameter <select name="coupled_right_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>Values <input name="coupled_right_values" type="text" placeholder="6.8, 7.0"></label>
+          <button class="button" type="button" data-variation-remove aria-label="Remove coupled values">&times;</button>
+        </div>
+      </template>
+      <button class="button" type="button" data-variation-add="coupled">Add coupled pair</button>
+    </fieldset>
+    <button class="button primary" type="submit" formaction="{{ url_for('plane_mirror_run_create', mirror_id=mirror.id) }}" formnovalidate>Start run</button>
+  </fieldset>
+  {% endif %}
   <fieldset>
     <legend>Scan</legend>
     <label>Scan
@@ -133,7 +199,7 @@
     <label data-scan-field="energy">Fixed grazing angle, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
     <label data-scan-field="angle">Fixed energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
     <label>Polarization
-      <select name="polarization" {% if not mirror %}data-standard-polarization-target{% endif %}>
+      <select name="polarization" {% if not active_scan_id %}data-standard-polarization-target{% endif %}>
         <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>S (TE)</option>
         <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>P (TM)</option>
         <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average of S (TE) and P (TM)</option>
@@ -156,6 +222,7 @@
     <label data-grading-field="linear polynomial">Illuminated footprint length, mm <input name="footprint_length_mm" type="number" step="any" min="0" value="{{ defaults.footprint_length_mm }}"></label>
     <label data-grading-field="linear polynomial">Footprint sample points <input name="footprint_points" type="number" step="1" min="1" max="500" value="{{ defaults.footprint_points }}"></label>
   </fieldset>
+  </div>
 
 </form>
 

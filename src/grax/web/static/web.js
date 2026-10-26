@@ -2602,6 +2602,19 @@ function initPlaneMirror(form) {
   const stackPreviewUrl = form.dataset.stackPreviewUrl;
   const stackImage = document.querySelector("[data-plane-mirror-stack-image]");
   const stackStatus = document.querySelector("[data-plane-mirror-stack-status]");
+  form.querySelectorAll("[data-mirror-variation-axes], [data-mirror-coupled-variations]").forEach((group) => {
+    const rows = group.querySelector("[data-variation-rows]");
+    const template = group.querySelector("[data-variation-template]");
+    group.querySelector("[data-variation-add]")?.addEventListener("click", () => {
+      rows.append(template.content.cloneNode(true));
+    });
+    group.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-variation-remove]");
+      if (remove && rows.querySelectorAll("[data-variation-row]").length > 1) {
+        remove.closest("[data-variation-row]").remove();
+      }
+    });
+  });
   let requestId = 0;
   let stackRequestId = 0;
 
@@ -2697,7 +2710,20 @@ function initPlaneMirror(form) {
   const scanMode = form.querySelector("[data-scan-mode]");
   if (scanMode) {
     syncScanFields(scanMode);
-    scanMode.addEventListener("change", () => syncScanFields(scanMode));
+    scanMode.addEventListener("change", () => {
+      syncScanFields(scanMode);
+      const nameField = form.querySelector("[data-plane-mirror-run-name]");
+      if (nameField && nameField.dataset.autoName !== "false") {
+        nameField.value = `${nameField.dataset.runPrefix} · ${scanMode.value} scan`;
+      }
+    });
+    const nameField = form.querySelector("[data-plane-mirror-run-name]");
+    if (nameField) {
+      const initialName = nameField.value;
+      nameField.addEventListener("input", () => {
+        nameField.dataset.autoName = String(nameField.value === initialName);
+      });
+    }
   }
   if (gradingMode) {
     syncGradingFields(gradingMode);

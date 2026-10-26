@@ -9,6 +9,7 @@
 - Fixed saved layer-stack previews using the live preview endpoint instead of the image endpoint.
 - Placed each mirror name and summary beside its layer-stack preview in the mirror library.
 - Let the plane-mirror geometry panel scroll with the page instead of sticking in place.
+- Separated plane-mirror creation from scan runs, with saved run results, progress controls, independent and coupled scan and stack variations, legacy scan presets, and each browser's saved default polarization.
 - Kept saved-run previews beside run details and removed unused space in expanded scan lists.
 - Restored plot previews in the saved-plots list.
 - Saved number format and standard polarization in the active database folder, reduced settings control widths, and clarified S (TE) / P (TM) labels in the web interface and generated plots.

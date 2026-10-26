@@ -410,7 +410,13 @@ def plane_mirror_csv(result: dict[str, Any]) -> str:
 
 
 # Form fields that are not part of the stack: scan settings and the save controls.
-_NON_STACK_FIELDS = frozenset(PLANE_MIRROR_DEFAULTS) | {"mirror_name", "mirror_label", "scan_name", "scan_label"}
+_NON_STACK_FIELDS = frozenset(PLANE_MIRROR_DEFAULTS) | {
+    "mirror_name", "mirror_label", "scan_name", "scan_label", "run_name",
+    "variation_axes", "variation_coupled",
+    "axis_parameter", "axis_start", "axis_stop", "axis_points",
+    "coupled_left_parameter", "coupled_left_values",
+    "coupled_right_parameter", "coupled_right_values",
+}
 
 
 def split_plane_mirror_form(form: Any) -> tuple[dict[str, Any], dict[str, str]]:

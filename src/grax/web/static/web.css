@@ -1368,6 +1368,33 @@ textarea:focus-visible {
   background: var(--bg);
 }
 
+.plane-mirror-manage-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) repeat(2, minmax(280px, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.plane-mirror-manage-row .run-preview-panel {
+  grid-template-rows: auto minmax(220px, 1fr);
+}
+
+.plane-mirror-manage-row img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+.plane-mirror-result-plot {
+  display: block;
+  width: 100%;
+  max-height: 65vh;
+  object-fit: contain;
+}
+
 .plane-mirror-run-settings {
   display: grid;
   align-content: start;
@@ -1953,6 +1980,35 @@ td {
   align-items: start;
 }
 
+.plane-mirror-run-options > fieldset {
+  margin-block: 1rem;
+}
+
+.variation-axis-row,
+.variation-coupled-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.3fr) repeat(3, minmax(7rem, 0.7fr)) auto;
+  align-items: end;
+  gap: 0.75rem;
+  margin-block: 0.65rem;
+}
+
+.variation-coupled-row {
+  grid-template-columns: minmax(12rem, 1fr) minmax(9rem, 0.8fr) minmax(12rem, 1fr) minmax(9rem, 0.8fr) auto;
+}
+
+.variation-axis-row label,
+.variation-coupled-row label {
+  min-width: 0;
+}
+
+@media (max-width: 800px) {
+  .variation-axis-row,
+  .variation-coupled-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .plane-mirror-form > .actions,
 .plane-mirror-form > datalist {
   grid-column: 1 / -1;
@@ -1985,6 +2041,10 @@ td {
   }
 
   .plane-mirror-run-row {
+    grid-template-columns: 1fr;
+  }
+
+  .plane-mirror-manage-row {
     grid-template-columns: 1fr;
   }
 }

@@ -94,6 +94,12 @@ from .plane_mirror import (
     plane_mirror_csv,
 )
 from .runs import RunStore
+from .plane_mirror_runs import (
+    MAX_TOTAL_SAMPLES as MAX_PLANE_MIRROR_RUN_SAMPLES,
+    expand_variations as expand_plane_mirror_variations,
+    start_worker as start_plane_mirror_worker,
+    total_sample_count as plane_mirror_sample_count,
+)
 from . import parameter_scans
 from .afm_workflow import MAX_BYTES, preview_afm_upload, process_afm_upload
 from .custom_grid import (
@@ -1685,7 +1691,10 @@ def create_app(*, data_dir: str | Path | None = None):
         if active_scan is None and scans and scan_id is None:
             active_scan = scans[0]
         defaults = _plane_mirror_page_defaults(stack_form, {} if active_scan is None else active_scan["form"])
+        if active_scan is None:
+            defaults["polarization"] = load_user_settings()["standard_polarization"]
         custom_layers = _custom_layer_rows(stack_form)
+        custom_variation_count = len(custom_layers) if stack_form.get("stack_type") == "custom" else 0
         return render_template(
             "plane_mirror.html",
             materials=available_material_symbols(),
@@ -1697,6 +1706,12 @@ def create_app(*, data_dir: str | Path | None = None):
             mirror=mirror,
             scans=scans,
             active_scan_id=None if active_scan is None else active_scan["id"],
+            mirror_numeric_parameters=_plane_mirror_variation_catalog(
+                numeric_only=True, custom_layer_count=custom_variation_count
+            ),
+            mirror_variation_parameters=_plane_mirror_variation_catalog(
+                custom_layer_count=custom_variation_count
+            ),
             message=str(request.args.get("message", "")).strip(),
             plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
         )
@@ -1716,20 +1731,15 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.get("/plane-mirror-runs")
     def plane_mirror_runs():
-        mirrors = []
-        for spec in plane_mirror_store().list():
-            mirror = {**spec, "summary": plane_mirror_summary(spec)}
-            mirror["scans"] = [
-                {
-                    **scan,
-                    "parameter_details": _plane_mirror_scan_parameter_details(scan.get("form", {})),
-                }
-                for scan in spec.get("scans", [])
-            ]
-            mirrors.append(mirror)
+        manifests = [run for run in run_store().list() if run.get("mirror_id")]
+        active = app.extensions.setdefault("grax_mirror_run_events", {})
+        for manifest in manifests:
+            if manifest.get("status") in {"queued", "running", "aborting"} and manifest["id"] not in active:
+                manifest.update(status="aborted", error_text="The app stopped before this run finished.")
+                run_store().save(manifest)
         return render_template(
             "plane_mirror_manage.html",
-            mirrors=mirrors,
+            runs=manifests,
             message=str(request.args.get("message", "")).strip(),
         )
 
@@ -1761,10 +1771,8 @@ def create_app(*, data_dir: str | Path | None = None):
     def plane_mirror_create():
         try:
             name = clean_name(request.form.get("mirror_name"), "Mirror name")
-            scan_name = clean_name(request.form.get("scan_name") or "Scan 1", "Scan name")
-            stack_form, scan_form = split_plane_mirror_form(request.form)
+            stack_form, _ = split_plane_mirror_form(request.form)
             _plane_mirror_stack(request.form)
-            parse_plane_mirror_options(request.form)
         except (KeyError, TypeError, ValueError) as error:
             abort(400, str(error))
         saved = plane_mirror_store().save(
@@ -1772,17 +1780,171 @@ def create_app(*, data_dir: str | Path | None = None):
                 "name": name,
                 "label": clean_label(request.form.get("mirror_label")),
                 "stack_form": stack_form,
-                "scans": [
-                    {
-                        "id": unique_scan_id(scan_name, set()),
-                        "name": scan_name,
-                        "label": clean_label(request.form.get("scan_label")),
-                        "form": scan_form,
-                    }
-                ],
+                "scans": [],
             }
         )
         return redirect(url_for("plane_mirror_detail", mirror_id=saved["id"]))
+
+    @app.post("/plane-mirrors/<mirror_id>/runs")
+    def plane_mirror_run_create(mirror_id: str):
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        from werkzeug.datastructures import MultiDict
+        excluded = {
+            "run_name", "variation_axes", "variation_coupled", "scan_name", "scan_label",
+            "axis_parameter", "axis_start", "axis_stop", "axis_points",
+            "coupled_left_parameter", "coupled_left_values",
+            "coupled_right_parameter", "coupled_right_values",
+        }
+        clean_form = MultiDict()
+        for key in request.form.keys():
+            if key in excluded:
+                continue
+            for value in request.form.getlist(key):
+                clean_form.add(key, value)
+        try:
+            _, scan_form = split_plane_mirror_form(clean_form)
+            stack_form, _ = split_plane_mirror_form(clean_form)
+            _plane_mirror_stack(clean_form)
+            parse_plane_mirror_options(clean_form)
+            axis_rows = list(zip(
+                request.form.getlist("axis_parameter"),
+                request.form.getlist("axis_start"),
+                request.form.getlist("axis_stop"),
+                request.form.getlist("axis_points"),
+            ))
+            axes = []
+            for parameter, start, stop, points in axis_rows:
+                if parameter:
+                    axes.append({"parameter": parameter, "start": start, "stop": stop, "points": points})
+                elif start.strip() or stop.strip():
+                    raise ValueError("Choose a parameter for every independent range.")
+            coupled = []
+            for left, left_values, right, right_values in zip(
+                request.form.getlist("coupled_left_parameter"),
+                request.form.getlist("coupled_left_values"),
+                request.form.getlist("coupled_right_parameter"),
+                request.form.getlist("coupled_right_values"),
+            ):
+                if left or right or left_values.strip() or right_values.strip():
+                    if not left or not right:
+                        raise ValueError("Choose both parameters for every coupled value row.")
+                    coupled.append({left: _split_variation_values(left_values), right: _split_variation_values(right_values)})
+            cases = expand_plane_mirror_variations(scan_form, stack_form, json.dumps(axes), json.dumps(coupled))
+            for case in cases:
+                case_form = MultiDict()
+                for source in (case["stack"], case["scan"]):
+                    for key, value in source.items():
+                        for item in value if isinstance(value, list) else [value]:
+                            case_form.add(key, item)
+                _plane_mirror_stack(case_form)
+                parse_plane_mirror_options(case_form)
+            sample_total = sum(plane_mirror_sample_count(case["scan"]) for case in cases)
+            if sample_total > MAX_PLANE_MIRROR_RUN_SAMPLES:
+                raise ValueError(
+                    f"This run requests {sample_total:,} scan samples across all variations; "
+                    f"the limit is {MAX_PLANE_MIRROR_RUN_SAMPLES:,}."
+                )
+            display_name = clean_name(
+                request.form.get("run_name") or f"{mirror['name']} · {scan_form.get('scan_mode', 'energy')} scan",
+                "Run name",
+            )
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            abort(422, str(error))
+        run_id = f"plane-mirror-{mirror_id}-{uuid4().hex[:12]}"
+        now = datetime.now().isoformat(timespec="seconds")
+        manifest = {
+            "id": run_id, "workflow": "plane_mirror", "mirror_id": mirror_id,
+            "mirror_name": mirror["name"], "mirror_snapshot": {"name": mirror["name"], "stack_form": stack_form},
+            "variation_axes": axes, "variation_coupled": coupled,
+            "display_name": display_name, "created_at": now, "updated_at": now,
+            "status": "queued", "completed_points": 0, "total_points": len(cases),
+            "scan_details": _plane_mirror_scan_parameter_details(cases[0]["scan"]),
+            "cases": cases, "artifacts": [],
+        }
+        run_store().save(manifest)
+        start_plane_mirror_worker(app, active_data_dir(), run_id)
+        return redirect(url_for("plane_mirror_run_detail", run_id=run_id))
+
+    @app.get("/plane-mirror-runs/<run_id>")
+    def plane_mirror_run_detail(run_id: str):
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None or not manifest.get("mirror_id"):
+            abort(404)
+        if manifest.get("status") in {"queued", "running", "aborting"} and run_id not in app.extensions.setdefault("grax_mirror_run_events", {}):
+            manifest.update(status="aborted", error_text="The app stopped before this run finished.")
+            run_store().save(manifest)
+        result_path = active_data_dir() / "runs" / run_id / "mirror_results.json"
+        try:
+            results = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            results = []
+        return render_template("plane_mirror_run_detail.html", run=manifest, results=results)
+
+    @app.get("/plane-mirror-runs/<run_id>/status")
+    def plane_mirror_run_status(run_id: str):
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None or not manifest.get("mirror_id"):
+            abort(404)
+        manifest["plot_url"] = url_for("data_file", filename=f"runs/{run_id}/plot.png", v=manifest.get("completed_points", 0)) if manifest.get("completed_points") else None
+        return jsonify({key: manifest.get(key) for key in ("status", "completed_points", "total_points", "error_text", "plot_url")})
+
+    @app.get("/plane-mirror-runs/<run_id>/stack-preview.png")
+    def plane_mirror_run_stack_preview(run_id: str):
+        import base64
+        from werkzeug.datastructures import MultiDict
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None or not manifest.get("mirror_id"):
+            abort(404)
+        form = MultiDict()
+        for key, value in manifest.get("mirror_snapshot", {}).get("stack_form", {}).items():
+            for item in value if isinstance(value, list) else [value]:
+                form.add(key, item)
+        try:
+            image_uri = stack_schematic_data_uri(_plane_mirror_stack(form))
+        except (KeyError, TypeError, ValueError):
+            abort(404)
+        return Response(base64.b64decode(image_uri.partition(",")[2]), mimetype="image/png", headers={"Cache-Control": "public, max-age=300"})
+
+    @app.post("/plane-mirror-runs/<run_id>/abort")
+    def plane_mirror_run_abort(run_id: str):
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None or not manifest.get("mirror_id"):
+            abort(404)
+        event = app.extensions.setdefault("grax_mirror_run_events", {}).get(run_id)
+        if event:
+            event.set()
+            manifest.update(status="aborting", updated_at=datetime.now().isoformat(timespec="seconds"))
+            run_store().save(manifest)
+        return redirect(url_for("plane_mirror_run_detail", run_id=run_id))
+
+    @app.post("/plane-mirror-runs/<run_id>/resume")
+    def plane_mirror_run_resume(run_id: str):
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None or not manifest.get("mirror_id"):
+            abort(404)
+        if run_id in app.extensions.setdefault("grax_mirror_run_events", {}):
+            abort(409, "This run is already active.")
+        if manifest.get("status") not in {"aborted", "error", "failed"}:
+            abort(409, "Only an aborted or failed run can be resumed.")
+        start_plane_mirror_worker(app, active_data_dir(), run_id, resume=True)
+        return redirect(url_for("plane_mirror_run_detail", run_id=run_id))
+
+    @app.post("/plane-mirror-runs/<run_id>/restart")
+    def plane_mirror_run_restart(run_id: str):
+        manifest = _load_run_manifest(active_data_dir(), run_id)
+        if manifest is None or not manifest.get("mirror_id"):
+            abort(404)
+        if run_id in app.extensions.setdefault("grax_mirror_run_events", {}):
+            abort(409, "Abort this run before restarting it.")
+        if manifest.get("status") not in {"completed", "aborted", "error", "failed"}:
+            abort(409, "Wait for this run to finish or abort it before restarting.")
+        run_dir = active_data_dir() / "runs" / run_id
+        (run_dir / "mirror_results.json").unlink(missing_ok=True)
+        (run_dir / "plot.png").unlink(missing_ok=True)
+        manifest.update(status="queued", completed_points=0, error_text="", updated_at=datetime.now().isoformat(timespec="seconds"))
+        run_store().save(manifest)
+        start_plane_mirror_worker(app, active_data_dir(), run_id)
+        return redirect(url_for("plane_mirror_run_detail", run_id=run_id))
 
     @app.post("/plane-mirrors/manage")
     def plane_mirror_manage_update():
@@ -2412,6 +2574,77 @@ def _plane_mirror_scan_parameter_details(scan_form: dict[str, Any]) -> list[tupl
     if grading != "none":
         details.append(("Footprint", f"{values['footprint_length_mm']} mm · {values['footprint_points']} positions"))
     return details
+
+
+def _plane_mirror_variation_catalog(
+    *, numeric_only: bool = False, custom_layer_count: int = 0
+) -> list[dict[str, str]]:
+    """Names of scan and stack settings accepted by the variation controls."""
+
+    numeric = {
+        "fixed_angle_deg": "Fixed grazing angle (deg)",
+        "fixed_energy_ev": "Fixed photon energy (eV)",
+        "roughness_sigma_nm": "Scan roughness (nm)",
+        "grading_percent_per_mm": "Grading (%/mm)",
+        "footprint_length_mm": "Footprint length (mm)",
+        "footprint_points": "Footprint sample points",
+        "energy_points": "Energy sample points", "angle_points": "Angle sample points",
+        "map_energy_points": "Map energy points", "map_angle_points": "Map angle points",
+        "energy_min": "Energy start (eV)", "energy_max": "Energy stop (eV)",
+        "angle_min": "Angle start (deg)", "angle_max": "Angle stop (deg)",
+        "layer_thickness_nm": "Layer thickness (nm)", "d_period_nm": "Bilayer period (nm)",
+        "gamma": "Gamma", "n_bilayers": "Bilayers", "top_cap_thickness_nm": "Top cap thickness (nm)",
+        "material_a_density_g_cm3": "Material A density (g/cm³)",
+        "material_b_density_g_cm3": "Material B density (g/cm³)",
+        "layer_material_density_g_cm3": "Layer density (g/cm³)",
+        "top_cap_material_density_g_cm3": "Top cap density (g/cm³)",
+        "substrate_roughness_sigma_nm": "Substrate roughness (nm)",
+        "material_a_roughness_sigma_nm": "Material A roughness (nm)",
+        "material_b_roughness_sigma_nm": "Material B roughness (nm)",
+        "layer_roughness_sigma_nm": "Layer roughness (nm)",
+        "top_cap_roughness_sigma_nm": "Top cap roughness (nm)",
+        "substrate_correlation_length_nm": "Substrate correlation length (nm)",
+        "material_a_correlation_length_nm": "Material A correlation length (nm)",
+        "material_b_correlation_length_nm": "Material B correlation length (nm)",
+        "layer_correlation_length_nm": "Layer correlation length (nm)",
+        "top_cap_correlation_length_nm": "Top cap correlation length (nm)",
+    }
+    categorical = {
+        "polarization": "Polarization", "material_a": "Material A", "material_b": "Material B",
+        "layer_material": "Layer material", "top_material": "Top material",
+        "top_cap_material": "Top cap material", "substrate_material": "Substrate material",
+        "grading_mode": "Grading mode",
+    }
+    result = [{"value": key, "label": label} for key, label in numeric.items()]
+    custom_numeric = {
+        "cl_thickness_nm": "Thickness (nm)", "cl_roughness_sigma_nm": "Roughness (nm)",
+        "cl_correlation_length_nm": "Correlation length (nm)",
+        "cl_thickness_b_nm": "B thickness (nm)", "cl_roughness_b_sigma_nm": "B roughness (nm)",
+        "cl_correlation_b_length_nm": "B correlation length (nm)", "cl_repeats": "Bilayer repeats",
+        "cl_density_g_cm3": "Density (g/cm³)", "cl_density_b_g_cm3": "B density (g/cm³)",
+    }
+    for index in range(custom_layer_count):
+        result.extend(
+            {"value": f"{field}[{index}]", "label": f"Custom layer {index + 1}: {label}"}
+            for field, label in custom_numeric.items()
+        )
+    if not numeric_only:
+        result.extend({"value": key, "label": label} for key, label in categorical.items())
+        custom_categorical = {
+            "cl_material": "Material", "cl_material_b": "B material", "cl_kind": "Block type",
+        }
+        for index in range(custom_layer_count):
+            result.extend(
+                {"value": f"{field}[{index}]", "label": f"Custom layer {index + 1}: {label}"}
+                for field, label in custom_categorical.items()
+            )
+    return result
+
+
+def _split_variation_values(text: str) -> list[str]:
+    """Split a comma-separated row of variation values."""
+
+    return [value.strip() for value in str(text).split(",") if value.strip()]
 
 
 def _plane_mirror_stack(form: Any) -> Any:
