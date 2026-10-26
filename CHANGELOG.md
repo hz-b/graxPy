@@ -12,6 +12,7 @@
 - Separated plane-mirror creation from scan runs, with saved run results, progress controls, independent and coupled scan and stack variations, legacy scan presets, and each browser's saved default polarization.
 - Made saved plane mirrors read-only on their scan page, added a separate Edit page, and aligned mirror runs with Energy sweep, Angle sweep, and fixed-CFF Monochromator workflows.
 - Kept the plane-mirror form visible beside a compact layer-stack preview when creating or editing a mirror.
+- Showed step-size controls only for the active plane-mirror scan workflow.
 - Kept saved-run previews beside run details and removed unused space in expanded scan lists.
 - Restored plot previews in the saved-plots list.
 - Saved number format and standard polarization in the active database folder, reduced settings control widths, and clarified S (TE) / P (TM) labels in the web interface and generated plots.

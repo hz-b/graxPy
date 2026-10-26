@@ -346,7 +346,7 @@ function initLinkedRange(minimum, maximum, count, fixedCount = false) {
   const label = document.createElement("label");
   const labelText = document.createElement("span");
   labelText.textContent = "Step size (fits endpoints)";
-  for (const attr of ["data-scan-field", "data-grading-field"]) {
+  for (const attr of ["data-scan-field", "data-grading-field", "data-workflow-fields"]) {
     if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
   }
   const step = document.createElement("input");
