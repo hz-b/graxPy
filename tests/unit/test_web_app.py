@@ -1039,6 +1039,91 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert b"2026-06-10T12:00:00" in response.data
 
 
+def test_plane_mirror_runs_plot_without_order_picker_and_support_loops(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    run_id = "mirror-plot-check"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    manifest = {
+        "id": run_id,
+        "workflow": "plane_mirror",
+        "mirror_id": "pt-mirror",
+        "mirror_name": "Pt mirror",
+        "display_name": "Pt energy sweep",
+        "created_at": "2026-10-26T12:00:00",
+        "status": "completed",
+        "completed_points": 2,
+        "total_points": 2,
+        "cases": [
+            {"parameters": {"layer_thickness_nm": "20.0"}},
+            {"parameters": {"layer_thickness_nm": "35.0"}},
+        ],
+        "variation_axes": [{"parameter": "layer_thickness_nm", "start": "20", "stop": "35", "points": "2"}],
+        "variation_coupled": [],
+        "scan_details": [["Scan", "Energy sweep"]],
+    }
+    results = [
+        {"mode": "energy_sweep", "x": [100, 200, 300], "x_label": "Photon Energy (eV)",
+         "reflectivity": [0.8, 0.7, 0.6], "parameters": {"layer_thickness_nm": "20.0"}, "index": 1},
+        {"mode": "energy_sweep", "x": [100, 200, 300], "x_label": "Photon Energy (eV)",
+         "reflectivity": [0.9, 0.75, 0.5], "parameters": {"layer_thickness_nm": "35.0"}, "index": 2},
+    ]
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (run_dir / "mirror_results.json").write_text(json.dumps(results), encoding="utf-8")
+    client = create_app(data_dir=tmp_path).test_client()
+
+    page = client.get("/plots/new")
+    assert page.status_code == 200
+    assert b'data-run-kind="mirror"' in page.data
+    assert b'layer_thickness_nm' in page.data
+
+    _write_run_fixture(tmp_path, run_id="grating-plot-check", display_name="Grating reference", orders=(1,))
+    mixed = client.post("/_preview/plot", data={"run_ids": ["grating-plot-check", run_id],
+        "orders_grating-plot-check": "1", f"scans_{run_id}": "mirror-case-000000"})
+    mixed_payload = mixed.get_json()
+    assert mixed_payload["ok"] is True
+    mixed_figure = json.loads(mixed_payload["figure_json"])
+    assert len(mixed_figure["data"]) == 3  # one grating trace plus two mirror loop values
+    assert mixed_figure["layout"]["yaxis"]["title"]["text"] == "Efficiency / reflectivity"
+
+    normal = client.post("/_preview/plot", data={"run_ids": [run_id],
+        f"scan_selection_{run_id}": "1", f"scans_{run_id}": "mirror-case-000000"})
+    normal_payload = normal.get_json()
+    assert normal_payload["ok"] is True
+    normal_figure = json.loads(normal_payload["figure_json"])
+    assert len(normal_figure["data"]) == 1
+    assert normal_figure["layout"]["yaxis"]["title"]["text"] == "Reflectivity"
+    assert normal_payload["series_controls"][0]["is_plane_mirror"] is True
+    assert "order:" not in normal_payload["series_controls"][0]["label"]
+
+    looped = client.post("/_preview/plot", data={"run_ids": [run_id],
+        f"scan_selection_{run_id}": "1", f"scans_{run_id}": "mirror-case-000000",
+        f"loops_{run_id}": "layer_thickness_nm"})
+    looped_payload = looped.get_json()
+    assert looped_payload["ok"] is True
+    looped_figure = json.loads(looped_payload["figure_json"])
+    assert len(looped_figure["data"]) == 2
+    assert [series["name"] for series in looped_figure["data"]] == [
+        "Pt energy sweep · layer_thickness_nm=20.0",
+        "Pt energy sweep · layer_thickness_nm=35.0",
+    ]
+
+    saved = client.post("/plots", data={"run_ids": [run_id], "title": "Mirror loop plot",
+        f"scan_selection_{run_id}": "1", f"scans_{run_id}": "mirror-case-000000",
+        f"loops_{run_id}": "layer_thickness_nm"})
+    assert saved.status_code == 302
+    detail = client.get(saved.headers["Location"])
+    assert detail.status_code == 200
+    assert b"Plane-mirror reflectivity" in detail.data
+    assert f"/plane-mirror-runs/{run_id}".encode() in detail.data
+
+    order_axis = client.post("/_preview/plot", data={"run_ids": [run_id],
+        "x_axis_value": "energy_times_order"})
+    assert order_axis.get_json()["ok"] is False
+
+
 def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -1081,8 +1166,8 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
     assert b'name="polarization"' in response.data
-    assert b'<option value="s">s (TE)</option>' in response.data
-    assert response.data.count(b'<option value="p" selected>p (TM)</option>') == 2
+    assert b'<option value="s">S (TE)</option>' in response.data
+    assert response.data.count(b'<option value="p" selected>P (TM)</option>') == 2
     assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
     assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
     assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
@@ -3290,7 +3375,7 @@ def test_run_form_rejects_an_unknown_solver(tmp_path: Path) -> None:
         _normalized_solver("differential")
 
 
-def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_path: Path) -> None:
+def test_geometry_views_are_present_on_grating_and_multilayer_pages(tmp_path: Path) -> None:
     pytest.importorskip("flask")
     from grax.web.app import create_app
 
@@ -3302,8 +3387,9 @@ def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_p
     assert 'data-geometry-kind="grating"' in grating
     assert 'data-geometry-bind="[data-afm-process-form], [data-grating-preview-form]"' in grating
     assert 'data-geometry-nominal-type="laminar"' in grating
-    assert 'data-geometry-kind="mirror"' in mirror
-    assert 'data-geometry-bind="[data-plane-mirror-form]"' in mirror
+    # Mirror creation previews its layer stack; the geometry schematic belongs to its scan workflow.
+    assert 'data-plane-mirror-stack-image' in mirror
+    assert 'data-geometry-kind="mirror"' not in mirror
     assert 'data-geometry-bind="closest"' in design
     assert "geometry.js" in grating
     assert "Beams" not in grating  # controls are created safely by the deferred script
@@ -3317,4 +3403,4 @@ def test_geometry_static_script_and_switch_hooks_are_available() -> None:
     assert "focusin" in geometry
     assert "profilePoints" in geometry
     assert 'mount.workflow === "constant_deviation"' in geometry
-    assert "2θ = ${fmt(mount.totalDeviationDeg)}° (fixed)" in geometry
+    assert 'label(hx, hy - 100, "2θ"' in geometry

@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}{{ mirror.name }} · Scans{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ mirror.name }}</h1>
+    {% if mirror.label %}<p><strong>{{ mirror.label }}</strong></p>{% endif %}
+    <p>{{ mirror_summary }} · Create and review reflectivity scans for this saved layer stack.</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plane_mirror_index') }}">Manage plane mirrors</a>
+    <a class="button primary" href="{{ url_for('plane_mirror_edit', mirror_id=mirror.id) }}">Edit mirror</a>
+  </div>
+</section>
+
+{% if scans %}
+<details class="notice plane-mirror-presets">
+  <summary>Saved scan presets</summary>
+  <p class="hint">Select a preset to load its settings into a new run.</p>
+  <div class="actions">
+    {% for scan in scans %}
+      <a class="button{% if scan.id == active_scan_id %} primary{% endif %}" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">{{ scan.name }}</a>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<form
+  class="form run-form plane-mirror-scan-form"
+  method="post"
+  action="{{ url_for('plane_mirror_run_create', mirror_id=mirror.id) }}"
+  data-plane-mirror-scan-form
+  data-preview-url="{{ url_for('plane_mirror_compute') }}"
+>
+  <input type="hidden" name="mirror_id" value="{{ mirror.id }}">
+  {% if active_scan_id %}<input type="hidden" name="source_scan_id" value="{{ active_scan_id }}">{% endif %}
+
+  <fieldset>
+    <legend>Run sweep</legend>
+    <div class="run-workflow-picker">
+      <label>Workflow
+        <select name="scan_mode" data-run-workflow>
+          <option value="energy_sweep" {% if defaults.scan_mode in ["energy", "energy_sweep"] %}selected{% endif %}>Energy sweep</option>
+          <option value="angle_sweep" {% if defaults.scan_mode in ["angle", "angle_sweep"] %}selected{% endif %}>Angle sweep</option>
+          <option value="monochromator" {% if defaults.scan_mode == "monochromator" %}selected{% endif %}>Monochromator</option>
+          {% if defaults.scan_mode == "map" %}<option value="map" selected>Legacy angle vs energy map</option>{% endif %}
+        </select>
+      </label>
+      <aside class="run-workflow-description" data-run-workflow-description aria-live="polite">
+        <strong data-run-workflow-title>Energy sweep</strong>
+        <p data-run-workflow-summary>Scans photon energy at a fixed grazing incidence angle.</p>
+      </aside>
+    </div>
+    <label>Run name
+      <input name="run_name" data-plane-mirror-run-name data-run-prefix="{{ mirror.name }}" value="{{ mirror.name }} · {% if defaults.scan_mode in ['angle', 'angle_sweep'] %}angle_sweep{% elif defaults.scan_mode == 'monochromator' %}monochromator{% else %}energy_sweep{% endif %} scan" maxlength="120" required>
+    </label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="energy_sweep monochromator map">
+    <legend>Energy sweep</legend>
+    <label>Energy start, eV <input name="energy_min" type="number" step="any" value="{{ defaults.energy_min }}" required></label>
+    <label>Energy stop, eV <input name="energy_max" type="number" step="any" value="{{ defaults.energy_max }}" required></label>
+    <label data-workflow-fields="energy_sweep monochromator">Energy points <input name="energy_points" type="number" min="1" max="5000" step="1" value="{{ defaults.energy_points }}" required></label>
+    <label data-workflow-fields="map">Map energy points <input name="map_energy_points" type="number" min="1" max="5000" step="1" value="{{ defaults.map_energy_points }}"></label>
+    <label data-workflow-fields="energy_sweep">Fixed grazing angle α, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
+    <label data-workflow-fields="map">Grazing angle start, deg <input name="angle_min" type="number" step="any" value="{{ defaults.angle_min }}"></label>
+    <label data-workflow-fields="map">Grazing angle stop, deg <input name="angle_max" type="number" step="any" value="{{ defaults.angle_max }}"></label>
+    <label data-workflow-fields="map">Map angle points <input name="map_angle_points" type="number" min="1" max="5000" step="1" value="{{ defaults.map_angle_points }}"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="angle_sweep">
+    <legend>Angle sweep at fixed energy</legend>
+    <label>Photon energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
+    <label>Grazing angle start, deg <input name="angle_min" type="number" step="any" value="{{ defaults.angle_min }}"></label>
+    <label>Grazing angle stop, deg <input name="angle_max" type="number" step="any" value="{{ defaults.angle_max }}"></label>
+    <label>Angle points <input name="angle_points" type="number" min="1" max="5000" step="1" value="{{ defaults.angle_points }}"></label>
+  </fieldset>
+
+  <fieldset data-workflow-fields="monochromator">
+    <legend>Monochromator geometry</legend>
+    <label>Coupled grating line density, lines/mm
+      <input name="grating_density_lpermm" type="number" min="0.000001" step="any" value="{{ defaults.grating_density_lpermm }}">
+    </label>
+    <label>Constant focus factor (CFF)
+      <input name="cff" type="number" min="0.000001" step="any" value="{{ defaults.cff }}">
+    </label>
+    <label>Diffraction order
+      <input name="diffraction_order" type="number" min="1" step="1" value="{{ defaults.diffraction_order }}">
+    </label>
+    <p class="hint">The grating density, CFF and order determine the incidence angle at each energy. CFF = 1 is not a valid monochromator setting.</p>
+    <p class="notice notice-error is-hidden" data-cff-warning role="alert">CFF = 1 cannot be used for a monochromator scan.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Simulation settings</legend>
+    <label>Polarization
+      <select name="polarization">
+        <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>S (TE)</option>
+        <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>P (TM)</option>
+        <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average S/P</option>
+      </select>
+    </label>
+    <label>Default interface roughness σ, nm
+      <input name="roughness_sigma_nm" type="number" min="0" step="any" value="{{ defaults.roughness_sigma_nm }}">
+    </label>
+  </fieldset>
+
+  <details class="preview-panel plane-mirror-grading">
+    <summary>Lateral grading</summary>
+    <div class="form-grid">
+      <label>Grading
+        <select name="grading_mode">
+          <option value="none" {% if defaults.grading_mode == "none" %}selected{% endif %}>None</option>
+          <option value="linear" {% if defaults.grading_mode == "linear" %}selected{% endif %}>Linear</option>
+          <option value="polynomial" {% if defaults.grading_mode == "polynomial" %}selected{% endif %}>Polynomial</option>
+        </select>
+      </label>
+      <label>Thickness change, %/mm <input name="grading_percent_per_mm" type="number" step="any" value="{{ defaults.grading_percent_per_mm }}"></label>
+      <label>Scale coefficients c0, c1, c2, … <input name="grading_coefficients" type="text" value="{{ defaults.grading_coefficients }}"></label>
+      <label>Illuminated footprint length, mm <input name="footprint_length_mm" type="number" min="0" step="any" value="{{ defaults.footprint_length_mm }}"></label>
+      <label>Footprint sample points <input name="footprint_points" type="number" min="1" max="500" step="1" value="{{ defaults.footprint_points }}"></label>
+    </div>
+  </details>
+
+  <details class="preview-panel plane-mirror-variations">
+    <summary>Parameter variations</summary>
+    <fieldset class="variation-axes" data-mirror-variation-axes>
+      <legend>Independent ranges</legend>
+      <p class="hint">Each range varies one scan or layer-stack setting independently.</p>
+      <div class="variation-axis-rows" data-variation-rows>
+        <div class="variation-axis-row" data-variation-row>
+          <label>Parameter <select name="axis_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_numeric_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>From <input name="axis_start" type="number" step="any"></label>
+          <label>To <input name="axis_stop" type="number" step="any"></label>
+          <label>Points <input name="axis_points" type="number" min="2" max="1000" step="1" value="5"></label>
+          <button class="button" type="button" data-variation-remove aria-label="Remove range">&times;</button>
+        </div>
+      </div>
+      <template data-variation-template><div class="variation-axis-row" data-variation-row>
+        <label>Parameter <select name="axis_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_numeric_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+        <label>From <input name="axis_start" type="number" step="any"></label>
+        <label>To <input name="axis_stop" type="number" step="any"></label>
+        <label>Points <input name="axis_points" type="number" min="2" max="1000" step="1" value="5"></label>
+        <button class="button" type="button" data-variation-remove aria-label="Remove range">&times;</button>
+      </div></template>
+      <button class="button" type="button" data-variation-add>Add independent range</button>
+    </fieldset>
+    <fieldset data-mirror-coupled-variations>
+      <legend>Coupled values</legend>
+      <p class="hint">Values in each pair are evaluated together by position.</p>
+      <div data-variation-rows>
+        <div class="variation-coupled-row" data-variation-row>
+          <label>First parameter <select name="coupled_left_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>Values <input name="coupled_left_values" placeholder="0.2, 0.5"></label>
+          <label>Second parameter <select name="coupled_right_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+          <label>Values <input name="coupled_right_values" placeholder="6.8, 7.0"></label>
+          <button class="button" type="button" data-variation-remove aria-label="Remove coupled values">&times;</button>
+        </div>
+      </div>
+      <template data-variation-template><div class="variation-coupled-row" data-variation-row>
+        <label>First parameter <select name="coupled_left_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+        <label>Values <input name="coupled_left_values" placeholder="0.2, 0.5"></label>
+        <label>Second parameter <select name="coupled_right_parameter"><option value="" selected>Choose a parameter</option>{% for parameter in mirror_variation_parameters %}<option value="{{ parameter.value }}">{{ parameter.label }}</option>{% endfor %}</select></label>
+        <label>Values <input name="coupled_right_values" placeholder="6.8, 7.0"></label>
+        <button class="button" type="button" data-variation-remove aria-label="Remove coupled values">&times;</button>
+      </div></template>
+      <button class="button" type="button" data-variation-add>Add coupled pair</button>
+    </fieldset>
+  </details>
+
+  <div class="actions">
+    <button class="button primary" type="submit">Start run</button>
+  </div>
+
+  <details class="plane-mirror-save-preset">
+    <summary>Save current scan settings as a preset</summary>
+    <label>Preset name <input name="scan_name" value="{{ (scans|selectattr('id','equalto',active_scan_id)|first).name if active_scan_id else '' }}" maxlength="120" placeholder="e.g. Soft X-ray energy sweep"></label>
+    <label>Preset note <input name="scan_label" value="{{ ((scans|selectattr('id','equalto',active_scan_id)|first).label or '') if active_scan_id else '' }}" maxlength="300"></label>
+    <button class="button" type="submit" formaction="{{ url_for('plane_mirror_save_scan', mirror_id=mirror.id) }}" formnovalidate>Save preset</button>
+  </details>
+</form>
+
+<div class="plane-mirror-scan-results">
+  <section class="preview-panel">
+    <div class="section-head preview-head">
+      <div><h2>Reflectivity preview</h2><p data-plane-mirror-preview-status>Adjust scan settings to update the preview.</p></div>
+    </div>
+    {% if plotly_bundle %}<div class="plotly-stage" data-plane-mirror-figure></div>{% else %}<p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>{% endif %}
+  </section>
+  <section class="preview-panel">
+    <div class="section-head preview-head"><div><h2>Mirror layer stack</h2><p>Saved coating used for this scan.</p></div></div>
+    <img class="plane-mirror-readonly-stack" src="{{ url_for('plane_mirror_saved_stack_preview', mirror_id=mirror.id) }}" alt="Layer stack for {{ mirror.name }}">
+  </section>
+</div>
+
+<section class="notice">
+  <h2>Recent runs for this mirror</h2>
+  {% set mirror_runs = runs %}
+  {% if mirror_runs %}<div class="list compact">
+    {% for run in mirror_runs %}<div class="row"><a href="{{ url_for('plane_mirror_run_detail', run_id=run.id) }}">{{ run.display_name }}</a><span>{{ run.status }} · {{ run.completed_points }}/{{ run.total_points }}</span></div>{% endfor %}
+  </div>{% else %}<p class="empty">No scan runs yet.</p>{% endif %}
+</section>
+{% endblock %}

@@ -128,7 +128,7 @@ def test_afm_upload_status_panel_reports_errors_and_copies_output(browser_page: 
 
 @pytest.mark.browser
 def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Page) -> None:
-    """Show the fixed 2θ angle on the nominal grating schematic only when selected."""
+    """Show a static 2θ marker on the nominal grating schematic only when selected."""
     page = browser_page
     page.goto(f"{page.url.rstrip('/')}/gratings/new")
     page.locator("input[name='name']").fill("Deviation schematic check")
@@ -146,7 +146,7 @@ def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Pag
     angle_label = page.locator(".geo-deviation-text")
     expect(angle_label).to_have_count(0)
     page.locator("select[name='workflow']").select_option("constant_deviation")
-    expect(angle_label).to_have_text("2θ = 174° (fixed)")
+    expect(angle_label).to_have_text("2θ")
     angle = page.locator("input[name='total_deviation_deg']")
     angle.fill("174.0")
     assert angle.evaluate("node => node.validity.valid")
@@ -158,11 +158,11 @@ def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Pag
 def test_decimal_preference_persists_after_reload(browser_page: Page) -> None:
     """Keep the chosen decimal separator in browser storage across page loads."""
     page = browser_page
-    picker = page.locator("[data-decimal-separator]")
+    picker = page.locator("select[data-decimal-separator]")
     expect(picker).to_have_value("dot")
     picker.select_option("comma")
     page.reload()
-    expect(page.locator("[data-decimal-separator]")).to_have_value("comma")
+    expect(page.locator("select[data-decimal-separator]")).to_have_value("comma")
     assert page.evaluate("localStorage.getItem('grax:decimal-separator')") == "comma"
     page.goto(f"{page.url.rstrip('/')}/gratings/new")
     page.locator("select[name='grating_type']").select_option("blazed")
@@ -176,7 +176,7 @@ def test_decimal_preference_persists_after_reload(browser_page: Page) -> None:
 def test_decimal_comma_in_coupled_grid(browser_page: Page) -> None:
     """Accept the reported 4,5 value and keep the grid preview usable."""
     page = browser_page
-    page.locator("[data-decimal-separator]").select_option("comma")
+    page.locator("select[data-decimal-separator]").select_option("comma")
     page.goto(f"{page.url.rstrip('/')}/gratings/new")
     page.locator("input[name='name']").fill("Comma grid check")
     page.locator("select[name='grating_type']").select_option("blazed")

@@ -4,13 +4,13 @@
 <section class="section-head">
   <div>
     <h1>Compare saved runs</h1>
-    <p>Combine saved runs and select the diffraction orders to overlay.</p>
+    <p>Combine saved grating and plane-mirror runs. Grating runs can be filtered by diffraction order; mirror runs plot reflectivity directly.</p>
   </div>
 </section>
 
 <section class="notice">
   <p>
-    Saved runs are read from <code>{{ results_dir }}/</code>. Add the runs and orders you want,
+    Saved runs are read from <code>{{ results_dir }}/</code>. Add the runs you want,
     and the preview updates immediately.
   </p>
 </section>
@@ -27,7 +27,7 @@
     <div class="section-head preview-head">
       <div>
         <h2>Plot preview</h2>
-        <p data-plot-preview-status role="status" aria-live="polite">Select saved runs and orders to see the interactive combined plot.</p>
+        <p data-plot-preview-status role="status" aria-live="polite">Select saved runs to see the interactive comparison plot.</p>
       </div>
       <div class="actions">
         <span class="preview-pill" data-plot-preview-loading>Idle</span>
@@ -85,7 +85,8 @@
                 data-run-orders="{{ run.available_orders | join(',') }}"
                 data-run-scans="{{ run.plot_scans | tojson | forceescape }}"
                 data-run-loops="{{ run.plot_loops | tojson | forceescape }}"
-                data-run-default-order="{{ run.run_input.diffraction_order if run.parameter_sweep or run.plot_scans else '' }}"
+                data-run-kind="{{ 'mirror' if run.mirror_id else 'grating' }}"
+                data-run-default-order="{{ run.run_input.diffraction_order if run.run_input is mapping and run.run_input.diffraction_order is defined else '' }}"
               >
                 {{ run.selector_text }}
               </option>
@@ -103,7 +104,7 @@
 
     <fieldset>
       <legend>Series styling</legend>
-      <p class="hint">Each selected run and diffraction order gets its own legend, line, and marker controls.</p>
+      <p class="hint">Each selected scan or mirror variation gets its own legend, line, and marker controls.</p>
       <div class="list compact" data-series-style-list></div>
     </fieldset>
   </section>

@@ -1,11 +1,53 @@
 const DECIMAL_SEPARATOR_KEY = "grax:decimal-separator";
+const STANDARD_POLARIZATION_KEY = "grax:standard-polarization";
 function decimalSeparator() {
+  const settings = document.documentElement.dataset;
+  if (settings.settingsSaved === "true" && ["dot", "comma"].includes(settings.decimalSeparator)) {
+    return settings.decimalSeparator;
+  }
   try { return localStorage.getItem(DECIMAL_SEPARATOR_KEY) === "comma" ? "comma" : "dot"; }
   catch { return "dot"; }
 }
 function parseDecimal(value) { return Number(String(value).trim().replace(",", ".")); }
 function displayDecimal(value) { return decimalSeparator() === "comma" ? String(value).replace(".", ",") : String(value); }
 function applyDecimalLanguage() { document.documentElement.lang = decimalSeparator() === "comma" ? "de-DE" : "en"; }
+function standardPolarization() {
+  const settings = document.documentElement.dataset;
+  if (settings.settingsSaved === "true" && ["s", "p"].includes(settings.standardPolarization)) {
+    return settings.standardPolarization;
+  }
+  try { return localStorage.getItem(STANDARD_POLARIZATION_KEY) === "s" ? "s" : "p"; }
+  catch { return "p"; }
+}
+function polarizationLabel(value) {
+  if (value === "s") return "S (TE)";
+  if (value === "p") return "P (TM)";
+  return value;
+}
+async function persistUserSettings() {
+  const root = document.documentElement;
+  const values = {
+    decimal_separator: decimalSeparator(),
+    standard_polarization: standardPolarization(),
+  };
+  try {
+    const response = await fetch(document.body.dataset.settingsUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(values),
+    });
+    if (!response.ok) throw new Error("Settings could not be saved.");
+    root.dataset.decimalSeparator = values.decimal_separator;
+    root.dataset.standardPolarization = values.standard_polarization;
+    root.dataset.settingsSaved = "true";
+  } catch { /* Keep the browser-local copy if the database folder is unavailable. */ }
+}
+function applyStandardPolarization() {
+  const polarization = standardPolarization();
+  document.querySelectorAll("select[data-standard-polarization-target]").forEach((select) => {
+    if ([...select.options].some((option) => option.value === polarization)) select.value = polarization;
+  });
+}
 // Some Chromium builds ignore the page language for number-field keyboard input.
 document.addEventListener("keydown", (event) => {
   if (decimalSeparator() !== "comma" || event.key !== "," || !event.target.matches?.('input[type="number"]')) return;
@@ -29,13 +71,28 @@ document.addEventListener("input", (event) => {
 }, true);
 function initDecimalSeparator() {
   applyDecimalLanguage();
-  const picker = document.querySelector("[data-decimal-separator]");
+  const picker = document.querySelector("select[data-decimal-separator]");
   if (!picker) return;
   picker.value = decimalSeparator();
   picker.addEventListener("change", () => {
     try { localStorage.setItem(DECIMAL_SEPARATOR_KEY, picker.value); } catch { /* Storage may be disabled. */ }
+    document.documentElement.dataset.decimalSeparator = picker.value;
     applyDecimalLanguage();
+    persistUserSettings();
   });
+}
+function initStandardPolarization() {
+  const picker = document.querySelector("select[data-standard-polarization]");
+  if (picker) {
+    picker.value = standardPolarization();
+    picker.addEventListener("change", () => {
+      try { localStorage.setItem(STANDARD_POLARIZATION_KEY, picker.value); } catch { /* Storage may be disabled. */ }
+      document.documentElement.dataset.standardPolarization = picker.value;
+      applyStandardPolarization();
+      persistUserSettings();
+    });
+  }
+  applyStandardPolarization();
 }
 
 function toggleSectionFields(section, enabled) {
@@ -202,6 +259,10 @@ function syncRunWorkflow(select) {
       title: "Monochromator",
       summary: "Scans energy while adjusting the incidence and diffraction geometry for a constant CFF. Use it to model a grating operated as a monochromator.",
     },
+    map: {
+      title: "Legacy angle vs energy map",
+      summary: "This saved scan preset uses the previous mirror map workflow. New runs can use Energy sweep, Angle sweep, or Monochromator.",
+    },
     constant_deviation: {
       title: "Constant deviation (2θ)",
       summary: "Scans energy while adjusting incidence and diffraction angles to keep the total beam deviation fixed.",
@@ -285,7 +346,7 @@ function initLinkedRange(minimum, maximum, count, fixedCount = false) {
   const label = document.createElement("label");
   const labelText = document.createElement("span");
   labelText.textContent = "Step size (fits endpoints)";
-  for (const attr of ["data-scan-field", "data-grading-field"]) {
+  for (const attr of ["data-scan-field", "data-grading-field", "data-workflow-fields"]) {
     if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
   }
   const step = document.createElement("input");
@@ -1002,7 +1063,20 @@ function initPlotWorkspace(form) {
   const selectedRunSummary = document.querySelector("[data-selected-run-summary]");
   const seriesStyleList = document.querySelector("[data-series-style-list]");
   const styleDrafts = new Map();
+  const energyTimesOrderOption = form.querySelector('select[name="x_axis_value"] option[value="energy_times_order"]');
   let requestId = 0;
+
+  function syncOrderAxisOption() {
+    const hasMirror = [...runList.querySelectorAll("[data-plot-run-item]")]
+      .some((item) => item.dataset.runKind === "mirror");
+    if (energyTimesOrderOption) {
+      energyTimesOrderOption.hidden = hasMirror;
+      energyTimesOrderOption.disabled = hasMirror;
+      if (hasMirror && energyTimesOrderOption.selected) {
+        form.querySelector('select[name="x_axis_value"]').value = "energy";
+      }
+    }
+  }
 
   function setPreviewFeedback(state, message) {
     const labels = {
@@ -1027,9 +1101,9 @@ function initPlotWorkspace(form) {
       row.className = "row";
       const title = document.createElement("strong");
       title.textContent = run.name;
-      const orders = document.createElement("span");
-      orders.textContent = `Orders: ${run.orders.join(", ")}`;
-      row.append(title, orders);
+      const kind = document.createElement("span");
+      kind.textContent = run.is_plane_mirror ? "Plane-mirror reflectivity" : `Orders: ${run.orders.join(", ")}`;
+      row.append(title, kind);
       selectedRunSummary.append(row);
     });
   }
@@ -1149,6 +1223,7 @@ function initPlotWorkspace(form) {
     });
     item.querySelector("[data-remove-run]").addEventListener("click", () => {
       item.remove();
+      syncOrderAxisOption();
       refreshPreview();
     });
   }
@@ -1210,6 +1285,7 @@ function initPlotWorkspace(form) {
     }
     const item = template.content.firstElementChild.cloneNode(true);
     item.dataset.runId = option.value;
+    item.dataset.runKind = option.dataset.runKind || "grating";
     item.querySelector("[data-run-title]").textContent = option.dataset.runName;
     item.querySelector("[data-run-id-field]").value = option.value;
     const orderGrid = item.querySelector("[data-order-grid]");
@@ -1217,12 +1293,20 @@ function initPlotWorkspace(form) {
       .split(",")
       .filter((value) => value !== "")
       .map((value) => Number.parseInt(value, 10));
-    orders.forEach((order, index) => {
-      const checkbox = createOrderCheckbox(option.value, order);
-      checkbox.querySelector("input").checked = option.dataset.runDefaultOrder
-        ? order === Number(option.dataset.runDefaultOrder) : index === 0;
-      orderGrid.append(checkbox);
-    });
+    if (item.dataset.runKind === "mirror") {
+      const orderField = document.createElement("input");
+      orderField.type = "hidden";
+      orderField.name = `orders_${option.value}`;
+      orderField.value = "0";
+      orderGrid.append(orderField);
+    } else {
+      orders.forEach((order, index) => {
+        const checkbox = createOrderCheckbox(option.value, order);
+        checkbox.querySelector("input").checked = option.dataset.runDefaultOrder
+          ? order === Number(option.dataset.runDefaultOrder) : index === 0;
+        orderGrid.append(checkbox);
+      });
+    }
     const scans = JSON.parse(option.dataset.runScans || "[]");
     if (scans.length) {
       const scanGrid = item.querySelector("[data-scan-grid]");
@@ -1235,6 +1319,7 @@ function initPlotWorkspace(form) {
     }
     bindLoopControls(item, JSON.parse(option.dataset.runLoops || "[]"));
     runList.append(item);
+    syncOrderAxisOption();
     bindRunItem(item);
     picker.value = "";
     refreshPreview();
@@ -1542,8 +1627,8 @@ function initCustomGridBuilder(root) {
     function syncMaterials() {
       const item = descriptor(parameter.value);
       const isMaterial = item?.kind === "material";
-      textarea.placeholder = isMaterial ? "None, Au, Pt (None means no coating)" : item?.id === "polarization" ? "s (TE), p (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
-      valuesHint.textContent = isMaterial ? "Example: None, Au, Pt. None means no coating." : item?.id === "polarization" ? "Enter s for TE and p for TM; for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
+      textarea.placeholder = isMaterial ? "None, Au, Pt (None means no coating)" : item?.id === "polarization" ? "S (TE), P (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
+      valuesHint.textContent = isMaterial ? "Example: None, Au, Pt. None means no coating." : item?.id === "polarization" ? "Enter s for S (TE) and p for P (TM); for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
       materials.classList.toggle("is-hidden", !isMaterial);
       if (isMaterial) {
         const names = splitValues(textarea.value);
@@ -1706,7 +1791,10 @@ function initCustomGridBuilder(root) {
             const field = document.createElement(item?.choices?.length ? "select" : "input");
             if (item?.choices?.length) {
               field.append(new Option("Choose a value", ""));
-              item.choices.forEach((choice) => field.append(new Option(choice, choice)));
+              item.choices.forEach((choice) => field.append(new Option(
+                item.id === "polarization" ? polarizationLabel(choice) : choice,
+                choice,
+              )));
             } else {
               field.type = "text";
               if (["float", "int", "optional_float"].includes(item?.kind)) field.inputMode = "decimal";
@@ -2018,6 +2106,8 @@ function initNavigationDropdowns() {
 document.addEventListener("DOMContentLoaded", () => {
   initNavigationDropdowns();
   initDecimalSeparator();
+  initStandardPolarization();
+  if (document.documentElement.dataset.settingsSaved !== "true") persistUserSettings();
 });
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -2402,6 +2492,7 @@ document.addEventListener("DOMContentLoaded", () => {
       field.addEventListener("input", () => { field.dataset.userEdited = "true"; });
     });
     syncRunWorkflow(select);
+    syncRunSweepButton(select.closest("form"));
     select.addEventListener("change", () => {
       syncRunWorkflow(select);
       syncRunSweepButton(select.closest("form"));
@@ -2540,6 +2631,19 @@ function initPlaneMirror(form) {
   const stackPreviewUrl = form.dataset.stackPreviewUrl;
   const stackImage = document.querySelector("[data-plane-mirror-stack-image]");
   const stackStatus = document.querySelector("[data-plane-mirror-stack-status]");
+  form.querySelectorAll("[data-mirror-variation-axes], [data-mirror-coupled-variations]").forEach((group) => {
+    const rows = group.querySelector("[data-variation-rows]");
+    const template = group.querySelector("[data-variation-template]");
+    group.querySelector("[data-variation-add]")?.addEventListener("click", () => {
+      rows.append(template.content.cloneNode(true));
+    });
+    group.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-variation-remove]");
+      if (remove && rows.querySelectorAll("[data-variation-row]").length > 1) {
+        remove.closest("[data-variation-row]").remove();
+      }
+    });
+  });
   let requestId = 0;
   let stackRequestId = 0;
 
@@ -2606,6 +2710,9 @@ function initPlaneMirror(form) {
   };
 
   const update = debounce(async () => {
+    if (!figure || !status || !loading || !computeUrl) {
+      return;
+    }
     requestId += 1;
     const currentRequest = requestId;
     loading.textContent = "Computing";
@@ -2635,7 +2742,20 @@ function initPlaneMirror(form) {
   const scanMode = form.querySelector("[data-scan-mode]");
   if (scanMode) {
     syncScanFields(scanMode);
-    scanMode.addEventListener("change", () => syncScanFields(scanMode));
+    scanMode.addEventListener("change", () => {
+      syncScanFields(scanMode);
+      const nameField = form.querySelector("[data-plane-mirror-run-name]");
+      if (nameField && nameField.dataset.autoName !== "false") {
+        nameField.value = `${nameField.dataset.runPrefix} · ${scanMode.value} scan`;
+      }
+    });
+    const nameField = form.querySelector("[data-plane-mirror-run-name]");
+    if (nameField) {
+      const initialName = nameField.value;
+      nameField.addEventListener("input", () => {
+        nameField.dataset.autoName = String(nameField.value === initialName);
+      });
+    }
   }
   if (gradingMode) {
     syncGradingFields(gradingMode);
@@ -2665,6 +2785,70 @@ function initPlaneMirror(form) {
   });
   update();
   updateStack();
+}
+
+function initPlaneMirrorScanForm(form) {
+  const figure = form.querySelector("[data-plane-mirror-figure]");
+  const status = form.querySelector("[data-plane-mirror-preview-status]");
+  const workflow = form.querySelector("[data-run-workflow]");
+  const nameField = form.querySelector("[data-plane-mirror-run-name]");
+  let requestId = 0;
+  form.querySelectorAll("[data-mirror-variation-axes], [data-mirror-coupled-variations]").forEach((group) => {
+    const rows = group.querySelector("[data-variation-rows]");
+    const template = group.querySelector("[data-variation-template]");
+    group.querySelector("[data-variation-add]")?.addEventListener("click", () => rows.append(template.content.cloneNode(true)));
+    group.addEventListener("click", (event) => {
+      const remove = event.target.closest("[data-variation-remove]");
+      if (remove && rows.querySelectorAll("[data-variation-row]").length > 1) remove.closest("[data-variation-row]").remove();
+    });
+  });
+  if (workflow && nameField) {
+    const presetName = nameField.value;
+    nameField.addEventListener("input", () => { nameField.dataset.autoName = String(nameField.value === presetName); });
+    workflow.addEventListener("change", () => {
+      if (nameField.dataset.autoName !== "false") nameField.value = `${nameField.dataset.runPrefix} · ${workflow.value} scan`;
+      updatePreview();
+    });
+  }
+  const draw = (payload) => {
+    if (!figure || !window.Plotly) return;
+    const traces = [{
+      x: payload.x,
+      y: payload.reflectivity,
+      mode: "lines",
+      name: "Reflectivity",
+    }];
+    if (payload.graded) traces.push({x: payload.x, y: payload.graded, mode: "lines", name: "Footprint average"});
+    window.Plotly.react(figure, traces, {
+      xaxis: {title: {text: payload.x_label}},
+      yaxis: {title: {text: "Reflectivity"}, range: [0, 1]},
+      margin: {t: 20},
+      legend: {orientation: "h", y: -0.3},
+    }, {responsive: true, displaylogo: false});
+  };
+  const updatePreview = debounce(async () => {
+    requestId += 1;
+    const current = requestId;
+    status.textContent = "Updating preview…";
+    try {
+      const response = await fetch(form.dataset.previewUrl, {method: "POST", body: new FormData(form)});
+      const payload = await response.json();
+      if (current !== requestId) return;
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Preview calculation failed.");
+      draw(payload);
+      if (payload.mode === "monochromator" && payload.grazing_angles_deg?.length) {
+        const values = payload.grazing_angles_deg;
+        status.textContent = `Preview ready · grazing angle ${formatRoundedNumber(values[0])}°–${formatRoundedNumber(values.at(-1))}°`;
+      } else {
+        status.textContent = "Preview ready.";
+      }
+    } catch (error) {
+      if (current === requestId) status.textContent = error.message || "Preview calculation failed.";
+    }
+  }, 350);
+  form.addEventListener("input", updatePreview);
+  form.addEventListener("change", updatePreview);
+  updatePreview();
 }
 
 function initRunExport() {
@@ -2746,4 +2930,5 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-plane-mirror-form]").forEach((form) => {
     initPlaneMirror(form);
   });
+  document.querySelectorAll("[data-plane-mirror-scan-form]").forEach(initPlaneMirrorScanForm);
 });
