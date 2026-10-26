@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed multilayer survey-cell selection and added independent named studies with a compact switcher.
+- Added saved-plot editing and CSV downloads, with an optional Python script to recreate the plot.
 - Added plane-mirror reflectivity runs to saved plot comparisons, including parameter loops without diffraction-order controls.
 - Fixed browser setting controls so saved preferences persist.
 - Kept the constant-deviation schematic static and moved the α label inside its angle marker.

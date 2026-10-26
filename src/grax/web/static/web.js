@@ -724,7 +724,7 @@ function renderPlotlyFigure(container, figureJson) {
   const rawTitle = parsed.layout?.title;
   const title = typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot";
   const filename = title.replace(/<[^>]*>/g, "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "plot";
-  window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
+  return window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
     responsive: true,
     displaylogo: false,
     toImageButtonOptions: {format: "png", filename},
@@ -989,14 +989,41 @@ function initSurveyFigures(root) {
 
   function draw() {
     const figures = buildSurveyFigures(options, meta, selectedKeys);
+    const renders = [];
     stages.forEach((node, name) => {
       if (figures[name]) {
-        renderPlotlyFigure(node, figures[name]);
+        renders.push(renderPlotlyFigure(node, figures[name]));
       }
     });
+    return Promise.all(renders);
   }
 
-  draw();
+  // Plotly installs its event emitter while creating the graph div. Register
+  // the click handler only after that first render has completed; attaching it
+  // immediately after Plotly.react can silently miss clicks on a fresh plot.
+  const heatmapNode = stages.get("heatmap");
+  draw().then(() => {
+    if (!heatmapNode || typeof heatmapNode.on !== "function") {
+      return;
+    }
+    heatmapNode.on("plotly_click", (event) => {
+      const points = event.points || [];
+      const point = points.find((item) => item.data?.type === "heatmap") || points[0];
+      if (!point) {
+        return;
+      }
+      const d = nearestGridValue(dValues, point.x);
+      const blaze = nearestGridValue(blazeValues, point.y);
+      if (
+        d === null ||
+        blaze === null ||
+        (options.efficiency || {})[designPairKey(d, blaze)] === undefined
+      ) {
+        return;
+      }
+      document.dispatchEvent(new CustomEvent(SURVEY_CELL_PICKED, {detail: {d, blaze}}));
+    });
+  });
 
   // While the survey runs its table is rewritten after every cell, so re-reading
   // it shows the grid filling in. The monitor reloads the page when the stage
@@ -1021,27 +1048,6 @@ function initSurveyFigures(root) {
         // A dropped poll is not worth surfacing; the next one will catch up.
       }
     }, 4000);
-  }
-
-  const heatmapNode = stages.get("heatmap");
-  if (heatmapNode && typeof heatmapNode.on === "function") {
-    heatmapNode.on("plotly_click", (event) => {
-      const point = (event.points || [])[0];
-      if (!point) {
-        return;
-      }
-      const d = nearestGridValue(dValues, point.x);
-      const blaze = nearestGridValue(blazeValues, point.y);
-      if (d === null || blaze === null) {
-        return;
-      }
-      if ((options.efficiency || {})[designPairKey(d, blaze)] === undefined) {
-        return; // an unsolved cell is not a design anyone can scan
-      }
-      document.dispatchEvent(
-        new CustomEvent(SURVEY_CELL_PICKED, {detail: {d, blaze}}),
-      );
-    });
   }
 
   document.addEventListener(DESIGN_SELECTION_CHANGED, (event) => {
@@ -1329,6 +1335,44 @@ function initPlotWorkspace(form) {
   form.querySelectorAll('select[name="x_axis_value"], select[name="x_axis_type"], select[name="y_axis_type"]').forEach((field) => {
     field.addEventListener("change", refreshPreview);
   });
+
+  if (form.dataset.editingPlot) {
+    const saved = JSON.parse(form.dataset.editingPlot);
+    const config = saved.plot_config || {};
+    ["x_axis_value", "x_axis_type", "y_axis_type"].forEach((name) => {
+      const field = form.querySelector(`[name="${name}"]`);
+      if (field && config[name]) field.value = config[name];
+    });
+    Object.entries(config.series_styles || {}).forEach(([key, style]) => {
+      styleDrafts.set(key, {
+        legend: style.legend_label || "", color: style.color || "#1f77b4",
+        marker: style.marker_symbol || "circle", size: String(style.marker_size || 3),
+        line: style.line_style || "solid",
+      });
+    });
+    (saved.selected_runs || []).forEach((run) => {
+      if (!picker?.querySelector(`option[value="${CSS.escape(String(run.id))}"]`)) return;
+      picker.value = String(run.id);
+      picker.dispatchEvent(new Event("change"));
+      const item = [...runList.querySelectorAll("[data-plot-run-item]")]
+        .find((candidate) => candidate.dataset.runId === String(run.id));
+      if (!item) return;
+      item.querySelectorAll(`input[name="orders_${run.id}"]`).forEach((field) => {
+        if (field.type === "checkbox") field.checked = (run.orders || []).includes(Number(field.value));
+      });
+      const selectedScans = config.scan_selection?.[run.id];
+      if (selectedScans) item.querySelectorAll(`input[name="scans_${run.id}"]`).forEach((field) => {
+        field.checked = selectedScans.includes(field.value);
+      });
+      (config.loop_selection?.[run.id] || []).forEach((loop) => {
+        item.querySelector("[data-add-loop]")?.click();
+        const empty = [...item.querySelectorAll(`[name="loops_${run.id}"], [data-loop-list] select`)]
+          .find((field) => !field.value);
+        if (empty) { empty.value = loop; empty.dispatchEvent(new Event("change")); }
+      });
+    });
+    refreshPreview();
+  }
 }
 
 function initSavedPlotFigure(container) {
@@ -2104,6 +2148,13 @@ function initNavigationDropdowns() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-study-switcher]").forEach((select) => {
+    select.addEventListener("change", () => {
+      if (select.value) {
+        window.location.assign(select.value);
+      }
+    });
+  });
   initNavigationDropdowns();
   initDecimalSeparator();
   initStandardPolarization();

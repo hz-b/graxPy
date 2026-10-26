@@ -282,6 +282,58 @@ def test_create_writes_a_manifest_with_the_nested_scan_settings(tmp_path: Path) 
     assert set(manifest["stages"]) == {"survey", "energy_scan"}
 
 
+def test_related_studies_are_named_switchable_and_keep_independent_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runners(monkeypatch)
+    client = _client(tmp_path)
+    store = _store(tmp_path)
+    original_id = _create_study(client, {"display_name": "Original", "d_points": "5"})
+    client.post(f"/multilayer-design/{original_id}/stages/survey/run")
+    assert _wait_for_stage(store, original_id, "survey") == "completed"
+
+    form = client.get(f"/multilayer-design/{original_id}/new").get_data(as_text=True)
+    assert 'name="d_points"' in form and 'value="5"' in form
+    assert 'name="display_name"' in form
+    created = client.post(
+        f"/multilayer-design/{original_id}/new",
+        data=_study_form(display_name="Second", d_points="5"),
+    )
+    assert created.status_code == 302
+    second_id = created.headers["Location"].rsplit("/", 1)[-1]
+    second = store.load(second_id)
+    assert second["family_id"] == original_id
+    assert second["config"]["d_points"] == 5
+    assert all(stage["status"] == "not_run" for stage in second["stages"].values())
+    assert not (store.study_dir(second_id) / "survey").exists()
+    assert (store.study_dir(original_id) / "survey" / "survey.csv").exists()
+    client.post(f"/multilayer-design/{second_id}/stages/survey/run")
+    assert _wait_for_stage(store, second_id, "survey") == "completed"
+    assert (store.study_dir(second_id) / "survey" / "survey.csv").exists()
+
+    for study_id in (original_id, second_id):
+        page = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+        assert 'data-study-switcher' in page
+        assert f'value="/multilayer-design/{original_id}"' in page
+        assert f'value="/multilayer-design/{second_id}"' in page
+        assert 'aria-label="Related studies"' not in page
+
+    assert client.post(
+        f"/multilayer-design/{second_id}/new", data=_study_form(display_name="Original")
+    ).status_code == 409
+    assert client.post(
+        f"/multilayer-design/{second_id}/edit", data=_study_form(display_name="Original")
+    ).status_code == 409
+    assert client.post(
+        f"/multilayer-design/{second_id}/edit", data=_study_form(display_name="Renamed")
+    ).status_code == 302
+    assert store.load(second_id)["display_name"] == "Renamed"
+    deleted = client.post(f"/multilayer-design/{original_id}/delete")
+    assert deleted.status_code == 302
+    assert deleted.headers["Location"].endswith(f"/multilayer-design/{second_id}")
+    assert store.load(second_id)["display_name"] == "Renamed"
+
+
 def test_invalid_config_is_rejected(tmp_path: Path) -> None:
     client = _client(tmp_path)
 

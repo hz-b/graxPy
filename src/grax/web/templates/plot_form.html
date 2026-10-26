@@ -3,7 +3,7 @@
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>Compare saved runs</h1>
+    <h1>{% if editing_plot %}Edit plot{% else %}Compare saved runs{% endif %}</h1>
     <p>Combine saved grating and plane-mirror runs. Grating runs can be filtered by diffraction order; mirror runs plot reflectivity directly.</p>
   </div>
 </section>
@@ -18,8 +18,9 @@
 <form
   class="form plot-workspace-layout"
   method="post"
-  action="{{ url_for('create_plot') }}"
+  action="{% if editing_plot %}{{ url_for('create_plot', plot_id=editing_plot.id) }}{% else %}{{ url_for('create_plot') }}{% endif %}"
   data-plot-workspace
+  {% if editing_plot %}data-editing-plot="{{ editing_plot | tojson | forceescape }}"{% endif %}
   data-order-field-prefix="orders_"
   data-preview-url="{{ url_for('preview_plot') }}"
 >
@@ -31,7 +32,7 @@
       </div>
       <div class="actions">
         <span class="preview-pill" data-plot-preview-loading>Idle</span>
-        <button class="button primary" type="submit" data-save-plot disabled>Save plot</button>
+        <button class="button primary" type="submit" data-save-plot disabled>{% if editing_plot %}Save changes{% else %}Save plot{% endif %}</button>
       </div>
     </div>
     <div class="plotly-stage" data-plot-preview></div>
@@ -43,11 +44,11 @@
       <legend>Plot selection</legend>
       <label>
         Plot title
-        <input name="title" type="text" value="Combined plot">
+        <input name="title" type="text" value="{{ editing_plot.title if editing_plot else 'Combined plot' }}">
       </label>
       <label>
         Save as name
-        <input name="plot_name" type="text" maxlength="160" placeholder="Uses the plot title if left blank">
+        <input name="plot_name" type="text" maxlength="160" placeholder="Uses the plot title if left blank" value="{{ editing_plot.name if editing_plot else '' }}">
       </label>
       <div class="form-grid two-column">
         <label>

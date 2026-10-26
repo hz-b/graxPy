@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import importlib.metadata
 import ipaddress
@@ -1291,6 +1292,27 @@ def create_app(*, data_dir: str | Path | None = None):
             marker_symbols=PLOTLY_MARKER_SYMBOLS,
         )
 
+    @app.get("/plots/<plot_id>/edit")
+    def plot_edit(plot_id: str):
+        plot_dir = active_data_dir() / "plots" / plot_id
+        manifest_path = plot_dir / "manifest.json"
+        if not manifest_path.is_file():
+            abort(404)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not manifest.get("plot_config"):
+            abort(400, "This older plot has no editable settings.")
+        runs = _list_plot_runs(active_data_dir() / "runs")
+        return render_template(
+            "plot_form.html",
+            runs=runs,
+            run_options=runs,
+            results_dir=active_data_dir() / "runs",
+            preview=None,
+            editing_plot=manifest,
+            plotly_bundle=_plotly_bundle_text(),
+            marker_symbols=PLOTLY_MARKER_SYMBOLS,
+        )
+
     @app.post("/_preview/plot")
     def preview_plot():
         preview = _build_plot_preview(
@@ -1334,7 +1356,10 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.post("/plots")
     @app.post("/runs/compare")
-    def create_plot():
+    @app.post("/plots/<plot_id>/edit")
+    def create_plot(plot_id: str | None = None):
+        if plot_id is not None and not (active_data_dir() / "plots" / plot_id / "manifest.json").is_file():
+            abort(404)
         run_ids = request.form.getlist("run_ids")
         if not run_ids:
             abort(400, "Select at least one saved run.")
@@ -1362,6 +1387,7 @@ def create_app(*, data_dir: str | Path | None = None):
                 order_selection=order_selection,
                 title=plot_options["title"],
                 plot_options=plot_options,
+                existing_plot_id=plot_id,
             )
         except ValueError as error:
             abort(400, str(error))
@@ -1398,6 +1424,20 @@ def create_app(*, data_dir: str | Path | None = None):
             plotly_bundle=_plotly_bundle_text() if manifest.get("figure_json") else None,
             selected_runs=_plot_selected_run_entries(app.config["GRAx_DATA_DIR"], manifest),
         )
+
+    @app.get("/plots/<plot_id>/download/<kind>")
+    def plot_download(plot_id: str, kind: str):
+        if kind not in {"data", "script-data"}:
+            abort(404)
+        manifest_path = active_data_dir() / "plots" / plot_id / "manifest.json"
+        if not manifest_path.is_file():
+            abort(404)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not manifest.get("figure_json"):
+            abort(409, "This plot has no saved series data to download.")
+        archive = _plot_series_archive(manifest, include_script=kind == "script-data")
+        filename = f"{_plot_filename_stem(str(manifest.get('name') or manifest.get('title') or 'plot'))}-{kind}.zip"
+        return send_file(io.BytesIO(archive), mimetype="application/zip", as_attachment=True, download_name=filename)
 
     @app.get("/plots/<plot_id>/delete")
     @app.post("/plots/<plot_id>/delete")
@@ -1452,13 +1492,13 @@ def create_app(*, data_dir: str | Path | None = None):
         }
         return {
             "study": manifest,
+            "related_studies": store.related(manifest),
             "stages": stages,
             "design_options": options,
             "design_options_json": json.dumps(options),
             "survey_plot_meta_json": json.dumps(plot_meta),
-            # Interactive survey plots need plotly.js inlined; without plotly the
-            # template falls back to the PNGs the library already wrote.
-            "plotly_bundle": _plotly_bundle_text() if get_plotlyjs is not None else None,
+            # Multilayer survey selection depends on an interactive Plotly map.
+            "plotly_bundle": _plotly_bundle_text(),
             "survey_cells": survey_cell_count(manifest["config"]),
         }
 
@@ -1525,6 +1565,43 @@ def create_app(*, data_dir: str | Path | None = None):
             cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
         )
 
+    @app.get("/multilayer-design/<study_id>/new")
+    def multilayer_design_new_related(study_id: str):
+        source = _design_study_or_404(study_id)
+        return render_template(
+            "multilayer_design_form.html",
+            seeded_from=source,
+            related_new=True,
+            defaults=flatten_config_values(source["config"]),
+            basic_sections=study_form_sections(advanced=False),
+            advanced_sections=study_form_sections(advanced=True),
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
+        )
+
+    @app.post("/multilayer-design/<study_id>/new")
+    def multilayer_design_create_related(study_id: str):
+        store = _design_store()
+        source = _design_study_or_404(study_id)
+        name = request.form.get("display_name", "").strip()
+        if not name:
+            abort(400, "Enter a name for the new study.")
+        if store.name_exists(source, name):
+            abort(409, "A study with this name already exists in this design.")
+        try:
+            config = parse_study_config(request.form, base=source["config"])
+            build_design_config(store.study_dir(study_id), config)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
+        study = store.create(
+            display_name=name,
+            config=config,
+            family_id=source.get("family_id") or study_id,
+            auto_energy_scan="best" if request.form.get("auto_energy_scan") else "none",
+        )
+        return redirect(url_for("multilayer_design_detail", study_id=study["id"]))
+
     @app.post("/multilayer-design/<study_id>/edit")
     def multilayer_design_update(study_id: str):
         store = _design_store()
@@ -1544,9 +1621,10 @@ def create_app(*, data_dir: str | Path | None = None):
             if manifest["stages"][stage]["status"] in {"completed", "aborted"}:
                 manifest["stages"][stage]["status"] = "stale"
         manifest["config"] = config
-        manifest["display_name"] = (
-            request.form.get("display_name", "").strip() or manifest["display_name"]
-        )
+        new_name = request.form.get("display_name", "").strip() or manifest["display_name"]
+        if store.name_exists(manifest, new_name, except_id=study_id):
+            abort(409, "A study with this name already exists in this design.")
+        manifest["display_name"] = new_name
         manifest["auto_energy_scan"] = (
             "best" if request.form.get("auto_energy_scan") else "none"
         )
@@ -1563,7 +1641,12 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.post("/multilayer-design/<study_id>/delete")
     def multilayer_design_delete(study_id: str):
-        _design_store().delete_many([study_id])
+        store = _design_store()
+        manifest = _design_study_or_404(study_id)
+        remaining = [study for study in store.related(manifest) if study["id"] != study_id]
+        store.delete_many([study_id])
+        if remaining:
+            return redirect(url_for("multilayer_design_detail", study_id=remaining[0]["id"]))
         return redirect(url_for("multilayer_design_index"))
 
     @app.post("/multilayer-design/<study_id>/stages/<stage>/run")
@@ -1580,12 +1663,13 @@ def create_app(*, data_dir: str | Path | None = None):
 
         designs: list[list[float]] = []
         if stage == "energy_scan":
-            if manifest["stages"]["survey"]["status"] != "completed":
+            options = survey_design_options(store.study_dir(study_id))
+            if not options.get("best"):
                 abort(409, "Run the survey before scanning designs over energy.")
             try:
                 designs = resolve_designs(
                     request.form.get("mode", "best"),
-                    survey_design_options(store.study_dir(study_id)),
+                    options,
                     request.form.getlist("design"),
                 )
             except ValueError as error:
@@ -5999,6 +6083,7 @@ def _build_combined_plot(
     order_selection: dict[str, list[int]],
     title: str,
     plot_options: dict[str, Any],
+    existing_plot_id: str | None = None,
 ) -> dict[str, Any]:
     """Build and save a combined plot for several runs and selected orders."""
     run_summaries, figure_json, series_controls = _build_plotly_compare_payload(
@@ -6014,9 +6099,11 @@ def _build_combined_plot(
     )
     plot_root = data_dir / "plots"
     plot_root.mkdir(parents=True, exist_ok=True)
-    plot_id = _plot_id()
+    plot_id = existing_plot_id or _plot_id()
     plot_dir = plot_root / plot_id
     plot_dir.mkdir(parents=True, exist_ok=True)
+    old_manifest_path = plot_dir / "manifest.json"
+    old_manifest = json.loads(old_manifest_path.read_text(encoding="utf-8")) if old_manifest_path.is_file() else None
     name = str(plot_options.get("name") or title)
     image_path = plot_dir / f"{_plot_filename_stem(name)}.png"
     _save_compare_image(
@@ -6037,7 +6124,7 @@ def _build_combined_plot(
 
     manifest = {
         "id": plot_id,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": old_manifest.get("created_at") if old_manifest else datetime.now().isoformat(timespec="seconds"),
         "title": title,
         "name": name,
         "plot_path": image_path.name,
@@ -6066,6 +6153,15 @@ def _build_combined_plot(
     with (plot_dir / "manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
         handle.write("\n")
+    if old_manifest:
+        old_path = old_manifest.get("plot_path")
+        if old_path and old_path != image_path.name:
+            (plot_dir / Path(old_path).name).unlink(missing_ok=True)
+        for old_image in old_manifest.get("run_images", []):
+            old_run_id = str(old_image.get("run_id", ""))
+            old_filename = str(old_image.get("filename", ""))
+            if old_run_id and old_filename:
+                (data_dir / "runs" / old_run_id / Path(old_filename).name).unlink(missing_ok=True)
     return manifest
 
 
@@ -6074,6 +6170,57 @@ def _plot_filename_stem(title: str) -> str:
 
     stem = "".join(character if character.isalnum() or character in "-_" else "_" for character in title.strip())
     return stem.strip("_-")[:80] or "plot"
+
+
+def _plot_series_archive(manifest: dict[str, Any], *, include_script: bool) -> bytes:
+    """Package each visible series as CSV, with an optional reproducible plot script."""
+
+    _require_plotly()
+    figure = json.loads(str(manifest["figure_json"]))
+    def values(raw: Any) -> list[Any]:
+        if isinstance(raw, dict) and "bdata" in raw and "dtype" in raw:
+            return np.frombuffer(base64.b64decode(raw["bdata"]), dtype=np.dtype(raw["dtype"])).tolist()
+        return list(raw)
+    records: list[tuple[str, dict[str, Any], list[Any], list[Any]]] = []
+    for index, trace in enumerate(figure.get("data", []), start=1):
+        if trace.get("x") is None or trace.get("y") is None:
+            continue
+        name = str(trace.get("name") or f"Series {index}")
+        filename = f"series_{index:02d}_{_plot_filename_stem(name)}.csv"
+        spec = dict(trace)
+        spec.pop("x", None)
+        spec.pop("y", None)
+        spec.pop("type", None)
+        records.append((filename, spec, values(trace["x"]), values(trace["y"])))
+    if not records:
+        raise ValueError("This plot has no downloadable series.")
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for filename, _, xs, ys in records:
+            csv_text = io.StringIO()
+            writer = csv.writer(csv_text)
+            writer.writerow(["x", "y"])
+            writer.writerows(zip(xs, ys))
+            archive.writestr(filename, csv_text.getvalue())
+        if include_script:
+            layout = figure.get("layout", {})
+            script = (
+                '"""Recreate the saved comparison from the accompanying CSV files.\n'
+                'Run with: python plot.py (requires plotly)."""\n'
+                "import csv\nfrom pathlib import Path\nimport plotly.graph_objects as go\n\n"
+                f"LAYOUT = {layout!r}\n"
+                f"SERIES = {[(name, spec) for name, spec, _, _ in records]!r}\n\n"
+                "figure = go.Figure(layout=LAYOUT)\n"
+                "for filename, style in SERIES:\n"
+                "    with (Path(__file__).parent / filename).open(newline='', encoding='utf-8') as handle:\n"
+                "        rows = list(csv.DictReader(handle))\n"
+                "    figure.add_trace(go.Scatter(x=[float(row['x']) if row['x'] else None for row in rows], "
+                "y=[float(row['y']) if row['y'] else None for row in rows], **style))\n"
+                "figure.write_html(Path(__file__).parent / 'plot.html', include_plotlyjs=True)\n"
+                "print('Wrote plot.html')\n"
+            )
+            archive.writestr("plot.py", script)
+    return output.getvalue()
 
 
 def _unused_plot_image_path(directory: Path, filename: str) -> Path:
