@@ -1980,6 +1980,13 @@ td {
   align-items: start;
 }
 
+.plane-mirror-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+  align-items: start;
+  gap: 18px;
+}
+
 .plane-mirror-run-options > fieldset {
   margin-block: 1rem;
 }
@@ -2032,10 +2039,20 @@ td {
 
 .plane-mirror-schematic .preview {
   width: 100%;
+  max-height: 420px;
+  object-fit: contain;
   margin-bottom: 0;
 }
 
+.plane-mirror-editor-layout > .plane-mirror-schematic {
+  position: static;
+}
+
 @media (max-width: 900px) {
+  .plane-mirror-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
   .plane-mirror-top {
     grid-template-columns: 1fr;
   }

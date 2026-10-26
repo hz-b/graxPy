@@ -50,6 +50,8 @@ def test_page_renders_and_is_linked_from_navigation(client) -> None:
     assert b"data-plane-mirror-form" in page.data
     assert b'name="scan_mode"' not in page.data
     assert b"Layer stack preview" in page.data
+    html = page.get_data(as_text=True)
+    assert html.index('name="mirror_name"') < html.index('data-plane-mirror-stack-image')
     assert b"/plane-mirror" in client.get("/").data
 
 

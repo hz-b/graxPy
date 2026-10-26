@@ -21,16 +21,7 @@
   <section class="notice"><p>{{ message }}</p></section>
 {% endif %}
 
-<section class="preview-panel plane-mirror-schematic">
-  <div class="section-head preview-head">
-    <div>
-      <h2>Layer stack preview</h2>
-      <p data-plane-mirror-stack-status>Updating from the saved mirror definition.</p>
-    </div>
-  </div>
-  <img class="preview is-hidden" src="" alt="Layer stack schematic" data-plane-mirror-stack-image>
-</section>
-
+<div class="plane-mirror-editor-layout">
 <form
   class="form plane-mirror-form"
   method="post"
@@ -59,6 +50,17 @@
 
   {% include "_stack_fields.html" %}
 </form>
+
+<section class="preview-panel plane-mirror-schematic">
+  <div class="section-head preview-head">
+    <div>
+      <h2>Layer stack preview</h2>
+      <p data-plane-mirror-stack-status>Updating from the saved mirror definition.</p>
+    </div>
+  </div>
+  <img class="preview is-hidden" src="" alt="Layer stack schematic" data-plane-mirror-stack-image>
+</section>
+</div>
 
   {% if mirror and editing %}
 <form class="form" method="post" action="{{ url_for('plane_mirror_delete', mirror_id=mirror.id) }}">
