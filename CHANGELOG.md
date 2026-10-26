@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Let saved plots be edited and provide plotted CSV data with a portable, beginner-friendly script to recreate the figure.
+- Allowed marker size 0 in plot controls to hide symbols while keeping the series lines.
+- Made the 2θ arrows change the angle by 0.1° and let focused number fields step with the mouse wheel.
+- Made decimal fields show the selected separator consistently while keeping precise input and arrow controls across the website.
+- Reduced interruptions during website testing by reusing the running site and browser tab, and set a shared branch for future bug fixes.
+- Fixed material sweeps with a None option so the uncoated case can start alongside coated cases.
 - Added plane-mirror reflectivity runs to saved plot comparisons, including parameter loops without diffraction-order controls.
 - Fixed browser setting controls so saved preferences persist.
 - Kept the constant-deviation schematic static and moved the α label inside its angle marker.

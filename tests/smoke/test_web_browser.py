@@ -169,7 +169,71 @@ def test_decimal_preference_persists_after_reload(browser_page: Page) -> None:
     angle = page.locator("input[name='blaze_angle_deg']")
     angle.fill("")
     angle.press_sequentially("4,5")
-    expect(angle).to_have_value("4.5")
+    expect(angle).to_have_value("4,5")
+    assert angle.evaluate("node => new FormData(node.form).get(node.name)") == "4.5"
+
+
+@pytest.mark.browser
+def test_decimal_fields_keep_comma_display_and_last_valid_preview(browser_page: Page) -> None:
+    """Use one separator across a form without flashing errors during partial input."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    page.goto(base + "/gratings/new")
+    for name, value in (
+        ("x_resolution_nm", "1,0"), ("width_to_period_ratio", "0,67"),
+        ("depth_nm", "14,9"), ("left_wall_angle_deg", "15,0"),
+        ("substrate_material_density_g_cm3", "2,3296"),
+    ):
+        expect(page.locator(f"input[name='{name}']")).to_have_value(value)
+    assert page.locator("input[name='period_lpermm']").get_attribute("type") == "number"
+    angle = page.locator("input[name='left_wall_angle_deg']")
+    expect(page.locator("[data-grating-preview-status]")).to_have_text("Ready")
+    angle.fill("15,")
+    page.wait_for_timeout(500)
+    expect(page.locator("[data-grating-preview-status]")).to_have_text("Ready")
+    angle.fill("15.875")
+    angle.blur()
+    expect(angle).to_have_value("15,875")
+    assert angle.evaluate("node => new FormData(node.form).get(node.name)") == "15.875"
+    angle.press("ArrowUp")
+    expect(angle).to_have_value("15,885")
+    angle.locator("xpath=following-sibling::span/button[2]").click()
+    expect(angle).to_have_value("15,875")
+    page.locator("select[name='grating_type']").select_option("sinusoidal")
+    depth = page.locator("input[name='sinusoidal_depth_nm']")
+    depth.fill("-1")
+    depth.blur()
+    assert not depth.evaluate("node => node.validity.valid")
+    depth.fill("2,5")
+    page.goto(base)
+    page.locator("select[data-decimal-separator]").select_option("dot")
+    page.goto(base + "/gratings/new")
+    expect(page.locator("input[name='width_to_period_ratio']")).to_have_value("0.67")
+
+
+@pytest.mark.browser
+def test_decimal_control_covers_other_forms_and_dynamic_fields(browser_page: Page) -> None:
+    """Convert decimal inputs on mirror, design, AFM, and added layer forms."""
+    page = browser_page
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    base = page.url.rstrip("/")
+    for path in ("/plane-mirror", "/multilayer-design/new", "/gratings/new"):
+        page.goto(base + path)
+        assert page.locator("[data-decimal-field]").count() > 0
+        assert page.evaluate("""() => [...document.querySelectorAll('input[type=number]')]
+          .every(node => node.step !== 'any' && Number.isInteger(Number(node.step)))""")
+        assert page.evaluate("""() => [...document.querySelectorAll('[data-decimal-field]')]
+          .every(node => !node.value.includes('.'))""")
+    page.locator("select[name='grating_type']").select_option("afm")
+    expect(page.locator("input[name='afm_min_separation']")).to_have_value("0,4")
+    page.locator("select[name='stack_type']").select_option("custom")
+    page.locator("[data-layer-add='single']").click()
+    dynamic = page.locator("input[name='cl_thickness_nm']").last
+    expect(dynamic).to_have_attribute("data-decimal-field", "")
+    dynamic.fill("2.75")
+    dynamic.blur()
+    expect(dynamic).to_have_value("2,75")
 
 
 @pytest.mark.browser
@@ -199,7 +263,7 @@ def test_decimal_comma_in_coupled_grid(browser_page: Page) -> None:
     stop.fill("100")
     assert stop.get_attribute("step") == "0.1"
     stop.press("ArrowUp")
-    assert stop.input_value() == "100.1"
+    assert stop.input_value() == "100,1"
     page.locator("select[name='workflow']").select_option("custom_grid")
     builder = page.locator("[data-workflow-fields=custom_grid][data-custom-grid-builder]")
     builder.locator("[data-custom-add-axis]").click()

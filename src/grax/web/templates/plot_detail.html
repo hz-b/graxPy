@@ -6,12 +6,26 @@
     <h1>{{ plot.name or plot.title }}</h1>
     <p>{{ plot.created_at }}</p>
   </div>
-  <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
+  <div class="actions">
+    {% if plot.plot_config and selected_runs | selectattr('available', 'equalto', false) | list | length == 0 %}<a class="button" href="{{ url_for('plot_edit', plot_id=plot.id) }}">Edit plot</a>{% endif %}
+    <a class="button" href="{{ url_for('plot_index') }}">Back to plots</a>
+    {% if plot.plot_path or plot.figure_json or plot.plot_config %}
+    <details class="plot-download-menu">
+      <summary class="button">Download</summary>
+      <div class="plot-download-options">
+        {% if plot.plot_path %}<a href="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}" download>PNG</a>{% endif %}
+        {% if plot.figure_json or plot.plot_config %}
+          <a href="{{ url_for('plot_export', plot_id=plot.id, kind='data') }}">Data</a>
+          <a href="{{ url_for('plot_export', plot_id=plot.id, kind='script') }}">Data + script</a>
+        {% endif %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
 </section>
 
 {% if plot.plot_path %}
 <section class="notice">
-  <a href="{{ url_for('data_file', filename='plots/' ~ plot.id ~ '/' ~ plot.plot_path) }}" download>Download plot PNG</a>
   {% if plot.run_images %}<p class="subtle">A copy is also saved beside each selected run's manifest.json.</p>{% endif %}
 </section>
 {% endif %}

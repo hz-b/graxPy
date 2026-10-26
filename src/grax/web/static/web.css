@@ -385,6 +385,44 @@ a {
   gap: 10px;
 }
 
+.plot-download-menu {
+  position: relative;
+}
+
+.plot-download-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.plot-download-menu > summary::-webkit-details-marker { display: none; }
+
+.plot-download-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: none;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(9, 53, 102, 0.16);
+}
+
+.plot-download-menu[open] .plot-download-options { display: grid; }
+
+.plot-download-options a {
+  padding: 9px 11px;
+  border-radius: 5px;
+  color: var(--accent-dark);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.plot-download-options a:hover,
+.plot-download-options a:focus-visible { background: var(--brand-lime-soft); }
+
 h1,
 h2,
 h3 {
@@ -732,6 +770,40 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(108, 171, 233, 0.28);
   outline: none;
 }
+
+.decimal-field-wrap {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+
+.decimal-field-wrap > input {
+  min-width: 0;
+  border-radius: 6px 0 0 6px;
+}
+
+.decimal-field-controls {
+  display: grid;
+  width: 24px;
+  flex: 0 0 24px;
+}
+
+.decimal-field-controls button {
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-left: 0;
+  color: var(--muted);
+  background: #fff;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.decimal-field-controls button:first-child { border-radius: 0 6px 0 0; }
+.decimal-field-controls button:last-child { border-top: 0; border-radius: 0 0 6px 0; }
+.decimal-field-controls button:disabled { cursor: default; opacity: 0.5; }
+.decimal-field-wrap:has(input:disabled) .decimal-field-controls { opacity: 0.5; pointer-events: none; }
 
 .preview {
   display: block;

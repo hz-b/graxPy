@@ -3,7 +3,7 @@
 {% block body %}
 <section class="section-head">
   <div>
-    <h1>Compare saved runs</h1>
+    <h1>{{ 'Edit saved plot' if editing_plot else 'Compare saved runs' }}</h1>
     <p>Combine saved grating and plane-mirror runs. Grating runs can be filtered by diffraction order; mirror runs plot reflectivity directly.</p>
   </div>
 </section>
@@ -18,7 +18,7 @@
 <form
   class="form plot-workspace-layout"
   method="post"
-  action="{{ url_for('create_plot') }}"
+  action="{{ url_for('update_plot', plot_id=editing_plot.id) if editing_plot else url_for('create_plot') }}"
   data-plot-workspace
   data-order-field-prefix="orders_"
   data-preview-url="{{ url_for('preview_plot') }}"
@@ -31,7 +31,7 @@
       </div>
       <div class="actions">
         <span class="preview-pill" data-plot-preview-loading>Idle</span>
-        <button class="button primary" type="submit" data-save-plot disabled>Save plot</button>
+        <button class="button primary" type="submit" data-save-plot disabled>{{ 'Save changes' if editing_plot else 'Save plot' }}</button>
       </div>
     </div>
     <div class="plotly-stage" data-plot-preview></div>
@@ -43,32 +43,32 @@
       <legend>Plot selection</legend>
       <label>
         Plot title
-        <input name="title" type="text" value="Combined plot">
+        <input name="title" type="text" value="{{ editing_plot.title if editing_plot else 'Combined plot' }}">
       </label>
       <label>
         Save as name
-        <input name="plot_name" type="text" maxlength="160" placeholder="Uses the plot title if left blank">
+        <input name="plot_name" type="text" maxlength="160" value="{{ editing_plot.name if editing_plot else '' }}" placeholder="Uses the plot title if left blank">
       </label>
       <div class="form-grid two-column">
         <label>
           X values
           <select name="x_axis_value">
-            <option value="energy" selected>Energy (eV)</option>
-            <option value="energy_times_order">Energy × plotted diffraction order (eV)</option>
+            <option value="energy" {% if not editing_plot or editing_plot.plot_config.x_axis_value == 'energy' %}selected{% endif %}>Energy (eV)</option>
+            <option value="energy_times_order" {% if editing_plot and editing_plot.plot_config.x_axis_value == 'energy_times_order' %}selected{% endif %}>Energy × plotted diffraction order (eV)</option>
           </select>
         </label>
         <label>
           X axis
           <select name="x_axis_type">
-            <option value="linear" selected>Linear</option>
-            <option value="log">Logarithmic</option>
+            <option value="linear" {% if not editing_plot or editing_plot.plot_config.x_axis_type == 'linear' %}selected{% endif %}>Linear</option>
+            <option value="log" {% if editing_plot and editing_plot.plot_config.x_axis_type == 'log' %}selected{% endif %}>Logarithmic</option>
           </select>
         </label>
         <label>
           Y axis
           <select name="y_axis_type">
-            <option value="linear" selected>Linear</option>
-            <option value="log">Logarithmic</option>
+            <option value="linear" {% if not editing_plot or editing_plot.plot_config.y_axis_type == 'linear' %}selected{% endif %}>Linear</option>
+            <option value="log" {% if editing_plot and editing_plot.plot_config.y_axis_type == 'log' %}selected{% endif %}>Logarithmic</option>
           </select>
         </label>
       </div>
@@ -109,6 +109,7 @@
     </fieldset>
   </section>
 </form>
+{% if editing_plot %}<script type="application/json" data-editing-plot>{{ editing_plot | tojson }}</script>{% endif %}
 
 <template data-plot-run-template>
   <fieldset class="plot-run" data-plot-run-item>
@@ -151,7 +152,7 @@
       </label>
       <label>
         Marker size
-        <input type="number" min="1" max="24" step="1" value="3" data-series-marker-size>
+        <input type="number" min="0" max="24" step="1" value="3" data-series-marker-size>
       </label>
       <label>
         Line style

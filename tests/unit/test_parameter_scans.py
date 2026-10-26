@@ -182,6 +182,49 @@ def test_constant_deviation_parameter_scan_reuses_solver_and_resolved_grating():
     assert [case["energy_ev"] for case in cases[:2]] == [200.0, 300.0]
 
 
+def test_constant_deviation_material_loop_includes_uncoated_grating():
+    """A material sweep can include an uncoated case and still start."""
+    coated = spec()
+    coated["x_resolution_nm"] = 50.0
+    coated["z_resolution_nm"] = 2.0
+    coated["stack"] = {
+        "type": "single_layer", "substrate_material": "Si",
+        "layer_material": "Au", "layer_thickness_nm": 10.0,
+        "layer_roughness_sigma_nm": 0.2,
+    }
+    value = default_configuration(coated)
+    value["independent"] = [{
+        "parameter": "stack.layer_material", "mode": "list",
+        "values": [
+            {"name": "None", "density_g_cm3": None, "roughness_sigma_nm": None},
+            {"name": "Au", "density_g_cm3": None, "roughness_sigma_nm": 0.8},
+        ],
+    }]
+    defaults = {
+        "total_deviation_deg": 174.0, "diffraction_order": 1,
+        "fourier_orders": 2, "grazing_angle_deg": 1.5,
+        "solver": "rcwa", "polarization": "s",
+    }
+    sweep, cases = scans.build_scans(
+        value, coated, mode="constant_deviation",
+        energies=np.array([300.0]), defaults=defaults,
+    )
+
+    assert len(sweep["scans"]) == len(cases) == 2
+    assert [case["scan_grating_spec"]["stack"]["type"] for case in cases] == ["bare", "single_layer"]
+    assert cases[0]["scan_grating_spec"]["stack"]["substrate_material"] == "Si"
+    assert cases[1]["scan_grating_spec"]["stack"]["layer_roughness_sigma_nm"] == 0.8
+    results = [simulation.run_simulation(
+        grating=case["grating"], energy_ev=case["energy_ev"],
+        grazing_angle_deg=case["grazing_angle_deg"],
+        diffraction_order=case["diffraction_order"],
+        fourier_orders=case["fourier_orders"],
+        polarization=case["polarization"], solver=case["solver"],
+        validate_physical_results=False,
+    ) for case in cases]
+    assert all(np.isfinite(result.selected_efficiency) for result in results)
+
+
 def test_forbidden_mount_parameters_are_rejected():
     """Keep energy and incompatible mount settings out of variation axes."""
     value = config()

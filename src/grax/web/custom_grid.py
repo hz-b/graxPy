@@ -372,8 +372,19 @@ def expand_custom_grid(
                 if descriptor.kind == "material":
                     material = deepcopy(value)
                     sigma = material.pop("roughness_sigma_nm", None)
-                    _set_path(spec, descriptor.path, material)
-                    if sigma is not None and descriptor.roughness_path:
+                    no_coating = str(material.get("name", "")).strip().lower() == "none"
+                    if no_coating and descriptor.path == ("stack", "layer_material") and stack.get("type") == "single_layer":
+                        spec["stack"] = {
+                            "type": "bare",
+                            "substrate_material": stack["substrate_material"],
+                            "substrate_roughness_sigma_nm": stack.get("substrate_roughness_sigma_nm"),
+                        }
+                        stack = spec["stack"]
+                    elif no_coating and descriptor.path == ("stack", "top_cap_material"):
+                        _set_path(spec, descriptor.path, None)
+                    else:
+                        _set_path(spec, descriptor.path, material)
+                    if sigma is not None and descriptor.roughness_path and not no_coating:
                         _set_path(spec, descriptor.roughness_path, sigma)
                 else:
                     _set_path(spec, descriptor.path, value)

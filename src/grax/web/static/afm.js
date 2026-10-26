@@ -322,7 +322,7 @@
       schedulePreview(event.target === fileInput || event.target === unitsInput || event.target.type === "checkbox");
     });
     processForm.addEventListener("input", (event) => {
-      if (event.target.type === "number") schedulePreview(false);
+      if (event.target.type === "number" || event.target.hasAttribute("data-decimal-field")) schedulePreview(false);
     });
     gratingForm.addEventListener("change", (event) => {
       updateLivePreview();

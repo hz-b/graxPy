@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import importlib.metadata
 import ipaddress
@@ -1289,6 +1290,26 @@ def create_app(*, data_dir: str | Path | None = None):
             preview=None,
             plotly_bundle=_plotly_bundle_text(),
             marker_symbols=PLOTLY_MARKER_SYMBOLS,
+            editing_plot=None,
+        )
+
+    @app.get("/plots/<plot_id>/edit")
+    def plot_edit(plot_id: str):
+        manifest_path = active_data_dir() / "plots" / plot_id / "manifest.json"
+        if not manifest_path.is_file():
+            abort(404)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not manifest.get("plot_config") or any(
+            _load_run_manifest(active_data_dir(), str(run.get("id", ""))) is None
+            for run in manifest.get("selected_runs", [])
+        ):
+            abort(409, "Editing requires the original saved runs and plot settings.")
+        runs = _list_plot_runs(active_data_dir() / "runs")
+        return render_template(
+            "plot_form.html", runs=runs, run_options=runs,
+            results_dir=active_data_dir() / "runs", preview=None,
+            plotly_bundle=_plotly_bundle_text(), marker_symbols=PLOTLY_MARKER_SYMBOLS,
+            editing_plot=manifest,
         )
 
     @app.post("/_preview/plot")
@@ -1367,6 +1388,42 @@ def create_app(*, data_dir: str | Path | None = None):
             abort(400, str(error))
         return redirect(url_for("plot_detail", plot_id=plot["id"]))
 
+    @app.post("/plots/<plot_id>/edit")
+    def update_plot(plot_id: str):
+        manifest_path = active_data_dir() / "plots" / plot_id / "manifest.json"
+        if not manifest_path.is_file():
+            abort(404)
+        old_plot = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not old_plot.get("plot_config"):
+            abort(409, "This plot has no editable settings.")
+        run_ids = list(dict.fromkeys(request.form.getlist("run_ids")))
+        if not run_ids:
+            abort(400, "Select at least one saved run.")
+        order_selection = {}
+        for run_id in run_ids:
+            run = _load_run_manifest(active_data_dir(), run_id)
+            if run is None:
+                abort(400, "A selected run is unavailable.")
+            orders = [int(value) for value in request.form.getlist(f"orders_{run_id}")]
+            if _is_plane_mirror_run(run):
+                orders = [0]
+            if not orders:
+                abort(400, f"Select at least one diffraction order for run {run_id}.")
+            order_selection[run_id] = orders
+        options = _plot_options_from_form(
+            form_data=request.form, run_ids=run_ids, order_selection=order_selection,
+            data_dir=active_data_dir(),
+        )
+        try:
+            _build_combined_plot(
+                data_dir=active_data_dir(), run_ids=run_ids,
+                order_selection=order_selection, title=options["title"],
+                plot_options=options, existing_plot=old_plot,
+            )
+        except ValueError as error:
+            abort(400, str(error))
+        return redirect(url_for("plot_detail", plot_id=plot_id))
+
     @app.get("/plots/<plot_id>")
     def plot_detail(plot_id: str):
         plot_dir = app.config["GRAx_DATA_DIR"] / "plots" / plot_id
@@ -1397,6 +1454,23 @@ def create_app(*, data_dir: str | Path | None = None):
             plot=manifest,
             plotly_bundle=_plotly_bundle_text() if manifest.get("figure_json") else None,
             selected_runs=_plot_selected_run_entries(app.config["GRAx_DATA_DIR"], manifest),
+        )
+
+    @app.get("/plots/<plot_id>/export/<kind>")
+    def plot_export(plot_id: str, kind: str):
+        if kind not in {"data", "script"}:
+            abort(404)
+        manifest_path = active_data_dir() / "plots" / plot_id / "manifest.json"
+        if not manifest_path.is_file():
+            abort(404)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        figure_json = _saved_plot_figure_json(active_data_dir(), manifest)
+        if not figure_json:
+            abort(409, "This saved plot has no exportable figure.")
+        archive = _plot_export_zip(figure_json, include_script=kind == "script")
+        return send_file(
+            archive, mimetype="application/zip", as_attachment=True,
+            download_name=f"{_plot_filename_stem(str(manifest.get('name') or manifest.get('title') or 'plot'))}-{kind}.zip",
         )
 
     @app.get("/plots/<plot_id>/delete")
@@ -5585,6 +5659,124 @@ def _list_plots(plot_dir: Path) -> list[dict[str, Any]]:
     return sorted(plots, key=lambda plot: str(plot.get("created_at", "")), reverse=True)
 
 
+def _saved_plot_figure_json(data_dir: Path, manifest: dict[str, Any]) -> str | None:
+    """Use the saved trace snapshot, or reconstruct an older plot when possible."""
+    if manifest.get("figure_json"):
+        return str(manifest["figure_json"])
+    if not manifest.get("plot_config"):
+        return None
+    run_ids = [str(run["id"]) for run in manifest.get("selected_runs", [])]
+    orders = {str(run["id"]): [int(value) for value in run.get("orders", [])]
+              for run in manifest.get("selected_runs", [])}
+    try:
+        return _build_plotly_compare_payload(
+            data_dir=data_dir, run_ids=run_ids, order_selection=orders,
+            plot_options=dict(manifest["plot_config"]),
+        )[1]
+    except (ValueError, RuntimeError):
+        return None
+
+
+def _plot_export_zip(figure_json: str, *, include_script: bool) -> io.BytesIO:
+    """Package one CSV per saved Plotly trace and an optional replay script."""
+    assert plotly_io is not None
+    figure = plotly_io.from_json(figure_json)
+    specs = []
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for index, trace in enumerate(figure.data, start=1):
+            filename = f"line-{index:03d}-{_plot_filename_stem(str(trace.name or 'series'))}.csv"
+            csv_buffer = io.StringIO()
+            writer = csv.writer(csv_buffer)
+            writer.writerow(["x", "y"])
+            x_values = _plotly_trace_values(trace.x)
+            y_values = _plotly_trace_values(trace.y)
+            for x, y in zip(x_values, y_values):
+                writer.writerow([x, y])
+            archive.writestr(filename, csv_buffer.getvalue())
+            specs.append({
+                "csv": filename, "label": str(trace.name or filename),
+                "color": trace.line.color, "line_style": trace.line.dash,
+                "marker": trace.marker.symbol, "marker_size": trace.marker.size,
+            })
+        if include_script:
+            layout = figure.layout
+            config = {
+                "title": str(layout.title.text or ""),
+                "x_label": str(layout.xaxis.title.text or "x"),
+                "y_label": str(layout.yaxis.title.text or "y"),
+                "x_scale": str(layout.xaxis.type or "linear"),
+                "y_scale": str(layout.yaxis.type or "linear"),
+                "lines": specs,
+            }
+            archive.writestr("plot.py", _plot_replay_script(config))
+    output.seek(0)
+    return output
+
+
+def _plotly_trace_values(values: Any) -> list[Any]:
+    """Decode Plotly's typed-array JSON encoding as well as ordinary arrays."""
+    if isinstance(values, dict) and isinstance(values.get("bdata"), str):
+        dtype = np.dtype(values.get("dtype", "f8"))
+        decoded = np.frombuffer(base64.b64decode(values["bdata"]), dtype=dtype)
+        shape = values.get("shape")
+        if shape:
+            decoded = decoded.reshape(tuple(int(value) for value in str(shape).split(",")))
+        return decoded.tolist()
+    if values is None:
+        return []
+    return np.asarray(values).tolist()
+
+
+def _plot_replay_script(config: dict[str, Any]) -> str:
+    """Return a simple, commented Matplotlib script that reads the CSV files."""
+    marker_names = {
+        "circle": "o", "square": "s", "diamond": "D", "triangle-up": "^",
+        "triangle-down": "v", "cross": "+", "x": "x", "star": "*",
+    }
+    dash_names = {"solid": "-", "dot": ":", "dash": "--", "dashdot": "-."}
+    lines = [
+        "# This script uses the CSV files in the same folder.",
+        "# Install the required packages with: python -m pip install pandas matplotlib",
+        "from pathlib import Path",
+        "import pandas as pd",
+        "import matplotlib.pyplot as plt",
+        "",
+        "# Keep the CSV files and this script together in the same folder.",
+        "data_folder = Path(__file__).resolve().parent",
+        "",
+        "# Read the plotted data. Each CSV file has an x column and a y column.",
+    ]
+    for index, item in enumerate(config["lines"], start=1):
+        lines.append(f"data_{index} = pd.read_csv(data_folder / {item['csv']!r})")
+    lines.extend(["", "# Draw one line for each CSV file."])
+    for index, item in enumerate(config["lines"], start=1):
+        args = [f"data_{index}['x']", f"data_{index}['y']"]
+        options = [f"label={item['label']!r}", f"color={item['color']!r}",
+                   f"linestyle={dash_names.get(item['line_style'], '-')!r}", "linewidth=1.6"]
+        if item["marker_size"]:
+            options.extend([f"marker={marker_names.get(item['marker'], 'o')!r}",
+                            f"markersize={item['marker_size']!r}"])
+        lines.append(f"plt.plot({', '.join(args + options)})")
+    lines.extend([
+        "", "# Add the title, axis labels, and legend.",
+        f"plt.title({config['title']!r})",
+        f"plt.xlabel({config['x_label']!r})",
+        f"plt.ylabel({config['y_label']!r})",
+    ])
+    if config["x_scale"] == "log":
+        lines.append('plt.xscale("log")')
+    if config["y_scale"] == "log":
+        lines.append('plt.yscale("log")')
+    lines.extend([
+        "plt.grid(True)", "plt.legend()", "",
+        "# Save the image next to this script, then display the plot.",
+        "plt.savefig(data_folder / 'my_plot.png', dpi=150, bbox_inches='tight')",
+        "plt.show()", "",
+    ])
+    return "\n".join(lines)
+
+
 def _plot_selected_run_entries(data_dir: Path, plot: dict[str, Any]) -> list[dict[str, Any]]:
     """Annotate saved-plot run references without changing their manifest."""
 
@@ -5999,6 +6191,7 @@ def _build_combined_plot(
     order_selection: dict[str, list[int]],
     title: str,
     plot_options: dict[str, Any],
+    existing_plot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build and save a combined plot for several runs and selected orders."""
     run_summaries, figure_json, series_controls = _build_plotly_compare_payload(
@@ -6014,11 +6207,11 @@ def _build_combined_plot(
     )
     plot_root = data_dir / "plots"
     plot_root.mkdir(parents=True, exist_ok=True)
-    plot_id = _plot_id()
+    plot_id = str(existing_plot["id"]) if existing_plot else _plot_id()
     plot_dir = plot_root / plot_id
     plot_dir.mkdir(parents=True, exist_ok=True)
     name = str(plot_options.get("name") or title)
-    image_path = plot_dir / f"{_plot_filename_stem(name)}.png"
+    image_path = plot_dir / (str(existing_plot["plot_path"]) if existing_plot else f"{_plot_filename_stem(name)}.png")
     _save_compare_image(
         selected_series=selected_series,
         series_controls=series_controls,
@@ -6028,6 +6221,9 @@ def _build_combined_plot(
         y_axis_type=plot_options["y_axis_type"],
         output_path=image_path,
     )
+    if existing_plot:
+        for old_copy in existing_plot.get("run_images", []):
+            (data_dir / "runs" / str(old_copy["run_id"]) / str(old_copy["filename"])).unlink(missing_ok=True)
     run_images = []
     for run in run_summaries:
         run_dir = data_dir / "runs" / str(run["id"])
@@ -6037,7 +6233,7 @@ def _build_combined_plot(
 
     manifest = {
         "id": plot_id,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": existing_plot["created_at"] if existing_plot else datetime.now().isoformat(timespec="seconds"),
         "title": title,
         "name": name,
         "plot_path": image_path.name,
@@ -6162,10 +6358,11 @@ def _plot_options_from_form(
                 if marker_symbol not in valid_marker_symbols:
                     marker_symbol = "circle"
                 try:
-                    marker_size = int(float(form_data.get(f"marker_size_{token}", 3) or 3))
+                    raw_marker_size = form_data.get(f"marker_size_{token}", 3)
+                    marker_size = int(float(raw_marker_size if raw_marker_size not in (None, "") else 3))
                 except (TypeError, ValueError):
                     marker_size = 3
-                marker_size = max(1, min(marker_size, 24))
+                marker_size = max(0, min(marker_size, 24))
                 legend_label = str(form_data.get(f"legend_label_{token}", "")).strip()
                 plot_options["series_styles"][series_key] = {
                     "legend_label": legend_label,
@@ -6446,7 +6643,7 @@ def _series_controls_for_selected_series(
             marker_size = int(float(saved_style.get("marker_size", default_style["marker_size"])))
         except (TypeError, ValueError):
             marker_size = int(default_style["marker_size"])
-        marker_size = max(1, min(marker_size, 24))
+        marker_size = max(0, min(marker_size, 24))
         line_style = str(saved_style.get("line_style", "solid" if saved_style else default_style["line_style"]))
         if line_style not in PLOTLY_LINE_STYLES:
             line_style = str(default_style["line_style"])
