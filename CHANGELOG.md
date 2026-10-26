@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Let saved plots be edited and provide plotted CSV data with a portable, beginner-friendly script to recreate the figure.
+- Let saved plots be edited and provide PNG, plotted CSV data, or a portable script and data from one download menu.
 - Allowed marker size 0 in plot controls to hide symbols while keeping the series lines.
 - Made the 2θ arrows change the angle by 0.1° and let focused number fields step with the mouse wheel.
 - Made decimal fields show the selected separator consistently while keeping precise input and arrow controls across the website.

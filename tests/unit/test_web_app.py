@@ -1789,7 +1789,9 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert b"square" in detail_response.data
     assert b"#ff0000" in detail_response.data
     assert b"Reference scan" in detail_response.data
-    assert b"Download plot PNG" in detail_response.data
+    assert b">Download</summary>" in detail_response.data
+    assert b">PNG</a>" in detail_response.data
+    assert b"Download plot PNG" not in detail_response.data
 
     repeat = client.post("/plots", data={"title": "Saved interactive plot", "run_ids": ["run-1", "run-2"], "orders_run-1": ["0"], "orders_run-2": ["2"]})
     assert repeat.status_code == 302
