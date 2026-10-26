@@ -3,11 +3,12 @@
 {% block body %}
 <section class="section-head">
   <div>
-  <h1>Manage plane-mirror runs</h1>
-    <p>Open a saved mirror or scan, or select mirrors to delete with their saved scans.</p>
+    <h1>Manage plane-mirror runs</h1>
+    <p>Review each saved scan, its settings, reflectivity preview, and mirror layer stack.</p>
   </div>
   <div class="actions">
     <a class="button primary" href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
+    <a class="button" href="{{ url_for('plane_mirror_index') }}">Manage plane mirrors</a>
   </div>
 </section>
 
@@ -19,41 +20,76 @@
   <form class="form" method="post" action="{{ url_for('plane_mirror_manage_update') }}">
     <div class="manage-actions">
       <button class="button danger" type="submit" data-confirm="Delete the selected plane mirrors and all their scans? This cannot be undone.">
-        Delete selected
+        Delete selected mirrors
       </button>
     </div>
-    <div class="list manage-record-list">
+    <div class="plane-mirror-run-groups">
       {% for mirror in mirrors %}
-        <article class="manage-record-card plane-mirror-record">
-          <div class="manage-record-content">
-            <div class="manage-record-heading">
-              <div>
-                <h2><a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">{{ mirror.name }}</a></h2>
-                {% if mirror.label %}<p class="subtle">{{ mirror.label }}</p>{% endif %}
-              </div>
-              <label class="inline-check manage-record-delete">
-                <input type="checkbox" name="delete_mirror_id" value="{{ mirror.id }}">
-                <span>Delete</span>
-              </label>
+        <section class="plane-mirror-run-group">
+          <header class="plane-mirror-run-group-heading">
+            <div>
+              <h2><a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">{{ mirror.name }}</a></h2>
+              <p class="subtle">{{ mirror.summary }}</p>
             </div>
-            <p class="manage-record-summary">{{ mirror.summary }}</p>
-            {% if mirror.scans %}
-              <div class="manage-scan-list" aria-label="Saved scans">
-                {% for scan in mirror.scans %}
-                  <a class="manage-scan-link" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">
-                    <strong>{{ scan.name }}</strong>{% if scan.label %}<span>{{ scan.label }}</span>{% endif %}
-                  </a>
-                {% endfor %}
-              </div>
-            {% else %}
-              <p class="subtle">No scans saved for this mirror.</p>
-            {% endif %}
-          </div>
-        </article>
+            <label class="inline-check manage-record-delete">
+              <input type="checkbox" name="delete_mirror_id" value="{{ mirror.id }}">
+              <span>Delete mirror</span>
+            </label>
+          </header>
+
+          {% if mirror.scans %}
+            <div class="plane-mirror-run-list">
+              {% for scan in mirror.scans %}
+                <article class="plane-mirror-run-row">
+                  <section class="plane-mirror-run-settings">
+                    <div class="plane-mirror-run-scan-heading">
+                      <h3>{{ scan.name }}</h3>
+                      <a class="button" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">Open scan</a>
+                    </div>
+                    {% if scan.label %}<p class="subtle">{{ scan.label }}</p>{% endif %}
+                    <h4>Scan parameters</h4>
+                    <dl class="plane-mirror-parameter-list">
+                      {% for label, value in scan.parameter_details %}
+                        <dt>{{ label }}</dt><dd>{{ value }}</dd>
+                      {% endfor %}
+                    </dl>
+                  </section>
+                  <div class="plane-mirror-run-previews">
+                    <section class="run-preview-panel">
+                      <h3>Scan preview</h3>
+                      <a href="{{ url_for('plane_mirror_scan_preview', mirror_id=mirror.id, scan_id=scan.id) }}" target="_blank" rel="noopener" aria-label="Open scan preview for {{ scan.name }}">
+                        <img
+                          src="{{ url_for('plane_mirror_scan_preview', mirror_id=mirror.id, scan_id=scan.id) }}"
+                          alt="Reflectivity preview for {{ scan.name }}"
+                          loading="lazy"
+                        >
+                      </a>
+                    </section>
+                    <section class="run-preview-panel">
+                      <h3>Layer stack</h3>
+                      <a href="{{ url_for('plane_mirror_saved_stack_preview', mirror_id=mirror.id) }}" target="_blank" rel="noopener" aria-label="Open layer stack for {{ mirror.name }}">
+                        <img
+                          src="{{ url_for('plane_mirror_saved_stack_preview', mirror_id=mirror.id) }}"
+                          alt="Layer stack for {{ mirror.name }}"
+                          loading="lazy"
+                        >
+                      </a>
+                    </section>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="empty">No scans saved for this mirror.</p>
+          {% endif %}
+        </section>
       {% endfor %}
     </div>
   </form>
 {% else %}
-  <p class="empty">No plane mirrors have been saved yet.</p>
+  <section class="empty-state">
+    <p class="empty">No plane mirrors have been saved yet.</p>
+    <a class="button primary" href="{{ url_for('plane_mirror_page') }}">Create a plane mirror</a>
+  </section>
 {% endif %}
 {% endblock %}

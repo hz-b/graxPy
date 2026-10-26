@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Kept the constant-deviation schematic static and moved the α label inside its angle marker.
+- Added reflectivity previews for saved scans on the plane-mirror runs page.
+- Separated plane-mirror stack management from saved scan management and added layer-stack previews to the mirror library.
+- Organized plane-mirror run cards with scan settings on the left and scan and layer-stack previews alongside.
+- Fixed saved layer-stack previews using the live preview endpoint instead of the image endpoint.
+- Placed each mirror name and summary beside its layer-stack preview in the mirror library.
+- Let the plane-mirror geometry panel scroll with the page instead of sticking in place.
+- Kept saved-run previews beside run details and removed unused space in expanded scan lists.
+- Restored plot previews in the saved-plots list.
+- Saved number format and standard polarization in the active database folder, reduced settings control widths, and clarified S (TE) / P (TM) labels in the web interface and generated plots.
 - Kept browser checks running automatically after a release version changes.
 
 ## 0.6.0

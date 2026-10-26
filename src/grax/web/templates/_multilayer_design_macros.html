@@ -15,9 +15,9 @@
   {% elif spec.kind == "select" %}
     <label>
       {{ spec.label }}
-      <select name="{{ spec.name }}">
+      <select name="{{ spec.name }}" {% if spec.name == 'polarization' and not editing %}data-standard-polarization-target{% endif %}>
         {% for choice in spec.choices %}
-          <option value="{{ choice }}" {% if value|string == choice %}selected{% endif %}>{{ choice }}</option>
+          <option value="{{ choice }}" {% if value|string == choice %}selected{% endif %}>{% if spec.name == 'polarization' and choice == 's' %}S (TE){% elif spec.name == 'polarization' and choice == 'p' %}P (TM){% else %}{{ choice }}{% endif %}</option>
         {% endfor %}
       </select>
     </label>

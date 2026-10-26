@@ -224,6 +224,7 @@ def create_app(*, data_dir: str | Path | None = None):
             redirect,
             render_template,
             request,
+            send_file,
             send_from_directory,
             url_for,
         )
@@ -261,6 +262,24 @@ def create_app(*, data_dir: str | Path | None = None):
     def active_data_dir() -> Path:
         return Path(app.config["GRAx_DATA_DIR"]).resolve()
 
+    def load_user_settings() -> dict[str, Any]:
+        settings_path = active_data_dir() / "settings.json"
+        try:
+            with settings_path.open("r", encoding="utf-8") as handle:
+                stored = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            stored = {}
+        if not isinstance(stored, dict):
+            stored = {}
+        decimal_separator = stored.get("decimal_separator")
+        standard_polarization = stored.get("standard_polarization")
+        saved = decimal_separator in {"dot", "comma"} and standard_polarization in {"s", "p"}
+        return {
+            "decimal_separator": decimal_separator if decimal_separator in {"dot", "comma"} else "dot",
+            "standard_polarization": standard_polarization if standard_polarization in {"s", "p"} else "p",
+            "saved": saved,
+        }
+
     def afm_request_bytes() -> tuple[bytes, str]:
         upload = request.files.get("afm_file")
         if upload is not None and upload.filename:
@@ -275,9 +294,35 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.context_processor
     def inject_site_metadata() -> dict[str, Any]:
-        """Inject shared site attribution metadata into templates."""
+        """Inject shared site attribution and saved user settings into templates."""
 
-        return {"site_metadata": _site_metadata()}
+        return {"site_metadata": _site_metadata(), "app_settings": load_user_settings()}
+
+    @app.post("/settings")
+    def update_user_settings():
+        """Persist display preferences beside the active database."""
+
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            abort(400, "Settings must be sent as a JSON object.")
+        decimal_separator = payload.get("decimal_separator")
+        standard_polarization = payload.get("standard_polarization")
+        if decimal_separator not in {"dot", "comma"}:
+            abort(400, "Decimal separator must be dot or comma.")
+        if standard_polarization not in {"s", "p"}:
+            abort(400, "Standard polarization must be s or p.")
+        settings_path = active_data_dir() / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = settings_path.with_suffix(".json.tmp")
+        temporary_path.write_text(
+            json.dumps({
+                "decimal_separator": decimal_separator,
+                "standard_polarization": standard_polarization,
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.replace(settings_path)
+        return jsonify({"saved": True})
 
     @app.get("/")
     def index():
@@ -1213,7 +1258,17 @@ def create_app(*, data_dir: str | Path | None = None):
 
     @app.get("/plots")
     def plot_index():
-        plots = _list_plots(active_data_dir() / "plots")
+        data_dir = active_data_dir()
+        plots = _list_plots(data_dir / "plots")
+        for plot in plots:
+            plot_path = plot.get("plot_path")
+            if plot_path:
+                image_path = data_dir / "plots" / str(plot["id"]) / str(plot_path)
+                if image_path.is_file():
+                    plot["preview_url"] = url_for(
+                        "data_file",
+                        filename=f"plots/{plot['id']}/{plot_path}",
+                    )
         return render_template("plot_list.html", plots=plots)
 
     @app.get("/plots/new")
@@ -1654,9 +1709,52 @@ def create_app(*, data_dir: str | Path | None = None):
     def plane_mirror_index():
         mirrors = [{**spec, "summary": plane_mirror_summary(spec)} for spec in plane_mirror_store().list()]
         return render_template(
+            "plane_mirror_library.html",
+            mirrors=mirrors,
+            message=str(request.args.get("message", "")).strip(),
+        )
+
+    @app.get("/plane-mirror-runs")
+    def plane_mirror_runs():
+        mirrors = []
+        for spec in plane_mirror_store().list():
+            mirror = {**spec, "summary": plane_mirror_summary(spec)}
+            mirror["scans"] = [
+                {
+                    **scan,
+                    "parameter_details": _plane_mirror_scan_parameter_details(scan.get("form", {})),
+                }
+                for scan in spec.get("scans", [])
+            ]
+            mirrors.append(mirror)
+        return render_template(
             "plane_mirror_manage.html",
             mirrors=mirrors,
             message=str(request.args.get("message", "")).strip(),
+        )
+
+    @app.get("/plane-mirrors/<mirror_id>/stack-preview.png")
+    def plane_mirror_saved_stack_preview(mirror_id: str):
+        import base64
+        from werkzeug.datastructures import MultiDict
+
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        form = MultiDict()
+        for key, value in mirror.get("stack_form", {}).items():
+            if isinstance(value, list):
+                for item in value:
+                    form.add(key, item)
+            else:
+                form.add(key, value)
+        try:
+            data_uri = stack_schematic_data_uri(_plane_mirror_stack(form))
+        except (KeyError, TypeError, ValueError):
+            abort(404)
+        encoded = data_uri.partition(",")[2]
+        return Response(
+            base64.b64decode(encoded),
+            mimetype="image/png",
+            headers={"Cache-Control": "public, max-age=300"},
         )
 
     @app.post("/plane-mirrors")
@@ -1696,6 +1794,67 @@ def create_app(*, data_dir: str | Path | None = None):
     def plane_mirror_detail(mirror_id: str):
         mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
         return render_plane_mirror_page(mirror, request.args.get("scan"))
+
+    @app.get("/plane-mirrors/<mirror_id>/scans/<scan_id>/preview.png")
+    def plane_mirror_scan_preview(mirror_id: str, scan_id: str):
+        from werkzeug.datastructures import MultiDict
+
+        mirror = _load_plane_mirror(plane_mirror_store(), mirror_id)
+        scan = next((item for item in mirror.get("scans", []) if item.get("id") == scan_id), None)
+        if scan is None:
+            abort(404)
+
+        stack_form = mirror.get("stack_form", {})
+        form_values = _plane_mirror_page_defaults(stack_form, scan.get("form", {}))
+        # Keep thumbnails responsive even when the saved scan has a dense grid.
+        for field_name, limit in (
+            ("energy_points", 240),
+            ("angle_points", 240),
+            ("map_energy_points", 100),
+            ("map_angle_points", 100),
+        ):
+            try:
+                form_values[field_name] = str(min(int(form_values[field_name]), limit))
+            except (KeyError, TypeError, ValueError):
+                pass
+
+        form = MultiDict()
+        for key, value in form_values.items():
+            form.add(key, value)
+        for key, values in stack_form.items():
+            if key.startswith("cl_") and isinstance(values, list):
+                for value in values:
+                    form.add(key, value)
+
+        try:
+            result = _plane_mirror_result(form)
+        except (KeyError, TypeError, ValueError):
+            abort(404)
+
+        figure, axis = plt.subplots(figsize=(4.2, 2.2), dpi=110)
+        if result["mode"] == "map":
+            axis.pcolormesh(
+                result["x"], result["y"], result["z"], shading="auto",
+                cmap="viridis", vmin=0, vmax=1,
+            )
+            axis.set_xlabel("Photon energy (eV)")
+            axis.set_ylabel("Grazing angle (deg)")
+        else:
+            axis.plot(result["x"], result["reflectivity"], linewidth=1.4, label="Reflectivity")
+            if result["graded"] is not None:
+                axis.plot(result["x"], result["graded"], linewidth=1.2, label="Footprint average")
+                axis.legend(fontsize=7, frameon=False)
+            axis.set_xlabel(result["x_label"])
+            axis.set_ylabel("Reflectivity")
+            axis.set_ylim(0, 1)
+        axis.set_title(scan.get("name", "Saved scan"), fontsize=9)
+        axis.grid(True, alpha=0.2, linewidth=0.5)
+        figure.tight_layout(pad=1.1)
+        image = io.BytesIO()
+        figure.savefig(image, format="png", facecolor="white")
+        plt.close(figure)
+        image.seek(0)
+        return send_file(image, mimetype="image/png", max_age=300)
 
     @app.post("/plane-mirrors/<mirror_id>")
     def plane_mirror_update(mirror_id: str):
@@ -2217,6 +2376,42 @@ def _custom_layer_rows(stack_form: dict[str, Any]) -> list[dict[str, str]]:
 def _plane_mirror_result(form: Any) -> dict[str, Any]:
     """Validate the plane-mirror form and compute its reflectivity curves."""
     return compute_plane_mirror(_plane_mirror_stack(form), parse_plane_mirror_options(form))
+
+
+def _plane_mirror_scan_parameter_details(scan_form: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return the saved scan settings in a concise, readable list."""
+
+    values = {**PLANE_MIRROR_DEFAULTS, **scan_form}
+    mode = str(values.get("scan_mode", "energy"))
+    mode_labels = {
+        "energy": "Energy scan at fixed grazing angle",
+        "angle": "Angle scan at fixed photon energy",
+        "map": "Angle vs energy map",
+    }
+    details = [("Scan", mode_labels.get(mode, mode))]
+    if mode in {"energy", "map"}:
+        points_key = "map_energy_points" if mode == "map" else "energy_points"
+        details.append(("Photon energy", f"{values['energy_min']}–{values['energy_max']} eV · {values[points_key]} points"))
+    if mode == "energy":
+        details.append(("Grazing angle", f"{values['fixed_angle_deg']}°"))
+    if mode in {"angle", "map"}:
+        points_key = "map_angle_points" if mode == "map" else "angle_points"
+        details.append(("Grazing angle", f"{values['angle_min']}–{values['angle_max']}° · {values[points_key]} points"))
+    if mode == "angle":
+        details.append(("Photon energy", f"{values['fixed_energy_ev']} eV"))
+    polarization = str(values.get("polarization", "p")).lower()
+    details.append(("Polarization", _polarization_display_label(polarization)))
+    details.append(("Roughness", f"{values['roughness_sigma_nm']} nm"))
+    grading = str(values.get("grading_mode", "none"))
+    if grading == "linear":
+        details.append(("Lateral grading", f"Linear · {values['grading_percent_per_mm']} %/mm"))
+    elif grading == "polynomial":
+        details.append(("Lateral grading", f"Polynomial · {values['grading_coefficients']}"))
+    else:
+        details.append(("Lateral grading", "None"))
+    if grading != "none":
+        details.append(("Footprint", f"{values['footprint_length_mm']} mm · {values['footprint_points']} positions"))
+    return details
 
 
 def _plane_mirror_stack(form: Any) -> Any:
@@ -5181,8 +5376,21 @@ def _run_parameter_details(run: dict[str, Any]) -> list[tuple[str, str]]:
             continue
         if isinstance(value, (dict, list)):
             value = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        if key == "polarization":
+            value = _polarization_display_label(value)
         details.append((labels.get(key, key.replace("_", " ").capitalize()), str(value)))
     return details
+
+
+def _polarization_display_label(value: Any) -> str:
+    """Return the conventional S/TE or P/TM label for a stored code."""
+
+    code = str(value).strip().lower()
+    if code in {"s", "te"}:
+        return "S (TE)"
+    if code in {"p", "tm"}:
+        return "P (TM)"
+    return str(value)
 
 
 def _run_comparison_parameter_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -5262,6 +5470,8 @@ def _run_comparison_parameter_rows(runs: list[dict[str, Any]]) -> list[dict[str,
         for key, value in source.items():
             if key == "comment":
                 continue
+            if key == "polarization":
+                value = _polarization_display_label(value)
             label = field_labels.get(key, key.replace("_", " ").capitalize())
             add_value(values, label, value)
 

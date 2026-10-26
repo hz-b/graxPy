@@ -1,11 +1,53 @@
 const DECIMAL_SEPARATOR_KEY = "grax:decimal-separator";
+const STANDARD_POLARIZATION_KEY = "grax:standard-polarization";
 function decimalSeparator() {
+  const settings = document.documentElement.dataset;
+  if (settings.settingsSaved === "true" && ["dot", "comma"].includes(settings.decimalSeparator)) {
+    return settings.decimalSeparator;
+  }
   try { return localStorage.getItem(DECIMAL_SEPARATOR_KEY) === "comma" ? "comma" : "dot"; }
   catch { return "dot"; }
 }
 function parseDecimal(value) { return Number(String(value).trim().replace(",", ".")); }
 function displayDecimal(value) { return decimalSeparator() === "comma" ? String(value).replace(".", ",") : String(value); }
 function applyDecimalLanguage() { document.documentElement.lang = decimalSeparator() === "comma" ? "de-DE" : "en"; }
+function standardPolarization() {
+  const settings = document.documentElement.dataset;
+  if (settings.settingsSaved === "true" && ["s", "p"].includes(settings.standardPolarization)) {
+    return settings.standardPolarization;
+  }
+  try { return localStorage.getItem(STANDARD_POLARIZATION_KEY) === "s" ? "s" : "p"; }
+  catch { return "p"; }
+}
+function polarizationLabel(value) {
+  if (value === "s") return "S (TE)";
+  if (value === "p") return "P (TM)";
+  return value;
+}
+async function persistUserSettings() {
+  const root = document.documentElement;
+  const values = {
+    decimal_separator: decimalSeparator(),
+    standard_polarization: standardPolarization(),
+  };
+  try {
+    const response = await fetch(document.body.dataset.settingsUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(values),
+    });
+    if (!response.ok) throw new Error("Settings could not be saved.");
+    root.dataset.decimalSeparator = values.decimal_separator;
+    root.dataset.standardPolarization = values.standard_polarization;
+    root.dataset.settingsSaved = "true";
+  } catch { /* Keep the browser-local copy if the database folder is unavailable. */ }
+}
+function applyStandardPolarization() {
+  const polarization = standardPolarization();
+  document.querySelectorAll("select[data-standard-polarization-target]").forEach((select) => {
+    if ([...select.options].some((option) => option.value === polarization)) select.value = polarization;
+  });
+}
 // Some Chromium builds ignore the page language for number-field keyboard input.
 document.addEventListener("keydown", (event) => {
   if (decimalSeparator() !== "comma" || event.key !== "," || !event.target.matches?.('input[type="number"]')) return;
@@ -34,8 +76,23 @@ function initDecimalSeparator() {
   picker.value = decimalSeparator();
   picker.addEventListener("change", () => {
     try { localStorage.setItem(DECIMAL_SEPARATOR_KEY, picker.value); } catch { /* Storage may be disabled. */ }
+    document.documentElement.dataset.decimalSeparator = picker.value;
     applyDecimalLanguage();
+    persistUserSettings();
   });
+}
+function initStandardPolarization() {
+  const picker = document.querySelector("[data-standard-polarization]");
+  if (picker) {
+    picker.value = standardPolarization();
+    picker.addEventListener("change", () => {
+      try { localStorage.setItem(STANDARD_POLARIZATION_KEY, picker.value); } catch { /* Storage may be disabled. */ }
+      document.documentElement.dataset.standardPolarization = picker.value;
+      applyStandardPolarization();
+      persistUserSettings();
+    });
+  }
+  applyStandardPolarization();
 }
 
 function toggleSectionFields(section, enabled) {
@@ -1542,8 +1599,8 @@ function initCustomGridBuilder(root) {
     function syncMaterials() {
       const item = descriptor(parameter.value);
       const isMaterial = item?.kind === "material";
-      textarea.placeholder = isMaterial ? "None, Au, Pt (None means no coating)" : item?.id === "polarization" ? "s (TE), p (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
-      valuesHint.textContent = isMaterial ? "Example: None, Au, Pt. None means no coating." : item?.id === "polarization" ? "Enter s for TE and p for TM; for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
+      textarea.placeholder = isMaterial ? "None, Au, Pt (None means no coating)" : item?.id === "polarization" ? "S (TE), P (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
+      valuesHint.textContent = isMaterial ? "Example: None, Au, Pt. None means no coating." : item?.id === "polarization" ? "Enter s for S (TE) and p for P (TM); for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
       materials.classList.toggle("is-hidden", !isMaterial);
       if (isMaterial) {
         const names = splitValues(textarea.value);
@@ -1706,7 +1763,10 @@ function initCustomGridBuilder(root) {
             const field = document.createElement(item?.choices?.length ? "select" : "input");
             if (item?.choices?.length) {
               field.append(new Option("Choose a value", ""));
-              item.choices.forEach((choice) => field.append(new Option(choice, choice)));
+              item.choices.forEach((choice) => field.append(new Option(
+                item.id === "polarization" ? polarizationLabel(choice) : choice,
+                choice,
+              )));
             } else {
               field.type = "text";
               if (["float", "int", "optional_float"].includes(item?.kind)) field.inputMode = "decimal";
@@ -2018,6 +2078,8 @@ function initNavigationDropdowns() {
 document.addEventListener("DOMContentLoaded", () => {
   initNavigationDropdowns();
   initDecimalSeparator();
+  initStandardPolarization();
+  if (document.documentElement.dataset.settingsSaved !== "true") persistUserSettings();
 });
 
 document.addEventListener("DOMContentLoaded", () => {

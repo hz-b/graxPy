@@ -28,17 +28,6 @@
   </p>
 </section>
 
-<section class="home-database" aria-labelledby="decimal-separator-heading">
-  <h2 id="decimal-separator-heading">Number format</h2>
-  <label>Decimal separator
-    <select data-decimal-separator>
-      <option value="dot">Dot (4.5)</option>
-      <option value="comma">Comma (4,5)</option>
-    </select>
-  </label>
-  <p class="subtle">This choice is remembered in this browser.</p>
-</section>
-
 <section class="home-database">
   <h1>Database folder</h1>
   <div class="home-database-form">
@@ -49,6 +38,29 @@
     <form method="post" action="{{ url_for('pick_workspace') }}">
       <button class="button primary" type="submit">Choose folder…</button>
     </form>
+  </div>
+</section>
+
+<section class="home-database" aria-labelledby="settings-heading">
+  <h2 id="settings-heading">Settings</h2>
+  <div class="home-database-form home-settings-form">
+    <div>
+      <label>Decimal separator
+        <select data-decimal-separator>
+          <option value="dot">Dot (4.5)</option>
+          <option value="comma">Comma (4,5)</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <label>Standard polarization
+        <select data-standard-polarization>
+          <option value="s">S (TE)</option>
+          <option value="p">P (TM)</option>
+        </select>
+      </label>
+      <p class="subtle">Used as the initial polarization for new simulations.</p>
+    </div>
   </div>
 </section>
 

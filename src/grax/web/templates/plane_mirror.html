@@ -13,7 +13,7 @@
   </div>
 </section>
 
-<section class="preview-panel">
+<section class="preview-panel plane-mirror-geometry">
   <div class="section-head preview-head">
     <div>
       <h2>Geometry</h2>
@@ -133,10 +133,10 @@
     <label data-scan-field="energy">Fixed grazing angle, deg <input name="fixed_angle_deg" type="number" step="any" value="{{ defaults.fixed_angle_deg }}"></label>
     <label data-scan-field="angle">Fixed energy, eV <input name="fixed_energy_ev" type="number" step="any" value="{{ defaults.fixed_energy_ev }}"></label>
     <label>Polarization
-      <select name="polarization">
-        <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>s</option>
-        <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>p</option>
-        <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average of s and p</option>
+      <select name="polarization" {% if not mirror %}data-standard-polarization-target{% endif %}>
+        <option value="s" {% if defaults.polarization == "s" %}selected{% endif %}>S (TE)</option>
+        <option value="p" {% if defaults.polarization == "p" %}selected{% endif %}>P (TM)</option>
+        <option value="average" {% if defaults.polarization == "average" %}selected{% endif %}>Average of S (TE) and P (TM)</option>
       </select>
     </label>
     <label>Default interface roughness &sigma;, nm <input name="roughness_sigma_nm" type="number" step="0.01" min="0" value="{{ defaults.roughness_sigma_nm }}"></label>
