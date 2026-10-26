@@ -1166,8 +1166,8 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
     assert b'name="polarization"' in response.data
-    assert b'<option value="s">s (TE)</option>' in response.data
-    assert response.data.count(b'<option value="p" selected>p (TM)</option>') == 2
+    assert b'<option value="s">S (TE)</option>' in response.data
+    assert response.data.count(b'<option value="p" selected>P (TM)</option>') == 2
     assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
     assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
     assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
@@ -3375,7 +3375,7 @@ def test_run_form_rejects_an_unknown_solver(tmp_path: Path) -> None:
         _normalized_solver("differential")
 
 
-def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_path: Path) -> None:
+def test_geometry_views_are_present_on_grating_and_multilayer_pages(tmp_path: Path) -> None:
     pytest.importorskip("flask")
     from grax.web.app import create_app
 
@@ -3387,8 +3387,9 @@ def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_p
     assert 'data-geometry-kind="grating"' in grating
     assert 'data-geometry-bind="[data-afm-process-form], [data-grating-preview-form]"' in grating
     assert 'data-geometry-nominal-type="laminar"' in grating
-    assert 'data-geometry-kind="mirror"' in mirror
-    assert 'data-geometry-bind="[data-plane-mirror-form]"' in mirror
+    # Mirror creation previews its layer stack; the geometry schematic belongs to its scan workflow.
+    assert 'data-plane-mirror-stack-image' in mirror
+    assert 'data-geometry-kind="mirror"' not in mirror
     assert 'data-geometry-bind="closest"' in design
     assert "geometry.js" in grating
     assert "Beams" not in grating  # controls are created safely by the deferred script
@@ -3402,4 +3403,4 @@ def test_geometry_static_script_and_switch_hooks_are_available() -> None:
     assert "focusin" in geometry
     assert "profilePoints" in geometry
     assert 'mount.workflow === "constant_deviation"' in geometry
-    assert "2θ = ${fmt(mount.totalDeviationDeg)}° (fixed)" in geometry
+    assert 'label(hx, hy - 100, "2θ"' in geometry

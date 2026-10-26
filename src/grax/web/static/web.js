@@ -71,7 +71,7 @@ document.addEventListener("input", (event) => {
 }, true);
 function initDecimalSeparator() {
   applyDecimalLanguage();
-  const picker = document.querySelector("[data-decimal-separator]");
+  const picker = document.querySelector("select[data-decimal-separator]");
   if (!picker) return;
   picker.value = decimalSeparator();
   picker.addEventListener("change", () => {
@@ -82,7 +82,7 @@ function initDecimalSeparator() {
   });
 }
 function initStandardPolarization() {
-  const picker = document.querySelector("[data-standard-polarization]");
+  const picker = document.querySelector("select[data-standard-polarization]");
   if (picker) {
     picker.value = standardPolarization();
     picker.addEventListener("change", () => {

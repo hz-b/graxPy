@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added plane-mirror reflectivity runs to saved plot comparisons, including parameter loops without diffraction-order controls.
+- Fixed browser setting controls so saved preferences persist.
 - Kept the constant-deviation schematic static and moved the α label inside its angle marker.
 - Added reflectivity previews for saved scans on the plane-mirror runs page.
 - Separated plane-mirror stack management from saved scan management and added layer-stack previews to the mirror library.
