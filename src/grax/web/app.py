@@ -361,6 +361,17 @@ def create_app(*, data_dir: str | Path | None = None):
             workspace_root=active_data_dir(),
         )
 
+    @app.get("/docs/<topic>")
+    def web_docs_topic(topic: str):
+        templates = {
+            "gratings": "web_docs_gratings.html",
+            "plane-mirrors": "web_docs_plane_mirrors.html",
+            "multilayer-gratings": "web_docs_multilayer_gratings.html",
+        }
+        if topic not in templates:
+            abort(404)
+        return render_template(templates[topic])
+
     @app.post("/workspace/pick")
     def pick_workspace():
         if _has_active_runs(app):

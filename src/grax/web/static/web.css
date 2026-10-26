@@ -500,6 +500,26 @@ p {
   margin-top: 14px;
 }
 
+.docs-hero { align-items: center; }
+.docs-hero p { max-width: 72ch; }
+.docs-eyebrow { margin: 0 0 6px; color: var(--muted); font-size: .85rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.docs-back { display: inline-block; margin-bottom: 14px; }
+.docs-guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 28px; }
+.docs-guide-card { display: flex; flex-direction: column; gap: 8px; padding: 22px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); text-decoration: none; }
+.docs-guide-card:hover, .docs-guide-card:focus-visible { border-color: var(--brand-lime); box-shadow: 0 8px 24px rgba(9, 53, 102, .1); }
+.docs-guide-card h2 { margin: 0; color: var(--accent-dark); }
+.docs-guide-card p { margin: 0; flex: 1; }
+.docs-card-number { color: var(--muted); font-weight: 700; }
+.docs-card-link { color: var(--accent-dark); font-weight: 700; }
+.docs-steps { max-width: 86ch; }
+.docs-steps li { margin-bottom: 12px; }
+.docs-shot { max-width: 1080px; margin: 22px 0; }
+.docs-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.docs-shot figcaption { margin-top: 8px; color: var(--muted); font-size: .9rem; }
+.docs-next { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin: 28px 0; }
+.docs-next a { font-weight: 700; }
+@media (max-width: 760px) { .docs-guide-grid { grid-template-columns: 1fr; } .docs-hero { align-items: start; flex-direction: column; } }
+
 .grid.two {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.5fr);
@@ -1906,6 +1926,11 @@ td {
 
   .brand-lockup {
     gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .version-badge {
+    font-size: 1rem;
   }
 
   .brand-divider {

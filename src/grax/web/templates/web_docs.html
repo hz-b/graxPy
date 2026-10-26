@@ -1,242 +1,43 @@
 {% extends "base.html" %}
-{% block title %}Web UI Documentation{% endblock %}
+{% block title %}Web docs{% endblock %}
 {% block body %}
-<section class="section-head">
+<section class="section-head docs-hero">
   <div>
-    <h1>Web UI Documentation</h1>
-    <p>Everything you need to create gratings, run simulations, and plot results inside Grax Web.</p>
-  </div>
-  <div class="actions">
-    <a class="button" href="{{ url_for('index') }}">Back to home</a>
-    <a class="button primary" href="{{ url_for('new_grating') }}">Create grating</a>
+    <p class="docs-eyebrow">GraxPy web guide</p>
+    <h1>From a model to a result</h1>
+    <p>You know the optics. This guide shows where to create a model, run a calculation, and find its results in the website.</p>
   </div>
 </section>
 
-<section class="notice">
-  <p>
-    The active workspace root is <code>{{ workspace_root }}</code>. By default, Grax Web stores data in
-    <code>.grax-web/</code> in the current working directory unless you switch the workspace from the home page.
-  </p>
-  <div class="docs-toc">
-    <a class="button" href="#storage">Storage</a>
-    <a class="button" href="#materials">Materials</a>
-    <a class="button" href="#gratings">Gratings</a>
-    <a class="button" href="#simulations">Simulations</a>
-    <a class="button" href="#parameter-energy-scans">Parameter energy scans</a>
-    <a class="button" href="#multilayer-design">Multilayer design</a>
-    <a class="button" href="#plane-mirror">Plane mirror</a>
-    <a class="button" href="#plots">Plots</a>
-    <a class="button" href="#export">Export</a>
-    <a class="button" href="#modify">Modify later</a>
-  </div>
+<section class="docs-guide-grid" aria-label="Choose a workflow">
+  <a class="docs-guide-card" href="{{ url_for('web_docs_topic', topic='gratings') }}">
+    <span class="docs-card-number">01</span><h2>Gratings</h2>
+    <p>Define an etched profile and coating, then run energy, angle, or mount scans.</p>
+    <span class="docs-card-link">Open grating guide →</span>
+  </a>
+  <a class="docs-guide-card" href="{{ url_for('web_docs_topic', topic='plane-mirrors') }}">
+    <span class="docs-card-number">02</span><h2>Plane mirrors</h2>
+    <p>Build a layer stack, preview reflectivity, and save a scan.</p>
+    <span class="docs-card-link">Open plane-mirror guide →</span>
+  </a>
+  <a class="docs-guide-card" href="{{ url_for('web_docs_topic', topic='multilayer-gratings') }}">
+    <span class="docs-card-number">03</span><h2>Multilayer gratings</h2>
+    <p>Survey d-spacing and blaze angle, then scan selected designs over energy.</p>
+    <span class="docs-card-link">Open multilayer guide →</span>
+  </a>
 </section>
 
-<section class="docs-section" id="storage">
-  <h2>Where data is saved</h2>
-  <p>
-    Grax Web keeps all local state under the active workspace directory. The default workspace is
-    <code>.grax-web/</code> next to where you launch <code>grax-web</code>.
-  </p>
-  <div class="list compact">
-    <div class="row"><strong><code>saved_gratings/</code></strong><span>One JSON file per saved grating spec.</span></div>
-    <div class="row"><strong><code>runs/</code></strong><span>One run directory per simulation, with manifests and CSV outputs.</span></div>
-    <div class="row"><strong><code>plots/</code></strong><span>Saved comparison plots and their manifests.</span></div>
-    <div class="row"><strong><code>previews/</code></strong><span>Temporary and live preview images shown in the browser.</span></div>
-  </div>
-  <p>
-    Choose <strong>Choose folder…</strong> on the home page to set a different local data folder. The app reads and
-    writes future gratings, runs, and plots there.
-  </p>
-</section>
-
-<section class="docs-section" id="materials">
-  <h2>Materials</h2>
-  <p>
-    The grating form uses the same packaged Henke material list that the Python API uses. Pick a material from the
-    dropdown. The density field is prefilled with the built-in default for that element, and you can type a measured
-    density when your sample is a film, porous layer, or otherwise not bulk-like.
-  </p>
-  <p>
-    xrt-style material objects still work for compatibility during the transition, but Grax will warn that this path is
-    deprecated and will be removed in a future release. For new work, prefer the string material name plus an optional
-    density override.
-  </p>
-</section>
-
-<section class="docs-section" id="gratings">
-  <h2>Create and save gratings</h2>
-  <ol>
-    <li>Open <strong>New grating</strong> from the top bar or the home page.</li>
-    <li>Choose the grating type, period, numerical resolutions, and profile-specific parameters.</li>
-    <li>Select the coating stack type and pick materials from the built-in material catalog.</li>
-    <li>Use the live preview panel to confirm the shape before saving.</li>
-    <li>Save the grating to store it in <code>saved_gratings/&lt;grating-id&gt;.json</code>.</li>
+<section class="docs-section">
+  <h2>How the website is organized</h2>
+  <ol class="docs-steps">
+    <li><strong>Choose a workspace.</strong> The home page shows the active data folder. Use <strong>Choose folder…</strong> there to work in another local folder. Saved models, runs, and plots belong to that folder.</li>
+    <li><strong>Create and save a model.</strong> Start from the Gratings, Plane mirrors, or Multilayer grating menu. Saving a grating or mirror gives you a page where you can set up a run.</li>
+    <li><strong>Run and review.</strong> A run page shows progress and results. Use the matching <strong>Manage runs</strong> page to find it again.</li>
+    <li><strong>Compare and download.</strong> Open <strong>Plots → New plot</strong> to combine saved runs. On a saved plot, <strong>Edit plot</strong> changes its settings, and <strong>Download</strong> offers PNG, plotted CSV data, or data with a Python plotting script.</li>
   </ol>
-  <p>
-    After saving, the grating detail page lets you edit the profile, review the preview image, or delete the grating.
-    Saved gratings are the starting point for simulations. The saved JSON now stores each material as a name plus
-    density pair so the same sample can be reconstructed later.
-  </p>
 </section>
-
-<section class="docs-section" id="simulations">
-  <h2>Run simulations</h2>
-  <ol>
-    <li>Open a saved grating from the home page.</li>
-    <li>Pick Energy sweep, Angle sweep, Monochromator, Multilayer theta search, Parameter study, or Custom grid.</li>
-    <li>Enter the energy range, diffraction order, Fourier orders, polarization (S (TE) or P (TM)), and any workflow-specific values.</li>
-    <li>
-      Pick the solver. <strong>RCWA</strong> is the default modal solver, inspired
-      by RETICOLO. <strong>Nevi&egrave;re</strong> is the differential method. Both
-      paths share the same grating and workflow inputs but propagate through the
-      grating differently; the saved run records which one produced it. Nevi&egrave;re
-      stays stable on gratings far deeper than modal RCWA can handle.
-    </li>
-    <li>Add an optional run comment if you want the saved run to carry a note or experiment tag.</li>
-    <li>Choose the worker mode if you want auto or manual multiprocessing.</li>
-    <li>Run the sweep and follow the progress page while the simulation writes results.</li>
-  </ol>
-  <p>
-    Each run gets its own directory under <code>runs/&lt;run-id&gt;/</code>. The manifest records the workflow, grating
-    metadata, selected orders, comment, and progress state. The run directory also stores the result CSV files and
-    generated preview images for that run.
-  </p>
-</section>
-
-<section class="docs-section" id="parameter-energy-scans">
-  <h2>Energy and angle scans</h2>
-  <p><strong>Energy sweep</strong> scans photon energy while keeping grazing incidence angle fixed. <strong>Angle sweep</strong> scans grazing angle at one selected energy. <strong>Monochromator</strong> scans energy at constant CFF and solves incidence geometry at every energy using the line density of the current grating combination.</p>
-  <p>Energy sweep and Angle sweep support independent parameters and coupled parameter rows. Two duty cycles and two coating materials produce four scan sets. Each set covers the full energy or angle range for its workflow. Monochromator scans the energy range for every configured variation combination. Coupling depth to duty cycle pairs the values row by row; it does not form another Cartesian axis. Parameters omitted from the variations keep their saved or shared simulation values.</p>
-  <p>The run page updates a live plot as points finish. Parameter combinations appear as separate curves; Angle sweep uses grazing angle on the horizontal axis, while Energy sweep and Monochromator use energy. The plot remains available after completion or abort.</p>
-  <p>Numerical ranges show both a point count and a step size. Edit either field to update the other. A requested step is adjusted to the nearest point count that includes both bounds: 100–110 eV with a requested step of 3 eV becomes four points at 3⅓ eV spacing. A single-point range has equal bounds and zero spacing. Integer ranges still show the actual rounded values. A coupled range keeps the source row count; editing its step changes the dependent endpoint.</p>
-  <p>One grouped run stores every combination, its resolved grating snapshot, and the selected energy or angle grid. Manage grating runs expands into per-scan settings and progress. An interrupted run can resume its unfinished points from its checkpoints.</p>
-  <p><strong>Export scan tables</strong> downloads a ZIP of CSV and/or tab-separated DAT files plus YAML metadata. Each table fixes the other parameter axes and contains energy, or grazing angle for an Angle sweep, in the first column, followed by the efficiencies for each value of the selected axis. Missing values are <code>NaN</code>. For duty cycle × coating material, selecting both axes exports a duty-cycle table for each material and a material table for each duty cycle. The existing complete result export remains available.</p>
-  <p>When adding a grouped run to Plots, select its individual scans as well as diffraction orders. The saved plot preserves each scan's identity and styling. The older Custom grid workflow and its saved data remain available.</p>
-</section>
-
-<section class="docs-section" id="geometry-sketch">
-  <h2>Geometry sketches</h2>
-  <p>Grating and plane-mirror pages include a schematic side-on view with switchable <strong>Beams</strong>, <strong>Angles</strong>, and <strong>Lengths</strong> indicators. The drawing follows editable fields, highlights the focused dimension, and keeps actual numerical values in labels; geometry is intentionally schematic rather than to scale.</p>
-</section>
-
-<section class="docs-section" id="multilayer-design">
-  <h2>Multilayer grating design</h2>
-  <p>
-    The <a href="{{ url_for('multilayer_design_index') }}">Multilayer design</a> tab sizes a
-    periodic multilayer coating for a blazed grating in two steps that share one configuration.
-    The incident angle is not an input: every cell gets its own theta search, and the angle that
-    search settles on is what the efficiency is reported at.
-  </p>
-  <ol>
-    <li>
-      <strong>Survey.</strong> Scans a d-spacing × blaze-angle grid, running one single-energy
-      multilayer theta search per cell. It produces three plots: optimal blaze angle vs
-      d-spacing, max efficiency vs d-spacing, and the full <code>(d, blaze)</code> efficiency
-      heatmap with the optimal-blaze ridge overlaid.
-    </li>
-    <li>
-      <strong>Energy scan.</strong> Sweeps the designs you pick over an energy range. Choose
-      <em>Scan best</em> (the survey's single highest-efficiency cell), <em>Scan all d</em>
-      (the optimal blaze at every d-spacing), or <em>Choose manually</em> to build a list of
-      <code>(d, blaze)</code> cases from dropdowns. Two or more designs also get an overlay
-      comparison plot.
-    </li>
-  </ol>
-  <p>
-    Tick <em>scan the best design over energy automatically</em> when creating the study to chain
-    step 2 straight off the survey — the plots render as soon as the survey lands and the scan
-    starts underneath them. Either stage runs in the background with a live progress bar and can
-    be aborted at any point — aborting stops the running solves immediately and offers to keep or
-    discard the partial results; what was kept is resumed on the next run. <em>Edit parameters</em>
-    on a study reopens the same form with its stored values: saving a change that a finished stage
-    depended on marks that stage <em>stale</em> rather than deleting anything.
-    <em>Download script</em> writes the study out as a single standalone Python file -- the
-    parameters as named constants, then both stages behind <code>--survey</code> /
-    <code>--energy-scan</code> flags (plus <code>--best</code>, <code>--pairs</code> and
-    <code>--eval</code>) -- to run on a cluster or another machine with only grax installed.
-    Re-running
-    the survey marks a finished energy scan <em>stale</em> without deleting it.
-  </p>
-  <div class="list compact">
-    <div class="row"><strong><code>multilayer_designs/&lt;id&gt;/study.json</code></strong><span>Config and per-stage status.</span></div>
-    <div class="row"><strong><code>survey/survey.csv</code></strong><span>One row per surveyed cell.</span></div>
-    <div class="row"><strong><code>survey/runs/d&lt;d&gt;nm/blaze&lt;b&gt;deg/</code></strong><span>Each theta search's full output.</span></div>
-    <div class="row"><strong><code>plots/</code></strong><span>Headline survey plots and the titled energy-scan plots.</span></div>
-    <div class="row"><strong><code>energy_scan/</code></strong><span>Per-design sweep artifacts.</span></div>
-  </div>
-</section>
-
-<section class="docs-section" id="plane-mirror">
-  <h2>Plane mirror</h2>
-  <p>
-    The <a href="{{ url_for('plane_mirror_page') }}">Plane mirror</a> tab computes the specular
-    reflectivity of a single layer, a periodic multilayer or a custom list of any number of layers (add, remove and
-    reorder rows; an empty roughness uses the default) on a flat substrate with the Parratt recursion. It is
-    stateless and instant: the curve updates as you edit the form, and <strong>Download CSV</strong>
-    saves the current curve. Choose an energy scan at a fixed grazing angle, an angle scan at a fixed
-    energy, or a map of reflectivity versus angle and energy, the polarization (S (TE), P (TM), or their average) and a default interface roughness; per-layer roughness
-    fields override it.
-  </p>
-  <p>
-    <strong>Saving.</strong> Give the mirror a name (and an optional label) and use <em>Save plane mirror</em>
-    to keep the stack together with the current scan. On a saved mirror, <em>Save scan</em> attaches the
-    current scan settings under a scan name and label (saving under an existing name overwrites it),
-    <em>Update mirror</em> stores a changed stack, name or label, and each scan can be renamed, relabelled or
-    deleted. <a href="{{ url_for('plane_mirror_index') }}">Manage plane mirrors</a> lists saved stacks with
-    layer previews, and <a href="{{ url_for('plane_mirror_runs') }}">Manage plane-mirror runs</a> lists their
-    saved scans. Saved mirrors live in <code>saved_plane_mirrors/</code> in the workspace.
-  </p>
-  <p>
-    <strong>Lateral grading</strong> varies every layer thickness along the mirror by a scale factor
-    (linear in %/mm, or polynomial coefficients c0, c1, c2&hellip; in the position in mm from the mirror
-    centre). The plot then shows the ungraded central curve and the average over sample points along the
-    illuminated footprint length, which is broader and lower because each position reflects a different
-    Bragg energy.
-  </p>
-</section>
-
-<section class="docs-section" id="plots">
-  <h2>Compare and plot runs</h2>
-  <ol>
-    <li>Open <strong>Plots</strong> from the top bar.</li>
-    <li>Select one or more saved runs.</li>
-    <li>Choose diffraction orders for grating runs. Plane-mirror runs plot reflectivity directly and can be expanded with their saved parameter loops.</li>
-    <li>Use the live Plotly preview to inspect the combined plot before saving it.</li>
-    <li>Adjust the line color, marker type, marker size, and x/y axis scales directly in the form.</li>
-    <li>Save the plot to create a dedicated entry under <code>plots/&lt;plot-id&gt;/</code>.</li>
-  </ol>
-  <p>
-    The saved plot page reopens the same interactive Plotly figure together with the selected runs, orders, and loops, so the
-    comparison styling and the axis modes persist with the saved plot.
-  </p>
-</section>
-
-<section class="docs-section" id="export">
-  <h2>Export plots and manage saved data</h2>
-  <ul>
-    <li>Use <strong>Save plot</strong> in the plot builder to store the interactive compare view in <code>plots/</code>.</li>
-    <li>Use the <strong>Download data…</strong> button on either the run page or saved-run manager to choose CSV, tab-separated DAT, and/or YAML metadata. The selected files are packaged into one ZIP and a save-location picker opens where supported.</li>
-    <li>Use <strong>Manage grating runs</strong> to rename saved runs, edit their comments, or delete them.</li>
-    <li>Use <strong>Manage gratings</strong> to inspect, edit, or delete saved grating definitions.</li>
-    <li>Choose <strong>Choose folder…</strong> on the home page to select a different local data folder.</li>
-  </ul>
-</section>
-
-<section class="docs-section" id="modify">
-  <h2>How to modify the interface later</h2>
-  <p>If you want to change the Web UI, these files control the main moving parts:</p>
-  <ul>
-    <li><code>src/grax/web/app.py</code>: routes, workspace behavior, simulation wiring, and runtime page data.</li>
-    <li><code>src/grax/web/templates/*.html</code>: page text, layout, and button placement.</li>
-    <li><code>src/grax/web/static/web.css</code>: styling and responsive layout.</li>
-    <li><code>src/grax/web/static/web.js</code>: client-side preview, Plotly rendering, and form interactions.</li>
-    <li><code>src/grax/web/persistence.py</code>: how gratings are stored and reconstructed from JSON.</li>
-    <li><code>src/grax/web/runs.py</code>: run manifests, result loading, and comparison plot saving.</li>
-  </ul>
-  <p>
-    To change the default workspace folder, edit the <code>create_app()</code> setup in
-    <code>src/grax/web/app.py</code>. To change the docs itself, edit this template and the matching external docs
-    notes in <code>docs/index.md</code> and <code>docs/installation/web-ui.md</code>.
-  </p>
+<section class="docs-section docs-note">
+  <h2>Useful input conventions</h2>
+  <p>Angles are labelled in degrees and lengths in the units shown beside each field. Choose S (TE) or P (TM) polarization in the run settings. Decimal fields follow your dot or comma preference; arrow buttons and a focused field's mouse wheel change values by the field's step.</p>
 </section>
 {% endblock %}

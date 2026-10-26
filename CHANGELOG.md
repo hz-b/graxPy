@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.
 - Let saved plots be edited and provide PNG, plotted CSV data, or a portable script and data from one download menu.
 - Allowed marker size 0 in plot controls to hide symbols while keeping the series lines.
 - Made the 2θ arrows change the angle by 0.1° and let focused number fields step with the mouse wheel.
