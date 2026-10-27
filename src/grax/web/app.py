@@ -6704,7 +6704,7 @@ def _build_plotly_compare_figure(
             go.Scatter(
                 x=_compare_x_values(series, x_axis_value),
                 y=np.asarray(series["efficiencies"], dtype=float),
-                mode="lines+markers",
+                mode="lines+markers" if style["marker_size"] > 0 else "lines",
                 name=style["label"],
                 line={"color": style["color"], "width": 1.6, "dash": style["line_style"]},
                 marker={

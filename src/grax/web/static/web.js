@@ -31,16 +31,23 @@ function decimalFieldEligible(field) {
   return step === "any" || !Number.isInteger(Number(step));
 }
 function decimalStep(field, direction) {
-  if (field.disabled) return;
-  const step = field.dataset.decimalArrowStep === "any" ? 1 : Number(field.dataset.decimalArrowStep);
-  const current = decimalFieldComplete(field) && field.value.trim() ? parseDecimal(field.value) : 0;
+  if (field.disabled || field.matches(":disabled")) return;
+  const configuredStep = field.dataset.decimalArrowStep
+    ?? (field.dataset.arrowStep || field.getAttribute("step") || "1");
+  const step = configuredStep === "any" ? 1 : Number(configuredStep);
+  if (!Number.isFinite(step) || step <= 0) return;
+  const isDecimalField = field.matches("[data-decimal-field]");
+  const hasValidValue = isDecimalField
+    ? decimalFieldComplete(field)
+    : Number.isFinite(field.valueAsNumber);
+  const current = hasValidValue && field.value.trim() ? parseDecimal(field.value) : 0;
   const places = Math.min(12, Math.max((String(step).split(".")[1] || "").length,
     (String(current).split(".")[1] || "").length));
   let next = Number((current + direction * step).toFixed(places));
   if (field.min !== "") next = Math.max(next, Number(field.min));
   if (field.max !== "") next = Math.min(next, Number(field.max));
   field.value = String(next);
-  field.dataset.decimalCommitted = String(next);
+  if (isDecimalField) field.dataset.decimalCommitted = String(next);
   field.setCustomValidity("");
   field.dispatchEvent(new Event("input", {bubbles: true}));
   field.dispatchEvent(new Event("change", {bubbles: true}));
@@ -111,10 +118,10 @@ function initDecimalControls() {
   }, true);
   document.addEventListener("wheel", (event) => {
     const focused = document.activeElement;
-    const field = focused?.matches?.("[data-decimal-field]")
+    const field = focused?.matches?.('[data-decimal-field], input[type="number"]')
       ? focused
-      : focused?.closest?.(".decimal-field-wrap")?.querySelector("[data-decimal-field]");
-    if (!field || field.disabled || event.deltaY === 0) return;
+      : focused?.closest?.(".decimal-field-wrap")?.querySelector('[data-decimal-field], input[type="number"]');
+    if (!field || field.disabled || field.matches(":disabled") || event.deltaY === 0) return;
     event.preventDefault();
     decimalStep(field, event.deltaY < 0 ? 1 : -1);
   }, {capture: true, passive: false});
@@ -1724,8 +1731,15 @@ function initCustomGridBuilder(root) {
       return number;
     }
     if (item.kind === "material") {
+      if (value === null || value === undefined) return null;
       const material = typeof value === "object" ? {...value} : {name: String(value)};
       material.name = String(material.name || "").trim();
+      if (material.name.toLowerCase() === "none") {
+        if (["density_g_cm3", "roughness_sigma_nm"].some((key) => material[key] !== null && material[key] !== undefined && material[key] !== "")) {
+          throw new Error(`${item.label}: None cannot have density or roughness values.`);
+        }
+        return null;
+      }
       if (!material.name) throw new Error(`${item.label} needs a material name.`);
       for (const key of ["density_g_cm3", "roughness_sigma_nm"]) {
         const raw = material[key];
@@ -1764,6 +1778,7 @@ function initCustomGridBuilder(root) {
   }
 
   function materialText(value) {
+    if (value === null || value === undefined) return "None";
     if (!value || typeof value !== "object") return String(value);
     return `${value.name}${value.density_g_cm3 == null ? "" : ` (${value.density_g_cm3} g/cm³)`}${value.roughness_sigma_nm == null ? "" : `; σ=${value.roughness_sigma_nm} nm`}`;
   }
@@ -1785,11 +1800,13 @@ function initCustomGridBuilder(root) {
     controls.append(parameterLabel, modeLabel);
     const values = document.createElement("label"); values.dataset.axisList = ""; values.append("Values");
     const textarea = document.createElement("textarea"); textarea.rows = 2; textarea.placeholder = "100, 200, 300";
-    textarea.value = (axis.values || []).map((value) => typeof value === "object" ? value.name : value).join(", "); values.append(textarea);
+    textarea.value = (axis.values || []).map((value) => value && typeof value === "object"
+      ? value.name : value == null ? "None" : value).join(", "); values.append(textarea);
     const valuesHint = document.createElement("small"); valuesHint.className = "muted"; values.append(valuesHint);
     const materials = document.createElement("div"); materials.dataset.axisMaterials = "";
     let materialSignature = "";
-    let materialValues = (axis.values || []).map((value) => typeof value === "object" ? {...value} : {name: String(value)});
+    let materialValues = (axis.values || []).map((value) => value && typeof value === "object"
+      ? {...value} : {name: value == null ? "None" : String(value)});
     function syncMaterials() {
       const item = descriptor(parameter.value);
       const isMaterial = item?.kind === "material";
@@ -1803,12 +1820,15 @@ function initCustomGridBuilder(root) {
           materialValues = names.map((name, index) => materialValues[index]?.name === name ? materialValues[index] : {name});
           materials.replaceChildren();
           const hint = document.createElement("p"); hint.className = "subtle";
-          hint.textContent = "Set density and interface roughness for each material. Blank density uses the material default; blank roughness keeps the saved grating setting. A separate scan of either property overrides these values.";
+          hint.textContent = "Set density and interface roughness for each material. None has neither. Blank density uses the material default; blank roughness keeps the saved grating setting. A separate scan of either property overrides these values.";
           materials.append(hint);
           materialValues.forEach((value, index) => {
             const line = document.createElement("div"); line.className = "custom-grid-material-row";
             const name = document.createElement("strong"); name.textContent = value.name;
-            line.append(name, materialFields(value, item, (updated) => { materialValues[index] = updated; refresh(); }, false));
+            line.append(name);
+            if (String(value.name || "").trim().toLowerCase() !== "none") {
+              line.append(materialFields(value, item, (updated) => { materialValues[index] = updated; refresh(); }, false));
+            }
             materials.append(line);
           });
           materialSignature = signature;
@@ -1878,7 +1898,10 @@ function initCustomGridBuilder(root) {
     count.readOnly = true;
     initLinkedRange(start, stop, count, true);
     const body = row.querySelector("tbody");
-    const state = {manual: (group.rows || []).map((values) => values[group.parameters[1]] ?? ""), values: [], error: "", signature: "", source: "", target: target.value};
+    const state = {manual: (group.rows || []).map((values) => {
+      const value = values[group.parameters[1]];
+      return value == null && descriptor(group.parameters[1])?.kind === "material" ? "None" : value ?? "";
+    }), values: [], error: "", signature: "", source: "", target: target.value};
     groupsRoot.append(row);
     syncParameterOptions();
     source.value = group.parameters?.[0] || sourceAxes()[0]?.querySelector(".custom-grid-parameter").value || "";

@@ -219,19 +219,13 @@ def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
 
     docs_response = client.get("/docs")
     assert docs_response.status_code == 200
-    assert b"Web UI Documentation" in docs_response.data
-    assert b".grax-web/" in docs_response.data
-    assert b"saved_gratings/" in docs_response.data
-    assert b"Materials" in docs_response.data
-    assert b"density" in docs_response.data
-    assert b"deprecated" in docs_response.data
-    assert b"runs/" in docs_response.data
-    assert b"plots/" in docs_response.data
-    assert b"previews/" in docs_response.data
-    assert b"Create and save gratings" in docs_response.data
-    assert b"Run simulations" in docs_response.data
-    assert b"Compare and plot runs" in docs_response.data
-    assert b"How to modify the interface later" in docs_response.data
+    assert b"From a model to a result" in docs_response.data
+    assert b'aria-label="Choose a workflow"' in docs_response.data
+    assert b'href="/docs/gratings"' in docs_response.data
+    assert b'href="/docs/plane-mirrors"' in docs_response.data
+    assert b'href="/docs/multilayer-gratings"' in docs_response.data
+    assert b"How the website is organized" in docs_response.data
+    assert b"Useful input conventions" in docs_response.data
 
 
 def test_installed_web_package_includes_templates_and_static_assets() -> None:
@@ -1726,6 +1720,25 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
     assert figure["data"][0]["marker"]["size"] == 13
     assert figure["data"][0]["name"] == "Diamond reference"
     assert preview_payload["series_controls"][0]["legend_label"] == "Diamond reference"
+
+
+def test_plot_preview_zero_marker_size_keeps_line_and_hides_markers(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0,))
+    response = create_app(data_dir=tmp_path).test_client().post(
+        "/_preview/plot",
+        data={"title": "No markers", "run_ids": ["run-1"], "orders_run-1": ["0"],
+              "marker_size_run_1__order_0": "0"},
+    )
+
+    payload = response.get_json()
+    assert payload["ok"] is True
+    trace = json.loads(payload["figure_json"])["data"][0]
+    assert trace["mode"] == "lines"
+    assert trace["marker"]["size"] == 0
 
 
 def test_older_saved_series_style_defaults_to_solid() -> None:

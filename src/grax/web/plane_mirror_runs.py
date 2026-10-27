@@ -169,11 +169,19 @@ def expand_variations(
             if base_field in INTEGER_FIELDS and float(value) != int(float(value)):
                 raise ValueError(f"{display_field} must use whole-number values.")
             target_dict = case_scan if target is scan else case_stack
+            if target_dict is case_stack and base_field in {
+                "substrate_material", "material_a", "material_b", "top_material",
+                "layer_material", "top_cap_material", "cl_material", "cl_material_b",
+            } and str(value).strip().casefold() == "none":
+                _apply_none_material(case_stack, base_field, index, display_field)
+                changed[display_field] = "None"
+                continue
             if index is None:
                 target_dict[base_field] = value
             else:
                 target_dict[base_field][index] = value
             changed[display_field] = value
+        _validate_varied_material_properties(case_stack, changed)
         cases.append({"scan": case_scan, "stack": case_stack, "parameters": changed})
     return cases or [{"scan": deepcopy(scan), "stack": deepcopy(stack), "parameters": {}}]
 
@@ -191,6 +199,60 @@ def _variation_target(scan, stack, field):
             if isinstance(values, list) and index < len(values):
                 return stack, base, index
     return None
+
+
+def _apply_none_material(stack: dict[str, Any], field: str, index: int | None, label: str) -> None:
+    """Resolve the shared None sentinel for plane-mirror material variations."""
+    if field == "top_cap_material":
+        stack[field] = ""
+        return
+    if field == "layer_material" and stack.get("stack_type") == "single_layer":
+        stack["stack_type"] = "bare"
+        return
+    if field == "cl_material" and stack.get("stack_type") == "custom" and index is not None:
+        kinds = stack.get("cl_kind") or ["single"] * len(stack.get("cl_material", []))
+        if (kinds[index] or "single") != "single":
+            raise ValueError(f"{label} is part of a multilayer block and cannot be None.")
+        for key in CUSTOM_STACK_FIELDS:
+            values = stack.get(key)
+            if isinstance(values, list) and index < len(values):
+                values.pop(index)
+        if not stack.get("cl_material"):
+            stack["stack_type"] = "bare"
+        return
+    label_text = label.replace("_", " ").replace("[", " ").replace("]", "")
+    raise ValueError(
+        f"{label_text.capitalize()} is required by this mirror stack and cannot be None. "
+        "Use None for an optional coating or top cap to model an uncoated case."
+    )
+
+
+def _validate_varied_material_properties(stack: dict[str, Any], changed: dict[str, Any]) -> None:
+    """Reject density or interface-property scans when the selected material is absent."""
+    fields = set(changed)
+    for property_field in fields:
+        if "density_g_cm3" not in property_field and not any(
+            token in property_field for token in ("roughness_sigma_nm", "correlation_length_nm")
+        ):
+            continue
+        material_field = property_field.replace("_density_g_cm3", "").replace(
+            "_roughness_sigma_nm", "_material"
+        ).replace("_correlation_length_nm", "_material")
+        if material_field in {"substrate_material", "material_a", "material_b", "layer_material", "top_material", "top_cap_material"}:
+            material = stack.get(material_field)
+            if (
+                material is None
+                or str(material).strip().casefold() in {"", "none"}
+                or (material_field == "layer_material" and stack.get("stack_type") == "bare")
+            ):
+                raise ValueError(f"Choose a {material_field.replace('_', ' ')} before scanning its properties.")
+        elif property_field.startswith("cl_"):
+            raw_index = property_field.rsplit("[", 1)[-1].rstrip("]") if "[" in property_field else ""
+            if raw_index.isdigit():
+                index = int(raw_index)
+                materials = stack.get("cl_material", [])
+                if index >= len(materials) or str(materials[index]).strip().casefold() in {"", "none"}:
+                    raise ValueError(f"Choose a custom-layer material before scanning its properties.")
 
 
 def total_sample_count(scan):

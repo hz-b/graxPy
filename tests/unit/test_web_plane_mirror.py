@@ -10,6 +10,7 @@ import pytest
 from grax import build_multilayer_stack, parratt_reflectivity
 from grax.materials import MaterialSpec
 from grax.web.app import create_app
+from grax.web.plane_mirror_runs import expand_variations
 
 pytest.importorskip("flask")
 
@@ -53,6 +54,44 @@ def test_page_renders_and_is_linked_from_navigation(client) -> None:
     html = page.get_data(as_text=True)
     assert html.index('name="mirror_name"') < html.index('data-plane-mirror-stack-image')
     assert b"/plane-mirror" in client.get("/").data
+
+
+def test_plane_mirror_none_material_variations_resolve_optional_coatings() -> None:
+    scan = {"scan_mode": "energy"}
+    stack = {
+        "stack_type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "top_cap_material": "C", "top_cap_thickness_nm": "2", "layer_thickness_nm": "20",
+    }
+    cases = expand_variations(scan, stack, '[{"parameter":"layer_material","values":["None","Ni"]}]', "[]")
+    assert cases[0]["stack"]["stack_type"] == "bare"
+    assert cases[0]["parameters"]["layer_material"] == "None"
+    assert cases[1]["stack"]["layer_material"] == "Ni"
+
+    cap_cases = expand_variations(scan, stack, '[{"parameter":"top_cap_material","values":["none"]}]', "[]")
+    assert cap_cases[0]["stack"]["top_cap_material"] == ""
+
+    paired = expand_variations(
+        scan, stack, "[]",
+        '[{"layer_material":["None","Ni"],"top_cap_material":["None","C"]}]',
+    )
+    assert paired[0]["stack"]["stack_type"] == "bare"
+    assert paired[0]["stack"]["top_cap_material"] == ""
+    assert paired[1]["stack"]["layer_material"] == "Ni"
+
+
+def test_plane_mirror_none_material_variations_validate_required_and_property_fields() -> None:
+    scan = {"scan_mode": "energy"}
+    stack = {"stack_type": "bare", "substrate_material": "Si"}
+    with pytest.raises(ValueError, match="Substrate material is required.*cannot be None"):
+        expand_variations(scan, stack, '[{"parameter":"substrate_material","values":["None"]}]', "[]")
+
+    stack = {
+        "stack_type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_material_density_g_cm3": "19", "layer_thickness_nm": "20",
+    }
+    axes = '[{"parameter":"layer_material","values":["None"]},{"parameter":"layer_material_density_g_cm3","values":["18"]}]'
+    with pytest.raises(ValueError, match="Choose a layer material before scanning its properties"):
+        expand_variations(scan, stack, axes, "[]")
 
 
 def test_compute_matches_direct_parratt(client) -> None:
