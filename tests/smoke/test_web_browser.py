@@ -317,6 +317,149 @@ def test_afm_fraction_spinner_uses_hundredths(browser_page: Page) -> None:
 
 
 @pytest.mark.browser
+def test_focused_numeric_fields_step_with_mouse_wheel(browser_page: Page) -> None:
+    """Wheel-step integer, decimal, and dynamically added controls across the web forms."""
+    page = browser_page
+    base = page.url.rstrip("/")
+
+    def wheel(field, delta_y: int) -> None:
+        field.scroll_into_view_if_needed()
+        field.focus()
+        box = field.bounding_box()
+        assert box is not None
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.mouse.wheel(0, delta_y)
+
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("blazed")
+    period = page.locator("input[name='period_lpermm']")
+    period.fill("600")
+    wheel(period, -100)
+    expect(period).to_have_value("601")
+    wheel(period, 100)
+    expect(period).to_have_value("600")
+
+    # Save a grating to exercise the run form's integer settings as well.
+    page.locator("input[name='name']").fill("Wheel stepping check")
+    page.locator("input[name='blaze_angle_deg']").fill("0.75")
+    page.locator("input[name='x_resolution_nm']").fill("4")
+    page.locator("input[name='z_resolution_nm']").fill("4")
+    page.locator("select[name='stack_type']").select_option("single_layer")
+    page.locator("input[name='substrate_material']").fill("Si")
+    page.locator("input[name='layer_material']").fill("Au")
+    page.locator("input[name='layer_thickness_nm']").fill("30")
+    page.get_by_role("button", name="Save grating").click()
+    expect(page.get_by_role("heading", name="Wheel stepping check")).to_be_visible()
+
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+    energy_points = page.locator("input[name='energy_points']")
+    energy_points.fill("101")
+    wheel(energy_points, -100)
+    expect(energy_points).to_have_value("102")
+    wheel(energy_points, 100)
+    expect(energy_points).to_have_value("101")
+
+    fourier_orders = page.locator("input[name='fourier_orders']")
+    fourier_orders.fill("15")
+    wheel(fourier_orders, -100)
+    expect(fourier_orders).to_have_value("16")
+
+    diffraction_order = page.locator("input[name='diffraction_order']")
+    diffraction_order.fill("1")
+    wheel(diffraction_order, -100)
+    expect(diffraction_order).to_have_value("2")
+
+    page.locator("select[name='workflow']").select_option("angle_sweep")
+    disabled_energy_points = page.locator("input[name='energy_points']")
+    assert disabled_energy_points.is_disabled()
+    angle_points = page.locator("input[name='grazing_angle_points']")
+    angle_points.fill("101")
+    wheel(angle_points, -100)
+    expect(angle_points).to_have_value("102")
+    expect(disabled_energy_points).to_have_value("101")
+
+    # Minimums apply to custom-stepped decimal fields, and comma mode is retained.
+    page.goto(base)
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("afm")
+    threshold = page.locator("input[name='afm_min_separation']")
+    threshold.fill("0")
+    wheel(threshold, 100)
+    expect(threshold).to_have_value("0")
+    threshold.fill("0,4")
+    wheel(threshold, -100)
+    expect(threshold).to_have_value("0,41")
+
+    # Dynamically generated custom-grid range fields use the same wheel behavior.
+    page.goto(f"{base}/gratings/wheel-stepping-check")
+    page.locator("select[name='workflow']").select_option("custom_grid")
+    custom_grid = page.locator("[data-custom-grid-builder]").last
+    custom_grid.locator("[data-custom-add-axis]").click()
+    custom_grid.locator("[data-axis-mode]").last.select_option("range")
+    dynamic_count = custom_grid.locator("[data-custom-axis] [data-count]").last
+    dynamic_count.fill("2")
+    wheel(dynamic_count, -100)
+    expect(dynamic_count).to_have_value("3")
+
+    # Other navigation sections share the same behavior for decimal and integer inputs.
+    page.goto(f"{base}/plane-mirror")
+    page.locator("select[name='stack_type']").select_option("multilayer")
+    mirror_period = page.locator("input[name='d_period_nm']")
+    mirror_period.fill("3")
+    wheel(mirror_period, -100)
+    expect(mirror_period).to_have_value("3,01")
+
+    page.goto(f"{base}/multilayer-design/new")
+    design_spacing = page.locator("input[name='d_min_nm']")
+    design_spacing.fill("3")
+    wheel(design_spacing, -100)
+    expect(design_spacing).to_have_value("4")
+
+    # With no focused numeric input, wheel events continue to scroll the page.
+    page.goto(f"{base}/gratings/new")
+    page.locator("input").first.blur()
+    page.evaluate("""() => window.addEventListener('wheel', event => {
+      window.__wheelDefaultPrevented = event.defaultPrevented;
+    }, {once: true})""")
+    page.mouse.move(10, 300)
+    page.mouse.wheel(0, 500)
+    assert page.evaluate("window.__wheelDefaultPrevented") is False
+
+
+@pytest.mark.browser
+def test_none_material_has_no_density_or_roughness_controls(browser_page: Page) -> None:
+    """The no-coating sentinel must never expose material-property inputs."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("input[name='name']").fill("None material controls")
+    page.locator("select[name='grating_type']").select_option("blazed")
+    page.locator("input[name='period_lpermm']").fill("600")
+    page.locator("input[name='blaze_angle_deg']").fill("0.75")
+    page.locator("input[name='x_resolution_nm']").fill("4")
+    page.locator("input[name='z_resolution_nm']").fill("4")
+    page.locator("select[name='stack_type']").select_option("single_layer")
+    page.locator("input[name='substrate_material']").fill("Si")
+    page.locator("input[name='layer_material']").fill("Au")
+    page.locator("input[name='layer_thickness_nm']").fill("30")
+    page.get_by_role("button", name="Save grating").click()
+    expect(page.locator("[data-run-form]")).to_be_visible(timeout=20_000)
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+
+    builder = page.locator("[data-parameter-scans]")
+    builder.locator("[data-custom-add-axis]").click()
+    axis = builder.locator("[data-custom-axis]").first
+    axis.locator(".custom-grid-parameter").select_option("stack.layer_material")
+    axis.locator("textarea").fill("None, Au")
+
+    none_row = builder.locator(".custom-grid-material-row").filter(has_text="None")
+    gold_row = builder.locator(".custom-grid-material-row").filter(has_text="Au")
+    expect(none_row.locator("strong")).to_have_text("None")
+    expect(none_row.locator("input")).to_have_count(0)
+    expect(gold_row.locator("input")).to_have_count(2)
+
+
+@pytest.mark.browser
 def test_plot_loop_keeps_scan_checkbox_selection(website, browser_page: Page) -> None:
     """Changing loop parameters must not silently select a cleared scan."""
     base_url, data_dir = website
@@ -331,6 +474,18 @@ def test_plot_loop_keeps_scan_checkbox_selection(website, browser_page: Page) ->
     run.locator("[data-loop-list] select").select_option("diffraction_order")
     expect(first_scan).not_to_be_checked()
     expect(page.locator("[data-plot-preview-loading]")).to_have_text("Ready")
+    marker_size = page.locator("[data-series-marker-size]").first
+    marker_size.fill("3")
+    marker_size.scroll_into_view_if_needed()
+    marker_box = marker_size.bounding_box()
+    assert marker_box is not None
+    marker_size.focus()
+    page.mouse.move(
+        marker_box["x"] + marker_box["width"] / 2,
+        marker_box["y"] + marker_box["height"] / 2,
+    )
+    page.mouse.wheel(0, -100)
+    expect(marker_size).to_have_value("4")
 
 
 @pytest.mark.browser

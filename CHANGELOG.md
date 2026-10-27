@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+- Normalized the None material sentinel across independent and coupled scans, removing optional coatings and reporting a clear error for required materials.
 - Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.
 - Let saved plots be edited and provide PNG, plotted CSV data, or a portable script and data from one download menu.
 - Allowed marker size 0 in plot controls to hide symbols while keeping the series lines.
 - Made the 2θ arrows change the angle by 0.1° and let focused number fields step with the mouse wheel.
 - Made decimal fields show the selected separator consistently while keeping precise input and arrow controls across the website.
+- Made focused whole-number fields respond consistently to mouse-wheel stepping across the website.
 - Reduced interruptions during website testing by reusing the running site and browser tab, and set a shared branch for future bug fixes.
 - Fixed material sweeps with a None option so the uncoated case can start alongside coated cases.
 - Added plane-mirror reflectivity runs to saved plot comparisons, including parameter loops without diffraction-order controls.
@@ -304,3 +306,4 @@ Renames only — no behaviour changed. Migration:
 - Flexible optimizer workflows and related examples were expanded/cleaned up across laminar and blazed use cases.
 - Optimizer/simulation documentation was refreshed for consistency with the current APIs and tutorials.
 - Static compile and compatibility coverage for example and comparison scripts was strengthened.
+- Fixed the plot preview so a marker size of zero hides symbols while keeping series lines visible.

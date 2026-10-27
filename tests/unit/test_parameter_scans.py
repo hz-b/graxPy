@@ -52,8 +52,35 @@ def build(value=None, mode="energy_sweep"):
         spec(),
         mode=mode,
         energies=np.array([100.0, 110.0, 120.0]),
-        defaults={"grazing_angle_deg": 1.5, "fourier_orders": 5, "cff": 2.25},
+        defaults={"grazing_angle_deg": 1.5, "fourier_orders": 5, "cff": 2.25,
+                  "total_deviation_deg": 174.0},
     )
+
+
+@pytest.mark.parametrize("mode", [
+    "energy_sweep", "angle_sweep", "fixed_angle", "monochromator", "constant_deviation",
+])
+def test_none_coating_scan_is_supported_in_every_parameter_scan_mode(mode):
+    """All grouped scan modes consume the shared None-material representation."""
+    base = spec()
+    base["stack"] = {
+        "type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_thickness_nm": 20,
+    }
+    value = default_configuration(base)
+    value["independent"] = [{
+        "parameter": "stack.layer_material", "mode": "list", "values": ["None", "Ni"],
+    }]
+
+    sweep, cases = scans.build_scans(
+        value, base, mode=mode, energies=np.array([100.0]),
+        defaults={"grazing_angle_deg": 1.5, "fourier_orders": 5, "cff": 2.25,
+                  "total_deviation_deg": 174.0},
+    )
+
+    assert len(sweep["scans"]) == 2
+    assert cases[0]["scan_grating_spec"]["stack"]["type"] == "bare"
+    assert cases[1]["scan_grating_spec"]["stack"]["layer_material"]["name"] == "Ni"
 
 
 def fake_results(cases):

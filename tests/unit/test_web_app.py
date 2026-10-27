@@ -1728,6 +1728,25 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
     assert preview_payload["series_controls"][0]["legend_label"] == "Diamond reference"
 
 
+def test_plot_preview_zero_marker_size_keeps_line_and_hides_markers(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0,))
+    response = create_app(data_dir=tmp_path).test_client().post(
+        "/_preview/plot",
+        data={"title": "No markers", "run_ids": ["run-1"], "orders_run-1": ["0"],
+              "marker_size_run_1__order_0": "0"},
+    )
+
+    payload = response.get_json()
+    assert payload["ok"] is True
+    trace = json.loads(payload["figure_json"])["data"][0]
+    assert trace["mode"] == "lines"
+    assert trace["marker"]["size"] == 0
+
+
 def test_older_saved_series_style_defaults_to_solid() -> None:
     controls = web_app_module._series_controls_for_selected_series(
         selected_series=[{"series_key": "old::order::1", "series_token": "old__order_1",
