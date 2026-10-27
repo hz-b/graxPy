@@ -44,6 +44,7 @@ from ..multilayer_design_studies import (
 from ..multilayer_jobs import (
     _abort_multilayer_design_stage,
     _energy_scan_checkpoint_series,
+    _mark_orphaned_stages,
     _multilayer_design_job_key,
     _multilayer_design_stage_status_payload,
     _reset_multilayer_design_stage,
@@ -69,7 +70,7 @@ def register(app: Any, ctx: WebContext) -> None:
 
     def _design_study_or_404(study_id: str) -> dict[str, Any]:
         try:
-            return _design_store().load(study_id)
+            return _mark_orphaned_stages(app, _design_store().load(study_id))
         except (ValueError, FileNotFoundError, OSError):
             abort(404)
 
@@ -114,7 +115,7 @@ def register(app: Any, ctx: WebContext) -> None:
     def multilayer_design_index():
         return render_template(
             "multilayer_design_index.html",
-            studies=_design_store().list(),
+            studies=[_mark_orphaned_stages(app, study) for study in _design_store().list()],
             stage_labels=STAGE_LABELS,
             stages=STAGES,
         )

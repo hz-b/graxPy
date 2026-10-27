@@ -1013,3 +1013,24 @@ def test_the_script_route_404s_for_an_unknown_study(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
     assert client.get("/multilayer-design/nope/script").status_code == 404
+
+
+def test_a_stage_left_running_by_a_stopped_app_shows_as_aborted_and_can_rerun(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+    store = _store(tmp_path)
+    manifest = store.load(study_id)
+    manifest["stages"]["survey"]["status"] = "running"
+    store.save(manifest)
+
+    status = client.get(f"/multilayer-design/{study_id}/stages/survey/status").get_json()
+    detail = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+    index = client.get("/multilayer-design").get_data(as_text=True)
+
+    assert status["state"] == "aborted"
+    assert "The app stopped before this stage finished." in detail
+    assert "Re-run survey" in detail
+    assert "is-running" not in detail
+    assert "is-running" not in index
+    # Viewing the study does not rewrite it.
+    assert store.load(study_id)["stages"]["survey"]["status"] == "running"

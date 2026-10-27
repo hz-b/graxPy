@@ -48,6 +48,27 @@ def _multilayer_design_job_key(study_id: str, stage: str) -> str:
     return f"mldesign:{study_id}:{stage}"
 
 
+ORPHANED_STAGE_ERROR = "The app stopped before this stage finished."
+
+
+def _mark_orphaned_stages(app: Any, manifest: dict[str, Any]) -> dict[str, Any]:
+    """Show stages left "running" by an app that has since stopped as aborted.
+
+    Only the in-memory manifest changes; it is saved when the study is next edited or run.
+    """
+
+    study_id = str(manifest.get("id", ""))
+    with _active_runs_lock(app):
+        active_runs = _active_runs(app)
+        for stage, stage_state in (manifest.get("stages") or {}).items():
+            if stage_state.get("status") not in {"queued", "running", "aborting"}:
+                continue
+            active = active_runs.get(_multilayer_design_job_key(study_id, stage))
+            if active is None or active.state not in {"queued", "running", "aborting"}:
+                stage_state.update(status="aborted", error_text=ORPHANED_STAGE_ERROR)
+    return manifest
+
+
 def _multilayer_design_stage_total(manifest: dict[str, Any], stage: str) -> int:
     """Best-effort count of scan items for one stage, for the progress bar."""
 
@@ -337,7 +358,9 @@ def _multilayer_design_stage_status_payload(
 
     _cleanup_finished_runs(app)
     key = _multilayer_design_job_key(study_id, stage)
-    manifest = MultilayerDesignStudyStore(data_dir / "multilayer_designs").load(study_id)
+    manifest = _mark_orphaned_stages(
+        app, MultilayerDesignStudyStore(data_dir / "multilayer_designs").load(study_id)
+    )
     stage_state = manifest["stages"][stage]
 
     with _active_runs_lock(app):

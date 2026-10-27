@@ -3430,3 +3430,20 @@ def test_geometry_static_script_and_switch_hooks_are_available() -> None:
     assert "profilePoints" in geometry
     assert 'mount.workflow === "constant_deviation"' in geometry
     assert 'label(hx, hy - 100, "2θ"' in geometry
+
+
+def test_manage_runs_shows_a_run_left_running_by_a_stopped_app_as_aborted(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from bs4 import BeautifulSoup
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-orphan", display_name="Orphan run")
+    path = tmp_path / "runs" / "run-orphan" / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest.update(workflow="parameter_study", status="running")
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    page = BeautifulSoup(create_app(data_dir=tmp_path).test_client().get("/runs/gratings").data, "html.parser")
+
+    assert page.select_one(".run-manage-status .status-pill").get_text(strip=True) == "aborted"

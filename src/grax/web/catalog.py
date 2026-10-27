@@ -319,7 +319,8 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
     entries: list[dict[str, Any]] = []
     for run in _list_plot_runs(data_dir / "runs"):
         run_id = str(run["id"])
-        if app is not None and run.get("parameter_sweep"):
+        # The status payload knows which runs still have a live worker in this app.
+        if app is not None and (run.get("parameter_sweep") or run["status"] in {"queued", "running", "aborting"}):
             run["status"] = _run_status_payload(app=app, data_dir=data_dir, run_id=run_id)["state"]
         input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
         artifacts = [str(name) for name in run.get("artifacts", [])]
