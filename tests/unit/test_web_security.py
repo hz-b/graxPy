@@ -112,6 +112,10 @@ def test_data_dir_option_selects_the_database_folder(monkeypatch: pytest.MonkeyP
     assert calls["app_kwargs"] == {"data_dir": tmp_path}
 
 
+def test_no_browser_flag_skips_opening_the_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert "browser" not in _run_main(monkeypatch, "--no-browser")
+
+
 def test_debug_flag_enables_debugger_on_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _run_main(monkeypatch, "--debug")["debug"] is True
 

@@ -199,11 +199,17 @@ def main() -> None:
         action="store_true",
         help="Enable the Flask debugger and auto-reloader (local hosts only; restarts stop running jobs).",
     )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not open the website in the default browser on start.",
+    )
     args = parser.parse_args()
     if args.debug and not (args.host == "localhost" or _is_loopback_address(args.host)):
         parser.error("--debug exposes an interactive debugger and is only allowed with a local --host.")
     app = create_app() if args.data_dir is None else create_app(data_dir=args.data_dir)
-    _maybe_open_browser(args.host, args.port, reloader=args.debug)
+    if not args.no_browser:
+        _maybe_open_browser(args.host, args.port, reloader=args.debug)
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 

@@ -4,7 +4,7 @@
     {
       "name": "grax-web",
       "runtimeExecutable": ".venv/bin/grax-web",
-      "runtimeArgs": ["--port", "5050", "--data-dir", ".grax-web-dev"],
+      "runtimeArgs": ["--port", "5050", "--data-dir", ".grax-web-dev", "--no-browser"],
       "port": 5050
     }
   ]

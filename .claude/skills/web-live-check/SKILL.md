@@ -15,7 +15,7 @@ description: Exercise the running grax website in the built-in browser on a disp
 
 2. Reuse a running `grax-web` server if one is up (`preview_list`). Otherwise start the
    `grax-web` entry of `.claude/launch.json` with `preview_start`. It serves `.grax-web-dev` on
-   port 5050 without the debugger. Restart it only after Python or template changes, and stop
+   port 5050 without the debugger or a system browser window. Restart it only after Python or template changes, and stop
    the old process first.
 3. Use one browser tab for the whole check. Read pages with `get_page_text` / `read_page`, and
    take screenshots only for visual questions.

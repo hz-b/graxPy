@@ -28,7 +28,7 @@
 - Keep endpoint names and URLs stable. Templates call `url_for` by endpoint name, so do not convert routes to Flask Blueprints. `tests/unit/test_web_route_inventory.py` pins every rule; update its fixture only for an intended route change.
 - Monkeypatch a helper in the module that looks it up (for example `grax.web.run_jobs` or `grax.web.routes.runs`), not in `grax.web.app`. Patching a re-export has no effect.
 - Frontend scripts are classic `defer` scripts under `static/js/` that share one global scope and load in the order of `FRONTEND_SCRIPTS` in `common.py`. Add new files to that list, and do not use ES modules, which bypass the `?v=` cache busting.
-- `grax-web` runs without the debugger. Use `--debug` only on a local host, and note that the reloader stops running jobs. `--data-dir` selects the database folder.
+- `grax-web` runs without the debugger. Use `--debug` only on a local host, and note that the reloader stops running jobs. `--data-dir` selects the database folder, and `--no-browser` skips opening the system browser (the dev-server entry in `.claude/launch.json` uses it).
 - Never point tests, scripts or the dev server at the real `.grax-web` database. Use a copy, such as `.grax-web-dev` (git-ignored) or a temporary folder.
 - Testing layers for web changes:
   1. Unit and smoke tests, including the route inventory, the page sweep and the security tests, on every change.

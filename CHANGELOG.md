@@ -6,6 +6,7 @@
 - The website now refuses changes sent by pages from other websites, so a malicious page cannot delete or start work in your database.
 - The website now rejects malformed run, plot, study, mirror, scan, and grating IDs instead of resolving them as file paths.
 - Added `grax-web --data-dir` to serve a chosen database folder.
+- Added `grax-web --no-browser` to start the website without opening a browser window.
 - Reorganized the website code into smaller modules and page scripts without changing what it does.
 - Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
