@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np  # noqa: F401 - kept importable from grax.web.app
 
 from .common import (
+    FRONTEND_SCRIPTS,
     PATH_ID_KEYS,
     _file_token,
     _is_cross_site_request,
@@ -107,10 +108,10 @@ def create_app(*, data_dir: str | Path | None = None):
     @app.url_defaults
     def version_frontend_assets(endpoint: str, values: dict[str, Any]) -> None:
         """Load updated frontend assets after a page refresh."""
-        if endpoint == "static" and values.get("filename") in {
-            "web.js", "web.css", "geometry.js", "afm.js", "graxpy-logo.svg", "hzb-bessy2-logo.png",
-            "graxpy-hzb-logo.png",
-        }:
+        filename = str(values.get("filename", ""))
+        if endpoint == "static" and (filename.endswith((".js", ".css")) or filename in {
+            "graxpy-logo.svg", "hzb-bessy2-logo.png", "graxpy-hzb-logo.png",
+        }):
             values.setdefault("v", _file_token(Path(app.static_folder) / values["filename"]))
 
     @app.url_value_preprocessor
@@ -164,7 +165,11 @@ def create_app(*, data_dir: str | Path | None = None):
     def inject_site_metadata() -> dict[str, Any]:
         """Inject shared site attribution and saved user settings into templates."""
 
-        return {"site_metadata": _site_metadata(), "app_settings": load_user_settings()}
+        return {
+            "site_metadata": _site_metadata(),
+            "app_settings": load_user_settings(),
+            "frontend_scripts": FRONTEND_SCRIPTS,
+        }
 
     ctx = WebContext(
         active_data_dir=active_data_dir,

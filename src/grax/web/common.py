@@ -132,6 +132,25 @@ def _run_id(workflow: str, grating_id: str) -> str:
     return f"{stamp}-{grating_id}-{workflow}".replace("_", "-")
 
 
+# Page scripts in load order. They are classic ``defer`` scripts sharing one
+# global scope, so a later file may call functions from an earlier one.
+FRONTEND_SCRIPTS = tuple(
+    f"js/{name}.js"
+    for name in (
+        "settings",
+        "grating-forms",
+        "design-figures",
+        "plots",
+        "custom-grid",
+        "startup",
+        "run-monitor",
+        "design-picker",
+        "form-bindings",
+        "plane-mirror",
+        "run-export",
+    )
+)
+
 PATH_ID_KEYS = ("run_id", "plot_id", "study_id", "mirror_id", "scan_id", "grating_id")
 
 

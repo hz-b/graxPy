@@ -4,7 +4,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grax.web.afm_workflow import estimate_afm_period, parse_afm_upload, preview_afm_upload, process_afm_upload
+from grax.web.afm_workflow import (
+    estimate_afm_period,
+    parse_afm_upload,
+    preview_afm_upload,
+    process_afm_upload,
+)
+from grax.web.common import FRONTEND_SCRIPTS
 
 
 def test_parse_afm_upload_accepts_header_csv_and_units() -> None:
@@ -231,7 +237,7 @@ def test_afm_form_has_inline_stage_previews(tmp_path: Path) -> None:
 def test_afm_live_preview_uses_rescaled_period_and_does_not_show_old_analytic_plot() -> None:
     source = Path(__file__).resolve().parents[2] / "src/grax/web/static"
     afm_js = (source / "afm.js").read_text(encoding="utf-8")
-    web_js = (source / "web.js").read_text(encoding="utf-8")
+    web_js = "\n".join((source / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
     assert 'liveCurve = traces.rescaled || null' in afm_js
     assert 'renderCurve(liveFigure, repeatPeriod(liveCurve))' in afm_js
@@ -347,7 +353,7 @@ def test_afm_process_uses_visible_target_when_period_is_blank(tmp_path: Path) ->
 def test_save_attempt_auto_processes_current_afm_settings_in_browser() -> None:
     source = Path(__file__).resolve().parents[2] / "src/grax/web/static"
     afm_js = (source / "afm.js").read_text(encoding="utf-8")
-    web_js = (source / "web.js").read_text(encoding="utf-8")
+    web_js = "\n".join((source / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
     assert 'form.dispatchEvent(new Event("grax:afm-save-requested"))' in web_js
     assert 'gratingForm.addEventListener("grax:afm-save-requested"' in afm_js

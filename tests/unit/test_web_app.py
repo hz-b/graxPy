@@ -19,14 +19,22 @@ from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
 from grax.web import plot_builder
-from grax.web.routes import core as core_routes
-from grax.web.routes import gratings as grating_routes
-from grax.web.routes import runs as run_routes
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
     grating_to_spec,
 )
+from grax.web.routes import core as core_routes
+from grax.web.routes import gratings as grating_routes
+from grax.web.routes import runs as run_routes
+
+
+def _frontend_js() -> str:
+    """Return the page scripts concatenated in load order."""
+    from grax.web.common import FRONTEND_SCRIPTS
+
+    static = Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static"
+    return "\n".join((static / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
 
 def test_site_version_comes_from_project_toml():
@@ -242,7 +250,9 @@ def test_installed_web_package_includes_templates_and_static_assets() -> None:
     assert (template_root / "index.html").is_file()
     assert (template_root / "web_docs.html").is_file()
     assert (static_root / "web.css").is_file()
-    assert (static_root / "web.js").is_file()
+    from grax.web.common import FRONTEND_SCRIPTS
+
+    assert all((static_root / script).is_file() for script in FRONTEND_SCRIPTS)
 
 
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
@@ -679,7 +689,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-stack-controls' in response.data
     assert b'data-single-layer-controls' in response.data
     assert b'data-stack-type' in response.data
-    assert b"web.js" in response.data
+    assert b"js/grating-forms.js" in response.data
     assert b'name="substrate_material_density_g_cm3"' in response.data
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
@@ -693,9 +703,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
 
-    web_js = (Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js").read_text(
-        encoding="utf-8"
-    )
+    web_js = _frontend_js()
     assert "syncMaterialDensity" in web_js
     assert "[data-material-select]" in web_js
 
@@ -2239,9 +2247,7 @@ def test_home_exposes_only_the_native_workspace_picker(tmp_path: Path) -> None:
 
 
 def test_sweep_display_rounding_and_range_count_restore_are_configured() -> None:
-    web_js = (
-        Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js"
-    ).read_text(encoding="utf-8")
+    web_js = _frontend_js()
 
     assert "function formatRoundedNumber(value)" in web_js
     assert "value.toFixed(3)" in web_js
