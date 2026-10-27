@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from typing import (
     Any,
@@ -25,11 +24,12 @@ from ..common import (
     _is_loopback_address,
 )
 from ..context import WebContext
-from ..run_jobs import (
-    _memory_status_payload,
-)
+from ..files import write_json_atomically
 from ..run_state import (
     _has_active_runs,
+)
+from ..run_status import (
+    _memory_status_payload,
 )
 from ..workspace import (
     _pick_native_directory,
@@ -55,17 +55,10 @@ def register(app: Any, ctx: WebContext) -> None:
             abort(400, "Decimal separator must be dot or comma.")
         if standard_polarization not in {"s", "p"}:
             abort(400, "Standard polarization must be s or p.")
-        settings_path = active_data_dir() / "settings.json"
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path = settings_path.with_suffix(".json.tmp")
-        temporary_path.write_text(
-            json.dumps({
-                "decimal_separator": decimal_separator,
-                "standard_polarization": standard_polarization,
-            }, indent=2) + "\n",
-            encoding="utf-8",
+        write_json_atomically(
+            active_data_dir() / "settings.json",
+            {"decimal_separator": decimal_separator, "standard_polarization": standard_polarization},
         )
-        temporary_path.replace(settings_path)
         return jsonify({"saved": True})
 
     @app.get("/")

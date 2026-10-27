@@ -35,11 +35,11 @@ from ..common import (
     _split_variation_values,
 )
 from ..context import WebContext
-from ..jobs import is_orphaned, request_stop
 from ..grating_forms import (
     _custom_layer_rows,
     _material_density_placeholders,
 )
+from ..jobs import is_orphaned, request_stop
 from ..persistence import (
     PlaneMirrorStore,
 )
@@ -77,10 +77,10 @@ from ..plot_builder import (
     _plotly_bundle_text,
     get_plotlyjs,
 )
-from ..run_state import _is_run_active
 from ..run_files import (
     _load_run_manifest,
 )
+from ..run_state import _is_run_active
 
 
 def register(app: Any, ctx: WebContext) -> None:

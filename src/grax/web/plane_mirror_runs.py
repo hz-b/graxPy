@@ -16,7 +16,6 @@ from werkzeug.datastructures import MultiDict
 from .files import replace_file, write_json_atomically
 from .jobs import _finish_active_run, start_job
 from .jobs import stop_event as job_stop_event
-
 from .plane_mirror import MAX_TOTAL_SAMPLES as _MAX_TOTAL_SAMPLES
 from .plane_mirror import PLANE_MIRROR_DEFAULTS, compute_plane_mirror, parse_plane_mirror_options
 from .run_state import _update_active_run

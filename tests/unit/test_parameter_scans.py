@@ -14,7 +14,7 @@ from werkzeug.datastructures import MultiDict
 from grax import simulation
 from grax.web import app as web_app
 from grax.web import parameter_scans as scans
-from grax.web import run_jobs
+from grax.web import run_jobs, run_plots
 from grax.web.routes import runs as run_routes
 from grax.web.custom_grid import default_configuration
 from grax.web.persistence import build_grating_from_spec
@@ -590,7 +590,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
         diffraction_order=1, title="Failed first point", now=1.0,
     )
 
-    monkeypatch.setattr(run_jobs, "_load_checkpoint_results", lambda path: results)
+    monkeypatch.setattr(run_plots, "_load_checkpoint_results", lambda path: results)
     client = web_app.create_app(data_dir=tmp_path).test_client()
     page = client.get(f"/runs/{run_id}")
     final_path = run_dir / "selected_efficiency.png"
@@ -602,7 +602,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
     assert final_path.stat().st_mtime_ns == first_mtime
     scans.write_outputs(results, sweep, run_dir, title="Saved", include_plot=False)
     final_path.unlink()
-    monkeypatch.setattr(run_jobs, "_load_checkpoint_results", lambda path: [])
+    monkeypatch.setattr(run_plots, "_load_checkpoint_results", lambda path: [])
     assert client.get(f"/runs/{run_id}").status_code == 200
     assert final_path.is_file()
 
