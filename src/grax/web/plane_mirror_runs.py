@@ -308,7 +308,7 @@ def execute_worker(app, data_dir: Path, run_id: str, stop: threading.Event, resu
                 for key, value in source.items():
                     for item in value if isinstance(value, list) else [value]:
                         form.add(key, item)
-            from .app import _plane_mirror_stack
+            from .plane_mirror_views import _plane_mirror_stack
 
             result = compute_plane_mirror(
                 _plane_mirror_stack(form), parse_plane_mirror_options(form)

@@ -164,7 +164,7 @@ def register(app: Any, ctx: WebContext) -> None:
 
     @app.get("/system/resource-status")
     def system_resource_status():
-        from .resource_manager import resource_status
+        from ..resource_manager import resource_status
         return jsonify(resource_status())
 
     @app.get("/_data/<path:filename>")

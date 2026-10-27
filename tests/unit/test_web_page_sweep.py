@@ -76,3 +76,12 @@ def test_every_linked_page_renders_without_server_errors(seeded_client):
     # The sweep must reach every section, not just the index.
     for prefix in ("/gratings/", "/plane-mirrors/", "/multilayer-design/", "/runs/", "/plots", "/docs"):
         assert any(url.startswith(prefix) and status == 200 for url, status in statuses.items()), prefix
+
+
+@pytest.mark.parametrize("path", ["/system/memory", "/system/resource-status"])
+def test_system_status_endpoints_answer_with_json(seeded_client, path):
+    """These are polled by pages but not linked, so the crawl does not reach them."""
+    response = seeded_client.get(path)
+
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), dict)

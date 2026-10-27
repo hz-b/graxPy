@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -383,6 +384,17 @@ def test_plane_mirror_runs_support_grating_style_scan_modes(client, mode) -> Non
     response = client.post(f"/plane-mirrors/{mirror_id}/runs", data={**base, "run_name": f"Test {mode}"})
     assert response.status_code == 302
     assert client.get(response.headers["Location"]).status_code == 200
+    # The worker must finish, not just start: it runs in a background thread.
+    status_url = response.headers["Location"].rstrip("/") + "/status"
+    deadline = time.monotonic() + 60
+    status = {}
+    while time.monotonic() < deadline:
+        status = client.get(status_url).get_json()
+        if status["status"] in {"completed", "error", "aborted"}:
+            break
+        time.sleep(0.1)
+    assert status["status"] == "completed", status
+    assert status["completed_points"] == status["total_points"] == 1
 
 
 def test_monochromator_preview_returns_energy_dependent_angles(client) -> None:

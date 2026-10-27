@@ -195,6 +195,7 @@ class Normalizer:
         text = re.sub(r"127\.0\.0\.1:\d+", "<HOST>", text)
         # Which files carry the page scripts is layout, not behavior (web.js was split into static/js/).
         text = re.sub(r"[ \t]*<script src=\"/static/[^\"]+\.js[^\"]*\" defer></script>\n", "", text)
+        text = re.sub(r"\n[ \t]*(?=\n)", "", text)  # blank lines left by template loops
         text = re.sub(r"([?&](?:v|t|token)=)[0-9A-Za-z.\-_]+", r"\1<V>", text)
         text = re.sub(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?", "<TIME>", text)
         text = re.sub(r"\b\d{8}-\d{6}(?:-\d{6})?\b", "<STAMP>", text)
@@ -585,8 +586,13 @@ class Parity:
             self.both("GET", f"/plane-mirrors/{mirror.stem}/stack-preview.png")
             for scan in spec.get("scans", []):
                 self.both("GET", f"/plane-mirrors/{mirror.stem}/scans/{scan['id']}/preview.png")
-        for path in ("/plots/export", "/system/resource-status"):
-            self.both("GET", path, compare=path != "/system/resource-status")
+        self.both("GET", "/plots/export")
+        for path in ("/system/resource-status", "/system/memory"):  # machine load differs: status only
+            a, b = self.both("GET", path, compare=False)
+            if a.status != b.status:
+                self.report.diff(f"GET {path}", f"status {a.status} vs {b.status}: {b.body[:300]!r}")
+            else:
+                self.report.ok()
 
     def previews(self) -> None:
         """Submit each page's own forms to the side-effect-free preview endpoints."""
