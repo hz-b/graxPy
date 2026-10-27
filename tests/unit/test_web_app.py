@@ -2972,13 +2972,14 @@ def test_main_accepts_custom_host_and_port(monkeypatch: pytest.MonkeyPatch) -> N
             captured.update(kwargs)
 
     monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app, "_maybe_open_browser", lambda *args, **kwargs: None)
     monkeypatch.setattr(sys, "argv", ["grax-web", "--host", "0.0.0.0", "--port", "8000"])
 
     web_app.main()
 
     assert captured["host"] == "0.0.0.0"
     assert captured["port"] == 8000
-    assert captured["debug"] is True
+    assert captured["debug"] is False
 
 
 def test_main_opens_default_browser_for_local_web_ui(monkeypatch: pytest.MonkeyPatch) -> None:

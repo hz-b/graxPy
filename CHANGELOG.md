@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `grax-web` now starts without the Flask debugger; pass `--debug` for the debugger and auto-reloader, which is allowed only on a local host.
+- The website now refuses changes sent by pages from other websites, so a malicious page cannot delete or start work in your database.
+- The website now rejects malformed run, plot, study, mirror, scan, and grating IDs instead of resolving them as file paths.
+
 - Normalized the None material sentinel across independent and coupled scans, removing optional coatings and reporting a clear error for required materials.
 - Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.
 - Let saved plots be edited and provide PNG, plotted CSV data, or a portable script and data from one download menu.

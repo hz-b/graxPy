@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import matplotlib
@@ -75,6 +76,7 @@ from .multilayer_design_studies import (
 from .persistence import (
     GratingStore,
     PlaneMirrorStore,
+    _slugify,
     build_grating_from_spec,
     build_stack_from_spec,
     stack_to_spec,
@@ -253,6 +255,26 @@ def create_app(*, data_dir: str | Path | None = None):
             "graxpy-hzb-logo.png",
         }:
             values.setdefault("v", _file_token(Path(app.static_folder) / values["filename"]))
+
+    @app.url_value_preprocessor
+    def reject_unsafe_ids(endpoint: str | None, values: dict[str, Any] | None) -> None:
+        """Answer 404 for URL IDs that could point outside the workspace folders."""
+        for key in PATH_ID_KEYS:
+            value = (values or {}).get(key)
+            if value is not None and not _is_safe_id(value):
+                abort(404)
+
+    @app.before_request
+    def reject_cross_site_writes() -> None:
+        """Refuse state-changing requests that another website's page sent."""
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            return
+        if _is_cross_site_request(
+            origin=request.headers.get("Origin"),
+            fetch_site=request.headers.get("Sec-Fetch-Site"),
+            host_url=request.host_url,
+        ):
+            abort(403, "Requests from other websites are not allowed.")
 
     def store() -> GratingStore:
         return GratingStore(app.config["GRAx_DATA_DIR"] / "saved_gratings")
@@ -1370,6 +1392,8 @@ def create_app(*, data_dir: str | Path | None = None):
         run_ids = request.form.getlist("run_ids")
         if not run_ids:
             abort(400, "Select at least one saved run.")
+        if not all(_is_safe_id(run_id) for run_id in run_ids):
+            abort(400, "A selected run is unavailable.")
         order_selection: dict[str, list[int]] = {}
         for run_id in run_ids:
             manifest = _load_run_manifest(active_data_dir(), run_id)
@@ -1410,6 +1434,8 @@ def create_app(*, data_dir: str | Path | None = None):
         run_ids = list(dict.fromkeys(request.form.getlist("run_ids")))
         if not run_ids:
             abort(400, "Select at least one saved run.")
+        if not all(_is_safe_id(run_id) for run_id in run_ids):
+            abort(400, "A selected run is unavailable.")
         order_selection = {}
         for run_id in run_ids:
             run = _load_run_manifest(active_data_dir(), run_id)
@@ -2277,24 +2303,30 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="grax-web")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5050)
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable the Flask debugger and auto-reloader (local hosts only; restarts stop running jobs).",
+    )
     args = parser.parse_args()
+    if args.debug and not (args.host == "localhost" or _is_loopback_address(args.host)):
+        parser.error("--debug exposes an interactive debugger and is only allowed with a local --host.")
     app = create_app()
-    _maybe_open_browser(args.host, args.port)
-    app.run(host=args.host, port=args.port, debug=True)
+    _maybe_open_browser(args.host, args.port, reloader=args.debug)
+    app.run(host=args.host, port=args.port, debug=args.debug)
 
 
-def _maybe_open_browser(host: str, port: int) -> None:
+def _maybe_open_browser(host: str, port: int, *, reloader: bool = False) -> None:
     """Open the local web UI in the default browser when appropriate.
 
     Args:
         host: Flask bind host.
         port: Flask bind port.
+        reloader: Whether the server runs under the Werkzeug reloader, which
+            starts the app twice; the browser then opens from the child only.
     """
 
-    reloader_state = os.environ.get("WERKZEUG_RUN_MAIN")
-    if reloader_state not in (None, "true"):
-        return
-    if reloader_state is None and os.environ.get("FLASK_RUN_FROM_CLI") is None:
+    if reloader and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return
 
     browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
@@ -4613,6 +4645,8 @@ def _publish_live_progress_if_due(
 def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     """Load one run manifest if it exists."""
 
+    if not _is_safe_id(run_id):
+        return None
     manifest_path = data_dir / "runs" / run_id / "manifest.json"
     if not manifest_path.exists():
         return None
@@ -6113,7 +6147,7 @@ def _run_comparison_parameter_rows(runs: list[dict[str, Any]]) -> list[dict[str,
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
     """Build a live combined-plot preview from saved runs and selected orders."""
-    run_ids = [str(run_id) for run_id in form_data.getlist("run_ids")]
+    run_ids = [str(run_id) for run_id in form_data.getlist("run_ids") if _is_safe_id(str(run_id))]
     if not run_ids:
         return {
             "ok": False,
@@ -6873,6 +6907,27 @@ def _safe_browse_path(raw_path: Any) -> Path:
     if raw_path in (None, ""):
         return Path.home().resolve()
     return Path(str(raw_path)).expanduser().resolve()
+
+
+PATH_ID_KEYS = ("run_id", "plot_id", "study_id", "mirror_id", "scan_id", "grating_id")
+
+
+def _is_safe_id(value: Any) -> bool:
+    """Return whether an ID is a plain slug that cannot leave its store folder."""
+    return isinstance(value, str) and bool(value) and _slugify(value) == value
+
+
+def _is_cross_site_request(*, origin: str | None, fetch_site: str | None, host_url: str) -> bool:
+    """Return whether browser headers show the request came from another site's page."""
+    if (fetch_site or "").lower() == "cross-site":
+        return True
+    if not origin:
+        return False
+    if origin == "null":
+        return (fetch_site or "").lower() not in {"same-origin", "none"}
+    origin_parts = urlsplit(origin)
+    host_parts = urlsplit(host_url)
+    return (origin_parts.scheme, origin_parts.netloc) != (host_parts.scheme, host_parts.netloc)
 
 
 def _is_loopback_address(raw_address: str | None) -> bool:
