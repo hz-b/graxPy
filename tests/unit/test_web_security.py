@@ -87,7 +87,7 @@ def test_path_like_ids_are_not_found_and_touch_no_files(tmp_path: Path, method: 
 def _run_main(monkeypatch: pytest.MonkeyPatch, *argv: str) -> dict:
     calls: dict = {}
     fake_app = SimpleNamespace(run=lambda **kwargs: calls.update(kwargs))
-    monkeypatch.setattr(web_app_module, "create_app", lambda: fake_app)
+    monkeypatch.setattr(web_app_module, "create_app", lambda **kwargs: calls.update(app_kwargs=kwargs) or fake_app)
     monkeypatch.setattr(
         web_app_module,
         "_maybe_open_browser",
@@ -104,6 +104,12 @@ def test_server_runs_without_debugger_by_default(monkeypatch: pytest.MonkeyPatch
     assert calls["debug"] is False
     assert calls["host"] == "127.0.0.1"
     assert calls["browser"] == ("127.0.0.1", 5050)
+
+
+def test_data_dir_option_selects_the_database_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = _run_main(monkeypatch, "--data-dir", str(tmp_path))
+
+    assert calls["app_kwargs"] == {"data_dir": tmp_path}
 
 
 def test_debug_flag_enables_debugger_on_loopback(monkeypatch: pytest.MonkeyPatch) -> None:

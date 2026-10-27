@@ -5,6 +5,8 @@
 - `grax-web` now starts without the Flask debugger; pass `--debug` for the debugger and auto-reloader, which is allowed only on a local host.
 - The website now refuses changes sent by pages from other websites, so a malicious page cannot delete or start work in your database.
 - The website now rejects malformed run, plot, study, mirror, scan, and grating IDs instead of resolving them as file paths.
+- Added `grax-web --data-dir` to serve a chosen database folder.
+- Reorganized the website code into smaller modules and page scripts without changing what it does.
 
 - Normalized the None material sentinel across independent and coupled scans, removing optional coatings and reporting a clear error for required materials.
 - Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.

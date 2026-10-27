@@ -193,6 +193,8 @@ class Normalizer:
         for path in {str(self.side.data), str(self.side.data.resolve()), str(self.side.root.resolve())}:
             text = text.replace(path, "<DATA>")
         text = re.sub(r"127\.0\.0\.1:\d+", "<HOST>", text)
+        # Which files carry the page scripts is layout, not behavior (web.js was split into static/js/).
+        text = re.sub(r"[ \t]*<script src=\"/static/[^\"]+\.js[^\"]*\" defer></script>\n", "", text)
         text = re.sub(r"([?&](?:v|t|token)=)[0-9A-Za-z.\-_]+", r"\1<V>", text)
         text = re.sub(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?", "<TIME>", text)
         text = re.sub(r"\b\d{8}-\d{6}(?:-\d{6})?\b", "<STAMP>", text)
