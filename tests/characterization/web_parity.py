@@ -453,6 +453,9 @@ class Parity:
             side.root.mkdir(parents=True)
             # Snapshot the code so edits made while the comparison runs cannot leak into it.
             shutil.copytree(side.src, side.root / "src", ignore=shutil.ignore_patterns("__pycache__"))
+            # The site reads its version from the pyproject.toml next to src/.
+            if (side.src.parent / "pyproject.toml").is_file():
+                shutil.copy2(side.src.parent / "pyproject.toml", side.root / "pyproject.toml")
             side.src = side.root / "src"
             shutil.copytree(self.database, side.data, symlinks=True)
             (side.root / "serve.py").write_text(SERVER_SCRIPT, encoding="utf-8")

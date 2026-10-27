@@ -26,9 +26,6 @@ from ..catalog import (
     _list_plot_runs,
     _list_plots,
 )
-from ..common import (
-    _is_safe_id,
-)
 from ..context import WebContext
 from ..plot_builder import (
     PLOTLY_MARKER_SYMBOLS,
@@ -155,8 +152,6 @@ def register(app: Any, ctx: WebContext) -> None:
         run_ids = request.form.getlist("run_ids")
         if not run_ids:
             abort(400, "Select at least one saved run.")
-        if not all(_is_safe_id(run_id) for run_id in run_ids):
-            abort(400, "A selected run is unavailable.")
         order_selection: dict[str, list[int]] = {}
         for run_id in run_ids:
             manifest = _load_run_manifest(active_data_dir(), run_id)
@@ -197,8 +192,6 @@ def register(app: Any, ctx: WebContext) -> None:
         run_ids = list(dict.fromkeys(request.form.getlist("run_ids")))
         if not run_ids:
             abort(400, "Select at least one saved run.")
-        if not all(_is_safe_id(run_id) for run_id in run_ids):
-            abort(400, "A selected run is unavailable.")
         order_selection = {}
         for run_id in run_ids:
             run = _load_run_manifest(active_data_dir(), run_id)

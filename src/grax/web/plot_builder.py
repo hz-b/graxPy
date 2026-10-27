@@ -234,7 +234,7 @@ def _plot_selected_run_entries(data_dir: Path, plot: dict[str, Any]) -> list[dic
 
 def _build_plot_preview(*, data_dir: Path, form_data: Any) -> dict[str, Any]:
     """Build a live combined-plot preview from saved runs and selected orders."""
-    run_ids = [str(run_id) for run_id in form_data.getlist("run_ids") if _is_safe_id(str(run_id))]
+    run_ids = [str(run_id) for run_id in form_data.getlist("run_ids")]
     if not run_ids:
         return {
             "ok": False,
@@ -604,7 +604,7 @@ def _load_selected_plot_series(
     for run_id in run_ids:
         run_dir = data_dir / "runs" / run_id
         manifest_path = run_dir / "manifest.json"
-        if not manifest_path.exists():
+        if not _is_safe_id(run_id) or not manifest_path.exists():
             continue
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
@@ -844,7 +844,7 @@ def _render_combined_plot_image(
     for run_id in run_ids:
         run_dir = data_dir / "runs" / run_id
         manifest_path = run_dir / "manifest.json"
-        if not manifest_path.exists():
+        if not _is_safe_id(run_id) or not manifest_path.exists():
             continue
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
