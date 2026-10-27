@@ -389,7 +389,7 @@ def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, 
         f"scan-000000-angle-{index:06d}" for index in range(3)
     ]
     path = tmp_path / "runs" / manifest["id"] / "manifest.json"
-    saved = json.loads(path.read_text())
+    saved = json.loads(path.read_text(encoding="utf-8"))
     saved["status"] = "aborted"
     path.write_text(json.dumps(saved))
     response = app.test_client().post(f"/runs/{manifest['id']}/resume")

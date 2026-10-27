@@ -506,7 +506,7 @@ def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
         }
     )
 
-    payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text())
+    payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text(encoding="utf-8"))
 
     assert payload["schema_version"] == 4
     assert payload["id"] == saved["id"]
@@ -906,7 +906,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     manifest_path = tmp_path / "runs" / run_id / "manifest.json"
     manifest = {}
     while time.monotonic() < deadline:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("status") == "completed":
             break
         time.sleep(0.02)
@@ -1329,7 +1329,7 @@ def test_parameter_study_run_uses_selected_polarization(
     manifest = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -1454,7 +1454,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
     assert manifest["status"] == "failed"
     assert manifest.get("completed_points", 0) == completed_points
     assert "controlled numerical failure" in manifest["error_text"]
-    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text()
+    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text(encoding="utf-8")
     assert "error.txt" in manifest["artifacts"]
     if completed_points:
         assert "parameter_study.png" in manifest["artifacts"]
@@ -2330,7 +2330,7 @@ def test_delete_grating_only_keeps_linked_runs(tmp_path: Path) -> None:
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2371,7 +2371,7 @@ def test_delete_grating_and_runs_removes_linked_runs(tmp_path: Path) -> None:
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2412,7 +2412,7 @@ def test_delete_grating_and_runs_is_blocked_for_active_linked_runs(tmp_path: Pat
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     app.extensions["grax_active_runs"] = {
@@ -2679,7 +2679,7 @@ def test_run_detail_offers_resume_and_restart_for_parameter_study(tmp_path: Path
 
     _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
     manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["workflow"] = "parameter_study"
     manifest_path.write_text(json.dumps(manifest))
     response = create_app(data_dir=tmp_path).test_client().get("/runs/study-run")
@@ -2695,7 +2695,7 @@ def test_parameter_study_resume_launches_from_saved_energy(tmp_path: Path, monke
 
     _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
     manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["workflow"] = "parameter_study"
     manifest["run_input"].update({
         "workflow": "parameter_study", "study_energy_ev": 120.0,
@@ -2929,7 +2929,7 @@ def test_abort_route_marks_run_aborted(
             break
         time.sleep(0.05)
 
-    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
+    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text(encoding="utf-8"))
     assert final_payload["state"] == "aborted"
     assert final_payload["can_abort"] is False
     assert final_payload["elapsed_seconds"] is not None
@@ -3263,7 +3263,7 @@ def test_flask_app_plots_selected_orders_across_runs(
     manifests = []
     while time.monotonic() < deadline:
         manifests = [
-            json.loads(path.read_text())
+            json.loads(path.read_text(encoding="utf-8"))
             for path in (tmp_path / "runs").glob("*/manifest.json")
         ]
         if manifests and all(manifest.get("status") == "completed" for manifest in manifests):
@@ -3377,7 +3377,7 @@ def test_parameter_study_run_uses_selected_solver(
     manifest: dict[str, object] = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -3422,7 +3422,7 @@ def test_geometry_views_are_present_on_grating_and_multilayer_pages(tmp_path: Pa
 
 
 def test_geometry_static_script_and_switch_hooks_are_available() -> None:
-    geometry = Path("src/grax/web/static/geometry.js").read_text()
+    geometry = Path("src/grax/web/static/geometry.js").read_text(encoding="utf-8")
     assert "window.GraxGeometry" in geometry
     assert "geometryGroup" in geometry
     assert "applyGroups" in geometry
@@ -3503,7 +3503,7 @@ def test_results_finished_out_of_order_are_saved_in_case_order(
     manifest: dict = {}
     while time.monotonic() < deadline and manifest.get("status") != "completed":
         time.sleep(0.02)
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert [case["energy_ev"] for case in manifest["cases"]] == [100.0, 110.0, 120.0, 130.0, 140.0]
     csv_text = client.get(f"/runs/{run_id}/export/csv").get_data(as_text=True)
