@@ -11,6 +11,7 @@ import pytest
 from werkzeug.datastructures import MultiDict
 
 from grax.web import app as web_app
+from grax.web import plot_builder
 from grax.web.app import create_app
 
 
@@ -135,7 +136,7 @@ def test_loop_expansion_axis_and_legend_persist_in_preview_and_save(
         rendered.update(kwargs)
         save_image(**kwargs)
 
-    monkeypatch.setattr(web_app, "_save_compare_image", capture_image)
+    monkeypatch.setattr(plot_builder, "_save_compare_image", capture_image)
     response = client.post("/plots", data=form)
     assert response.status_code == 302
     plot_id = response.headers["Location"].rsplit("/", 1)[-1]

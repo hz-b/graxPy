@@ -14,6 +14,7 @@ from werkzeug.datastructures import MultiDict
 from grax import simulation
 from grax.web import app as web_app
 from grax.web import parameter_scans as scans
+from grax.web import run_jobs
 from grax.web.custom_grid import default_configuration
 from grax.web.persistence import build_grating_from_spec
 
@@ -337,6 +338,8 @@ def test_grouped_preview_keeps_scan_identities_and_selected_styles(tmp_path):
 def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, monkeypatch):
     """Preserve the scan snapshot and execution options through queue and resume."""
     launched = {}
+    monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    # The resume route starts workers itself, so patch its lookup too.
     monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
@@ -397,7 +400,7 @@ def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, 
 def test_monochromator_run_keeps_multidict_form_for_run_input(tmp_path, monkeypatch):
     """Monochromator CFF preprocessing must not break form-list access."""
     launched = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
         [
@@ -586,7 +589,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
         diffraction_order=1, title="Failed first point", now=1.0,
     )
 
-    monkeypatch.setattr(web_app, "_load_checkpoint_results", lambda path: results)
+    monkeypatch.setattr(run_jobs, "_load_checkpoint_results", lambda path: results)
     client = web_app.create_app(data_dir=tmp_path).test_client()
     page = client.get(f"/runs/{run_id}")
     final_path = run_dir / "selected_efficiency.png"
@@ -598,7 +601,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
     assert final_path.stat().st_mtime_ns == first_mtime
     scans.write_outputs(results, sweep, run_dir, title="Saved", include_plot=False)
     final_path.unlink()
-    monkeypatch.setattr(web_app, "_load_checkpoint_results", lambda path: [])
+    monkeypatch.setattr(run_jobs, "_load_checkpoint_results", lambda path: [])
     assert client.get(f"/runs/{run_id}").status_code == 200
     assert final_path.is_file()
 
@@ -606,7 +609,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
 def test_energy_sweep_keeps_angle_fixed_across_parameter_combinations(tmp_path, monkeypatch):
     """Combine optional parameters with the energy range at one grazing angle."""
     launched = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
         {

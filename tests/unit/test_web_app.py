@@ -18,6 +18,7 @@ from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
+from grax.web import plot_builder
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
@@ -184,10 +185,10 @@ def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
 
 
 def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(web_app_module, "go", None, raising=False)
-    monkeypatch.setattr(web_app_module, "plotly_io", None, raising=False)
-    monkeypatch.setattr(web_app_module, "get_plotlyjs", None, raising=False)
-    monkeypatch.setattr(web_app_module, "make_subplots", None, raising=False)
+    monkeypatch.setattr(plot_builder, "go", None, raising=False)
+    monkeypatch.setattr(plot_builder, "plotly_io", None, raising=False)
+    monkeypatch.setattr(plot_builder, "get_plotlyjs", None, raising=False)
+    monkeypatch.setattr(plot_builder, "make_subplots", None, raising=False)
 
     with pytest.raises(RuntimeError) as error_info:
         web_app_module._require_plotly()
