@@ -177,8 +177,9 @@ function initPlaneMirror(form) {
 }
 
 function initPlaneMirrorScanForm(form) {
-  const figure = form.querySelector("[data-plane-mirror-figure]");
-  const status = form.querySelector("[data-plane-mirror-preview-status]");
+  // The preview panel sits next to the form, not inside it.
+  const figure = document.querySelector("[data-plane-mirror-figure]");
+  const status = document.querySelector("[data-plane-mirror-preview-status]");
   const workflow = form.querySelector("[data-run-workflow]");
   const nameField = form.querySelector("[data-plane-mirror-run-name]");
   let requestId = 0;

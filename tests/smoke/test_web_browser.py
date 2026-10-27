@@ -614,10 +614,22 @@ def test_every_linked_page_runs_its_scripts_without_errors(website, browser_page
             queue.append(parts.path)
 
     assert len(seen) > 15
-    # Known, pre-existing on develop: the saved-mirror scan form has no preview status element,
-    # so initPlaneMirrorScanForm's preview update throws. Remove once that bug is fixed.
-    known = "/plane-mirrors/browser-mirror: Cannot set properties of null (setting 'textContent')"
-    assert [error for error in errors if known not in error] == []
+    assert errors == []
+
+
+@pytest.mark.browser
+def test_saved_plane_mirror_scan_page_draws_reflectivity_preview(website, browser_page: Page) -> None:
+    base_url, data_dir = website
+    page = browser_page
+    _seed_workspace(base_url, data_dir, page)
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    page.goto(f"{base_url}/plane-mirrors/browser-mirror")
+
+    expect(page.locator("[data-plane-mirror-preview-status]")).to_contain_text("Preview ready", timeout=30_000)
+    expect(page.locator("[data-plane-mirror-figure] .main-svg").first).to_be_visible()
+    assert errors == []
 
 
 @pytest.mark.browser
