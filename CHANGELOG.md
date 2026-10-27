@@ -8,6 +8,9 @@
 - Added `grax-web --data-dir` to serve a chosen database folder.
 - Added `grax-web --no-browser` to start the website without opening a browser window.
 - Reorganized the website code into smaller modules and page scripts without changing what it does.
+- Plane-mirror runs are now tracked like grating runs: they cannot be started twice, block switching the database folder while running, and keep a new name given while they run.
+- Deleting runs or multilayer studies now stops any calculation still running in them first.
+- Made saving runs, studies, plots and settings reliable on Windows, where a file being read could make a save or a whole run fail.
 - Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
 - Saved run results and downloads now list points in scan order even when parallel workers finish out of order.

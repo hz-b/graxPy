@@ -390,7 +390,7 @@ def test_plane_mirror_runs_support_grating_style_scan_modes(client, mode) -> Non
     status = {}
     while time.monotonic() < deadline:
         status = client.get(status_url).get_json()
-        if status["status"] in {"completed", "error", "aborted"}:
+        if status["status"] in {"completed", "failed", "aborted"}:
             break
         time.sleep(0.1)
     assert status["status"] == "completed", status

@@ -39,6 +39,33 @@ jobs:
           name: coverage-xml
           path: coverage.xml
 
+  web-other-platforms:
+    # The website runs background jobs and replaces files that browsers read at
+    # the same time; Windows and macOS behave differently from Linux there.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra web
+
+      - name: Run website unit tests
+        run: uv run pytest tests/unit -m "not browser" -k "web" --ignore=tests/unit/test_reticolopy_opt.py
+
   browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
