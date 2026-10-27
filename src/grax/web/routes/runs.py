@@ -32,6 +32,7 @@ from ..catalog import (
     _scan_run_rows,
 )
 from ..context import WebContext
+from ..jobs import stop_job
 from ..persistence import (
     build_grating_from_spec,
 )
@@ -127,6 +128,9 @@ def register(app: Any, ctx: WebContext) -> None:
                         run_ids=run_ids,
                         plots=references,
                     )
+            # A running worker would keep writing into the folder being removed.
+            for run_id in run_ids:
+                stop_job(app, run_id)
             store.delete_many(run_ids)
             return redirect(url_for("manage_grating_runs"))
 

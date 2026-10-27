@@ -23,6 +23,7 @@ from grax.materials import (
 )
 
 from ..context import WebContext
+from ..jobs import stop_job
 from ..multilayer_design_studies import (
     STAGE_LABELS,
     STAGES,
@@ -74,6 +75,13 @@ def register(app: Any, ctx: WebContext) -> None:
         except (ValueError, FileNotFoundError, OSError):
             abort(404)
 
+    def _delete_studies(study_ids: list[str]) -> None:
+        # A running stage would keep writing into the folder being removed.
+        for study_id in study_ids:
+            for stage in STAGES:
+                stop_job(app, _multilayer_design_job_key(study_id, stage))
+        _design_store().delete_many(study_ids)
+
     def _design_view_model(manifest: dict[str, Any]) -> dict[str, Any]:
         store = _design_store()
         study_dir = store.study_dir(str(manifest["id"]))
@@ -123,7 +131,7 @@ def register(app: Any, ctx: WebContext) -> None:
     @app.post("/multilayer-design")
     def multilayer_design_create():
         if request.form.get("action") == "delete":
-            _design_store().delete_many(request.form.getlist("delete_study_id"))
+            _delete_studies(request.form.getlist("delete_study_id"))
             return redirect(url_for("multilayer_design_index"))
         display_name = request.form.get("display_name", "").strip() or "Multilayer design"
         try:
@@ -212,7 +220,7 @@ def register(app: Any, ctx: WebContext) -> None:
 
     @app.post("/multilayer-design/<study_id>/delete")
     def multilayer_design_delete(study_id: str):
-        _design_store().delete_many([study_id])
+        _delete_studies([study_id])
         return redirect(url_for("multilayer_design_index"))
 
     @app.post("/multilayer-design/<study_id>/stages/<stage>/run")

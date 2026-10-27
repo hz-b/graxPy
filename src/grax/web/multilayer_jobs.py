@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,20 +21,21 @@ from .multilayer_design_studies import (
     survey_cell_count,
     survey_design_options,
 )
-from .run_jobs import (
+from .jobs import (
     _finish_active_run,
+    is_orphaned,
+    start_job,
+    stop_job,
 )
+from .jobs import stop_event as job_stop_event
 from .run_state import (
-    ActiveRunState,
     _active_runs,
     _active_runs_lock,
     _cleanup_finished_runs,
     _elapsed_seconds,
     _eta_seconds,
     _is_active_run_entry_live,
-    _terminate_run_processes,
     _update_active_run,
-    _wait_for_run_shutdown,
 )
 
 
@@ -58,14 +58,9 @@ def _mark_orphaned_stages(app: Any, manifest: dict[str, Any]) -> dict[str, Any]:
     """
 
     study_id = str(manifest.get("id", ""))
-    with _active_runs_lock(app):
-        active_runs = _active_runs(app)
-        for stage, stage_state in (manifest.get("stages") or {}).items():
-            if stage_state.get("status") not in {"queued", "running", "aborting"}:
-                continue
-            active = active_runs.get(_multilayer_design_job_key(study_id, stage))
-            if active is None or active.state not in {"queued", "running", "aborting"}:
-                stage_state.update(status="aborted", error_text=ORPHANED_STAGE_ERROR)
+    for stage, stage_state in (manifest.get("stages") or {}).items():
+        if is_orphaned(app, _multilayer_design_job_key(study_id, stage), stage_state.get("status")):
+            stage_state.update(status="aborted", error_text=ORPHANED_STAGE_ERROR)
     return manifest
 
 
@@ -86,31 +81,23 @@ def _start_multilayer_design_worker(
     manifest = store.load(study_id)
 
     key = _multilayer_design_job_key(study_id, stage)
-    active_state = ActiveRunState(
-        run_id=key,
-        workflow=f"multilayer_design_{stage}",
-        total_points=_multilayer_design_stage_total(manifest, stage),
-        worker_mode="auto",
-        requested_workers=None,
-        resolved_workers=None,
-    )
+    resumed_points = 0
     if stage == "energy_scan":
-        active_state.resumed_points = _energy_scan_checkpoint_progress(
+        resumed_points = _energy_scan_checkpoint_progress(
             study_dir=store.study_dir(study_id),
             designs=manifest["stages"][stage].get("designs") or [],
             energy_points=int(manifest["config"].get("energy_scan_points") or 0),
         )[0]
-    with _active_runs_lock(app):
-        _active_runs(app)[key] = active_state
-
-    worker = threading.Thread(
+    start_job(
+        app,
+        key,
         target=_execute_multilayer_design_job,
         kwargs={"app": app, "data_dir": data_dir, "study_id": study_id, "stage": stage},
-        daemon=True,
-        name=f"grax-mldesign-{study_id}-{stage}",
+        thread_name=f"grax-mldesign-{study_id}-{stage}",
+        workflow=f"multilayer_design_{stage}",
+        total_points=_multilayer_design_stage_total(manifest, stage),
+        resumed_points=resumed_points,
     )
-    active_state.worker_thread = worker
-    worker.start()
 
 
 def _execute_multilayer_design_job(
@@ -126,17 +113,13 @@ def _execute_multilayer_design_job(
     store = MultilayerDesignStudyStore(data_dir / "multilayer_designs")
 
     def _set_stage(**updates: Any) -> None:
-        manifest = store.load(study_id)
-        manifest["stages"][stage].update(updates)
-        store.save(manifest)
+        store.update(study_id, lambda manifest: manifest["stages"][stage].update(updates))
 
     allocate_workers(key)
     _update_active_run(app, key, state="running", started=True)
     _set_stage(status="running", error_text="", aborted=False)
     auto_chain = False
-    with _active_runs_lock(app):
-        entry = _active_runs(app).get(key)
-    stop_event = entry.stop_event if entry is not None else threading.Event()
+    stop_event = job_stop_event(app, key)
     try:
         manifest = store.load(study_id)
         config = build_design_config(store.study_dir(study_id), manifest["config"])
@@ -255,11 +238,12 @@ def _start_auto_energy_scan(*, app: Any, data_dir: Path, study_id: str) -> None:
         designs = resolve_designs("best", options, [])
     except (ValueError, OSError):
         return
-    manifest = store.load(study_id)
-    manifest["stages"]["energy_scan"]["status"] = "queued"
-    manifest["stages"]["energy_scan"]["error_text"] = ""
-    manifest["stages"]["energy_scan"]["designs"] = designs
-    store.save(manifest)
+    store.update(
+        study_id,
+        lambda manifest: manifest["stages"]["energy_scan"].update(
+            status="queued", error_text="", designs=designs
+        ),
+    )
     _start_multilayer_design_worker(
         app=app, data_dir=data_dir, study_id=study_id, stage="energy_scan"
     )
@@ -452,18 +436,11 @@ def _abort_multilayer_design_stage(
 ) -> None:
     """Request a cooperative stop for a running stage and wait for it to finish."""
 
-    key = _multilayer_design_job_key(study_id, stage)
-    with _active_runs_lock(app):
-        active = _active_runs(app).get(key)
-        if active is not None and active.state in {"queued", "running"}:
-            active.abort_requested = True
-            active.stop_event.set()
-            active.state = "aborting"
-    # The sweep kills its own pool from the inside; this is the backstop for a
-    # worker stuck somewhere the stop check does not reach. It also matters for
-    # `discard`, which deletes the stage directory the worker is writing into.
-    _terminate_run_processes(app, key)
-    _wait_for_run_shutdown(app, key)
+    # The sweep kills its own pool from the inside; stopping the job's worker
+    # processes is the backstop for a worker stuck somewhere the stop check does
+    # not reach. It also matters for `discard`, which deletes the stage
+    # directory the worker is writing into.
+    stop_job(app, _multilayer_design_job_key(study_id, stage))
     if discard:
         _reset_multilayer_design_stage(store=store, study_id=study_id, stage=stage)
 
@@ -472,8 +449,7 @@ def _reset_multilayer_design_stage(*, store: Any, study_id: str, stage: str) -> 
     """Delete one stage's outputs and blank its manifest entry."""
 
     study_dir = store.study_dir(study_id)
-    manifest = store.load(study_id)
-    artifacts = manifest["stages"][stage].get("artifacts") or {}
+    artifacts = store.load(study_id)["stages"][stage].get("artifacts") or {}
 
     if stage == "survey":
         shutil.rmtree(study_dir / "survey", ignore_errors=True)
@@ -485,15 +461,17 @@ def _reset_multilayer_design_stage(*, store: Any, study_id: str, stage: str) -> 
         for design in artifacts.get("designs") or []:
             _unlink_relative(study_dir, design.get("plot"))
 
-    manifest["stages"][stage] = {
-        "status": "not_run",
-        "ran_at": None,
-        "error_text": "",
-        "aborted": False,
-        "designs": [],
-        "artifacts": {},
-    }
-    for later in downstream_stages(stage):
-        if manifest["stages"][later]["status"] in {"completed", "aborted"}:
-            manifest["stages"][later]["status"] = "stale"
-    store.save(manifest)
+    def blank_stage(manifest: dict[str, Any]) -> None:
+        manifest["stages"][stage] = {
+            "status": "not_run",
+            "ran_at": None,
+            "error_text": "",
+            "aborted": False,
+            "designs": [],
+            "artifacts": {},
+        }
+        for later in downstream_stages(stage):
+            if manifest["stages"][later]["status"] in {"completed", "aborted"}:
+                manifest["stages"][later]["status"] = "stale"
+
+    store.update(study_id, blank_stage)

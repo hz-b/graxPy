@@ -35,6 +35,7 @@ from ..common import (
     _split_variation_values,
 )
 from ..context import WebContext
+from ..jobs import is_orphaned, request_stop
 from ..grating_forms import (
     _custom_layer_rows,
     _material_density_placeholders,
@@ -76,6 +77,7 @@ from ..plot_builder import (
     _plotly_bundle_text,
     get_plotlyjs,
 )
+from ..run_state import _is_run_active
 from ..run_files import (
     _load_run_manifest,
 )
@@ -141,14 +143,24 @@ def register(app: Any, ctx: WebContext) -> None:
             message=str(request.args.get("message", "")).strip(),
         )
 
+    def _mark_orphaned_run(run_id: str) -> dict[str, Any]:
+        """Save a run the app stopped in the middle of as aborted, and return the change."""
+        change = {"status": "aborted", "error_text": "The app stopped before this run finished."}
+        run_store().update(run_id, lambda saved: saved.update(change))
+        return change
+
+    def _normalize_mirror_run_status(manifest: dict[str, Any]) -> None:
+        # Runs saved before the job manager recorded failures as "error".
+        if manifest.get("status") == "error":
+            manifest["status"] = "failed"
+
     @app.get("/plane-mirror-runs")
     def plane_mirror_runs():
         manifests = [run for run in run_store().list() if run.get("mirror_id")]
-        active = app.extensions.setdefault("grax_mirror_run_events", {})
         for manifest in manifests:
-            if manifest.get("status") in {"queued", "running", "aborting"} and manifest["id"] not in active:
-                manifest.update(status="aborted", error_text="The app stopped before this run finished.")
-                run_store().save(manifest)
+            if is_orphaned(app, manifest["id"], manifest.get("status")):
+                manifest.update(_mark_orphaned_run(manifest["id"]))
+            _normalize_mirror_run_status(manifest)
         return render_template(
             "plane_mirror_manage.html",
             runs=manifests,
@@ -282,9 +294,9 @@ def register(app: Any, ctx: WebContext) -> None:
         manifest = _load_run_manifest(active_data_dir(), run_id)
         if manifest is None or not manifest.get("mirror_id"):
             abort(404)
-        if manifest.get("status") in {"queued", "running", "aborting"} and run_id not in app.extensions.setdefault("grax_mirror_run_events", {}):
-            manifest.update(status="aborted", error_text="The app stopped before this run finished.")
-            run_store().save(manifest)
+        if is_orphaned(app, run_id, manifest.get("status")):
+            manifest.update(_mark_orphaned_run(run_id))
+        _normalize_mirror_run_status(manifest)
         result_path = active_data_dir() / "runs" / run_id / "mirror_results.json"
         try:
             results = json.loads(result_path.read_text(encoding="utf-8"))
@@ -297,6 +309,7 @@ def register(app: Any, ctx: WebContext) -> None:
         manifest = _load_run_manifest(active_data_dir(), run_id)
         if manifest is None or not manifest.get("mirror_id"):
             abort(404)
+        _normalize_mirror_run_status(manifest)
         manifest["plot_url"] = url_for("data_file", filename=f"runs/{run_id}/plot.png", v=manifest.get("completed_points", 0)) if manifest.get("completed_points") else None
         return jsonify({key: manifest.get(key) for key in ("status", "completed_points", "total_points", "error_text", "plot_url")})
 
@@ -323,11 +336,11 @@ def register(app: Any, ctx: WebContext) -> None:
         manifest = _load_run_manifest(active_data_dir(), run_id)
         if manifest is None or not manifest.get("mirror_id"):
             abort(404)
-        event = app.extensions.setdefault("grax_mirror_run_events", {}).get(run_id)
-        if event:
-            event.set()
-            manifest.update(status="aborting", updated_at=datetime.now().isoformat(timespec="seconds"))
-            run_store().save(manifest)
+        if request_stop(app, run_id):
+            run_store().update(
+                run_id,
+                lambda saved: saved.update(status="aborting", updated_at=datetime.now().isoformat(timespec="seconds")),
+            )
         return redirect(url_for("plane_mirror_run_detail", run_id=run_id))
 
     @app.post("/plane-mirror-runs/<run_id>/resume")
@@ -335,7 +348,7 @@ def register(app: Any, ctx: WebContext) -> None:
         manifest = _load_run_manifest(active_data_dir(), run_id)
         if manifest is None or not manifest.get("mirror_id"):
             abort(404)
-        if run_id in app.extensions.setdefault("grax_mirror_run_events", {}):
+        if _is_run_active(app, run_id):
             abort(409, "This run is already active.")
         if manifest.get("status") not in {"aborted", "error", "failed"}:
             abort(409, "Only an aborted or failed run can be resumed.")
@@ -347,7 +360,7 @@ def register(app: Any, ctx: WebContext) -> None:
         manifest = _load_run_manifest(active_data_dir(), run_id)
         if manifest is None or not manifest.get("mirror_id"):
             abort(404)
-        if run_id in app.extensions.setdefault("grax_mirror_run_events", {}):
+        if _is_run_active(app, run_id):
             abort(409, "Abort this run before restarting it.")
         if manifest.get("status") not in {"completed", "aborted", "error", "failed"}:
             abort(409, "Wait for this run to finish or abort it before restarting.")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import json
 import os
-import threading
 import time
 import traceback
 from datetime import datetime
@@ -32,6 +31,13 @@ from .custom_grid import (
 from .grating_forms import (
     _attach_roughness,
 )
+from .jobs import (
+    _finish_active_run,
+    request_stop,
+    start_job,
+    wait_for_stop,
+)
+from .jobs import stop_event as job_stop_event
 from .run_files import (
     _checkpoint_counts,
     _load_checkpoint_results,
@@ -73,9 +79,7 @@ from .run_state import (
     _is_active_run_entry_live,
     _is_delete_requested,
     _is_run_active,
-    _terminate_run_processes,
     _update_active_run,
-    _wait_for_run_shutdown,
 )
 from .runs import RunStore
 
@@ -255,8 +259,7 @@ def _abort_run(
         return None
     if _is_run_active(app, run_id):
         _request_run_abort(app, data_dir, run_id, delete_after_abort=delete_after_abort)
-        _terminate_run_processes(app, run_id)
-        _wait_for_run_shutdown(app, run_id)
+        wait_for_stop(app, run_id)
         if delete_after_abort and _load_run_manifest(data_dir, run_id) is not None:
             RunStore(data_dir / "runs").delete_many([run_id])
             return None
@@ -289,24 +292,9 @@ def _start_run_worker(
 ) -> None:
     """Register one active run state and start its worker thread."""
 
-    active_state = ActiveRunState(
-        run_id=run_id,
-        workflow=workflow,
-        total_points=(
-            _parameter_study_total_points(form_data, grating, energies.size)
-            if workflow == "parameter_study"
-            else _custom_grid_case_count_from_form(form_data) if workflow == "custom_grid"
-            else _parameter_scan_point_count(form_data, int(energies.size))
-        ),
-        worker_mode=worker_mode,
-        requested_workers=requested_workers,
-        resolved_workers=None,
-        completed_points=completed_points,
-    )
-    with _active_runs_lock(app):
-        _active_runs(app)[run_id] = active_state
-
-    worker = threading.Thread(
+    start_job(
+        app,
+        run_id,
         target=_execute_run_job,
         kwargs={
             "app": app,
@@ -323,11 +311,18 @@ def _start_run_worker(
             "max_workers_setting": max_workers_setting,
             "resume": resume,
         },
-        daemon=True,
-        name=f"grax-run-{run_id}",
+        thread_name=f"grax-run-{run_id}",
+        workflow=workflow,
+        total_points=(
+            _parameter_study_total_points(form_data, grating, energies.size)
+            if workflow == "parameter_study"
+            else _custom_grid_case_count_from_form(form_data) if workflow == "custom_grid"
+            else _parameter_scan_point_count(form_data, int(energies.size))
+        ),
+        worker_mode=worker_mode,
+        requested_workers=requested_workers,
+        completed_points=completed_points,
     )
-    active_state.worker_thread = worker
-    worker.start()
 
 
 def _execute_run_job(
@@ -482,7 +477,7 @@ def _execute_run_job(
             on_error="continue",
             checkpoint_dir=run_dir / "checkpoints",
             resume=resume,
-            stop_event=_active_runs(app)[run_id].stop_event if run_id in _active_runs(app) else None,
+            stop_event=job_stop_event(app, run_id),
             on_worker_pids_changed=lambda worker_pids: _update_active_run(
                 app,
                 run_id,
@@ -628,14 +623,8 @@ def _execute_run_job(
 def _request_run_abort(app: Any, data_dir: Path, run_id: str, *, delete_after_abort: bool) -> bool:
     """Request cooperative abort for one active run."""
 
-    with _active_runs_lock(app):
-        active = _active_runs(app).get(run_id)
-        if active is None or active.state not in {"queued", "running"}:
-            return False
-        active.abort_requested = True
-        active.delete_requested = delete_after_abort
-        active.stop_event.set()
-        active.state = "aborting"
+    if not request_stop(app, run_id, delete=delete_after_abort):
+        return False
     _update_manifest_fields(data_dir, run_id, status="aborting")
     return True
 
@@ -775,41 +764,6 @@ def _publish_live_progress_if_due(
         run_id,
         plot_relative_path=output_path.name,
     )
-
-
-def _finish_active_run(
-    app: Any,
-    run_id: str,
-    *,
-    state: str,
-    plot_relative_path: str | None = None,
-    error_text: str | None = None,
-    completed_points: int | None = None,
-) -> None:
-    """Mark one active run as finished."""
-
-    elapsed_seconds: float | None = None
-    with _active_runs_lock(app):
-        active = _active_runs(app).get(run_id)
-        if active is None:
-            return
-        active.state = state
-        active.finished_at_monotonic = time.monotonic()
-        active.completed_points = active.total_points if completed_points is None else completed_points
-        if plot_relative_path is not None:
-            active.plot_relative_path = plot_relative_path
-            active.plot_token = uuid4().hex
-        if error_text is not None:
-            active.error_text = error_text
-        active.simulation_pids = set()
-        elapsed_seconds = _elapsed_seconds(active)
-
-    # Ordinary runs have a manifest under ``runs/<run_id>``. Persist timing so
-    # it survives registry cleanup and process restarts; design-stage registry
-    # keys have no run manifest and are intentionally ignored here.
-    data_dir = Path(app.config["GRAx_DATA_DIR"])
-    if _load_run_manifest(data_dir, run_id) is not None:
-        _update_manifest_fields(data_dir, run_id, elapsed_seconds=elapsed_seconds)
 
 
 def _run_status_payload(*, app: Any, data_dir: Path, run_id: str) -> dict[str, Any] | None:

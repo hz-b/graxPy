@@ -9,10 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import uuid4
 
 from grax.simulation.core import normalize_polarization
 
+from .files import write_text_atomically
 from .persistence import _slugify
 
 
@@ -64,10 +64,7 @@ def _normalized_solver(value: Any) -> str:
 def _write_text_atomically(path: Path, text: str) -> None:
     """Write diagnostic text through a temporary file and replace."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
-    temporary.write_text(text, encoding="utf-8")
-    temporary.replace(path)
+    write_text_atomically(path, text)
 
 
 def _site_metadata() -> dict[str, str]:

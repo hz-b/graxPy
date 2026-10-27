@@ -229,11 +229,11 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
 def _update_manifest_fields(data_dir: Path, run_id: str, **updates: Any) -> dict[str, Any]:
     """Update one run manifest in place and return the saved payload."""
 
-    store = RunStore(data_dir / "runs")
-    payload = store.load(run_id)
-    payload.update({key: value for key, value in updates.items() if value is not None})
-    payload["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    return store.save(payload)
+    def change(payload: dict[str, Any]) -> None:
+        payload.update({key: value for key, value in updates.items() if value is not None})
+        payload["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+    return RunStore(data_dir / "runs").update(run_id, change)
 
 
 def _preferred_run_plot_path(data_dir: Path, run_id: str) -> str | None:
