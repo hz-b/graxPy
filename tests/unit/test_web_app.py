@@ -219,19 +219,13 @@ def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
 
     docs_response = client.get("/docs")
     assert docs_response.status_code == 200
-    assert b"Web UI Documentation" in docs_response.data
-    assert b".grax-web/" in docs_response.data
-    assert b"saved_gratings/" in docs_response.data
-    assert b"Materials" in docs_response.data
-    assert b"density" in docs_response.data
-    assert b"deprecated" in docs_response.data
-    assert b"runs/" in docs_response.data
-    assert b"plots/" in docs_response.data
-    assert b"previews/" in docs_response.data
-    assert b"Create and save gratings" in docs_response.data
-    assert b"Run simulations" in docs_response.data
-    assert b"Compare and plot runs" in docs_response.data
-    assert b"How to modify the interface later" in docs_response.data
+    assert b"From a model to a result" in docs_response.data
+    assert b'aria-label="Choose a workflow"' in docs_response.data
+    assert b'href="/docs/gratings"' in docs_response.data
+    assert b'href="/docs/plane-mirrors"' in docs_response.data
+    assert b'href="/docs/multilayer-gratings"' in docs_response.data
+    assert b"How the website is organized" in docs_response.data
+    assert b"Useful input conventions" in docs_response.data
 
 
 def test_installed_web_package_includes_templates_and_static_assets() -> None:
