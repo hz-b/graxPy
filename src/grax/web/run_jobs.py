@@ -533,6 +533,8 @@ def _execute_run_job(
                 min_interval_seconds=0.0,
             )
 
+        # Parallel workers finish in any order; save results in case order like a resumed run.
+        results.sort(key=parameter_scans.result_order)
         is_aborted = _is_abort_requested(app, run_id) or runner.stopped_early
         _persist_run_outputs(
             data_dir=data_dir,

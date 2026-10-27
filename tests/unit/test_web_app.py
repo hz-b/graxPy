@@ -3447,3 +3447,65 @@ def test_manage_runs_shows_a_run_left_running_by_a_stopped_app_as_aborted(tmp_pa
     page = BeautifulSoup(create_app(data_dir=tmp_path).test_client().get("/runs/gratings").data, "html.parser")
 
     assert page.select_one(".run-manage-status .status-pill").get_text(strip=True) == "aborted"
+
+
+def test_results_finished_out_of_order_are_saved_in_case_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+    import numpy as np
+
+    from grax.simulation.models import CaseExecutionResult
+    from grax.web.app import create_app
+
+    def fake_run_cases(self, cases, metadata=None):  # type: ignore[no-untyped-def]
+        # Parallel workers: the last case finishes first.
+        for index, case in reversed(list(enumerate(cases))):
+            yield CaseExecutionResult(
+                case_id=str(case["case_id"]),
+                index=index,
+                label=None,
+                energy_ev=float(case["energy_ev"]),
+                grazing_angle_deg=float(case["grazing_angle_deg"]),
+                orders=np.asarray([1, 0, -1]),
+                selected_efficiency=0.25,
+                selected_diffraction_angle_deg=1.2,
+                efficiency_all=np.asarray([0.25, 0.1, 0.0]),
+                diffraction_angle_all=np.asarray([1.2, 0.0, -1.2]),
+                status="ok",
+                case_data={key: value for key, value in case.items() if key != "grating"},
+            )
+
+    monkeypatch.setattr("grax.simulation.BatchSimulationRunner.run_cases", fake_run_cases)
+    client = create_app(data_dir=tmp_path).test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Order grating", "grating_type": "blazed", "period_lpermm": "600",
+            "x_resolution_nm": "2.0", "z_resolution_nm": "0.5", "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "", "stack_type": "single_layer", "substrate_material": "Si",
+            "layer_material": "Au", "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "energy_sweep", "energy_start_ev": "100", "energy_stop_ev": "140",
+            "energy_points": "5", "grazing_angle_deg": "1.5", "diffraction_order": "1",
+            "fourier_orders": "5", "polarization": "p",
+        },
+    )
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+    deadline = time.monotonic() + 5.0
+    manifest: dict = {}
+    while time.monotonic() < deadline and manifest.get("status") != "completed":
+        time.sleep(0.02)
+        manifest = json.loads(manifest_path.read_text())
+
+    assert [case["energy_ev"] for case in manifest["cases"]] == [100.0, 110.0, 120.0, 130.0, 140.0]
+    csv_text = client.get(f"/runs/{run_id}/export/csv").get_data(as_text=True)
+    case_ids = [line.split(",")[0] for line in csv_text.splitlines()[1:] if line.strip()]
+    assert case_ids and case_ids == sorted(case_ids)

@@ -9,6 +9,7 @@
 - Reorganized the website code into smaller modules and page scripts without changing what it does.
 - Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
+- Saved run results and downloads now list points in scan order even when parallel workers finish out of order.
 
 - Normalized the None material sentinel across independent and coupled scans, removing optional coatings and reporting a clear error for required materials.
 - Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.
