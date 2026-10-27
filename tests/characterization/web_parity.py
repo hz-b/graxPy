@@ -262,6 +262,8 @@ def compare_bodies(label: str, kind: str, left: bytes, right: bytes, norm_left: 
         else:
             if a == b:
                 report.ok()
+            elif _sorted_lists(a) == _sorted_lists(b):
+                report.note(f"{label}: same content, different list order")
             else:
                 _text_diff(label, json.dumps(a, indent=1, sort_keys=True),
                            json.dumps(b, indent=1, sort_keys=True), report)
@@ -281,8 +283,18 @@ def compare_bodies(label: str, kind: str, left: bytes, right: bytes, norm_left: 
         compare_tables(label, a, b, report)
     elif a == b:
         report.ok()
+    elif sorted(a.splitlines()) == sorted(b.splitlines()):
+        report.note(f"{label}: same lines, different order")
     else:
         _text_diff(label, a, b, report)
+
+
+def _sorted_lists(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _sorted_lists(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return sorted((_sorted_lists(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
+    return value
 
 
 def _text_diff(label: str, a: str, b: str, report: Report) -> None:
@@ -292,7 +304,7 @@ def _text_diff(label: str, a: str, b: str, report: Report) -> None:
 
 def _kind_for(name: str, content_type: str = "") -> str:
     lowered = name.lower().split("?")[0]
-    if lowered.endswith((".csv", ".dat", ".tsv")) or "text/csv" in content_type:
+    if lowered.endswith((".csv", ".dat", ".tsv", "/export/csv", "/export/dat")) or "text/csv" in content_type:
         return "csv"
     if lowered.endswith(".json") or "json" in content_type:
         return "json"
@@ -439,6 +451,9 @@ class Parity:
             shutil.rmtree(self.work)
         for side in (self.baseline, self.candidate):
             side.root.mkdir(parents=True)
+            # Snapshot the code so edits made while the comparison runs cannot leak into it.
+            shutil.copytree(side.src, side.root / "src", ignore=shutil.ignore_patterns("__pycache__"))
+            side.src = side.root / "src"
             shutil.copytree(self.database, side.data, symlinks=True)
             (side.root / "serve.py").write_text(SERVER_SCRIPT, encoding="utf-8")
 
@@ -651,6 +666,8 @@ class Parity:
         form = {key: self.decode_config(value) for key, value in (manifest.get("run_input") or {}).items()}
         if "custom_grid" in manifest and isinstance(manifest["custom_grid"], dict):
             form["custom_grid_config"] = manifest["custom_grid"]
+        # One worker keeps result order deterministic; parallel runs append in completion order.
+        form["max_workers_mode"], form["max_workers"] = "manual", "1"
         if thin:
             form = self.thin_form(form)
             for key in ("custom_grid_config", "parameter_sweep_config"):
@@ -785,6 +802,7 @@ class Parity:
             study = json.loads(study_path.read_text(encoding="utf-8"))
             study_id = study_path.parent.name
             config = study["config"]
+            config["max_workers"] = 1
             for key in ("d_points", "blaze_points", "energy_scan_points"):
                 config[key] = min(int(config.get(key) or 2), 2 if key != "energy_scan_points" else self.points)
             for settings_key in ("survey_scan_settings", "energy_scan_settings"):

@@ -15,6 +15,7 @@ from grax import simulation
 from grax.web import app as web_app
 from grax.web import parameter_scans as scans
 from grax.web import run_jobs
+from grax.web.routes import runs as run_routes
 from grax.web.custom_grid import default_configuration
 from grax.web.persistence import build_grating_from_spec
 
@@ -340,7 +341,7 @@ def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, 
     launched = {}
     monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     # The resume route starts workers itself, so patch its lookup too.
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
         {

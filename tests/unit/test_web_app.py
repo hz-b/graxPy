@@ -19,6 +19,9 @@ from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
 from grax.web import plot_builder
+from grax.web.routes import core as core_routes
+from grax.web.routes import gratings as grating_routes
+from grax.web.routes import runs as run_routes
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
@@ -637,7 +640,7 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
         captured.update(kwargs)
         return {"id": "sinusoidal-run"}
 
-    monkeypatch.setattr(web_app_module, "_queue_run", fake_queue_run)
+    monkeypatch.setattr(grating_routes, "_queue_run", fake_queue_run)
     run_response = client.post(f"/gratings/{grating_id}/runs", data={})
 
     assert run_response.status_code == 302
@@ -2066,7 +2069,7 @@ def test_index_picks_database_folder_and_stays_on_home_page(
 
     app = create_app(data_dir=primary)
     client = app.test_client()
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: secondary)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: secondary)
 
     initial = client.get("/")
     assert b"name: Demo grating" in initial.data
@@ -2100,7 +2103,7 @@ def test_workspace_native_picker_switches_only_for_local_requests(
     selected.mkdir()
     app = create_app(data_dir=primary)
     client = app.test_client()
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: selected)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: selected)
 
     response = client.post("/workspace/pick", environ_base={"REMOTE_ADDR": "127.0.0.1"})
 
@@ -2118,7 +2121,7 @@ def test_workspace_native_picker_fallback_and_cancel(
     app = create_app(data_dir=tmp_path / "primary")
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: (_ for _ in ()).throw(RuntimeError("no desktop session")),
     )
@@ -2128,7 +2131,7 @@ def test_workspace_native_picker_fallback_and_cancel(
     assert b"no desktop session" in fallback.data
     assert b"Choose folder" in fallback.data
 
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: None)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: None)
     canceled = client.post("/workspace/pick", follow_redirects=True)
     assert canceled.status_code == 200
     assert canceled.request.path == "/"
@@ -2146,7 +2149,7 @@ def test_workspace_native_picker_uses_browser_fallback_for_remote_requests(
     app = create_app(data_dir=tmp_path / "primary")
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: pytest.fail("remote request must not launch a local dialog"),
     )
@@ -2279,7 +2282,7 @@ def test_native_workspace_picker_is_blocked_when_active_runs_exist(
     }
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: pytest.fail("active runs must block the folder dialog"),
     )
@@ -2694,7 +2697,7 @@ def test_parameter_study_resume_launches_from_saved_energy(tmp_path: Path, monke
     })
     manifest_path.write_text(json.dumps(manifest))
     launched: dict[str, object] = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/study-run/resume")
 
     assert response.status_code == 302
@@ -2710,7 +2713,7 @@ def test_restart_run_clears_checkpoints_and_starts_fresh(tmp_path: Path, monkeyp
     _write_checkpoint_fixture(tmp_path, run_id="restart-run", status="failed")
     checkpoint = tmp_path / "runs" / "restart-run" / "checkpoints" / "results.jsonl"
     launched: dict[str, object] = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/restart-run/restart")
 
     assert response.status_code == 302
