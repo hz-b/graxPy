@@ -190,7 +190,9 @@ class Normalizer:
         for value, placeholder in sorted(self.aliases.items(), key=lambda item: -len(item[0])):
             text = text.replace(value, placeholder)
             text = text.replace(urllib.parse.quote(value), placeholder)
-        for path in {str(self.side.data), str(self.side.data.resolve()), str(self.side.root.resolve())}:
+        # Longest first: the data folder sits inside the root folder.
+        for path in sorted({str(self.side.data), str(self.side.data.resolve()), str(self.side.root.resolve())},
+                           key=len, reverse=True):
             text = text.replace(path, "<DATA>")
         text = re.sub(r"127\.0\.0\.1:\d+", "<HOST>", text)
         # Which files carry the page scripts is layout, not behavior (web.js was split into static/js/).
