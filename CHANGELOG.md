@@ -2,7 +2,7 @@
 
 ## 0.6.0
 
-### New
+### New features
 - Plane mirrors now have their own pages: create and edit mirrors (with layer-stack previews), run energy, angle or fixed-CFF monochromator scans, vary stacks independently or coupled, and see reflectivity previews and saved results.
 - Manage grating runs: filter runs by grating, and save each run's name and comment with its own Save button.
 - Saved plots can be edited and downloaded as PNG, plotted CSV data, or a portable script with data; plane-mirror runs can be compared in plots too.
@@ -10,30 +10,22 @@
 - Parameter-study points are checkpointed, and unfinished runs can be resumed or restarted.
 - A web guide with illustrated walkthroughs for gratings, plane mirrors and multilayer gratings.
 - `grax-web --data-dir` serves a chosen database folder, and `--no-browser` skips opening a browser window.
-
-### Improvements
 - Number fields behave consistently: any decimal precision, fine arrow steps (0.1° for 2θ), mouse-wheel stepping, and marker size 0 to hide plot symbols.
 - Clearer AFM upload page with a scrollable status panel, copyable errors and retry controls, and finer threshold arrows.
-- Saved results and downloads list points in scan order, even when parallel workers finish out of order.
-- The grax-web terminal now shows the error and traceback when a run or page fails.
+- The grax-web terminal shows the error and traceback when a run or page fails.
 - Cleaner layouts for plane-mirror run cards, the mirror library and previews.
+- Behind the scenes: the website code is split into smaller modules, automated checks compare every page, export and run with the previous version on Windows, macOS and Linux, a PyPI prerelease workflow allows opt-in testing, and Claude Code reads the same `AGENTS.md` guidance as other coding agents.
 
-### Fixes
+### Bug fixes
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed instead of looking busy forever.
 - Plane-mirror runs are tracked like grating runs: no double starts, correct failure state, and they can be resumed.
 - Deleting a run or study first stops any calculation still running in it.
-- Material sweeps with a None option, and the sweep editor, now handle uncoated cases correctly and report a clear error when a grating's substrate or multilayer material is None.
+- Material sweeps with a None option now handle uncoated cases, and the sweep editor reports a clear error when a grating's substrate or multilayer material is None.
 - Much more reliable saving and opening of runs, studies, plots and settings on Windows, including when a result file is open in another program.
+- Saved results and downloads list points in scan order, even when parallel workers finish out of order.
 - Fixed rejected constant-deviation angles and sweep step sizes, and the reflectivity preview on a saved mirror's scan page.
 - Kept plot selections when changing a loop, and saved preferences now persist.
-
-### Security
 - The website refuses changes sent by pages from other websites and rejects malformed IDs. `grax-web` runs without the Flask debugger unless `--debug` is given on a local host.
-
-### Development
-- The website code is split into smaller modules, and automated checks compare every page, export and run with the previous version, on Windows, macOS and Linux, including a real browser energy scan.
-- A PyPI prerelease workflow allows opt-in testing before a stable release.
-- Claude Code reads the same repository guidance (`AGENTS.md`) as other coding agents.
 
 ## 0.5.7
 
