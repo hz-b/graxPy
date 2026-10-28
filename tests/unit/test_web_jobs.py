@@ -215,6 +215,27 @@ def test_remove_tree_clears_read_only_files(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_job_and_page_errors_reach_the_server_log(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The grax package logger has a NullHandler; the app must still print its own errors."""
+
+    app = create_app(data_dir=tmp_path)
+
+    @app.get("/boom")
+    def boom():  # noqa: ANN202
+        raise RuntimeError("page went wrong")
+
+    try:
+        raise RuntimeError("job went wrong")
+    except RuntimeError:
+        app.logger.exception("Plane-mirror run %s failed", "run")
+    response = app.test_client().get("/boom")
+
+    logged = capsys.readouterr().err
+    assert response.status_code == 500
+    assert "Plane-mirror run run failed" in logged and "RuntimeError: job went wrong" in logged
+    assert "RuntimeError: page went wrong" in logged
+
+
 def _save_finished_grating_run(tmp_path: Path) -> Path:
     run_dir = tmp_path / "runs" / "done-run"
     (run_dir / "checkpoints").mkdir(parents=True)

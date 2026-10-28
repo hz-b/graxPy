@@ -93,11 +93,16 @@ def create_app(*, data_dir: str | Path | None = None):
             "python -m pip install -e \".[web]\""
         ) from error
 
+    from flask.logging import default_handler
     from werkzeug.exceptions import Conflict
 
     from .routes import core, gratings, multilayer, plane_mirrors, plots, runs
 
     app = Flask(__name__)
+    # Flask adds its stderr handler only when no handler applies yet, and the grax
+    # package logger's NullHandler counts as one, so failed jobs and pages went unlogged.
+    if default_handler not in app.logger.handlers:
+        app.logger.addHandler(default_handler)
     app.config["GRAx_DATA_DIR"] = Path(data_dir or Path.cwd() / ".grax-web").resolve()
 
     @app.url_defaults

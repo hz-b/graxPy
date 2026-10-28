@@ -14,6 +14,7 @@
 - Fixed multilayer surveys on Windows failing with "Access is denied" when the live survey plots were open while the survey ran.
 - Runs on Windows no longer fail when their plot or results file is open in another program while the run saves it.
 - Opening a run or multilayer study on Windows no longer fails with "Permission denied" when the page loads at the moment the run saves its progress.
+- The `grax-web` terminal now shows the error and traceback when a run or a page fails; before, these were silently dropped.
 - Deleting or restarting a run on Windows while one of its files is open in another program now asks you to close it and leaves the run intact, instead of failing with a server error and deleting only part of it.
 - Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
