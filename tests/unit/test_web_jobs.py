@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -156,7 +157,9 @@ def test_replacing_a_file_that_another_program_keeps_open(monkeypatch: pytest.Mo
 
     with destination.open("rb") as reader:
         files.replace_file(source, destination)
-        assert reader.read() == b"new"
+        # Windows cannot swap an open file, so the new content is written into it;
+        # elsewhere the swap succeeds and the open handle keeps the old file.
+        assert reader.read() == (b"new" if os.name == "nt" else b"old content")
 
     assert destination.read_text(encoding="utf-8") == "new"
     assert not source.exists()
