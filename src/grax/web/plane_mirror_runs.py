@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import json
-import threading
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import matplotlib.pyplot as plt
 import numpy as np
 from werkzeug.datastructures import MultiDict
 
+from .files import read_json, replace_file, write_json_atomically
+from .jobs import _finish_active_run, start_job
+from .jobs import stop_event as job_stop_event
 from .plane_mirror import MAX_TOTAL_SAMPLES as _MAX_TOTAL_SAMPLES
 from .plane_mirror import PLANE_MIRROR_DEFAULTS, compute_plane_mirror, parse_plane_mirror_options
+from .run_state import _update_active_run
+from .runs import RunStore
 
 MAX_TOTAL_SAMPLES = _MAX_TOTAL_SAMPLES
 
@@ -269,35 +274,44 @@ def total_sample_count(scan):
 
 
 def start_worker(app, data_dir: Path, run_id: str, *, resume=False):
-    """Start or resume a persisted mirror run in a daemon thread."""
-    active = app.extensions.setdefault("grax_mirror_run_events", {})
-    if run_id in active:
-        return
-    stop = threading.Event()
-    active[run_id] = stop
-    worker = threading.Thread(
+    """Start or resume a persisted mirror run in a background job."""
+    manifest = RunStore(data_dir / "runs").load(run_id)
+    done = 0
+    if resume:
+        try:
+            done = len(read_json(data_dir / "runs" / run_id / "mirror_results.json"))
+        except (OSError, json.JSONDecodeError):
+            done = 0
+    start_job(
+        app,
+        run_id,
         target=execute_worker,
-        args=(app, data_dir, run_id, stop, resume),
-        daemon=True,
-        name=f"grax-plane-mirror-{run_id}",
+        kwargs={"app": app, "data_dir": data_dir, "run_id": run_id, "resume": resume},
+        thread_name=f"grax-plane-mirror-{run_id}",
+        workflow="plane_mirror",
+        total_points=len(manifest.get("cases") or []),
+        completed_points=done,
+        resumed_points=done,
     )
-    worker.start()
 
 
-def execute_worker(app, data_dir: Path, run_id: str, stop: threading.Event, resume: bool):
+def execute_worker(app, data_dir: Path, run_id: str, resume: bool):
     """Compute each saved variation and persist result checkpoints and plots."""
+    store = RunStore(data_dir / "runs")
     run_dir = data_dir / "runs" / run_id
-    manifest_path = run_dir / "manifest.json"
+    results_path = run_dir / "mirror_results.json"
+    stop = job_stop_event(app, run_id)
+    results = []
+
+    def save_fields(**fields):
+        store.update(run_id, lambda manifest: manifest.update(fields))
+
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        results_path = run_dir / "mirror_results.json"
-        results = (
-            json.loads(results_path.read_text(encoding="utf-8"))
-            if resume and results_path.exists()
-            else []
-        )
-        manifest.update(status="running", error_text="", completed_points=len(results))
-        _save(manifest_path, manifest)
+        manifest = store.load(run_id)
+        if resume and results_path.exists():
+            results = read_json(results_path)
+        _update_active_run(app, run_id, state="running", started=True)
+        save_fields(status="running", error_text="", completed_points=len(results))
         cases = manifest["cases"]
         for index in range(len(results), len(cases)):
             if stop.is_set():
@@ -308,38 +322,30 @@ def execute_worker(app, data_dir: Path, run_id: str, stop: threading.Event, resu
                 for key, value in source.items():
                     for item in value if isinstance(value, list) else [value]:
                         form.add(key, item)
-            from .app import _plane_mirror_stack
+            from .plane_mirror_views import _plane_mirror_stack
 
             result = compute_plane_mirror(
                 _plane_mirror_stack(form), parse_plane_mirror_options(form)
             )
             results.append({**result, "parameters": case["parameters"], "index": index + 1})
-            _save(results_path, results)
-            manifest.update(
-                completed_points=len(results), status="aborting" if stop.is_set() else "running"
-            )
-            _save(manifest_path, manifest)
+            write_json_atomically(results_path, results)
+            save_fields(completed_points=len(results), status="aborting" if stop.is_set() else "running")
+            _update_active_run(app, run_id, completed_increment=1)
             _plot_results(results, run_dir / "plot.png", manifest["display_name"])
-        manifest["status"] = "aborted" if stop.is_set() else "completed"
-        manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        manifest["artifacts"] = ["mirror_results.json", "plot.png"] if results else []
-        _save(manifest_path, manifest)
+        status = "aborted" if stop.is_set() else "completed"
+        save_fields(
+            status=status,
+            updated_at=datetime.now().isoformat(timespec="seconds"),
+            artifacts=["mirror_results.json", "plot.png"] if results else [],
+        )
+        _finish_active_run(app, run_id, state=status, completed_points=len(results))
     except Exception as error:
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest.update(status="error", error_text=str(error))
-            _save(manifest_path, manifest)
+            save_fields(status="failed", error_text=str(error))
         except Exception:
             app.logger.exception("Could not persist plane-mirror run error")
         app.logger.exception("Plane-mirror run %s failed", run_id)
-    finally:
-        app.extensions.setdefault("grax_mirror_run_events", {}).pop(run_id, None)
-
-
-def _save(path: Path, value: Any):
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    temp.replace(path)
+        _finish_active_run(app, run_id, state="failed", error_text=str(error), completed_points=len(results))
 
 
 def _plot_results(results, path: Path, title: str):
@@ -370,8 +376,13 @@ def _plot_results(results, path: Path, title: str):
     if not maps:
         axis.set_title(title)
     figure.tight_layout()
-    figure.savefig(path, dpi=120, facecolor="white")
-    plt.close(figure)
+    temporary = path.with_name(f"{path.stem}.{uuid4().hex}.tmp.png")
+    try:
+        figure.savefig(temporary, dpi=120, facecolor="white")
+        replace_file(temporary, path)
+    finally:
+        plt.close(figure)
+        temporary.unlink(missing_ok=True)
 
 
 def _case_title(parameters):

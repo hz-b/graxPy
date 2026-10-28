@@ -861,7 +861,14 @@ def test_the_survey_figures_follow_a_running_stage(
                 break
             time.sleep(0.02)
         assert store.load(study_id)["stages"]["survey"]["status"] == "running"
-        options = client.get(f"/multilayer-design/{study_id}/survey-options").get_json()
+        # A read that lands while Windows holds the file for the replace answers
+        # "nothing yet"; the page simply polls again, and so does this test.
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            options = client.get(f"/multilayer-design/{study_id}/survey-options").get_json()
+            if options["best"]:
+                break
+            time.sleep(0.02)
         assert options["best"], "the live endpoint should serve the partial grid"
         html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
         assert 'data-survey-figure="heatmap"' in html
@@ -871,6 +878,26 @@ def test_the_survey_figures_follow_a_running_stage(
         client.post(
             f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}
         )
+
+
+def test_the_survey_table_is_rewritten_while_a_page_is_reading_it(tmp_path: Path) -> None:
+    """On Windows an open reader blocks the replace for a moment; the survey must wait it out."""
+
+    from grax.multilayer_design import _write_csv_atomic
+
+    path = tmp_path / "survey" / "survey.csv"
+    _write_csv_atomic(pd.DataFrame({"d_nm": [2.0]}), path)
+    reader = path.open(encoding="utf-8")
+    releaser = threading.Timer(0.3, reader.close)
+    releaser.start()
+    try:
+        _write_csv_atomic(pd.DataFrame({"d_nm": [2.0, 3.0]}), path)
+    finally:
+        releaser.join()
+        reader.close()
+
+    assert pd.read_csv(path)["d_nm"].tolist() == [2.0, 3.0]
+    assert sorted(child.name for child in path.parent.iterdir()) == ["survey.csv"]
 
 
 def test_energy_scan_series_reads_the_checkpoint_in_energy_order(tmp_path: Path) -> None:
@@ -1013,3 +1040,24 @@ def test_the_script_route_404s_for_an_unknown_study(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
     assert client.get("/multilayer-design/nope/script").status_code == 404
+
+
+def test_a_stage_left_running_by_a_stopped_app_shows_as_aborted_and_can_rerun(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    study_id = _create_study(client)
+    store = _store(tmp_path)
+    manifest = store.load(study_id)
+    manifest["stages"]["survey"]["status"] = "running"
+    store.save(manifest)
+
+    status = client.get(f"/multilayer-design/{study_id}/stages/survey/status").get_json()
+    detail = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
+    index = client.get("/multilayer-design").get_data(as_text=True)
+
+    assert status["state"] == "aborted"
+    assert "The app stopped before this stage finished." in detail
+    assert "Re-run survey" in detail
+    assert "is-running" not in detail
+    assert "is-running" not in index
+    # Viewing the study does not rewrite it.
+    assert store.load(study_id)["stages"]["survey"]["status"] == "running"

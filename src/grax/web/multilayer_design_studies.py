@@ -16,8 +16,7 @@ The workflow has two stages, matching the library:
 
 from __future__ import annotations
 
-import json
-import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +24,7 @@ from typing import Any
 
 from grax.multilayer_design import MultilayerDesignConfig, ThetaSearchScanSettings
 
+from .files import locked, read_json, remove_tree, write_json_atomically
 from .persistence import _slugify
 
 STAGES: tuple[str, ...] = ("survey", "energy_scan")
@@ -862,9 +862,7 @@ class MultilayerDesignStudyStore:
     def load(self, study_id: str) -> dict[str, Any]:
         """Load one study manifest by id."""
 
-        path = self._study_dir(study_id) / "study.json"
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        payload = read_json(self._study_dir(study_id) / "study.json")
         payload.setdefault("id", study_id)
         return payload
 
@@ -873,15 +871,18 @@ class MultilayerDesignStudyStore:
 
         payload = dict(manifest)
         payload["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        study_dir = self._study_dir(str(payload["id"]))
-        study_dir.mkdir(parents=True, exist_ok=True)
-        path = study_dir / "study.json"
-        temp_path = path.with_name(f"study.json.{datetime.now().timestamp():.9f}.tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temp_path.replace(path)
+        path = self._study_dir(str(payload["id"])) / "study.json"
+        with locked(path):
+            write_json_atomically(path, payload, sort_keys=True)
         return payload
+
+    def update(self, study_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+        """Apply ``change`` to one saved study with no other update in between."""
+
+        with locked(self._study_dir(study_id) / "study.json"):
+            manifest = self.load(study_id)
+            change(manifest)
+            return self.save(manifest)
 
     def create(
         self,
@@ -916,9 +917,7 @@ class MultilayerDesignStudyStore:
         """Delete several study directories."""
 
         for study_id in study_ids:
-            study_dir = self._study_dir(study_id)
-            if study_dir.exists():
-                shutil.rmtree(study_dir)
+            remove_tree(self._study_dir(study_id))
 
     def study_dir(self, study_id: str) -> Path:
         """Return the directory for one study id (validated)."""

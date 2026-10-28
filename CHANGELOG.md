@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- The parameter-sweep editor now shows a red error when None is entered for a grating's substrate or a multilayer's materials, which a grating always needs, instead of failing after Run sweep.
+- `grax-web` now starts without the Flask debugger; pass `--debug` for the debugger and auto-reloader, which is allowed only on a local host.
+- The website now refuses changes sent by pages from other websites, so a malicious page cannot delete or start work in your database.
+- The website now rejects malformed run, plot, study, mirror, scan, and grating IDs instead of resolving them as file paths.
+- Added `grax-web --data-dir` to serve a chosen database folder.
+- Added `grax-web --no-browser` to start the website without opening a browser window.
+- Reorganized the website code into smaller modules and page scripts without changing what it does.
+- Added checks that compare every website page, export and replayed run with the previous version, and run the website tests on Windows and macOS as well as Linux.
+- Claude Code now reads the same repository guidance (`AGENTS.md`) as other coding agents.
+- Plane-mirror runs are now tracked like grating runs: they cannot be started twice, block switching the database folder while running, keep a new name given while they run, and show as failed (and can be resumed) when a calculation errors.
+- Deleting runs or multilayer studies now stops any calculation still running in them first.
+- Made saving runs, studies, plots and settings reliable on Windows, where a file being read could make a save or a whole run fail.
+- Fixed multilayer surveys on Windows failing with "Access is denied" when the live survey plots were open while the survey ran.
+- Runs on Windows no longer fail when their plot or results file is open in another program while the run saves it.
+- Opening a run or multilayer study on Windows no longer fails with "Permission denied" when the page loads at the moment the run saves its progress.
+- The `grax-web` terminal now shows the error and traceback when a run or a page fails; before, these were silently dropped.
+- Deleting or restarting a run on Windows while one of its files is open in another program now asks you to close it and leaves the run intact, instead of failing with a server error and deleting only part of it.
+- Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
+- Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
+- Saved run results and downloads now list points in scan order even when parallel workers finish out of order.
 - Normalized the None material sentinel across independent and coupled scans, removing optional coatings and reporting a clear error for required materials.
 - Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.
 - Let saved plots be edited and provide PNG, plotted CSV data, or a portable script and data from one download menu.

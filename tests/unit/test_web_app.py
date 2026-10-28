@@ -18,11 +18,23 @@ from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
+from grax.web import plot_builder
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
     grating_to_spec,
 )
+from grax.web.routes import core as core_routes
+from grax.web.routes import gratings as grating_routes
+from grax.web.routes import runs as run_routes
+
+
+def _frontend_js() -> str:
+    """Return the page scripts concatenated in load order."""
+    from grax.web.common import FRONTEND_SCRIPTS
+
+    static = Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static"
+    return "\n".join((static / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
 
 def test_site_version_comes_from_project_toml():
@@ -184,10 +196,10 @@ def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
 
 
 def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(web_app_module, "go", None, raising=False)
-    monkeypatch.setattr(web_app_module, "plotly_io", None, raising=False)
-    monkeypatch.setattr(web_app_module, "get_plotlyjs", None, raising=False)
-    monkeypatch.setattr(web_app_module, "make_subplots", None, raising=False)
+    monkeypatch.setattr(plot_builder, "go", None, raising=False)
+    monkeypatch.setattr(plot_builder, "plotly_io", None, raising=False)
+    monkeypatch.setattr(plot_builder, "get_plotlyjs", None, raising=False)
+    monkeypatch.setattr(plot_builder, "make_subplots", None, raising=False)
 
     with pytest.raises(RuntimeError) as error_info:
         web_app_module._require_plotly()
@@ -238,7 +250,9 @@ def test_installed_web_package_includes_templates_and_static_assets() -> None:
     assert (template_root / "index.html").is_file()
     assert (template_root / "web_docs.html").is_file()
     assert (static_root / "web.css").is_file()
-    assert (static_root / "web.js").is_file()
+    from grax.web.common import FRONTEND_SCRIPTS
+
+    assert all((static_root / script).is_file() for script in FRONTEND_SCRIPTS)
 
 
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
@@ -492,7 +506,7 @@ def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
         }
     )
 
-    payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text())
+    payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text(encoding="utf-8"))
 
     assert payload["schema_version"] == 4
     assert payload["id"] == saved["id"]
@@ -636,7 +650,7 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
         captured.update(kwargs)
         return {"id": "sinusoidal-run"}
 
-    monkeypatch.setattr(web_app_module, "_queue_run", fake_queue_run)
+    monkeypatch.setattr(grating_routes, "_queue_run", fake_queue_run)
     run_response = client.post(f"/gratings/{grating_id}/runs", data={})
 
     assert run_response.status_code == 302
@@ -675,7 +689,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-stack-controls' in response.data
     assert b'data-single-layer-controls' in response.data
     assert b'data-stack-type' in response.data
-    assert b"web.js" in response.data
+    assert b"js/grating-forms.js" in response.data
     assert b'name="substrate_material_density_g_cm3"' in response.data
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
@@ -689,9 +703,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
 
-    web_js = (Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js").read_text(
-        encoding="utf-8"
-    )
+    web_js = _frontend_js()
     assert "syncMaterialDensity" in web_js
     assert "[data-material-select]" in web_js
 
@@ -894,7 +906,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     manifest_path = tmp_path / "runs" / run_id / "manifest.json"
     manifest = {}
     while time.monotonic() < deadline:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("status") == "completed":
             break
         time.sleep(0.02)
@@ -1317,7 +1329,7 @@ def test_parameter_study_run_uses_selected_polarization(
     manifest = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -1442,7 +1454,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
     assert manifest["status"] == "failed"
     assert manifest.get("completed_points", 0) == completed_points
     assert "controlled numerical failure" in manifest["error_text"]
-    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text()
+    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text(encoding="utf-8")
     assert "error.txt" in manifest["artifacts"]
     if completed_points:
         assert "parameter_study.png" in manifest["artifacts"]
@@ -2065,7 +2077,7 @@ def test_index_picks_database_folder_and_stays_on_home_page(
 
     app = create_app(data_dir=primary)
     client = app.test_client()
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: secondary)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: secondary)
 
     initial = client.get("/")
     assert b"name: Demo grating" in initial.data
@@ -2099,7 +2111,7 @@ def test_workspace_native_picker_switches_only_for_local_requests(
     selected.mkdir()
     app = create_app(data_dir=primary)
     client = app.test_client()
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: selected)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: selected)
 
     response = client.post("/workspace/pick", environ_base={"REMOTE_ADDR": "127.0.0.1"})
 
@@ -2117,7 +2129,7 @@ def test_workspace_native_picker_fallback_and_cancel(
     app = create_app(data_dir=tmp_path / "primary")
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: (_ for _ in ()).throw(RuntimeError("no desktop session")),
     )
@@ -2127,7 +2139,7 @@ def test_workspace_native_picker_fallback_and_cancel(
     assert b"no desktop session" in fallback.data
     assert b"Choose folder" in fallback.data
 
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: None)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: None)
     canceled = client.post("/workspace/pick", follow_redirects=True)
     assert canceled.status_code == 200
     assert canceled.request.path == "/"
@@ -2145,7 +2157,7 @@ def test_workspace_native_picker_uses_browser_fallback_for_remote_requests(
     app = create_app(data_dir=tmp_path / "primary")
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: pytest.fail("remote request must not launch a local dialog"),
     )
@@ -2235,9 +2247,7 @@ def test_home_exposes_only_the_native_workspace_picker(tmp_path: Path) -> None:
 
 
 def test_sweep_display_rounding_and_range_count_restore_are_configured() -> None:
-    web_js = (
-        Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js"
-    ).read_text(encoding="utf-8")
+    web_js = _frontend_js()
 
     assert "function formatRoundedNumber(value)" in web_js
     assert "value.toFixed(3)" in web_js
@@ -2278,7 +2288,7 @@ def test_native_workspace_picker_is_blocked_when_active_runs_exist(
     }
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: pytest.fail("active runs must block the folder dialog"),
     )
@@ -2320,7 +2330,7 @@ def test_delete_grating_only_keeps_linked_runs(tmp_path: Path) -> None:
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2361,7 +2371,7 @@ def test_delete_grating_and_runs_removes_linked_runs(tmp_path: Path) -> None:
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2402,7 +2412,7 @@ def test_delete_grating_and_runs_is_blocked_for_active_linked_runs(tmp_path: Pat
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     app.extensions["grax_active_runs"] = {
@@ -2669,7 +2679,7 @@ def test_run_detail_offers_resume_and_restart_for_parameter_study(tmp_path: Path
 
     _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
     manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["workflow"] = "parameter_study"
     manifest_path.write_text(json.dumps(manifest))
     response = create_app(data_dir=tmp_path).test_client().get("/runs/study-run")
@@ -2685,7 +2695,7 @@ def test_parameter_study_resume_launches_from_saved_energy(tmp_path: Path, monke
 
     _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
     manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["workflow"] = "parameter_study"
     manifest["run_input"].update({
         "workflow": "parameter_study", "study_energy_ev": 120.0,
@@ -2693,7 +2703,7 @@ def test_parameter_study_resume_launches_from_saved_energy(tmp_path: Path, monke
     })
     manifest_path.write_text(json.dumps(manifest))
     launched: dict[str, object] = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/study-run/resume")
 
     assert response.status_code == 302
@@ -2709,7 +2719,7 @@ def test_restart_run_clears_checkpoints_and_starts_fresh(tmp_path: Path, monkeyp
     _write_checkpoint_fixture(tmp_path, run_id="restart-run", status="failed")
     checkpoint = tmp_path / "runs" / "restart-run" / "checkpoints" / "results.jsonl"
     launched: dict[str, object] = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/restart-run/restart")
 
     assert response.status_code == 302
@@ -2919,7 +2929,7 @@ def test_abort_route_marks_run_aborted(
             break
         time.sleep(0.05)
 
-    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
+    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text(encoding="utf-8"))
     assert final_payload["state"] == "aborted"
     assert final_payload["can_abort"] is False
     assert final_payload["elapsed_seconds"] is not None
@@ -2972,13 +2982,14 @@ def test_main_accepts_custom_host_and_port(monkeypatch: pytest.MonkeyPatch) -> N
             captured.update(kwargs)
 
     monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app, "_maybe_open_browser", lambda *args, **kwargs: None)
     monkeypatch.setattr(sys, "argv", ["grax-web", "--host", "0.0.0.0", "--port", "8000"])
 
     web_app.main()
 
     assert captured["host"] == "0.0.0.0"
     assert captured["port"] == 8000
-    assert captured["debug"] is True
+    assert captured["debug"] is False
 
 
 def test_main_opens_default_browser_for_local_web_ui(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3252,7 +3263,7 @@ def test_flask_app_plots_selected_orders_across_runs(
     manifests = []
     while time.monotonic() < deadline:
         manifests = [
-            json.loads(path.read_text())
+            json.loads(path.read_text(encoding="utf-8"))
             for path in (tmp_path / "runs").glob("*/manifest.json")
         ]
         if manifests and all(manifest.get("status") == "completed" for manifest in manifests):
@@ -3366,7 +3377,7 @@ def test_parameter_study_run_uses_selected_solver(
     manifest: dict[str, object] = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -3411,7 +3422,7 @@ def test_geometry_views_are_present_on_grating_and_multilayer_pages(tmp_path: Pa
 
 
 def test_geometry_static_script_and_switch_hooks_are_available() -> None:
-    geometry = Path("src/grax/web/static/geometry.js").read_text()
+    geometry = Path("src/grax/web/static/geometry.js").read_text(encoding="utf-8")
     assert "window.GraxGeometry" in geometry
     assert "geometryGroup" in geometry
     assert "applyGroups" in geometry
@@ -3419,3 +3430,82 @@ def test_geometry_static_script_and_switch_hooks_are_available() -> None:
     assert "profilePoints" in geometry
     assert 'mount.workflow === "constant_deviation"' in geometry
     assert 'label(hx, hy - 100, "2θ"' in geometry
+
+
+def test_manage_runs_shows_a_run_left_running_by_a_stopped_app_as_aborted(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from bs4 import BeautifulSoup
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-orphan", display_name="Orphan run")
+    path = tmp_path / "runs" / "run-orphan" / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest.update(workflow="parameter_study", status="running")
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    page = BeautifulSoup(create_app(data_dir=tmp_path).test_client().get("/runs/gratings").data, "html.parser")
+
+    assert page.select_one(".run-manage-status .status-pill").get_text(strip=True) == "aborted"
+
+
+def test_results_finished_out_of_order_are_saved_in_case_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+    import numpy as np
+
+    from grax.simulation.models import CaseExecutionResult
+    from grax.web.app import create_app
+
+    def fake_run_cases(self, cases, metadata=None):  # type: ignore[no-untyped-def]
+        # Parallel workers: the last case finishes first.
+        for index, case in reversed(list(enumerate(cases))):
+            yield CaseExecutionResult(
+                case_id=str(case["case_id"]),
+                index=index,
+                label=None,
+                energy_ev=float(case["energy_ev"]),
+                grazing_angle_deg=float(case["grazing_angle_deg"]),
+                orders=np.asarray([1, 0, -1]),
+                selected_efficiency=0.25,
+                selected_diffraction_angle_deg=1.2,
+                efficiency_all=np.asarray([0.25, 0.1, 0.0]),
+                diffraction_angle_all=np.asarray([1.2, 0.0, -1.2]),
+                status="ok",
+                case_data={key: value for key, value in case.items() if key != "grating"},
+            )
+
+    monkeypatch.setattr("grax.simulation.BatchSimulationRunner.run_cases", fake_run_cases)
+    client = create_app(data_dir=tmp_path).test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Order grating", "grating_type": "blazed", "period_lpermm": "600",
+            "x_resolution_nm": "2.0", "z_resolution_nm": "0.5", "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "", "stack_type": "single_layer", "substrate_material": "Si",
+            "layer_material": "Au", "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "energy_sweep", "energy_start_ev": "100", "energy_stop_ev": "140",
+            "energy_points": "5", "grazing_angle_deg": "1.5", "diffraction_order": "1",
+            "fourier_orders": "5", "polarization": "p",
+        },
+    )
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+    deadline = time.monotonic() + 5.0
+    manifest: dict = {}
+    while time.monotonic() < deadline and manifest.get("status") != "completed":
+        time.sleep(0.02)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert [case["energy_ev"] for case in manifest["cases"]] == [100.0, 110.0, 120.0, 130.0, 140.0]
+    csv_text = client.get(f"/runs/{run_id}/export/csv").get_data(as_text=True)
+    case_ids = [line.split(",")[0] for line in csv_text.splitlines()[1:] if line.strip()]
+    assert case_ids and case_ids == sorted(case_ids)

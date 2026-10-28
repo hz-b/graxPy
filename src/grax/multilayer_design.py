@@ -32,7 +32,6 @@ sawtooth); both are later optimizations.
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import threading
@@ -75,13 +74,13 @@ def _write_csv_atomic(frame: pd.DataFrame, path: Path) -> None:
 
     The survey table is rewritten after every cell while the web app polls it for
     the live plots; a plain ``to_csv`` truncates first, so a read landing in that
-    window gets a partial or empty file.
+    window gets a partial or empty file. On Windows that reader also blocks the
+    replace for a moment, which ``write_text_atomically`` waits out.
     """
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
-    frame.to_csv(temporary, index=False)
-    os.replace(temporary, path)
+    from .web.files import write_text_atomically
+
+    write_text_atomically(path, frame.to_csv(index=False, lineterminator="\n"))
 
 
 class _CellAbortedError(RuntimeError):

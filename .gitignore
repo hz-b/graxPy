@@ -2,6 +2,7 @@ build
 examples/reference_baselines/**/results/latest.csv
 .venv*
 .grax-web/
+.grax-web-dev/
 *theta_scans*
 .codex
 examples/simulation/multilayer_theta_search/results/theta_scans/*

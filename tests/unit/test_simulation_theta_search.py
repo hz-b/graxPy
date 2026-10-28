@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 import time
 from collections.abc import Iterator
@@ -1259,14 +1258,15 @@ def test_terminate_worker_pool_kills_a_solve_already_in_flight() -> None:
         deadline = time.time() + 10.0
         while not executor._processes and time.time() < deadline:
             time.sleep(0.05)
-        pids = [p.pid for p in executor._processes.values()]
-        assert pids
+        workers = list(executor._processes.values())
+        assert workers
 
         started = time.time()
         _terminate_worker_pool(executor, futures)
         elapsed = time.time() - started
 
     assert elapsed < 10.0, "terminating should not wait out the 60 s sleeps"
-    for pid in pids:
-        with pytest.raises(OSError):
-            os.kill(pid, 0)
+    # Ask the process handles rather than os.kill(pid, 0): on Windows that call
+    # terminates the process instead of probing it.
+    for worker in workers:
+        assert not worker.is_alive()

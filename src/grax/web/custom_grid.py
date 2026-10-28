@@ -33,6 +33,8 @@ class ParameterDescriptor:
     minimum: float | None = None
     choices: tuple[str, ...] = ()
     roughness_path: tuple[str | int, ...] = ()
+    # Whether a material may be scanned as None, which removes it from the stack.
+    nullable: bool = False
 
     def to_json(self) -> dict[str, Any]:
         """Return a JSON-compatible descriptor for the browser builder."""
@@ -651,6 +653,11 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
             "top_cap_material": "top_cap_roughness_sigma_nm",
             "material": "roughness_sigma_nm",
         }.get(leaf)
+        # Only coatings, top caps and custom layers can be left out of the stack.
+        nullable = kind == "material" and (
+            leaf in {"top_cap_material", "material"}
+            or (leaf == "layer_material" and stack.get("type") == "single_layer")
+        )
         descriptors.append(
             ParameterDescriptor(
                 id=identifier,
@@ -663,6 +670,7 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
                 roughness_path=(
                     (*path[:-1], roughness_key) if kind == "material" and roughness_key else ()
                 ),
+                nullable=nullable,
             )
         )
         if kind == "material":
@@ -827,9 +835,19 @@ def _remove_scanned_material(
             return spec["stack"]
         stack["layers_bottom_up"] = remaining
         return stack
-    raise ValueError(
-        f"{descriptor.label} is required by this stack and cannot be None. "
-        "Use None for an optional coating or top cap to model an uncoated case."
+    raise ValueError(_required_material_message(descriptor))
+
+
+def _required_material_message(descriptor: ParameterDescriptor) -> str:
+    """Explain why None is not allowed for this material; the sweep editor shows the same text."""
+    if str(descriptor.path[-1]) == "substrate_material":
+        return (
+            "Substrate material cannot be None: a grating always needs a substrate. "
+            "Remove None from this list."
+        )
+    return (
+        f"{descriptor.label} cannot be None: a multilayer needs both of its materials. "
+        "Remove None from this list."
     )
 
 

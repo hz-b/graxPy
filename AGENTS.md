@@ -4,6 +4,7 @@
 
 - For every code change beyond a truly small edit, add one concise, human-readable line to `CHANGELOG.md` explaining its purpose or user-facing effect. Write for people, not machines; avoid implementation details.
 - Record these project-wide workflow rules in this file so they apply to future work in the repository.
+- `CLAUDE.md` only imports this file (`@AGENTS.md`) so Claude Code reads the same rules. Edit `AGENTS.md`, never `CLAUDE.md`.
 - Do not change the package version in `pyproject.toml` during ordinary development. The release tool owns version updates.
 - A changelog section may be prepared for the next release without changing `pyproject.toml`.
 
@@ -18,3 +19,22 @@
 
 - GitHub Actions runs unit and smoke tests with `uv sync --extra dev --extra web`; keep every package imported by those tests declared in the base dependencies or in an extra installed by that workflow. Keep browser-only requirements in the `dev` extra and install the matching browser in the workflow.
 - Before pushing changes, run the same relevant commands used by `.github/workflows/tests.yml` locally. Keep tests aligned with intentional interface changes, and check that failures are not caused by stale expectations, undeclared dependencies, missing optional extras, or missing test resources.
+
+## Web app development
+
+- Layout of `src/grax/web`:
+  - `app.py` holds `create_app()` (app setup, request guards, shared workspace accessors), `main()` and re-exports of names that tests import.
+  - Routes live in `routes/<group>.py`. Each exposes `register(app, ctx)`, which defines the view functions; `ctx` is the `WebContext` from `context.py`.
+  - Logic lives in service modules: `common`, `run_state`, `run_files`, `grating_forms`, `run_inputs`, `plane_mirror_views`, `run_jobs`, `run_status`, `run_plots`, `run_exports`, `multilayer_jobs`, `catalog`, `plot_builder`, `workspace`. Keep their imports acyclic, and keep new logic out of route modules.
+- Background work (grating runs, plane-mirror runs, multilayer design stages) goes through `jobs.py`: `start_job` registers and starts a worker thread, `request_stop`/`stop_job` stop it, `_finish_active_run` records the outcome and `is_orphaned` spots work a stopped app left as running. Do not keep a separate registry or start threads directly. Stop a job before deleting its folder.
+- Write run, study and settings files with the helpers in `files.py` (atomic writes, `RunStore.update`/`MultilayerDesignStudyStore.update` for read-modify-write under a per-file lock, `remove_tree`). They retry through the brief file locks Windows takes while a file is read, and the app must keep working on Windows, macOS and Linux.
+- Keep endpoint names and URLs stable. Templates call `url_for` by endpoint name, so do not convert routes to Flask Blueprints. `tests/unit/test_web_route_inventory.py` pins every rule; update its fixture only for an intended route change.
+- Monkeypatch a helper in the module that looks it up (for example `grax.web.run_jobs` or `grax.web.routes.runs`), not in `grax.web.app`. Patching a re-export has no effect.
+- Frontend scripts are classic `defer` scripts under `static/js/` that share one global scope and load in the order of `FRONTEND_SCRIPTS` in `common.py`. Add new files to that list, and do not use ES modules, which bypass the `?v=` cache busting.
+- `grax-web` runs without the debugger. Use `--debug` only on a local host, and note that the reloader stops running jobs. `--data-dir` selects the database folder, and `--no-browser` skips opening the system browser (the dev-server entry in `.claude/launch.json` uses it).
+- Never point tests, scripts or the dev server at the real `.grax-web` database. Use a copy, such as `.grax-web-dev` (git-ignored) or a temporary folder.
+- Testing layers for web changes:
+  1. Unit and smoke tests, including the route inventory, the page sweep and the security tests, on every change.
+  2. Browser tests (`-m browser`), including the page-script error check, after template or JavaScript changes.
+  3. A parity check against the previous version (skill `web-parity-check`) after any refactoring or restructuring. Its report must show no unexplained differences.
+  4. A live check in the built-in browser (skill `web-live-check`) before opening a PR that changes what users see or do.

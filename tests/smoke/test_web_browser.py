@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import math
 import os
+import re
 import shutil
 import threading
 import time
@@ -460,6 +461,46 @@ def test_none_material_has_no_density_or_roughness_controls(browser_page: Page) 
 
 
 @pytest.mark.browser
+def test_none_substrate_is_refused_in_the_sweep_editor(browser_page: Page) -> None:
+    """A grating always needs a substrate, so None shows a red hint and blocks the run."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("input[name='name']").fill("None substrate check")
+    page.locator("select[name='grating_type']").select_option("laminar")
+    page.locator("select[name='stack_type']").select_option("single_layer")
+    page.locator("input[name='substrate_material']").fill("Si")
+    page.locator("input[name='layer_material']").fill("Pt")
+    page.locator("input[name='layer_thickness_nm']").fill("30")
+    page.get_by_role("button", name="Save grating").click()
+    expect(page.locator("[data-run-form]")).to_be_visible(timeout=20_000)
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+
+    builder = page.locator("[data-parameter-scans]")
+    warning = builder.locator("[data-custom-grid-warning]")
+    run_button = page.locator("[data-run-form] button[type='submit']")
+    builder.locator("[data-custom-add-axis]").click()
+    axis = builder.locator("[data-custom-axis]").first
+    axis.locator(".custom-grid-parameter").select_option("stack.substrate_material")
+    hint = axis.locator("[data-axis-list] small")
+    expect(hint).to_have_text("Required: None is not allowed here.")
+    axis.locator("textarea").fill("None, Si, Ni")
+
+    expect(warning).to_contain_text("a grating always needs a substrate")
+    expect(warning).to_have_class(re.compile(r"\bnotice-error\b"))
+    expect(builder).to_have_attribute("data-custom-grid-valid", "false")
+    expect(run_button).to_be_disabled()
+
+    axis.locator("textarea").fill("Si, Ni")
+    expect(builder).to_have_attribute("data-custom-grid-valid", "true")
+    expect(run_button).to_be_enabled()
+
+    axis.locator(".custom-grid-parameter").select_option("stack.layer_material")
+    axis.locator("textarea").fill("None, Pt")
+    expect(builder).to_have_attribute("data-custom-grid-valid", "true")
+    expect(warning).not_to_contain_text("cannot be None")
+
+
+@pytest.mark.browser
 def test_plot_loop_keeps_scan_checkbox_selection(website, browser_page: Page) -> None:
     """Changing loop parameters must not silently select a cleared scan."""
     base_url, data_dir = website
@@ -557,3 +598,98 @@ def test_browser_runs_real_two_point_energy_sweep_and_downloads_csv(
     for row in rows:
         efficiency = float(row["efficiency"])
         assert math.isfinite(efficiency) and efficiency >= 0, row
+
+
+def _seed_workspace(base_url: str, data_dir: Path, page: Page) -> None:
+    """Create one of each saved item through the same POSTs the forms send."""
+    from tests.unit.test_web_multilayer_design import _study_form
+    from tests.unit.test_web_page_sweep import GRATING_FORM
+    from tests.unit.test_web_plane_mirror import FORM as PLANE_MIRROR_FORM
+
+    page.request.post(f"{base_url}/gratings", form=GRATING_FORM, max_redirects=0)
+    page.request.post(
+        f"{base_url}/plane-mirrors", form={**PLANE_MIRROR_FORM, "mirror_name": "Browser mirror"}, max_redirects=0
+    )
+    page.request.post(f"{base_url}/multilayer-design", form=_study_form(), max_redirects=0)
+    _write_sweep(data_dir)
+
+
+@pytest.mark.browser
+def test_every_linked_page_runs_its_scripts_without_errors(website, browser_page: Page) -> None:
+    """Load each page in Chromium and fail on uncaught script errors or failed asset loads."""
+    import re
+    from urllib.parse import urljoin, urlsplit
+
+    base_url, data_dir = website
+    page = browser_page
+    _seed_workspace(base_url, data_dir, page)
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(f"{page.url}: {error}\n{error.stack}"))
+    page.on(
+        "response",
+        lambda response: errors.append(f"{page.url}: {response.status} {response.url}")
+        if "/static/" in response.url and response.status >= 400 else None,
+    )
+
+    seen: set[str] = set()
+    queue = ["/"]
+    while queue:
+        path = queue.pop(0)
+        if path in seen or len(seen) >= 60:
+            continue
+        seen.add(path)
+        try:
+            response = page.goto(base_url + path)
+        except Exception as error:  # download links (scripts, CSV) do not render a page
+            if "Download is starting" in str(error):
+                continue
+            raise
+        if response is None or response.status != 200 or "text/html" not in response.headers.get("content-type", ""):
+            continue
+        page.wait_for_load_state("load")
+        html = re.sub(r"<script\b[^>]*>.*?</script>", "", page.content(), flags=re.S)
+        for link in re.findall(r'href="(/[^"#\s]*)"', html):
+            parts = urlsplit(urljoin(path, link.replace("&amp;", "&")))
+            if parts.path.startswith(("/static/", "/_data/")) or "/export" in parts.path or "/abort" in parts.path:
+                continue
+            queue.append(parts.path)
+
+    assert len(seen) > 15
+    assert errors == []
+
+
+@pytest.mark.browser
+def test_saved_plane_mirror_scan_page_draws_reflectivity_preview(website, browser_page: Page) -> None:
+    base_url, data_dir = website
+    page = browser_page
+    _seed_workspace(base_url, data_dir, page)
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    page.goto(f"{base_url}/plane-mirrors/browser-mirror")
+
+    expect(page.locator("[data-plane-mirror-preview-status]")).to_contain_text("Preview ready", timeout=30_000)
+    expect(page.locator("[data-plane-mirror-figure] .main-svg").first).to_be_visible()
+    assert errors == []
+
+
+@pytest.mark.browser
+def test_form_posted_from_another_site_is_rejected(website, chromium: Browser) -> None:
+    """A page from another origin must not be able to delete saved data."""
+    base_url, data_dir = website
+    context = chromium.new_context()
+    page = context.new_page()
+    try:
+        _seed_workspace(base_url, data_dir, page)
+        grating = data_dir / "saved_gratings" / "sweep-laminar.json"
+        assert grating.is_file()
+        page.set_content(
+            f'<form method="post" action="{base_url}/gratings/sweep-laminar/delete">'
+            '<input name="delete_mode" value="grating_only"><button>Go</button></form>'
+        )
+        with page.expect_response(f"{base_url}/gratings/sweep-laminar/delete") as response_info:
+            page.get_by_role("button", name="Go").click()
+        assert response_info.value.status == 403
+        assert grating.is_file()
+    finally:
+        context.close()
