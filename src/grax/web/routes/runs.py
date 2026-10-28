@@ -75,11 +75,20 @@ def register(app: Any, ctx: WebContext) -> None:
 
     @app.get("/runs/gratings")
     def manage_grating_runs():
+        runs = [
+            run for run in _manage_run_entries(app.config["GRAx_DATA_DIR"], app=app)
+            if _is_grating_run(run)
+        ]
+        gratings: dict[str, str] = {}
+        for run in runs:
+            key = str(run.get("grating_id") or run.get("grating_name") or "")
+            gratings.setdefault(key, str(run.get("grating_name") or key))
         return render_template(
             "run_manage.html",
-            runs=[
-                run for run in _manage_run_entries(app.config["GRAx_DATA_DIR"], app=app)
-                if _is_grating_run(run)
+            runs=runs,
+            gratings=[
+                {"key": key, "name": name}
+                for key, name in sorted(gratings.items(), key=lambda item: item[1].lower())
             ],
             message=str(request.args.get("message", "")).strip(),
             message_kind=str(request.args.get("kind", "info")).strip() or "info",
@@ -134,10 +143,13 @@ def register(app: Any, ctx: WebContext) -> None:
             store.delete_many(run_ids)
             return redirect(url_for("manage_grating_runs"))
 
+        save_run_id = str(request.form.get("save_run_id", ""))
         for run in store.list():
             if not _is_grating_run(run):
                 continue
             run_id = str(run["id"])
+            if save_run_id and run_id != save_run_id:
+                continue
             field_name = f"display_name_{run_id}"
             comment_field_name = f"comment_{run_id}"
             if field_name in request.form:

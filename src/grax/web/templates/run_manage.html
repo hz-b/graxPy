@@ -11,23 +11,31 @@
       <section class="section-head">
         <div>
           <h1>Manage grating runs</h1>
-          <p>Rename runs, edit comments inline, or bulk delete selected runs.</p>
+          <p>Filter runs by grating, rename runs or edit their comments, compare two runs, or bulk delete selected runs.</p>
         </div>
       </section>
       <div class="manage-actions">
-        <button class="button primary" type="submit" name="action" value="save">Save changes</button>
-        <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">
-          Delete selected
-        </button>
+        <label class="run-grating-filter">
+          <select data-run-grating-filter aria-label="Filter by grating">
+            <option value="">Filter by grating: all</option>
+            {% for grating in gratings %}
+              <option value="{{ grating.key }}">{{ grating.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <button class="button" type="submit" name="action" value="compare">
           Compare two selected
+        </button>
+        <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">
+          Delete selected
         </button>
       </div>
     </div>
 
+    <p class="subtle" data-run-filter-empty hidden>No runs for this grating.</p>
     <div class="list run-manage-list">
       {% for run in runs %}
-        <article class="row run-manage-row run-manage-card">
+        <article class="row run-manage-row run-manage-card" data-run-grating="{{ run.grating_id or run.grating_name }}">
           <div class="run-manage-main">
             <label class="inline-check manage-delete">
               <input type="checkbox" name="selected_run_id" value="{{ run.id }}">
@@ -71,6 +79,7 @@
                     placeholder="Optional note"
                   >
                 </label>
+                <button class="button primary" type="submit" name="save_run_id" value="{{ run.id }}">Save</button>
               </div>
             </details>
             <details class="run-parameters"><summary>Simulation parameters</summary>
