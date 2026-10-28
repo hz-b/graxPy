@@ -528,10 +528,38 @@ def test_none_material_removes_a_custom_layer_and_can_leave_a_bare_stack() -> No
 
 def test_none_material_for_required_substrate_is_rejected_clearly() -> None:
     spec = _laminar_spec()
-    with pytest.raises(ValueError, match="Substrate material is required.*cannot be None"):
+    with pytest.raises(ValueError, match="cannot be None: a grating always needs a substrate"):
         expand_custom_grid(_config(spec, independent=[{
             "parameter": "stack.substrate_material", "mode": "list", "values": ["None", "Ni"],
         }]), spec)
+
+
+@pytest.mark.parametrize(("stack", "nullable"), [
+    ({"type": "bare", "substrate_material": "Si"}, {"stack.substrate_material": False}),
+    (
+        {"type": "single_layer", "substrate_material": "Si", "layer_material": "Pt",
+         "layer_thickness_nm": 20, "top_cap_material": "C", "top_cap_thickness_nm": 2},
+        {"stack.substrate_material": False, "stack.layer_material": True,
+         "stack.top_cap_material": True},
+    ),
+    (
+        {"type": "multilayer", "substrate_material": "Si", "material_a": "Mo", "material_b": "C",
+         "top_material": "C", "d_period_nm": 6, "gamma": 0.5, "n_bilayers": 5},
+        {"stack.substrate_material": False, "stack.material_a": False,
+         "stack.material_b": False, "stack.top_material": False},
+    ),
+    (
+        {"type": "custom", "substrate_material": "Si",
+         "layers_bottom_up": [{"material": "Au", "thickness_nm": 20}]},
+        {"stack.substrate_material": False, "stack.layers_bottom_up.0.material": True},
+    ),
+])
+def test_the_catalog_tells_the_editor_which_materials_may_be_none(stack, nullable) -> None:
+    """The sweep editor rejects None inline for every material not marked nullable."""
+
+    catalog = {item.id: item.to_json() for item in parameter_catalog(_laminar_spec(stack=stack))}
+
+    assert {key: catalog[key]["nullable"] for key in nullable} == nullable
 
 
 @pytest.mark.parametrize("parameter", [
@@ -545,7 +573,7 @@ def test_none_material_for_required_multilayer_fields_is_rejected_clearly(parame
     })
     label = {"stack.material_a": "Material a", "stack.material_b": "Material b",
              "stack.top_material": "Top material"}[parameter]
-    with pytest.raises(ValueError, match=rf"{label} is required.*cannot be None"):
+    with pytest.raises(ValueError, match=rf"{label} cannot be None: a multilayer needs both"):
         expand_custom_grid(_config(spec, independent=[{
             "parameter": parameter, "mode": "list", "values": ["none"],
         }]), spec)

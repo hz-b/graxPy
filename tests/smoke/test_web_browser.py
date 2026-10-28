@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import math
 import os
+import re
 import shutil
 import threading
 import time
@@ -457,6 +458,46 @@ def test_none_material_has_no_density_or_roughness_controls(browser_page: Page) 
     expect(none_row.locator("strong")).to_have_text("None")
     expect(none_row.locator("input")).to_have_count(0)
     expect(gold_row.locator("input")).to_have_count(2)
+
+
+@pytest.mark.browser
+def test_none_substrate_is_refused_in_the_sweep_editor(browser_page: Page) -> None:
+    """A grating always needs a substrate, so None shows a red hint and blocks the run."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    page.locator("input[name='name']").fill("None substrate check")
+    page.locator("select[name='grating_type']").select_option("laminar")
+    page.locator("select[name='stack_type']").select_option("single_layer")
+    page.locator("input[name='substrate_material']").fill("Si")
+    page.locator("input[name='layer_material']").fill("Pt")
+    page.locator("input[name='layer_thickness_nm']").fill("30")
+    page.get_by_role("button", name="Save grating").click()
+    expect(page.locator("[data-run-form]")).to_be_visible(timeout=20_000)
+    page.locator("select[name='workflow']").select_option("energy_sweep")
+
+    builder = page.locator("[data-parameter-scans]")
+    warning = builder.locator("[data-custom-grid-warning]")
+    run_button = page.locator("[data-run-form] button[type='submit']")
+    builder.locator("[data-custom-add-axis]").click()
+    axis = builder.locator("[data-custom-axis]").first
+    axis.locator(".custom-grid-parameter").select_option("stack.substrate_material")
+    hint = axis.locator("[data-axis-list] small")
+    expect(hint).to_have_text("Required: None is not allowed here.")
+    axis.locator("textarea").fill("None, Si, Ni")
+
+    expect(warning).to_contain_text("a grating always needs a substrate")
+    expect(warning).to_have_class(re.compile(r"\bnotice-error\b"))
+    expect(builder).to_have_attribute("data-custom-grid-valid", "false")
+    expect(run_button).to_be_disabled()
+
+    axis.locator("textarea").fill("Si, Ni")
+    expect(builder).to_have_attribute("data-custom-grid-valid", "true")
+    expect(run_button).to_be_enabled()
+
+    axis.locator(".custom-grid-parameter").select_option("stack.layer_material")
+    axis.locator("textarea").fill("None, Pt")
+    expect(builder).to_have_attribute("data-custom-grid-valid", "true")
+    expect(warning).not_to_contain_text("cannot be None")
 
 
 @pytest.mark.browser

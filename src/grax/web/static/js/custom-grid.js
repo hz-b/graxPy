@@ -171,6 +171,9 @@ function initCustomGridBuilder(root) {
       return number;
     }
     if (item.kind === "material") {
+      const isNone = value === null || value === undefined
+        || String(typeof value === "object" ? value.name || "" : value).trim().toLowerCase() === "none";
+      if (isNone && !item.nullable) throw new Error(requiredMaterialMessage(item));
       if (value === null || value === undefined) return null;
       const material = typeof value === "object" ? {...value} : {name: String(value)};
       material.name = String(material.name || "").trim();
@@ -192,6 +195,13 @@ function initCustomGridBuilder(root) {
     }
     if (item.choices?.length && !item.choices.includes(value)) throw new Error(`Invalid value for ${item.label}.`);
     return value;
+  }
+
+  // Same wording as the server's refusal in custom_grid._required_material_message.
+  function requiredMaterialMessage(item) {
+    return String(item.id).endsWith("substrate_material")
+      ? "Substrate material cannot be None: a grating always needs a substrate. Remove None from this list."
+      : `${item.label} cannot be None: a multilayer needs both of its materials. Remove None from this list.`;
   }
 
   function materialFields(value, item, onChange, includeName = true) {
@@ -250,8 +260,9 @@ function initCustomGridBuilder(root) {
     function syncMaterials() {
       const item = descriptor(parameter.value);
       const isMaterial = item?.kind === "material";
-      textarea.placeholder = isMaterial ? "None, Au, Pt (None means no coating)" : item?.id === "polarization" ? "S (TE), P (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
-      valuesHint.textContent = isMaterial ? "Example: None, Au, Pt. None means no coating." : item?.id === "polarization" ? "Enter s for S (TE) and p for P (TM); for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
+      const optionalMaterial = isMaterial && item.nullable;
+      textarea.placeholder = optionalMaterial ? "None, Au, Pt (None means no coating)" : isMaterial ? "Si, Ni, Au" : item?.id === "polarization" ? "S (TE), P (TM); enter s, p" : decimalSeparator() === "comma" ? "0,2; 0,4; 0,6" : "100, 200, 300";
+      valuesHint.textContent = optionalMaterial ? "Example: None, Au, Pt. None means no coating." : isMaterial ? "Required: None is not allowed here." : item?.id === "polarization" ? "Enter s for S (TE) and p for P (TM); for example s, p." : decimalSeparator() === "comma" && ["float", "optional_float"].includes(item?.kind) ? "Use semicolons or new lines between decimal-comma values." : "";
       materials.classList.toggle("is-hidden", !isMaterial);
       if (isMaterial) {
         const names = splitValues(textarea.value);
@@ -260,7 +271,7 @@ function initCustomGridBuilder(root) {
           materialValues = names.map((name, index) => materialValues[index]?.name === name ? materialValues[index] : {name});
           materials.replaceChildren();
           const hint = document.createElement("p"); hint.className = "subtle";
-          hint.textContent = "Set density and interface roughness for each material. None has neither. Blank density uses the material default; blank roughness keeps the saved grating setting. A separate scan of either property overrides these values.";
+          hint.textContent = `Set density and interface roughness for each material.${item.nullable ? " None has neither." : ""} Blank density uses the material default; blank roughness keeps the saved grating setting. A separate scan of either property overrides these values.`;
           materials.append(hint);
           materialValues.forEach((value, index) => {
             const line = document.createElement("div"); line.className = "custom-grid-material-row";

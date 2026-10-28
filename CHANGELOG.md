@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The parameter-sweep editor now shows a red error when None is entered for a grating's substrate or a multilayer's materials, which a grating always needs, instead of failing after Run sweep.
 - `grax-web` now starts without the Flask debugger; pass `--debug` for the debugger and auto-reloader, which is allowed only on a local host.
 - The website now refuses changes sent by pages from other websites, so a malicious page cannot delete or start work in your database.
 - The website now rejects malformed run, plot, study, mirror, scan, and grating IDs instead of resolving them as file paths.
