@@ -4,6 +4,7 @@
 
 - For every code change beyond a truly small edit, add one concise, human-readable line to `CHANGELOG.md` explaining its purpose or user-facing effect. Write for people, not machines; avoid implementation details.
 - Record these project-wide workflow rules in this file so they apply to future work in the repository.
+- `CLAUDE.md` only imports this file (`@AGENTS.md`) so Claude Code reads the same rules. Edit `AGENTS.md`, never `CLAUDE.md`.
 - Do not change the package version in `pyproject.toml` during ordinary development. The release tool owns version updates.
 - A changelog section may be prepared for the next release without changing `pyproject.toml`.
 
