@@ -861,7 +861,14 @@ def test_the_survey_figures_follow_a_running_stage(
                 break
             time.sleep(0.02)
         assert store.load(study_id)["stages"]["survey"]["status"] == "running"
-        options = client.get(f"/multilayer-design/{study_id}/survey-options").get_json()
+        # A read that lands while Windows holds the file for the replace answers
+        # "nothing yet"; the page simply polls again, and so does this test.
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            options = client.get(f"/multilayer-design/{study_id}/survey-options").get_json()
+            if options["best"]:
+                break
+            time.sleep(0.02)
         assert options["best"], "the live endpoint should serve the partial grid"
         html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
         assert 'data-survey-figure="heatmap"' in html
