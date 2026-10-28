@@ -363,6 +363,17 @@ a {
   gap: 10px;
 }
 
+.run-grating-filter select {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.run-manage-row[hidden] {
+  display: none;
+}
+
 .run-manage-sticky {
   position: sticky;
   top: 0;

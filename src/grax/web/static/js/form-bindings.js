@@ -96,6 +96,23 @@ document.addEventListener("DOMContentLoaded", () => {
     updateSelection();
   }
 
+  const runGratingFilter = document.querySelector("[data-run-grating-filter]");
+  if (runGratingFilter) {
+    const runCards = [...document.querySelectorAll("[data-run-grating]")];
+    const emptyNote = document.querySelector("[data-run-filter-empty]");
+    runGratingFilter.addEventListener("change", () => {
+      const wanted = runGratingFilter.value;
+      let visible = 0;
+      runCards.forEach((card) => {
+        const show = !wanted || card.dataset.runGrating === wanted;
+        card.hidden = !show;
+        if (show) visible += 1;
+        else card.querySelectorAll("input[name='selected_run_id']").forEach((box) => { box.checked = false; });
+      });
+      if (emptyNote) emptyNote.hidden = visible > 0;
+    });
+  }
+
   document.querySelectorAll("[data-confirm]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const message = button.dataset.confirm;

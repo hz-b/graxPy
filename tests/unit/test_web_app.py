@@ -3509,3 +3509,36 @@ def test_results_finished_out_of_order_are_saved_in_case_order(
     csv_text = client.get(f"/runs/{run_id}/export/csv").get_data(as_text=True)
     case_ids = [line.split(",")[0] for line in csv_text.splitlines()[1:] if line.strip()]
     assert case_ids and case_ids == sorted(case_ids)
+
+
+def test_manage_runs_page_filters_by_grating_and_saves_one_run(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", comment="Note 1")
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", comment="Note 2")
+
+    client = create_app(data_dir=tmp_path).test_client()
+
+    page = client.get("/runs/gratings")
+    assert b"data-run-grating-filter" in page.data
+    assert b"data-run-grating=" in page.data
+    assert b"Save changes" not in page.data
+    assert b'name="save_run_id" value="run-1"' in page.data
+
+    response = client.post(
+        "/runs/gratings",
+        data={
+            "save_run_id": "run-1",
+            "display_name_run-1": "Renamed run",
+            "comment_run-1": "Changed",
+            "display_name_run-2": "Should not change",
+            "comment_run-2": "Should not change",
+        },
+    )
+    assert response.status_code == 302
+    first = json.loads((tmp_path / "runs" / "run-1" / "manifest.json").read_text(encoding="utf-8"))
+    second = json.loads((tmp_path / "runs" / "run-2" / "manifest.json").read_text(encoding="utf-8"))
+    assert first["comment"] == "Changed"
+    assert second["comment"] == "Note 2"

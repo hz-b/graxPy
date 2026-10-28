@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
 import os
 import re
@@ -527,6 +528,33 @@ def test_plot_loop_keeps_scan_checkbox_selection(website, browser_page: Page) ->
     )
     page.mouse.wheel(0, -100)
     expect(marker_size).to_have_value("4")
+
+
+@pytest.mark.browser
+def test_manage_runs_filter_hides_other_gratings_and_clears_their_selection(
+    website, browser_page: Page
+) -> None:
+    base_url, data_dir = website
+    for run_id, grating_id, name in (("run-a", "g-a", "Alpha"), ("run-b", "g-b", "Beta")):
+        run_dir = data_dir / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            json.dumps({
+                "id": run_id, "created_at": "2026-06-10T12:00:00", "workflow": "fixed_angle",
+                "grating_id": grating_id, "grating_name": name,
+                "grating_spec": {"grating_type": "laminar"}, "status": "ok",
+            }),
+            encoding="utf-8",
+        )
+    page = browser_page
+    page.goto(f"{base_url}/runs/gratings")
+    page.locator("input[name=selected_run_id][value=run-b]").check()
+    page.locator("[data-run-grating-filter]").select_option("g-a")
+    expect(page.locator("[data-run-grating=g-b]")).to_be_hidden()
+    expect(page.locator("[data-run-grating=g-a]")).to_be_visible()
+    expect(page.locator("input[name=selected_run_id][value=run-b]")).not_to_be_checked()
+    page.locator("[data-run-grating-filter]").select_option("")
+    expect(page.locator("[data-run-grating=g-b]")).to_be_visible()
 
 
 @pytest.mark.browser
