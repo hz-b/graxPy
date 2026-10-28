@@ -146,6 +146,46 @@ def test_replacing_a_file_retries_while_windows_holds_it(monkeypatch: pytest.Mon
     assert destination.read_text(encoding="utf-8") == "new"
 
 
+def test_replacing_a_file_that_another_program_keeps_open(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An image viewer or editor holding the plot or results must not make the save fail."""
+
+    source, destination = tmp_path / "new.txt", tmp_path / "old.txt"
+    source.write_text("new", encoding="utf-8")
+    destination.write_text("old content", encoding="utf-8")
+    monkeypatch.setattr(files, "_RETRY_SECONDS", 0.05)
+
+    with destination.open("rb") as reader:
+        files.replace_file(source, destination)
+        assert reader.read() == b"new"
+
+    assert destination.read_text(encoding="utf-8") == "new"
+    assert not source.exists()
+
+
+@pytest.mark.skipif(not hasattr(__import__("ctypes"), "windll"), reason="Windows file locks")
+def test_loading_a_manifest_waits_while_windows_holds_it(tmp_path: Path) -> None:
+    """A page that loads a run while its job replaces the manifest must not fail."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    store = RunStore(tmp_path / "runs")
+    store.save({"id": "run", "status": "running"})
+    create_file = ctypes.windll.kernel32.CreateFileW
+    create_file.restype = wintypes.HANDLE
+    generic_read, no_sharing, open_existing = 0x80000000, 0, 3
+    handle = create_file(
+        str(tmp_path / "runs" / "run" / "manifest.json"), generic_read, no_sharing, None, open_existing, 0, None
+    )
+    assert handle != wintypes.HANDLE(-1).value
+    releaser = threading.Timer(0.3, ctypes.windll.kernel32.CloseHandle, args=(wintypes.HANDLE(handle),))
+    releaser.start()
+    try:
+        assert store.load("run")["status"] == "running"
+    finally:
+        releaser.join()
+
+
 def test_replacing_a_file_does_not_retry_permission_errors_off_windows(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -169,6 +209,56 @@ def test_remove_tree_clears_read_only_files(tmp_path: Path) -> None:
     files.remove_tree(folder)
 
     assert not folder.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def _save_finished_grating_run(tmp_path: Path) -> Path:
+    run_dir = tmp_path / "runs" / "done-run"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"id": "done-run", "grating_name": "G", "status": "completed", "workflow": "energy_sweep"}),
+        encoding="utf-8",
+    )
+    (run_dir / "checkpoints" / "results.jsonl").write_text("{}\n", encoding="utf-8")
+    (run_dir / "summary.csv").write_text("energy_ev\n100\n", encoding="utf-8")
+    return run_dir
+
+
+@pytest.mark.skipif(not hasattr(__import__("ctypes"), "windll"), reason="only Windows refuses to delete open files")
+def test_deleting_a_run_whose_csv_is_open_elsewhere_keeps_it_whole(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(files, "_RETRY_SECONDS", 0.05)
+    run_dir = _save_finished_grating_run(tmp_path)
+    client = create_app(data_dir=tmp_path).test_client()
+    delete = {"action": "delete", "selected_run_id": "done-run", "confirm_delete": "1"}
+
+    with (run_dir / "summary.csv").open("rb"):
+        response = client.post("/runs/gratings", data=delete)
+
+    assert response.status_code == 409
+    assert "Close it and try again" in response.get_data(as_text=True)
+    assert sorted(path.name for path in run_dir.iterdir()) == ["checkpoints", "manifest.json", "summary.csv"]
+    assert [path.name for path in (tmp_path / "runs").iterdir()] == ["done-run"]
+
+    assert client.post("/runs/gratings", data=delete).status_code == 302
+    assert list((tmp_path / "runs").iterdir()) == []
+
+
+@pytest.mark.skipif(not hasattr(__import__("ctypes"), "windll"), reason="only Windows refuses to delete open files")
+def test_restarting_a_run_whose_csv_is_open_elsewhere_asks_to_close_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(files, "_RETRY_SECONDS", 0.05)
+    run_dir = _save_finished_grating_run(tmp_path)
+    client = create_app(data_dir=tmp_path).test_client()
+
+    with (run_dir / "summary.csv").open("rb"):
+        response = client.post("/runs/done-run/restart")
+
+    assert response.status_code == 409
+    assert "Close it and try again" in response.get_data(as_text=True)
+    assert json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["status"] == "completed"
 
 
 def _start_mirror_run(client, monkeypatch: pytest.MonkeyPatch, release: threading.Event) -> str:  # noqa: ANN001

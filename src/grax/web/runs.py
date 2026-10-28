@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -13,7 +12,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .files import locked, remove_tree, write_json_atomically
+from .files import locked, read_json, remove_tree, write_json_atomically
 
 
 @dataclass(frozen=True)
@@ -52,9 +51,7 @@ class RunStore:
 
     def load(self, run_id: str) -> dict[str, Any]:
         """Load one run manifest by identifier."""
-        path = self._manifest_path(run_id)
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        payload = read_json(self._manifest_path(run_id))
         payload.setdefault("id", run_id)
         payload.setdefault("display_name", self._default_display_name(payload))
         return payload

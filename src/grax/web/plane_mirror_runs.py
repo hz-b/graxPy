@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from werkzeug.datastructures import MultiDict
 
-from .files import replace_file, write_json_atomically
+from .files import read_json, replace_file, write_json_atomically
 from .jobs import _finish_active_run, start_job
 from .jobs import stop_event as job_stop_event
 from .plane_mirror import MAX_TOTAL_SAMPLES as _MAX_TOTAL_SAMPLES
@@ -279,7 +279,7 @@ def start_worker(app, data_dir: Path, run_id: str, *, resume=False):
     done = 0
     if resume:
         try:
-            done = len(json.loads((data_dir / "runs" / run_id / "mirror_results.json").read_text(encoding="utf-8")))
+            done = len(read_json(data_dir / "runs" / run_id / "mirror_results.json"))
         except (OSError, json.JSONDecodeError):
             done = 0
     start_job(
@@ -309,7 +309,7 @@ def execute_worker(app, data_dir: Path, run_id: str, resume: bool):
     try:
         manifest = store.load(run_id)
         if resume and results_path.exists():
-            results = json.loads(results_path.read_text(encoding="utf-8"))
+            results = read_json(results_path)
         _update_active_run(app, run_id, state="running", started=True)
         save_fields(status="running", error_text="", completed_points=len(results))
         cases = manifest["cases"]

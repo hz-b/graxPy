@@ -11,6 +11,10 @@
 - Plane-mirror runs are now tracked like grating runs: they cannot be started twice, block switching the database folder while running, and keep a new name given while they run.
 - Deleting runs or multilayer studies now stops any calculation still running in them first.
 - Made saving runs, studies, plots and settings reliable on Windows, where a file being read could make a save or a whole run fail.
+- Fixed multilayer surveys on Windows failing with "Access is denied" when the live survey plots were open while the survey ran.
+- Runs on Windows no longer fail when their plot or results file is open in another program while the run saves it.
+- Opening a run or multilayer study on Windows no longer fails with "Permission denied" when the page loads at the moment the run saves its progress.
+- Deleting or restarting a run on Windows while one of its files is open in another program now asks you to close it and leaves the run intact, instead of failing with a server error and deleting only part of it.
 - Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
 - Saved run results and downloads now list points in scan order even when parallel workers finish out of order.

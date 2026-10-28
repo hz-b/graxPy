@@ -35,6 +35,7 @@ from ..common import (
     _split_variation_values,
 )
 from ..context import WebContext
+from ..files import read_json
 from ..grating_forms import (
     _custom_layer_rows,
     _material_density_placeholders,
@@ -299,7 +300,7 @@ def register(app: Any, ctx: WebContext) -> None:
         _normalize_mirror_run_status(manifest)
         result_path = active_data_dir() / "runs" / run_id / "mirror_results.json"
         try:
-            results = json.loads(result_path.read_text(encoding="utf-8"))
+            results = read_json(result_path)
         except (OSError, json.JSONDecodeError):
             results = []
         return render_template("plane_mirror_run_detail.html", run=manifest, results=results)

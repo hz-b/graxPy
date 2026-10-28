@@ -16,7 +16,6 @@ The workflow has two stages, matching the library:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass, fields
 from datetime import datetime
@@ -25,7 +24,7 @@ from typing import Any
 
 from grax.multilayer_design import MultilayerDesignConfig, ThetaSearchScanSettings
 
-from .files import locked, remove_tree, write_json_atomically
+from .files import locked, read_json, remove_tree, write_json_atomically
 from .persistence import _slugify
 
 STAGES: tuple[str, ...] = ("survey", "energy_scan")
@@ -863,9 +862,7 @@ class MultilayerDesignStudyStore:
     def load(self, study_id: str) -> dict[str, Any]:
         """Load one study manifest by id."""
 
-        path = self._study_dir(study_id) / "study.json"
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        payload = read_json(self._study_dir(study_id) / "study.json")
         payload.setdefault("id", study_id)
         return payload
 

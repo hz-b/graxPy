@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import io
-import shutil
 from typing import (
     Any,
 )
@@ -32,6 +31,7 @@ from ..catalog import (
     _scan_run_rows,
 )
 from ..context import WebContext
+from ..files import remove_file, remove_tree
 from ..jobs import stop_job
 from ..persistence import (
     build_grating_from_spec,
@@ -353,7 +353,7 @@ def register(app: Any, ctx: WebContext) -> None:
         for child in run_dir.iterdir():
             if child.name == "manifest.json":
                 continue
-            shutil.rmtree(child) if child.is_dir() else child.unlink()
+            remove_tree(child) if child.is_dir() else remove_file(child)
         form = dict(manifest["run_input"])
         workflow = str(manifest.get("workflow", ""))
         if workflow in {"angle_sweep", "fixed_angle"}:

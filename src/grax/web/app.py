@@ -29,6 +29,7 @@ from .common import (  # noqa: F401, E402
     _write_text_atomically,
 )
 from .context import WebContext
+from .files import FileInUseError, read_json
 from .grating_forms import (  # noqa: F401
     _attach_roughness,
     _default_form_values,
@@ -92,6 +93,8 @@ def create_app(*, data_dir: str | Path | None = None):
             "python -m pip install -e \".[web]\""
         ) from error
 
+    from werkzeug.exceptions import Conflict
+
     from .routes import core, gratings, multilayer, plane_mirrors, plots, runs
 
     app = Flask(__name__)
@@ -138,8 +141,7 @@ def create_app(*, data_dir: str | Path | None = None):
     def load_user_settings() -> dict[str, Any]:
         settings_path = active_data_dir() / "settings.json"
         try:
-            with settings_path.open("r", encoding="utf-8") as handle:
-                stored = json.load(handle)
+            stored = read_json(settings_path)
         except (OSError, json.JSONDecodeError):
             stored = {}
         if not isinstance(stored, dict):
@@ -169,6 +171,13 @@ def create_app(*, data_dir: str | Path | None = None):
         run_store=run_store,
         store=store,
     )
+
+    @app.errorhandler(FileInUseError)
+    def file_in_use(error: FileInUseError):
+        """Ask the user to close the open file instead of failing with a server error."""
+
+        return Conflict(description=str(error)).get_response()
+
     for group in (core, gratings, runs, plots, multilayer, plane_mirrors):
         group.register(app, ctx)
 

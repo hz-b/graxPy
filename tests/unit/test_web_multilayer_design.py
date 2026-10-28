@@ -880,6 +880,26 @@ def test_the_survey_figures_follow_a_running_stage(
         )
 
 
+def test_the_survey_table_is_rewritten_while_a_page_is_reading_it(tmp_path: Path) -> None:
+    """On Windows an open reader blocks the replace for a moment; the survey must wait it out."""
+
+    from grax.multilayer_design import _write_csv_atomic
+
+    path = tmp_path / "survey" / "survey.csv"
+    _write_csv_atomic(pd.DataFrame({"d_nm": [2.0]}), path)
+    reader = path.open(encoding="utf-8")
+    releaser = threading.Timer(0.3, reader.close)
+    releaser.start()
+    try:
+        _write_csv_atomic(pd.DataFrame({"d_nm": [2.0, 3.0]}), path)
+    finally:
+        releaser.join()
+        reader.close()
+
+    assert pd.read_csv(path)["d_nm"].tolist() == [2.0, 3.0]
+    assert sorted(child.name for child in path.parent.iterdir()) == ["survey.csv"]
+
+
 def test_energy_scan_series_reads_the_checkpoint_in_energy_order(tmp_path: Path) -> None:
     """The live scan plot reads checkpoints; the summary CSV only lands at the end."""
 
