@@ -18,6 +18,7 @@ from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
+from grax.web.files import read_json
 from grax.web import plot_builder
 from grax.web.persistence import (
     GratingStore,
@@ -1446,7 +1447,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest = read_json(run_dir / "manifest.json")
         if manifest["status"] == "failed":
             break
         time.sleep(0.02)
@@ -1541,7 +1542,7 @@ def test_parameter_study_continues_when_windows_locks_live_plot(
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest = read_json(run_dir / "manifest.json")
         if manifest["status"] in {"completed", "failed"}:
             break
         time.sleep(0.02)
