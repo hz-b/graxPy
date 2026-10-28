@@ -1,73 +1,39 @@
 # Changelog
 
-## Unreleased
-
-- Manage grating runs: filter the runs by grating from a dropdown, and save each run's name and comment with its own Save button instead of one Save changes button.
-- The parameter-sweep editor now shows a red error when None is entered for a grating's substrate or a multilayer's materials, which a grating always needs, instead of failing after Run sweep.
-- `grax-web` now starts without the Flask debugger; pass `--debug` for the debugger and auto-reloader, which is allowed only on a local host.
-- The website now refuses changes sent by pages from other websites, so a malicious page cannot delete or start work in your database.
-- The website now rejects malformed run, plot, study, mirror, scan, and grating IDs instead of resolving them as file paths.
-- Added `grax-web --data-dir` to serve a chosen database folder.
-- Added `grax-web --no-browser` to start the website without opening a browser window.
-- Reorganized the website code into smaller modules and page scripts without changing what it does.
-- Added checks that compare every website page, export and replayed run with the previous version, and run the website tests on Windows and macOS as well as Linux.
-- Claude Code now reads the same repository guidance (`AGENTS.md`) as other coding agents.
-- Plane-mirror runs are now tracked like grating runs: they cannot be started twice, block switching the database folder while running, keep a new name given while they run, and show as failed (and can be resumed) when a calculation errors.
-- Deleting runs or multilayer studies now stops any calculation still running in them first.
-- Made saving runs, studies, plots and settings reliable on Windows, where a file being read could make a save or a whole run fail.
-- Fixed multilayer surveys on Windows failing with "Access is denied" when the live survey plots were open while the survey ran.
-- Runs on Windows no longer fail when their plot or results file is open in another program while the run saves it.
-- Opening a run or multilayer study on Windows no longer fails with "Permission denied" when the page loads at the moment the run saves its progress.
-- The `grax-web` terminal now shows the error and traceback when a run or a page fails; before, these were silently dropped.
-- Deleting or restarting a run on Windows while one of its files is open in another program now asks you to close it and leaves the run intact, instead of failing with a server error and deleting only part of it.
-- Fixed the reflectivity preview on a saved plane mirror's scan page, which never appeared.
-- Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed or run again instead of appearing to run forever.
-- Saved run results and downloads now list points in scan order even when parallel workers finish out of order.
-- Normalized the None material sentinel across independent and coupled scans, removing optional coatings and reporting a clear error for required materials.
-- Reworked the web guide into an overview and illustrated walkthroughs for gratings, plane mirrors, and multilayer gratings.
-- Let saved plots be edited and provide PNG, plotted CSV data, or a portable script and data from one download menu.
-- Allowed marker size 0 in plot controls to hide symbols while keeping the series lines.
-- Made the 2θ arrows change the angle by 0.1° and let focused number fields step with the mouse wheel.
-- Made decimal fields show the selected separator consistently while keeping precise input and arrow controls across the website.
-- Made focused whole-number fields respond consistently to mouse-wheel stepping across the website.
-- Reduced interruptions during website testing by reusing the running site and browser tab, and set a shared branch for future bug fixes.
-- Fixed material sweeps with a None option so the uncoated case can start alongside coated cases.
-- Added plane-mirror reflectivity runs to saved plot comparisons, including parameter loops without diffraction-order controls.
-- Fixed browser setting controls so saved preferences persist.
-- Kept the constant-deviation schematic static and moved the α label inside its angle marker.
-- Added reflectivity previews for saved scans on the plane-mirror runs page.
-- Separated plane-mirror stack management from saved scan management and added layer-stack previews to the mirror library.
-- Organized plane-mirror run cards with scan settings on the left and scan and layer-stack previews alongside.
-- Fixed saved layer-stack previews using the live preview endpoint instead of the image endpoint.
-- Placed each mirror name and summary beside its layer-stack preview in the mirror library.
-- Let the plane-mirror geometry panel scroll with the page instead of sticking in place.
-- Separated plane-mirror creation from scan runs, with saved run results, progress controls, independent and coupled scan and stack variations, legacy scan presets, and each browser's saved default polarization.
-- Made saved plane mirrors read-only on their scan page, added a separate Edit page, and aligned mirror runs with Energy sweep, Angle sweep, and fixed-CFF Monochromator workflows.
-- Kept the plane-mirror form visible beside a compact layer-stack preview when creating or editing a mirror.
-- Showed step-size controls only for the active plane-mirror scan workflow.
-- Stacked mirror substrate, coating, and top-cap sections vertically with full-width layouts.
-- Kept saved-run previews beside run details and removed unused space in expanded scan lists.
-- Restored plot previews in the saved-plots list.
-- Saved number format and standard polarization in the active database folder, reduced settings control widths, and clarified S (TE) / P (TM) labels in the web interface and generated plots.
-- Kept browser checks running automatically after a release version changes.
-
 ## 0.6.0
 
-- Added a remembered dot or comma preference for decimal input.
-- Fixed valid constant-deviation angles and sweep step sizes being rejected.
-- Allowed any decimal precision in energy and grazing-angle fields, such as an energy stop of 1234.56 eV, while keeping their fine arrow steps.
-- Clarified how to enter no coating and s or p polarization in variations.
-- Made AFM threshold arrows finer and the simulation preview easier to read.
-- Kept plot selections when changing a loop.
-- Added a constant-deviation grating mount and improved AFM processing feedback, plot controls, numerical inputs, and scan previews.
-- Reorganized AFM upload inputs beside a scrollable status panel with copyable output and retry controls.
-- Included the full server traceback with the readable AFM error when copying failed processing output.
-- Kept saved-run plots available when a selected run has no individual scan checkbox selected.
-- Added resumable checkpoints for individual parameter-study points, and added Resume and Restart actions for incomplete runs.
-- Added a PyPI prerelease workflow for opt-in testing before a stable release.
-- Kept parameter-study sweeps running when Windows temporarily locks the live plot during refresh.
-- Added CI browser checks that run a real short energy scan through the Flask website.
-- Made p polarization the default across grating runs, custom grids, plane-mirror scans, and saved-run fallbacks.
+### New
+- Plane mirrors now have their own pages: create and edit mirrors (with layer-stack previews), run energy, angle or fixed-CFF monochromator scans, vary stacks independently or coupled, and see reflectivity previews and saved results.
+- Manage grating runs: filter runs by grating, and save each run's name and comment with its own Save button.
+- Saved plots can be edited and downloaded as PNG, plotted CSV data, or a portable script with data; plane-mirror runs can be compared in plots too.
+- A constant-deviation grating mount, a remembered dot or comma for decimal input, and a saved S (TE) / P (TM) polarization choice per database folder. P is now the default.
+- Parameter-study points are checkpointed, and unfinished runs can be resumed or restarted.
+- A web guide with illustrated walkthroughs for gratings, plane mirrors and multilayer gratings.
+- `grax-web --data-dir` serves a chosen database folder, and `--no-browser` skips opening a browser window.
+
+### Improvements
+- Number fields behave consistently: any decimal precision, fine arrow steps (0.1° for 2θ), mouse-wheel stepping, and marker size 0 to hide plot symbols.
+- Clearer AFM upload page with a scrollable status panel, copyable errors and retry controls, and finer threshold arrows.
+- Saved results and downloads list points in scan order, even when parallel workers finish out of order.
+- The grax-web terminal now shows the error and traceback when a run or page fails.
+- Cleaner layouts for plane-mirror run cards, the mirror library and previews.
+
+### Fixes
+- Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed instead of looking busy forever.
+- Plane-mirror runs are tracked like grating runs: no double starts, correct failure state, and they can be resumed.
+- Deleting a run or study first stops any calculation still running in it.
+- Material sweeps with a None option, and the sweep editor, now handle uncoated cases correctly and report a clear error when a grating's substrate or multilayer material is None.
+- Much more reliable saving and opening of runs, studies, plots and settings on Windows, including when a result file is open in another program.
+- Fixed rejected constant-deviation angles and sweep step sizes, and the reflectivity preview on a saved mirror's scan page.
+- Kept plot selections when changing a loop, and saved preferences now persist.
+
+### Security
+- The website refuses changes sent by pages from other websites and rejects malformed IDs. `grax-web` runs without the Flask debugger unless `--debug` is given on a local host.
+
+### Development
+- The website code is split into smaller modules, and automated checks compare every page, export and run with the previous version, on Windows, macOS and Linux, including a real browser energy scan.
+- A PyPI prerelease workflow allows opt-in testing before a stable release.
+- Claude Code reads the same repository guidance (`AGENTS.md`) as other coding agents.
 
 ## 0.5.7
 
