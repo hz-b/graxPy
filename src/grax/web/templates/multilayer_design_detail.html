@@ -14,6 +14,10 @@
   </div>
   <div class="actions">
     <a class="button primary" href="{{ url_for('multilayer_design_edit', study_id=study.id) }}">Edit parameters</a>
+    {% if survey.status == "completed" or energy_scan.status == "completed" %}
+      <a class="button" href="{{ url_for('multilayer_design_diagnostics', study_id=study.id) }}"
+         title="Browse the stored theta scans and other artifacts of this study.">Diagnostics</a>
+    {% endif %}
     <a class="button" href="{{ url_for('multilayer_design_script', study_id=study.id) }}"
        download>Download script</a>
     <a class="button" href="{{ url_for('multilayer_design_index') }}">All studies</a>

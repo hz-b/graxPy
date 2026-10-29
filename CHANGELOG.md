@@ -13,6 +13,8 @@
 - Number fields behave consistently: any decimal precision, fine arrow steps (0.1° for 2θ), mouse-wheel stepping, and marker size 0 to hide plot symbols.
 - Clearer AFM upload page with a scrollable status panel, copyable errors and retry controls, and finer threshold arrows.
 - The grax-web terminal shows the error and traceback when a run or page fails.
+- Multilayer studies have a Diagnostics page to browse stored result folders and plot every theta scan used to find each maximum: precise/rough checkboxes, a one-by-one stepper, and one legend entry per scan that toggles its curves and peak together; also survey, energy and profile plots.
+- A "How it works" page under Multilayer grating explains the three-step angle search, the noise caveat and the plots it produces, with example figures.
 - Cleaner layouts for plane-mirror run cards, the mirror library and previews.
 - Behind the scenes: the website code is split into smaller modules, automated checks compare every page, export and run with the previous version on Windows, macOS and Linux, a PyPI prerelease workflow allows opt-in testing, and Claude Code reads the same `AGENTS.md` guidance as other coding agents.
 

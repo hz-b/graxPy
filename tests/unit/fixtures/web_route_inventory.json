@@ -182,6 +182,13 @@
   "multilayer_design_delete"
  ],
  [
+  "/multilayer-design/<study_id>/diagnostics",
+  [
+   "GET"
+  ],
+  "multilayer_design_diagnostics"
+ ],
+ [
   "/multilayer-design/<study_id>/edit",
   [
    "GET"

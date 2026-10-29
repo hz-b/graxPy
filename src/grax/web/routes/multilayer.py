@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import (
     Any,
 )
@@ -24,6 +25,8 @@ from grax.materials import (
 
 from ..context import WebContext
 from ..jobs import stop_job
+from ..multilayer_diagnostics import build_plot as build_diagnostic_plot
+from ..multilayer_diagnostics import discover_plots
 from ..multilayer_design_studies import (
     STAGE_LABELS,
     STAGES,
@@ -270,6 +273,56 @@ def register(app: Any, ctx: WebContext) -> None:
             render_offline_script(manifest),
             mimetype="text/x-python",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.get("/multilayer-design/<study_id>/diagnostics")
+    def multilayer_design_diagnostics(study_id: str):
+        """Browse a study's stored result folders and plot its theta scans and other artifacts."""
+
+        manifest = _design_study_or_404(study_id)
+        root = _design_store().study_dir(study_id).resolve()
+        requested = Path(request.args.get("path", ""))
+        current = (root / requested).resolve()
+        if requested.is_absolute() or not current.is_relative_to(root) or not current.is_dir():
+            current, requested = root, Path("")
+        folders = []
+        for path in sorted(current.iterdir(), key=lambda item: item.name.lower()):
+            try:
+                resolved = path.resolve()
+            except OSError:
+                continue
+            if path.is_dir() and resolved.is_relative_to(root):
+                folders.append({"name": path.name, "path": resolved.relative_to(root).as_posix()})
+        breadcrumbs = [{"name": "Study root", "path": ""}]
+        for index, part in enumerate(requested.parts):
+            breadcrumbs.append(
+                {"name": part, "path": Path(*requested.parts[: index + 1]).as_posix()}
+            )
+        config = manifest["config"]
+        plots = discover_plots(root, current, config)
+        plot_id = request.args.get("plot_id", "")
+        selected_plot = next((item for item in plots if item["id"] == plot_id), None)
+        plot_data: dict[str, Any] = {"traces": [], "layout": {}}
+        plot_error = ""
+        if plot_id and selected_plot is None:
+            plot_error = "That plot is not available in this folder."
+        elif selected_plot:
+            try:
+                plot_data = build_diagnostic_plot(selected_plot, root, config)
+            except (OSError, ValueError, KeyError, IndexError) as error:
+                plot_error = str(error)
+        return render_template(
+            "multilayer_design_diagnostics.html",
+            study=manifest,
+            folders=folders,
+            plots=[{key: value for key, value in item.items() if key != "source"} for item in plots],
+            breadcrumbs=breadcrumbs,
+            current_path=requested.as_posix() if requested.parts else "",
+            selected_plot=selected_plot,
+            plot_data=plot_data,
+            plot_error=plot_error,
+            show_scan_controls=bool(selected_plot and selected_plot["kind"] == "theta_all"),
+            plotly_bundle=_plotly_bundle_text() if get_plotlyjs is not None else None,
         )
 
     @app.get("/multilayer-design/<study_id>/survey-options")

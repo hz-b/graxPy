@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}How the multilayer search works · Web docs{% endblock %}
+{% macro shot(file, alt, caption) %}
+<figure class="docs-shot"><img src="{{ url_for('static', filename='web-docs/' ~ file) }}" alt="{{ alt }}" loading="lazy"><figcaption>{{ caption }}</figcaption></figure>
+{% endmacro %}
+{% block body %}
+<section class="section-head docs-hero"><div><a class="docs-back" href="{{ url_for('web_docs_topic', topic='multilayer-gratings') }}">← Multilayer gratings guide</a><p class="docs-eyebrow">Multilayer gratings</p><h1>How it works</h1><p>How a study finds the best incidence angle for every design, and what the plots it produces show. The figures come from a Ru/C study with order 2.</p></div><a class="button primary" href="{{ url_for('multilayer_design_new') }}">New multilayer grating</a></section>
+
+<section class="docs-section"><h2>The question: which angle is best?</h2>
+<p>For each grating design the study needs the incidence angle that gives the highest diffraction efficiency in the chosen order. The rigorous solver is too expensive to test every angle at full accuracy, so the search narrows in three steps. Each step is more accurate than the one before and covers a smaller angle range.</p>
+</section>
+
+<section class="docs-section"><h2>The three steps</h2>
+<ol class="docs-steps">
+<li><strong>Rough scan.</strong> The search starts from the angle predicted by the multilayer's Bragg condition. For a grating this estimate is usually a little off, so a wide window around it is scanned (about ±1.5°). The numerics are coarse, with few Fourier orders and a coarse mesh. This step only has to locate roughly where the efficiency peaks.</li>
+<li><strong>Fine scan.</strong> The best angle of the rough scan becomes the centre of a much narrower window (about ±0.2°) with more points. The numerics are more accurate, with more Fourier orders and a finer mesh. The peak position is taken either as the plain maximum of the curve, or from a Gaussian or Voigt fit to it.</li>
+<li><strong>Final calculation.</strong> One simulation is run at the angle chosen by the fine scan, with the most accurate settings: the highest Fourier order and the finest mesh. Its result is the efficiency reported for that design.</li>
+</ol>
+{{ shot('multilayer-theta-scan.png', 'Rough and precise theta scans with the selected peak', 'The scans for one design at 9158 eV. The rough scan (blue circles) covers a wide window; the precise scan (orange squares) samples the peak densely; the red star is the selected peak, which the final calculation then evaluates.') }}
+</section>
+
+<section class="docs-section"><h2>Where the search runs</h2>
+<p>The same search is used in both stages of a study:</p>
+<ul>
+<li><strong>Survey:</strong> one search for every (d-spacing, blaze angle) combination, to find promising designs.</li>
+<li><strong>Energy scan:</strong> one search for every photon energy, for the designs you selected.</li>
+</ul>
+</section>
+
+<section class="docs-section"><h2>What the survey produces</h2>
+<p>Each survey cell contributes its best efficiency, and the study page summarizes the grid in three plots.</p>
+{{ shot('multilayer-heatmap.png', 'Heatmap of peak efficiency over d-spacing and blaze angle', 'Peak efficiency over the (d-spacing, blaze angle) grid. The white line follows the best blaze angle at each d-spacing; click a cell on the study page to add that design to the energy scan.') }}
+<div class="grid halves">
+{{ shot('multilayer-optimal-blaze.png', 'Optimal blaze angle versus d-spacing', 'The optimal blaze angle at each d-spacing.') }}
+{{ shot('multilayer-max-efficiency.png', 'Maximum efficiency versus d-spacing', 'The efficiency reached at that optimum, with its blaze angle as label.') }}
+</div>
+</section>
+
+<section class="docs-section"><h2>What the energy scan produces</h2>
+<p>Every scanned design gets one search per energy. The left panel below shows the final efficiency of each energy; the right panel shows the rough scan, fine scan and selected peak of the first energy as a worked example of the search.</p>
+{{ shot('multilayer-workflow.png', 'Final results versus energy next to the first-energy theta scan', 'Final theta-search results (left) and the diagnostics of the first energy (right).') }}
+{{ shot('multilayer-energy-scan.png', 'Efficiency versus energy for one design', 'Selected-order efficiency of a single design versus photon energy.') }}
+<div class="grid halves">
+{{ shot('multilayer-profile.png', 'Grating profile and material map over three periods', 'The grating profile and material map of the design.') }}
+{{ shot('multilayer-stack.png', 'Multilayer stack schematic', 'The multilayer stack on the substrate.') }}
+</div>
+</section>
+
+<section class="docs-section"><h2>Inspecting every scan: the Diagnostics button</h2>
+<p>Once the survey or the energy scan has finished, the study page has a <strong>Diagnostics</strong> button. It opens a folder browser over the stored results where <strong>Plot all theta searches in this folder</strong> overlays every scan behind each reported point. You can show precise scans, rough scans or both; step through the scans one by one; and switch off a scan and its selected peak together from the legend. If a fit was chosen instead of the maximum, check here how well it follows the curve.</p>
+</section>
+
+<section class="docs-section docs-note"><h2>Why results can look noisy</h2>
+<p>If efficiency curves show small jumps that no physical edge explains, the likely cause is the peak selection rather than the physics. By default the peak after the fine scan is the plain <strong>maximum</strong>. That is the most robust method and essentially never fails, but the result depends on how fine and how precise the computation is: the x/z resolution and the number of Fourier orders. The defaults are deliberately modest so that studies run on any machine, which gives reasonable results on a grid that is not very fine.</p>
+<p>For smoother curves, raise the resolution and the number of Fourier orders in the study's advanced scan settings, and consider a fit instead of the maximum.</p>
+<p><strong>Fits are experimental.</strong> The Gaussian and Voigt options do not yet work reliably on every curve, so they may give poor positions or fail. Use them with Diagnostics open to check the result.</p>
+</section>
+<nav class="docs-next" aria-label="Guide navigation"><a href="{{ url_for('web_docs_topic', topic='multilayer-gratings') }}">← Multilayer guide</a><a href="{{ url_for('web_docs') }}">All web docs →</a></nav>
+{% endblock %}

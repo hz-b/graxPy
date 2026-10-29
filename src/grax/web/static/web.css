@@ -2391,3 +2391,128 @@ fieldset {
 .geo-ref-text, .geo-note { fill: #6b7280; font-size: 13px; }
 .geo-item.is-focused { stroke-width: 3.2; }
 text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
+
+.diagnostic-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+  font-weight: 600;
+}
+
+.diagnostic-browser {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 16px 0;
+  background: var(--panel);
+}
+
+.diagnostic-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 20px;
+}
+
+.diagnostic-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.diagnostic-file-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.diagnostic-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.diagnostic-controls .diagnostic-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: var(--font-body);
+}
+
+.diagnostic-check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.diagnostic-stepper,
+.diagnostic-stepper-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diagnostic-stepper select {
+  width: auto;
+  max-width: 420px;
+}
+
+.diagnostic-stepper.is-hidden,
+.diagnostic-stepper-all.is-hidden {
+  display: none;
+}
+
+.diagnostic-legend {
+  column-width: 330px;
+  column-gap: 12px;
+  margin-top: 12px;
+}
+
+.diagnostic-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--font-secondary);
+  text-align: left;
+  cursor: pointer;
+  break-inside: avoid;
+}
+
+.diagnostic-legend-item:hover {
+  background: var(--panel);
+}
+
+.diagnostic-legend-item.is-off {
+  opacity: 0.35;
+}
+
+.diagnostic-legend-swatch {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.diagnostic-controls .diagnostic-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: var(--font-body);
+}
+
+.diagnostic-filter select {
+  width: auto;
+}

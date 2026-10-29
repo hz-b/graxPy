@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics — {{ study.display_name }}{% endblock %}
+{% block body %}
+{% set base = url_for('multilayer_design_diagnostics', study_id=study.id) %}
+<section class="section-head">
+  <div>
+    <h1>Diagnostics: {{ study.display_name }}</h1>
+    <p><a href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">Back to study</a></p>
+  </div>
+</section>
+<p class="subtle">Browse the stored results folder by folder; theta scans can be plotted for any folder.</p>
+
+<nav class="diagnostic-breadcrumbs">
+  {% for crumb in breadcrumbs %}
+    {% if not loop.first %}<span>/</span>{% endif %}
+    <a href="{{ base }}?path={{ crumb.path|urlencode }}">{{ crumb.name }}</a>
+  {% endfor %}
+</nav>
+
+<section class="diagnostic-browser">
+  <h2>{{ current_path or "Study root" }}</h2>
+  {% if folders %}
+    <h3>Folders</h3>
+    <ul class="diagnostic-list">
+      {% for folder in folders %}
+        <li><a href="{{ base }}?path={{ folder.path|urlencode }}">{{ folder.name }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% if plots %}
+    <h3>Interactive plots</h3>
+    <ul class="diagnostic-list">
+      {% for plot in plots %}
+        <li class="diagnostic-file-row">
+          <span>{{ plot.label }}</span>
+          <a class="button primary" href="{{ base }}?path={{ current_path|urlencode }}&amp;plot_id={{ plot.id|urlencode }}">Plot</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% if not folders and not plots %}
+    <p>No interactive diagnostics are available in this folder yet.</p>
+  {% endif %}
+</section>
+
+{% if plot_error %}<div class="notice notice-error">{{ plot_error }}</div>{% endif %}
+{% if plot_data.traces %}
+  <section class="diagnostic-plot">
+    <h2>{{ selected_plot.label }}</h2>
+    {% if not plotly_bundle %}
+      <p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>
+    {% else %}
+      {% if show_scan_controls %}
+        <div class="diagnostic-controls" data-diagnostic-controls>
+          <strong>Scan traces:</strong>
+          <label class="diagnostic-check"><input type="checkbox" data-scan-kind value="precise" checked> Precise</label>
+          <label class="diagnostic-check"><input type="checkbox" data-scan-kind value="rough"> Rough</label>
+          <label class="diagnostic-check"><input type="checkbox" data-step-mode> One by one</label>
+          <span class="diagnostic-stepper-all" data-all-actions>
+            <button class="button" type="button" data-hide-all>Deselect all</button>
+            <button class="button" type="button" data-show-all>Select all</button>
+            <label class="diagnostic-filter">d-spacing <select data-filter-d aria-label="Show only one d-spacing"></select></label>
+            <label class="diagnostic-filter">Blaze <select data-filter-blaze aria-label="Show only one blaze angle"></select></label>
+          </span>
+          <span class="diagnostic-stepper is-hidden" data-stepper>
+            <button class="button" type="button" data-step-prev aria-label="Previous scan">&lsaquo; Prev</button>
+            <button class="button" type="button" data-step-next aria-label="Next scan">Next &rsaquo;</button>
+            <select data-step-select aria-label="Scan to show"></select>
+            <span class="subtle" data-step-count></span>
+          </span>
+        </div>
+      {% endif %}
+      <div id="diagnostic-plot" class="plotly-stage" data-diagnostic-plot></div>
+      {% if show_scan_controls %}<div class="diagnostic-legend" data-diagnostic-legend></div>{% endif %}
+      <script type="application/json" id="diagnostic-plot-data">{{ plot_data|tojson }}</script>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}
