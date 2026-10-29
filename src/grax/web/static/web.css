@@ -2516,3 +2516,54 @@ text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
 .diagnostic-filter select {
   width: auto;
 }
+
+.grating-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.grating-switcher label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.grating-switcher select {
+  width: auto;
+  max-width: 420px;
+}
+
+.multilayer-grating-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.multilayer-grating-studies {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.multilayer-grating-studies li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 720px) {
+  .multilayer-grating-card {
+    grid-template-columns: 1fr;
+  }
+}

@@ -29,6 +29,9 @@ from ..multilayer_diagnostics import build_plot as build_diagnostic_plot
 from ..multilayer_diagnostics import discover_plots
 from ..multilayer_design_studies import (
     STAGE_LABELS,
+    MultilayerGratingStore,
+    default_grating_name,
+    grating_config_subset,
     STAGES,
     SURVEY_CELL_WARNING_THRESHOLD,
     MultilayerDesignStudyStore,
@@ -72,11 +75,52 @@ def register(app: Any, ctx: WebContext) -> None:
     def _design_store() -> MultilayerDesignStudyStore:
         return MultilayerDesignStudyStore(app.config["GRAx_DATA_DIR"] / "multilayer_designs")
 
+    def _grating_store() -> MultilayerGratingStore:
+        return MultilayerGratingStore(app.config["GRAx_DATA_DIR"] / "multilayer_gratings")
+
+    def _attach_grating(manifest: dict[str, Any]) -> dict[str, Any]:
+        """Give a study its grating, joining an identical one or creating it.
+
+        Studies saved before gratings existed have no ``grating_id``.
+        """
+
+        gratings = _grating_store()
+        try:
+            gratings.load(str(manifest.get("grating_id", "")))
+            return manifest
+        except (ValueError, FileNotFoundError, OSError):
+            pass
+        grating = gratings.find_matching(manifest["config"]) or gratings.create(
+            display_name=default_grating_name(manifest["config"]), config=manifest["config"]
+        )
+        manifest["grating_id"] = grating["id"]
+        _design_store().update(
+            str(manifest["id"]), lambda saved: saved.update(grating_id=grating["id"])
+        )
+        return manifest
+
     def _design_study_or_404(study_id: str) -> dict[str, Any]:
         try:
-            return _mark_orphaned_stages(app, _design_store().load(study_id))
+            manifest = _mark_orphaned_stages(app, _design_store().load(study_id))
+            return _attach_grating(manifest)
         except (ValueError, FileNotFoundError, OSError):
             abort(404)
+
+    def _grating_or_404(grating_id: str) -> dict[str, Any]:
+        try:
+            return _grating_store().load(grating_id)
+        except (ValueError, FileNotFoundError, OSError):
+            abort(404)
+
+    def _attached_studies() -> list[dict[str, Any]]:
+        """Return every study with its grating assigned, newest first."""
+
+        return [
+            _mark_orphaned_stages(app, _attach_grating(study)) for study in _design_store().list()
+        ]
+
+    def _studies_of(grating_id: str) -> list[dict[str, Any]]:
+        return [study for study in _attached_studies() if study["grating_id"] == grating_id]
 
     def _delete_studies(study_ids: list[str]) -> None:
         # A running stage would keep writing into the folder being removed.
@@ -110,7 +154,10 @@ def register(app: Any, ctx: WebContext) -> None:
             "target_energy_ev": config.get("target_energy_ev"),
             "diffraction_order": config.get("diffraction_order"),
         }
+        grating = _grating_or_404(str(manifest["grating_id"]))
         return {
+            "grating": grating,
+            "grating_studies": _studies_of(grating["id"]),
             "study": manifest,
             "stages": stages,
             "design_options": options,
@@ -131,6 +178,93 @@ def register(app: Any, ctx: WebContext) -> None:
             stages=STAGES,
         )
 
+    @app.get("/multilayer-gratings")
+    def multilayer_gratings_manage():
+        """List each grating with a preview and the studies attached to it."""
+
+        studies = _attached_studies()
+        gratings = []
+        for grating in _grating_store().list():
+            attached = [study for study in studies if study["grating_id"] == grating["id"]]
+            gratings.append(
+                {
+                    **grating,
+                    "studies": attached,
+                    "preview_config": {**study_config_defaults(), **grating["config"]},
+                }
+            )
+        return render_template(
+            "multilayer_gratings_manage.html",
+            gratings=gratings,
+            stages=STAGES,
+            stage_labels=STAGE_LABELS,
+        )
+
+    @app.get("/multilayer-gratings/<grating_id>")
+    def multilayer_grating_detail(grating_id: str):
+        """Open a grating on its first study; an empty grating offers a new one."""
+
+        grating = _grating_or_404(grating_id)
+        studies = _studies_of(grating_id)
+        if studies:
+            return redirect(url_for("multilayer_design_detail", study_id=studies[0]["id"]))
+        return render_template("multilayer_grating_empty.html", grating=grating)
+
+    @app.get("/multilayer-gratings/<grating_id>/edit")
+    def multilayer_grating_edit(grating_id: str):
+        grating = _grating_or_404(grating_id)
+        return render_template(
+            "multilayer_design_form.html",
+            grating=grating,
+            scope="grating",
+            defaults=flatten_config_values({**study_config_defaults(), **grating["config"]}),
+            basic_sections=study_form_sections(advanced=False, scope="grating"),
+            advanced_sections=[],
+            materials=available_material_symbols(),
+            material_density_map=dict(material_density_catalog()),
+            cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
+        )
+
+    @app.post("/multilayer-gratings/<grating_id>/edit")
+    def multilayer_grating_update(grating_id: str):
+        """Rename a grating and pass its geometry on to every attached study."""
+
+        grating = _grating_or_404(grating_id)
+        studies = _studies_of(grating_id)
+        for study in studies:
+            if any(
+                _is_run_active(app, _multilayer_design_job_key(study["id"], stage))
+                for stage in STAGES
+            ):
+                abort(409, "Stop the running stage before changing the grating.")
+        try:
+            config = parse_study_config(
+                request.form, base={**study_config_defaults(), **grating["config"]}
+            )
+            build_design_config(app.config["GRAx_DATA_DIR"] / "multilayer_designs" / "_validate", config)
+        except (TypeError, ValueError) as error:
+            abort(400, str(error))
+        new_part = grating_config_subset(config)
+        store = _design_store()
+        for study in studies:
+            merged = {**study["config"], **new_part}
+            for stage in stages_invalidated_by(study["config"], merged):
+                if study["stages"][stage]["status"] in {"completed", "aborted"}:
+                    study["stages"][stage]["status"] = "stale"
+            study["config"] = merged
+            store.save(study)
+        grating["config"] = new_part
+        grating["display_name"] = request.form.get("display_name", "").strip() or grating["display_name"]
+        _grating_store().save(grating)
+        return redirect(url_for("multilayer_gratings_manage"))
+
+    @app.post("/multilayer-gratings/<grating_id>/delete")
+    def multilayer_grating_delete(grating_id: str):
+        _grating_or_404(grating_id)
+        _delete_studies([study["id"] for study in _studies_of(grating_id)])
+        _grating_store().delete(grating_id)
+        return redirect(url_for("multilayer_gratings_manage"))
+
     @app.post("/multilayer-design")
     def multilayer_design_create():
         if request.form.get("action") == "delete":
@@ -138,7 +272,13 @@ def register(app: Any, ctx: WebContext) -> None:
             return redirect(url_for("multilayer_design_index"))
         display_name = request.form.get("display_name", "").strip() or "Multilayer design"
         try:
-            config = parse_study_config(request.form)
+            grating_id = request.form.get("grating_id", "")
+            base = (
+                {**study_config_defaults(), **_grating_or_404(grating_id)["config"]}
+                if grating_id
+                else None
+            )
+            config = parse_study_config(request.form, base=base)
             build_design_config(
                 app.config["GRAx_DATA_DIR"] / "multilayer_designs" / "_validate", config
             )
@@ -149,6 +289,10 @@ def register(app: Any, ctx: WebContext) -> None:
             config=config,
             auto_energy_scan="best" if request.form.get("auto_energy_scan") else "none",
         )
+        if grating_id:
+            study["grating_id"] = grating_id
+            study = _design_store().save(study)
+        study = _attach_grating(study)
         return redirect(url_for("multilayer_design_detail", study_id=study["id"]))
 
     @app.get("/multilayer-design/new")
@@ -156,16 +300,22 @@ def register(app: Any, ctx: WebContext) -> None:
         # Seed from the newest study: the settings someone last tuned -- the
         # advanced scan parameters above all -- are a far better starting point
         # than the dataclass defaults.
-        recent = _design_store().list()
+        grating_id = request.args.get("grating", "")
+        grating = _grating_or_404(grating_id) if grating_id else None
+        recent = _studies_of(grating_id) if grating else _design_store().list()
         seed = recent[0] if recent else None
+        base = seed["config"] if seed else study_config_defaults()
+        if grating:
+            base = {**base, **grating["config"]}
+        scope = "study" if grating else "all"
         return render_template(
             "multilayer_design_form.html",
             seeded_from=seed,
-            defaults=flatten_config_values(
-                seed["config"] if seed else study_config_defaults()
-            ),
-            basic_sections=study_form_sections(advanced=False),
-            advanced_sections=study_form_sections(advanced=True),
+            grating=grating,
+            scope=scope,
+            defaults=flatten_config_values(base),
+            basic_sections=study_form_sections(advanced=False, scope=scope),
+            advanced_sections=study_form_sections(advanced=True, scope=scope),
             materials=available_material_symbols(),
             material_density_map=dict(material_density_catalog()),
             cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
@@ -177,9 +327,11 @@ def register(app: Any, ctx: WebContext) -> None:
         return render_template(
             "multilayer_design_form.html",
             study=manifest,
+            grating=_grating_or_404(str(manifest["grating_id"])),
+            scope="study",
             defaults=flatten_config_values(manifest["config"]),
-            basic_sections=study_form_sections(advanced=False),
-            advanced_sections=study_form_sections(advanced=True),
+            basic_sections=study_form_sections(advanced=False, scope="study"),
+            advanced_sections=study_form_sections(advanced=True, scope="study"),
             materials=available_material_symbols(),
             material_density_map=dict(material_density_catalog()),
             cell_warning_threshold=SURVEY_CELL_WARNING_THRESHOLD,
@@ -195,6 +347,8 @@ def register(app: Any, ctx: WebContext) -> None:
             abort(409, "Stop the running stage before changing the parameters.")
         try:
             config = parse_study_config(request.form, base=manifest["config"])
+            # Geometry and coating belong to the grating; edit them there.
+            config.update(_grating_or_404(str(manifest["grating_id"]))["config"])
             build_design_config(store.study_dir(study_id), config)
         except (TypeError, ValueError) as error:
             abort(400, str(error))

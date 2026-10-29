@@ -7,6 +7,19 @@
 {% set energy_scan = stages[1] %}
 {% set artifact = url_for('data_file', filename='multilayer_designs/' ~ study.id ~ '/') %}
 
+<section class="grating-switcher">
+  <span>Grating: <a href="{{ url_for('multilayer_gratings_manage') }}">{{ grating.display_name }}</a></span>
+  <label>Study
+    <select onchange="if (this.value) window.location.href=this.value" aria-label="Study of this grating">
+      {% for item in grating_studies %}
+        <option value="{{ url_for('multilayer_design_detail', study_id=item.id) }}" {% if item.id == study.id %}selected{% endif %}>{{ item.display_name }} · {{ item.created_at[:10] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <a class="button" href="{{ url_for('multilayer_design_new', grating=grating.id) }}">New study for this grating</a>
+  <a class="button" href="{{ url_for('multilayer_grating_edit', grating_id=grating.id) }}">Edit grating</a>
+</section>
+
 <section class="section-head">
   <div>
     <h1>{{ study.display_name }}</h1>

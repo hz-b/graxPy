@@ -741,7 +741,9 @@ def test_a_cosmetic_edit_invalidates_nothing(
     client.post(f"/multilayer-design/{study_id}/stages/survey/run")
     assert _wait_for_stage(store, study_id, "survey") == "completed"
 
-    client.post(f"/multilayer-design/{study_id}/edit", data=_study_form(coating_label="Ru/B4C"))
+    # The coating label belongs to the grating, so it is edited there.
+    grating_id = store.load(study_id)["grating_id"]
+    client.post(f"/multilayer-gratings/{grating_id}/edit", data=_study_form(coating_label="Ru/B4C"))
 
     manifest = store.load(study_id)
     assert manifest["config"]["coating_label"] == "Ru/B4C"

@@ -266,6 +266,41 @@
   "multilayer_design_new"
  ],
  [
+  "/multilayer-gratings",
+  [
+   "GET"
+  ],
+  "multilayer_gratings_manage"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>",
+  [
+   "GET"
+  ],
+  "multilayer_grating_detail"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>/delete",
+  [
+   "POST"
+  ],
+  "multilayer_grating_delete"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>/edit",
+  [
+   "GET"
+  ],
+  "multilayer_grating_edit"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>/edit",
+  [
+   "POST"
+  ],
+  "multilayer_grating_update"
+ ],
+ [
   "/plane-mirror",
   [
    "GET"
