@@ -60,7 +60,7 @@
 {# ------------------------------------------------------------------ #}
 {# Stage 1 — survey                                                    #}
 {# ------------------------------------------------------------------ #}
-<section class="stage-card">
+<section class="stage-card" id="stage-survey">
   <div class="section-head">
     <div>
       <h2>{{ survey.label }}</h2>
@@ -106,6 +106,7 @@
       <p class="subtle">
         {% if survey_running %}Below: the rough scan, fine scan and selected peak of the newest solved cell;
         click a cell on the map to show its scans instead.
+        <button class="button is-hidden" type="button" data-survey-scan-follow>Follow newest cell</button>
         {% else %}Below: the scans of the chosen cell (the best one at first); click a cell on the map to show its scans.{% endif %}
       </p>
       <div class="plotly-stage" data-survey-scan
@@ -145,7 +146,7 @@
 {# ------------------------------------------------------------------ #}
 {# Stage 2 — energy scan                                               #}
 {# ------------------------------------------------------------------ #}
-<section class="stage-card">
+<section class="stage-card" id="stage-energy_scan">
   <div class="section-head">
     <div>
       <h2>{{ energy_scan.label }}</h2>
@@ -166,7 +167,8 @@
            data-energy-scan-live-url="{{ url_for('multilayer_design_energy_scan_points', study_id=study.id) }}"
            data-energy-scan-follow="1"
            data-survey-plot-meta="{{ survey_plot_meta_json }}">
-        <p class="subtle">Updating as energies are solved. Below the curve: the rough scan, fine scan and selected peak of the newest solved energy; click a point to show its scans instead.</p>
+        <p class="subtle">Updating as energies are solved. Below the curve: the rough scan, fine scan and selected peak of the newest solved energy; click a point to show its scans instead.
+          <button class="button is-hidden" type="button" data-energy-scan-scan-follow>Follow newest energy</button></p>
         <div class="plotly-stage" data-energy-scan-figure></div>
         <div class="plotly-stage" data-energy-scan-scan
              data-energy-scan-scan-url="{{ url_for('multilayer_design_energy_scan_scan', study_id=study.id) }}"></div>

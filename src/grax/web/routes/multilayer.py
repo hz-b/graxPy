@@ -415,7 +415,7 @@ def register(app: Any, ctx: WebContext) -> None:
         _start_multilayer_design_worker(
             app=app, data_dir=data_dir, study_id=study_id, stage=stage
         )
-        return redirect(url_for("multilayer_design_detail", study_id=study_id))
+        return redirect(url_for("multilayer_design_detail", study_id=study_id, _anchor=f"stage-{stage}"))
 
     @app.get("/multilayer-design/<study_id>/script")
     def multilayer_design_script(study_id: str):
@@ -569,7 +569,7 @@ def register(app: Any, ctx: WebContext) -> None:
             stage=stage,
             discard=request.form.get("disposition") == "discard",
         )
-        return redirect(url_for("multilayer_design_detail", study_id=study_id))
+        return redirect(url_for("multilayer_design_detail", study_id=study_id, _anchor=f"stage-{stage}"))
 
     @app.post("/multilayer-design/<study_id>/stages/<stage>/reset")
     def multilayer_design_reset_stage(study_id: str, stage: str):
@@ -581,4 +581,4 @@ def register(app: Any, ctx: WebContext) -> None:
         _reset_multilayer_design_stage(
             store=_design_store(), study_id=study_id, stage=stage
         )
-        return redirect(url_for("multilayer_design_detail", study_id=study_id))
+        return redirect(url_for("multilayer_design_detail", study_id=study_id, _anchor=f"stage-{stage}"))

@@ -211,6 +211,7 @@ function initEnergyScanFigure(root) {
   // the scan runs, the first design's best energy when it is done, and any point clicked.
   const scanNode = root.querySelector("[data-energy-scan-scan]");
   const follow = Boolean(root.dataset.energyScanFollow);
+  const followButton = root.querySelector("[data-energy-scan-scan-follow]");
   let chosenPoint = null;
   let latestDesigns = [];
   async function drawScan() {
@@ -278,6 +279,9 @@ function initEnergyScanFigure(root) {
           blaze: design.blaze_angle_deg,
           energy: (design.energies_ev || [])[point.pointIndex],
         };
+        if (followButton) {
+          followButton.classList.remove("is-hidden");
+        }
         drawScan();
       });
     }
@@ -290,14 +294,20 @@ function initEnergyScanFigure(root) {
         return;
       }
       const payload = await response.json();
-      if ((payload.designs || []).some((design) => (design.energies_ev || []).length)) {
-        draw(payload.designs);
-      }
+      draw(payload.designs || []);
     } catch (error) {
       // A dropped poll is not worth surfacing; the next one will catch up.
     }
   }
 
+  if (followButton) {
+    // A click on the curve pins the scans to that point; this goes back to the newest one.
+    followButton.addEventListener("click", () => {
+      chosenPoint = null;
+      followButton.classList.add("is-hidden");
+      drawScan();
+    });
+  }
   poll();
   drawScan();
   if (follow) {
@@ -370,6 +380,7 @@ function initSurveyFigures(root) {
   // The theta scans of one cell sit below the map: the newest solved cell while the
   // survey runs, the best one when it is done, and any cell the user clicks.
   const scanNode = root.querySelector("[data-survey-scan]");
+  const followButton = root.querySelector("[data-survey-scan-follow]");
   let chosenCell = null;
   async function drawScan() {
     if (!scanNode) {
@@ -408,6 +419,14 @@ function initSurveyFigures(root) {
       }
     }, 4000);
   }
+  if (followButton) {
+    // A click on the map pins the scans to that cell; this goes back to the newest one.
+    followButton.addEventListener("click", () => {
+      chosenCell = null;
+      followButton.classList.add("is-hidden");
+      drawScan();
+    });
+  }
 
   const heatmapNode = stages.get("heatmap");
   if (heatmapNode && typeof heatmapNode.on === "function") {
@@ -425,6 +444,9 @@ function initSurveyFigures(root) {
         return; // an unsolved cell is not a design anyone can scan
       }
       chosenCell = {d, blaze};
+      if (followButton) {
+        followButton.classList.remove("is-hidden");
+      }
       drawScan();
       document.dispatchEvent(
         new CustomEvent(SURVEY_CELL_PICKED, {detail: {d, blaze}}),
