@@ -142,6 +142,7 @@ FRONTEND_SCRIPTS = tuple(
         "startup",
         "run-monitor",
         "design-picker",
+        "diagnostics",
         "form-bindings",
         "plane-mirror",
         "run-export",

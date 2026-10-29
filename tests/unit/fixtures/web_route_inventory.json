@@ -182,6 +182,13 @@
   "multilayer_design_delete"
  ],
  [
+  "/multilayer-design/<study_id>/diagnostics",
+  [
+   "GET"
+  ],
+  "multilayer_design_diagnostics"
+ ],
+ [
   "/multilayer-design/<study_id>/edit",
   [
    "GET"
@@ -201,6 +208,13 @@
    "GET"
   ],
   "multilayer_design_energy_scan_points"
+ ],
+ [
+  "/multilayer-design/<study_id>/energy-scan-scan",
+  [
+   "GET"
+  ],
+  "multilayer_design_energy_scan_scan"
  ],
  [
   "/multilayer-design/<study_id>/script",
@@ -252,11 +266,53 @@
   "multilayer_design_survey_options"
  ],
  [
+  "/multilayer-design/<study_id>/survey-scan",
+  [
+   "GET"
+  ],
+  "multilayer_design_survey_scan"
+ ],
+ [
   "/multilayer-design/new",
   [
    "GET"
   ],
   "multilayer_design_new"
+ ],
+ [
+  "/multilayer-gratings",
+  [
+   "GET"
+  ],
+  "multilayer_gratings_manage"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>",
+  [
+   "GET"
+  ],
+  "multilayer_grating_detail"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>/delete",
+  [
+   "POST"
+  ],
+  "multilayer_grating_delete"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>/edit",
+  [
+   "GET"
+  ],
+  "multilayer_grating_edit"
+ ],
+ [
+  "/multilayer-gratings/<grating_id>/edit",
+  [
+   "POST"
+  ],
+  "multilayer_grating_update"
  ],
  [
   "/plane-mirror",

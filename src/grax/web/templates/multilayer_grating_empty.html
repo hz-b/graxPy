@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ grating.display_name }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ grating.display_name }}</h1>
+    <p>No studies are attached to this grating yet.</p>
+  </div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('multilayer_design_new', grating=grating.id) }}">New study for this grating</a>
+    <a class="button" href="{{ url_for('multilayer_grating_edit', grating_id=grating.id) }}">Edit grating</a>
+    <a class="button" href="{{ url_for('multilayer_gratings_manage') }}">All gratings</a>
+  </div>
+</section>
+{% endblock %}
