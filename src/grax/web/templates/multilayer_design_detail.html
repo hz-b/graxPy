@@ -103,6 +103,13 @@
         <div class="plotly-stage is-half" data-survey-figure="max_efficiency"></div>
       </div>
       <div class="plotly-stage" data-survey-figure="heatmap"></div>
+      <p class="subtle">
+        {% if survey_running %}Below: the rough scan, fine scan and selected peak of the newest solved cell;
+        click a cell on the map to show its scans instead.
+        {% else %}Below: the scans of the chosen cell (the best one at first); click a cell on the map to show its scans.{% endif %}
+      </p>
+      <div class="plotly-stage" data-survey-scan
+           data-survey-scan-url="{{ url_for('multilayer_design_survey_scan', study_id=study.id) }}"></div>
     </div>
   {% endif %}
 
@@ -157,9 +164,12 @@
          energy; the finished stage renders its saved plots instead. #}
       <div data-energy-scan-figure-root
            data-energy-scan-live-url="{{ url_for('multilayer_design_energy_scan_points', study_id=study.id) }}"
+           data-energy-scan-follow="1"
            data-survey-plot-meta="{{ survey_plot_meta_json }}">
-        <p class="subtle">Updating as energies are solved.</p>
+        <p class="subtle">Updating as energies are solved. Below the curve: the rough scan, fine scan and selected peak of the newest solved energy; click a point to show its scans instead.</p>
         <div class="plotly-stage" data-energy-scan-figure></div>
+        <div class="plotly-stage" data-energy-scan-scan
+             data-energy-scan-scan-url="{{ url_for('multilayer_design_energy_scan_scan', study_id=study.id) }}"></div>
       </div>
     {% endif %}
   {% elif survey.status != "completed" %}
@@ -209,6 +219,16 @@
   {% endif %}
 
   {% if energy_scan.status not in ["queued", "running", "aborting"] and energy_scan.artifacts.designs %}
+    {% if plotly_bundle %}
+      <div data-energy-scan-figure-root
+           data-energy-scan-live-url="{{ url_for('multilayer_design_energy_scan_points', study_id=study.id) }}"
+           data-survey-plot-meta="{{ survey_plot_meta_json }}">
+        <p class="subtle">Click a point on the curve to show the rough scan, fine scan and selected peak at that energy (first design at its best energy at first).</p>
+        <div class="plotly-stage" data-energy-scan-figure></div>
+        <div class="plotly-stage" data-energy-scan-scan
+             data-energy-scan-scan-url="{{ url_for('multilayer_design_energy_scan_scan', study_id=study.id) }}"></div>
+      </div>
+    {% endif %}
     {% if energy_scan.artifacts.overlay_plot %}
       <figure>
         <img class="preview" src="{{ artifact }}{{ energy_scan.artifacts.overlay_plot }}"

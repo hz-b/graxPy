@@ -122,11 +122,12 @@ function initDesignPicker(form) {
   });
   addButton.addEventListener("click", () => addRow());
 
-  // Clicking a heatmap cell toggles that design: a second click on an already
-  // chosen cell removes its row, so the map doubles as the selection list.
+  // With "Choose manually" open, clicking a heatmap cell toggles that design: a
+  // second click on an already chosen cell removes its row, so the map doubles as
+  // the selection list. With it closed, a click only shows the cell's scans.
   document.addEventListener(SURVEY_CELL_PICKED, (event) => {
     const {d, blaze} = event.detail || {};
-    if (d === undefined || blaze === undefined) {
+    if (d === undefined || blaze === undefined || panel.classList.contains("is-hidden")) {
       return;
     }
     const key = designPairKey(d, blaze);
@@ -138,7 +139,6 @@ function initDesignPicker(form) {
       announceSelection();
       return;
     }
-    panel.classList.remove("is-hidden");
     addRow([d, blaze]);
   });
 

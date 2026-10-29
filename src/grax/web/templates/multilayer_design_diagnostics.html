@@ -55,6 +55,9 @@
           <strong>Scan traces:</strong>
           <label class="diagnostic-check"><input type="checkbox" data-scan-kind value="precise" checked> Precise</label>
           <label class="diagnostic-check"><input type="checkbox" data-scan-kind value="rough"> Rough</label>
+          {% if plot_data.traces|selectattr('scan_class', 'equalto', 'fit')|list %}
+          <label class="diagnostic-check"><input type="checkbox" data-scan-kind value="fit"> Fit</label>
+          {% endif %}
           <label class="diagnostic-check"><input type="checkbox" data-step-mode> One by one</label>
           <span class="diagnostic-stepper-all" data-all-actions>
             <button class="button" type="button" data-hide-all>Deselect all</button>

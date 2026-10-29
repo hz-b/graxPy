@@ -45,7 +45,7 @@ function surveyFigureLayout(meta, xTitle, yTitle, title, options) {
   };
 }
 
-function buildSurveyFigures(options, meta, selectedKeys) {
+function buildSurveyFigures(options, meta, selectedKeys, viewedCell) {
   const dValues = (options.d_values || []).map(Number);
   const blazeValues = (options.blaze_values || []).map(Number);
   const efficiency = options.efficiency || {};
@@ -157,6 +157,26 @@ function buildSurveyFigures(options, meta, selectedKeys) {
         marker: {color: "#ffffff", size: 6},
         hoverinfo: "skip",
       },
+      // The cell whose theta scans are drawn below the map: a white square on a black
+      // one, so it reads on both the dark and the bright parts of the colour scale.
+      {
+        type: "scatter",
+        mode: "markers",
+        x: viewedCell ? [viewedCell.d] : [],
+        y: viewedCell ? [viewedCell.blaze] : [],
+        marker: {symbol: "square-open", size: 22, color: "#000000", line: {width: 6}},
+        showlegend: false,
+        hoverinfo: "skip",
+      },
+      {
+        type: "scatter",
+        mode: "markers",
+        name: "scans shown below",
+        x: viewedCell ? [viewedCell.d] : [],
+        y: viewedCell ? [viewedCell.blaze] : [],
+        marker: {symbol: "square-open", size: 22, color: "#ffffff", line: {width: 3}},
+        hoverinfo: "skip",
+      },
       {
         type: "scatter",
         mode: "markers",
@@ -187,7 +207,39 @@ function initEnergyScanFigure(root) {
     meta = {};
   }
 
+  // The theta scans of one energy sit below the curve: the newest solved energy while
+  // the scan runs, the first design's best energy when it is done, and any point clicked.
+  const scanNode = root.querySelector("[data-energy-scan-scan]");
+  const follow = Boolean(root.dataset.energyScanFollow);
+  let chosenPoint = null;
+  let latestDesigns = [];
+  async function drawScan() {
+    if (!scanNode) {
+      return;
+    }
+    const query = new URLSearchParams();
+    if (chosenPoint) {
+      Object.entries(chosenPoint).forEach(([key, value]) => query.set(key, value));
+    } else if (follow) {
+      query.set("latest", "1");
+    }
+    try {
+      const response = await window.fetch(`${scanNode.dataset.energyScanScanUrl}?${query}`, {cache: "no-store"});
+      if (!response.ok) {
+        return;
+      }
+      const scan = await response.json();
+      if ((scan.traces || []).length) {
+        renderPlotlyFigure(scanNode, {data: scan.traces, layout: scan.layout});
+      }
+    } catch (error) {
+      // The next poll or click will try again.
+    }
+  }
+  let clickBound = false;
+
   function draw(designs) {
+    latestDesigns = designs;
     const layout = surveyFigureLayout(
       meta,
       "Photon energy (eV)",
@@ -213,6 +265,22 @@ function initEnergyScanFigure(root) {
       })),
       layout,
     });
+    if (!clickBound && typeof stage.on === "function") {
+      clickBound = true;
+      stage.on("plotly_click", (event) => {
+        const point = (event.points || [])[0];
+        const design = point && latestDesigns[point.curveNumber];
+        if (!design) {
+          return;
+        }
+        chosenPoint = {
+          d: design.d_spacing_nm,
+          blaze: design.blaze_angle_deg,
+          energy: (design.energies_ev || [])[point.pointIndex],
+        };
+        drawScan();
+      });
+    }
   }
 
   async function poll() {
@@ -231,7 +299,15 @@ function initEnergyScanFigure(root) {
   }
 
   poll();
-  window.setInterval(poll, 4000);
+  drawScan();
+  if (follow) {
+    window.setInterval(() => {
+      poll();
+      if (!chosenPoint) {
+        drawScan();
+      }
+    }, 4000);
+  }
 }
 
 function initSurveyFigures(root) {
@@ -253,9 +329,10 @@ function initSurveyFigures(root) {
   const dValues = (options.d_values || []).map(Number);
   const blazeValues = (options.blaze_values || []).map(Number);
   let selectedKeys = new Set();
+  let viewedCell = null; // the cell whose scans are shown below the map
 
   function draw() {
-    const figures = buildSurveyFigures(options, meta, selectedKeys);
+    const figures = buildSurveyFigures(options, meta, selectedKeys, viewedCell);
     stages.forEach((node, name) => {
       if (figures[name]) {
         renderPlotlyFigure(node, figures[name]);
@@ -290,6 +367,48 @@ function initSurveyFigures(root) {
     }, 4000);
   }
 
+  // The theta scans of one cell sit below the map: the newest solved cell while the
+  // survey runs, the best one when it is done, and any cell the user clicks.
+  const scanNode = root.querySelector("[data-survey-scan]");
+  let chosenCell = null;
+  async function drawScan() {
+    if (!scanNode) {
+      return;
+    }
+    const query = new URLSearchParams();
+    if (chosenCell) {
+      query.set("d", chosenCell.d);
+      query.set("blaze", chosenCell.blaze);
+    } else if (liveUrl) {
+      query.set("latest", "1");
+    }
+    try {
+      const response = await window.fetch(`${scanNode.dataset.surveyScanUrl}?${query}`, {cache: "no-store"});
+      if (!response.ok) {
+        return;
+      }
+      const scan = await response.json();
+      if ((scan.traces || []).length) {
+        renderPlotlyFigure(scanNode, {data: scan.traces, layout: scan.layout});
+        const shown = {d: Number(scan.d_nm), blaze: Number(scan.blaze_deg)};
+        if (!viewedCell || viewedCell.d !== shown.d || viewedCell.blaze !== shown.blaze) {
+          viewedCell = shown;
+          draw();
+        }
+      }
+    } catch (error) {
+      // The next poll or click will try again.
+    }
+  }
+  drawScan();
+  if (liveUrl) {
+    window.setInterval(() => {
+      if (!chosenCell) {
+        drawScan();
+      }
+    }, 4000);
+  }
+
   const heatmapNode = stages.get("heatmap");
   if (heatmapNode && typeof heatmapNode.on === "function") {
     heatmapNode.on("plotly_click", (event) => {
@@ -305,6 +424,8 @@ function initSurveyFigures(root) {
       if ((options.efficiency || {})[designPairKey(d, blaze)] === undefined) {
         return; // an unsolved cell is not a design anyone can scan
       }
+      chosenCell = {d, blaze};
+      drawScan();
       document.dispatchEvent(
         new CustomEvent(SURVEY_CELL_PICKED, {detail: {d, blaze}}),
       );

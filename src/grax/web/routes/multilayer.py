@@ -26,7 +26,7 @@ from grax.materials import (
 from ..context import WebContext
 from ..jobs import stop_job
 from ..multilayer_diagnostics import build_plot as build_diagnostic_plot
-from ..multilayer_diagnostics import discover_plots
+from ..multilayer_diagnostics import discover_plots, energy_scan_scans, survey_cell_scans
 from ..multilayer_design_studies import (
     STAGE_LABELS,
     MultilayerGratingStore,
@@ -485,6 +485,37 @@ def register(app: Any, ctx: WebContext) -> None:
 
         _design_study_or_404(study_id)
         return jsonify(survey_design_options(_design_store().study_dir(study_id)))
+
+    @app.get("/multilayer-design/<study_id>/survey-scan")
+    def multilayer_design_survey_scan(study_id: str):
+        """Return the theta scans of one survey cell: the clicked one, else the newest or best."""
+
+        _design_study_or_404(study_id)
+        d_nm = request.args.get("d", type=float)
+        blaze_deg = request.args.get("blaze", type=float)
+        return jsonify(
+            survey_cell_scans(
+                _design_store().study_dir(study_id),
+                d_nm,
+                blaze_deg,
+                latest=request.args.get("latest") == "1",
+            )
+        )
+
+    @app.get("/multilayer-design/<study_id>/energy-scan-scan")
+    def multilayer_design_energy_scan_scan(study_id: str):
+        """Return the theta scans of one energy-scan point: the clicked one, else the newest or first."""
+
+        _design_study_or_404(study_id)
+        return jsonify(
+            energy_scan_scans(
+                _design_store().study_dir(study_id),
+                request.args.get("d", type=float),
+                request.args.get("blaze", type=float),
+                request.args.get("energy", type=float),
+                latest=request.args.get("latest") == "1",
+            )
+        )
 
     @app.get("/multilayer-design/<study_id>/energy-scan-points")
     def multilayer_design_energy_scan_points(study_id: str):

@@ -158,6 +158,7 @@ def _all_orders(path: Path) -> dict[str, Any]:
     return {"traces": traces, "layout": _base_layout("All diffraction orders versus energy", "Photon energy (eV)", "Diffraction efficiency")}
 
 
+_PALE_SCAN_COLORS = {"rough": "#a6cee3", "precise": "#fdbf6f"}
 _THETA_COLORS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#d62728")
 
 
@@ -173,15 +174,15 @@ def _design_name(run_dir: Path) -> str:
     return run_dir.name
 
 
-def _theta_traces(directory: Path, *, legend: bool = True) -> list[dict[str, Any]]:
+def _theta_traces(directory: Path, *, legend: bool = True, paths: list[Path] | None = None) -> list[dict[str, Any]]:
     """Return one group of traces per theta-scan file.
 
     Each trace carries ``group`` (index of its scan file) and ``role`` (``scan``, ``peak`` or
     ``legend``); the page uses them to show or hide a scan, its selected peak and its single
-    legend entry together. ``scan_class`` (rough/precise) drives the scan-type checkboxes.
+    legend entry together. ``scan_class`` (rough/precise/fit) drives the scan-type checkboxes.
     """
     traces = []
-    for group, path in enumerate(sorted(directory.rglob("theta_scan_*.csv"), key=_natural_key)):
+    for group, path in enumerate(paths or sorted(directory.rglob("theta_scan_*.csv"), key=_natural_key)):
         table = pd.read_csv(path).dropna(subset=["grazing_angle_deg", "selected_efficiency"])
         label = f"{_design_name(path.parent.parent)} · {path.stem}"
         color = _THETA_COLORS[group % len(_THETA_COLORS)]
@@ -190,12 +191,33 @@ def _theta_traces(directory: Path, *, legend: bool = True) -> list[dict[str, Any
                            "line": {"width": 1, "color": color}, "marker": {"size": 5, "color": color},
                            "group": group, "role": "legend", "scan_class": "legend"})
         for scan_type, part in table.groupby("scan_type", sort=False):
-            scan_class = "rough" if str(scan_type).lower() == "rough" else "precise"
+            if str(scan_type).lower() == "peak":
+                continue  # the fitted peak: drawn below as the selected-peak star
+            scan_class = {"rough": "rough", "fit": "fit"}.get(str(scan_type).lower(), "precise")
+            if scan_class == "fit":
+                traces.append({"type": "scatter", "mode": "lines", "x": _finite(part.grazing_angle_deg),
+                               "y": _finite(part.selected_efficiency), "name": f"{label} · fit",
+                               "line": {"width": 2.5, "color": "red"},
+                               "showlegend": not legend, "group": group, "role": "scan", "scan_class": "fit"})
+                continue
+            # Pale, so the fit and the peak markers stand out: a scan per colour when many are
+            # drawn together, a fixed pale colour per pass when one cell is shown alone.
+            scan_color = color if legend else _PALE_SCAN_COLORS[scan_class]
             traces.append({"type": "scatter", "mode": "lines+markers", "x": _finite(part.grazing_angle_deg),
                            "y": _finite(part.selected_efficiency), "name": f"{label} · {scan_type}",
-                           "line": {"width": 1, "color": color},
-                           "marker": {"size": 5, "color": color, "symbol": "circle" if scan_class == "rough" else "square"},
+                           "opacity": (0.4 if scan_class == "rough" else 0.65) if legend else 1,
+                           "line": {"width": 1, "color": scan_color},
+                           "marker": {"size": 5, "color": scan_color, "symbol": "circle" if scan_class == "rough" else "square"},
                            "showlegend": not legend, "group": group, "role": "scan", "scan_class": scan_class})
+        precise = table[table["scan_type"].str.lower() == "precise"]
+        if not precise.empty:
+            top = precise.loc[precise["selected_efficiency"].idxmax()]
+            selected_rows = table[table["is_selected_peak"].astype(bool)] if "is_selected_peak" in table.columns else table.iloc[0:0]
+            if not any(math.isclose(float(top.grazing_angle_deg), float(x), abs_tol=1e-9) for x in selected_rows.grazing_angle_deg):
+                traces.append({"type": "scatter", "mode": "markers", "x": [float(top.grazing_angle_deg)],
+                               "y": [float(top.selected_efficiency)], "name": f"{label} · maximum",
+                               "marker": {"size": 11, "symbol": "diamond-open", "color": "black", "line": {"width": 2}},
+                               "showlegend": not legend, "group": group, "role": "peak", "scan_class": "precise"})
         if "is_selected_peak" in table.columns:
             selected = table[table["is_selected_peak"].astype(bool)]
             if not selected.empty:
@@ -203,7 +225,102 @@ def _theta_traces(directory: Path, *, legend: bool = True) -> list[dict[str, Any
                                "y": _finite(selected.selected_efficiency), "name": f"{label} · selected peak",
                                "marker": {"size": 12, "symbol": "star", "color": "red"},
                                "showlegend": not legend, "group": group, "role": "peak", "scan_class": "precise"})
-    return traces
+    # Plotly paints in trace order: scans first, then the fit, then the peak markers on top.
+    def paint_order(trace: dict[str, Any]) -> int:
+        if trace["role"] == "legend":
+            return 0
+        if trace["role"] == "peak":
+            return 4 if trace["name"].endswith("selected peak") else 3
+        return {"rough": 1, "precise": 1, "fit": 2}[trace["scan_class"]]
+
+    return sorted(traces, key=paint_order)
+
+
+def survey_cell_scans(
+    study_dir: Path, d_nm: float | None = None, blaze_deg: float | None = None, *, latest: bool = False
+) -> dict[str, Any]:
+    """Return the rough scan, fine scan, fit and selected peak of one survey cell.
+
+    A cell is named by ``d_nm`` and ``blaze_deg``. Without them the newest solved cell is shown
+    when ``latest`` is set (a survey still running) and the best cell otherwise. An empty
+    ``traces`` list means no cell has stored a scan yet.
+    """
+    runs = Path(study_dir) / "survey" / "runs"
+    cell: Path | None = None
+    if d_nm is not None and blaze_deg is not None:
+        matches = list((runs / f"d{d_nm:.3f}nm").glob(f"*{blaze_deg:.3f}*"))
+        cell = matches[0] if matches else None
+    elif latest:
+        scans = list(runs.glob("*/*/theta_scans/theta_scan_*.csv"))
+        cell = max(scans, key=lambda path: path.stat().st_mtime).parent.parent if scans else None
+    else:
+        survey_csv = Path(study_dir) / "survey" / "survey.csv"
+        try:
+            table = pd.read_csv(survey_csv).dropna(subset=["d_nm", "blaze_deg", "peak_efficiency"])
+            best = table.loc[table["peak_efficiency"].idxmax()]
+            return survey_cell_scans(study_dir, float(best.d_nm), float(best.blaze_deg))
+        except (OSError, ValueError, KeyError):
+            return {"traces": [], "layout": {}}
+    if cell is None or not cell.is_dir():
+        return {"traces": [], "layout": {}}
+    traces = _theta_traces(cell, legend=False)
+    for trace in traces:
+        for key in ("group", "role", "scan_class"):
+            trace.pop(key, None)
+        trace["showlegend"] = True
+    if not traces:
+        return {"traces": [], "layout": {}}
+    d_value, profile = _design_values(cell.relative_to(Path(study_dir)))
+    layout = _base_layout(f"Theta scans: d = {d_value:.3f} nm, profile = {profile:.3f}",
+                          "Grazing angle (deg)", "Diffraction efficiency")
+    return {"traces": traces, "layout": layout, "d_nm": d_value, "blaze_deg": profile}
+
+
+def energy_scan_scans(
+    study_dir: Path, d_nm: float | None = None, blaze_deg: float | None = None,
+    energy_ev: float | None = None, *, latest: bool = False,
+) -> dict[str, Any]:
+    """Return the rough scan, fine scan, fit and selected peak of one energy-scan point.
+
+    The point is named by its design (``d_nm``, ``blaze_deg``) and ``energy_ev``. Without them the
+    newest stored scan is shown when ``latest`` is set (a scan still running), and otherwise the
+    first design at its most efficient energy. An empty ``traces`` list means nothing is stored yet.
+    """
+    root = Path(study_dir) / "energy_scan"
+    empty: dict[str, Any] = {"traces": [], "layout": {}}
+    path: Path | None = None
+    if d_nm is not None and blaze_deg is not None and energy_ev is not None:
+        path = root / f"d{d_nm:.3f}nm_blaze{blaze_deg:.3f}deg" / "theta_scans" / f"theta_scan_{int(round(energy_ev))}eV.csv"
+    elif latest:
+        scans = list(root.glob("*/theta_scans/theta_scan_*.csv"))
+        path = max(scans, key=lambda item: item.stat().st_mtime) if scans else None
+    else:
+        for design in sorted(root.glob("d*nm_blaze*deg"), key=_natural_key):
+            try:
+                summary = pd.read_csv(design / "multilayer_theta_search_summary.csv").dropna(subset=["energy_ev", "selected_efficiency"])
+                top = summary.loc[summary["selected_efficiency"].idxmax()]
+                path = design / "theta_scans" / f"theta_scan_{int(round(float(top.energy_ev)))}eV.csv"
+            except (OSError, ValueError, KeyError):
+                scans = sorted((design / "theta_scans").glob("theta_scan_*.csv"), key=_natural_key)
+                path = scans[0] if scans else None
+            break
+    if path is None or not path.is_file():
+        return empty
+    try:
+        traces = _theta_traces(path.parent, legend=False, paths=[path])
+    except (OSError, ValueError, KeyError):
+        return empty  # the file may still be mid-write while the scan runs
+    for trace in traces:
+        for key in ("group", "role", "scan_class"):
+            trace.pop(key, None)
+        trace["showlegend"] = True
+    if not traces:
+        return empty
+    d_value, profile = _design_values(path.parent.parent.relative_to(Path(study_dir)))
+    energy = float(re.search(r"([0-9.]+)eV", path.name).group(1))
+    layout = _base_layout(f"Theta scans: d = {d_value:.3f} nm, profile = {profile:.3f}, {energy:g} eV",
+                          "Grazing angle (deg)", "Diffraction efficiency")
+    return {"traces": traces, "layout": layout, "d_nm": d_value, "blaze_deg": profile, "energy_ev": energy}
 
 
 def _workflow(summary_path: Path) -> dict[str, Any]:

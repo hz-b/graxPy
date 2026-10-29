@@ -1045,6 +1045,24 @@ def run_multilayer_theta_search_sweep(
                         int(np.isclose(grazing_angle_deg, diagnostics.selected_grazing_angle_deg)),
                     ]
                 )
+            if (
+                diagnostics.precise_peak_fitted_theta_deg is not None
+                and diagnostics.precise_peak_fitted_efficiencies is not None
+                and diagnostics.precise_peak_selection_mode_used in {"gauss", "voigt"}
+            ):
+                for grazing_angle_deg, efficiency in zip(
+                    diagnostics.precise_peak_fitted_theta_deg,
+                    diagnostics.precise_peak_fitted_efficiencies,
+                ):
+                    writer.writerow(["fit", float(grazing_angle_deg), float(efficiency), 0])
+                writer.writerow(
+                    [
+                        "peak",
+                        float(diagnostics.selected_grazing_angle_deg),
+                        float(diagnostics.selected_efficiency),
+                        1,
+                    ]
+                )
 
         # Build saved diagnostic figures with interactive mode disabled so they
         # do not flash on screen while the main live plot remains interactive.

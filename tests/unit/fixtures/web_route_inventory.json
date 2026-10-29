@@ -210,6 +210,13 @@
   "multilayer_design_energy_scan_points"
  ],
  [
+  "/multilayer-design/<study_id>/energy-scan-scan",
+  [
+   "GET"
+  ],
+  "multilayer_design_energy_scan_scan"
+ ],
+ [
   "/multilayer-design/<study_id>/script",
   [
    "GET"
@@ -257,6 +264,13 @@
    "GET"
   ],
   "multilayer_design_survey_options"
+ ],
+ [
+  "/multilayer-design/<study_id>/survey-scan",
+  [
+   "GET"
+  ],
+  "multilayer_design_survey_scan"
  ],
  [
   "/multilayer-design/new",
