@@ -24,6 +24,7 @@
 - Behind the scenes: the website code is split into smaller modules, automated checks compare every page, export and run with the previous version on Windows, macOS and Linux, a PyPI prerelease workflow allows opt-in testing, and Claude Code reads the same `AGENTS.md` guidance as other coding agents.
 
 ### Bug fixes
+- The pictures in the web guide now show in the installed app; they were left out of the package.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed instead of looking busy forever.
 - Plane-mirror runs are tracked like grating runs: no double starts, correct failure state, and they can be resumed.
 - Deleting a run or study first stops any calculation still running in it.
