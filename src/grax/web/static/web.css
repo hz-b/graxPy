@@ -2567,3 +2567,14 @@ text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
     grid-template-columns: 1fr;
   }
 }
+
+/* Bragg grating pages: fields and previews switched off with the hidden attribute. */
+[data-bragg-amplitude-field][hidden],
+[data-bragg-energy-field][hidden],
+[data-bragg-scan-field][hidden],
+[data-bragg-solver-field][hidden],
+[data-bragg-coating][hidden],
+[data-bragg-cross-section][hidden],
+[data-bragg-preview][hidden] {
+  display: none;
+}

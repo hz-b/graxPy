@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "_layer_row.html" import layer_row with context %}
+{% from "_multilayer_design_macros.html" import material_datalist %}
+{% block title %}{{ "Edit " ~ grating.name if grating else "New Bragg grating" }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ "Edit " ~ grating.name if grating else "New Bragg grating" }}</h1>
+    <p>Define the crystal, its surface orientation and the comb electrodes. The preview follows your changes; the deformation amplitudes and the beam are set when you scan.</p>
+  </div>
+  <a class="button" href="{{ url_for('bragg_grating_manage') }}">All Bragg gratings</a>
+</section>
+
+{% if error %}<section class="notice notice-error"><p>{{ error }}</p></section>{% endif %}
+
+<h2>Preview</h2>
+<img class="preview" data-bragg-preview src="{{ preview }}" alt="Top view and side view of the comb electrodes with the deformation" {% if not preview %}hidden{% endif %}>
+<img class="preview" data-bragg-cross-section src="{{ cross_section }}" alt="Cross-section of one period with the fingers and the coating" {% if not cross_section %}hidden{% endif %}>
+<p class="hint" data-bragg-preview-status></p>
+
+<form class="form" method="post" data-bragg-grating-form data-preview-url="{{ url_for('bragg_grating_preview') }}" action="{{ url_for('bragg_grating_update', grating_id=grating.id) if grating else url_for('bragg_grating_create') }}">
+  <fieldset>
+    <legend>Name</legend>
+    <label>Name <input name="name" value="{{ values.name }}" maxlength="120" placeholder="e.g. LNB pulse picker" required></label>
+    <label>Label / note <input name="label" value="{{ values.label }}" maxlength="300" placeholder="Optional"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Crystal and surface orientation</legend>
+    <label>Crystal
+      <select name="crystal">
+        {% for crystal in crystals %}<option value="{{ crystal }}" {% if values.crystal == crystal %}selected{% endif %}>{{ crystal }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>h <input name="h" type="number" step="1" min="-20" max="20" value="{{ values.h }}"></label>
+    <label>k <input name="k" type="number" step="1" min="-20" max="20" value="{{ values.k }}"></label>
+    <label>l <input name="l" type="number" step="1" min="-20" max="20" value="{{ values.l }}"></label>
+    <p class="hint" style="grid-column: 1 / -1">The surface is cut parallel to the (h k l) planes, so the reflection is the symmetric Bragg case.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Comb electrodes</legend>
+    <label>Finger width, µm <input name="finger_um" type="number" min="0.05" max="50" step="any" value="{{ values.finger_um }}"></label>
+    <label>Gap width, µm <input name="gap_um" type="number" min="0.05" max="50" step="any" value="{{ values.gap_um }}"></label>
+    <label>Al thickness, µm <input name="al_thickness_um" type="number" min="0" max="2" step="any" value="{{ values.al_thickness_um }}"></label>
+    <label>Electrode length, µm <input name="electrode_length_um" type="number" min="1" step="any" value="{{ values.electrode_length_um }}"></label>
+    <label>Electrode aperture, µm <input name="aperture_um" type="number" min="1" step="any" value="{{ values.aperture_um }}"></label>
+    <p class="hint" style="grid-column: 1 / -1">One grating period is a finger, a gap, a finger of the other polarity and a gap. The length runs along the grating vector and the aperture across it; together they bound the area that the beam must hit to see the deformation.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Coating</legend>
+    <label class="inline-check" style="grid-column: 1 / -1"><input type="checkbox" name="coated" value="on" data-bragg-coated {% if coated %}checked{% endif %}> <span>Cover the crystal and the fingers with a coating or a multilayer</span></label>
+    {{ material_datalist(materials, material_density_map) }}
+    <fieldset class="layer-editor" data-layer-editor data-bragg-coating {% if not coated %}hidden{% endif %} style="grid-column: 1 / -1">
+      <legend>Layers, top to bottom</legend>
+      <div class="layer-table">
+        <p>The bottom block lies on the fingers. Move whole layers or multilayers with the arrows.</p>
+        <div data-layer-rows>
+          {% for layer in custom_layers %}
+            {{ layer_row(loop.index0, layer) }}
+          {% endfor %}
+        </div>
+      </div>
+      <template data-layer-template>{{ layer_row("__KEY__", {}) }}</template>
+      <div class="actions">
+        <button class="button" type="button" data-layer-add="single">Add single layer</button>
+        <button class="button" type="button" data-layer-add="multilayer">Add multilayer</button>
+      </div>
+    </fieldset>
+    <p class="hint" style="grid-column: 1 / -1">A coated grating is used at grazing incidence (total external reflection or the multilayer Bragg peak) and is solved with RCWA or the Nevière method; the bare crystal is solved with Takagi-Taupin in the crystal Bragg reflection. The solver is chosen when you scan. Each layer follows the profile below it; a planarization length ν above 0 smooths it while the layer grows (a Fourier component q is damped by exp(−ν q² t) across thickness t), which rounds the finger steps but needs many more solver slices.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Deformation depth</legend>
+    <label>Penetration depth, µm <input name="penetration_um" type="number" min="0.05" max="50" step="any" value="{{ values.penetration_um }}"></label>
+    <label>Preview amplitude, nm <input name="preview_amplitude_nm" type="number" min="0" max="5" step="any" value="{{ preview_amplitude }}"></label>
+    <p class="hint" style="grid-column: 1 / -1">The penetration depth is the depth over which the deformation of the fundamental period decays; finer harmonics decay faster. The preview amplitude only sets the deformation drawn above (exaggerated in the side view); the amplitudes of a scan are chosen on the grating's page.</p>
+  </fieldset>
+
+  <div class="actions">
+    <button class="button primary" type="submit">{{ "Save changes" if grating else "Create Bragg grating" }}</button>
+  </div>
+</form>
+{% endblock %}

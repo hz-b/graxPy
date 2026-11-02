@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ grating.name }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ grating.name }}</h1>
+    {% if grating.label %}<p><strong>{{ grating.label }}</strong></p>{% endif %}
+    <p>{{ summary }}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('bragg_grating_manage') }}">All Bragg gratings</a>
+    <a class="button" href="{{ url_for('bragg_grating_edit', grating_id=grating.id) }}">Edit</a>
+    <form method="post" action="{{ url_for('bragg_grating_delete', grating_id=grating.id) }}" onsubmit="return confirm('Delete this Bragg grating?');">
+      <button class="button danger" type="submit">Delete grating</button>
+    </form>
+  </div>
+</section>
+
+{% if message %}<section class="notice"><p>{{ message }}</p></section>{% endif %}
+
+<h2>Electrodes and deformation</h2>
+<img class="preview" src="{{ preview }}" alt="Top view and side view of the comb electrodes with the deformation of {{ preview_amplitude }} nm">
+{% if cross_section %}<img class="preview" src="{{ cross_section }}" alt="Cross-section of one period with the fingers and the coating">{% endif %}
+
+<form
+  class="form run-form"
+  method="post"
+  action="{{ url_for('bragg_grating_run', grating_id=grating.id) }}"
+  data-bragg-form
+  data-theta-window-url="{{ url_for('bragg_grating_theta_window', grating_id=grating.id) }}"
+>
+  <fieldset>
+    <legend>Scan</legend>
+    <div class="run-workflow-picker">
+      <label>Scan type
+        <select name="scan_type" data-bragg-scan aria-describedby="bragg-scan-description">
+          {% for key, scan in scan_types.items() %}
+            <option value="{{ key }}" data-summary="{{ scan.summary }}">{{ scan.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <aside class="run-workflow-description" id="bragg-scan-description" aria-live="polite">
+        <strong data-bragg-scan-title>{{ (scan_types.values() | first).label }}</strong>
+        <p data-bragg-scan-summary>{{ (scan_types.values() | first).summary }}</p>
+      </aside>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Solver</legend>
+    <label>Solver
+      <select name="solver" data-bragg-solver>
+        {% for key, label in solvers.items() %}<option value="{{ key }}" {% if solver == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label data-bragg-solver-field="rcwa neviere">Fourier orders (each side) <input name="fourier_orders" type="number" min="1" max="100" step="1" value="{{ values.fourier_orders }}"></label>
+    <label data-bragg-solver-field="rcwa neviere">Workers <input name="workers" value="{{ values.workers }}" placeholder="auto"></label>
+    <label data-bragg-solver-field="rcwa neviere">X resolution, nm <input name="x_resolution_nm" type="number" min="0" step="any" value="{{ values.x_resolution_nm }}"></label>
+    <label data-bragg-solver-field="rcwa neviere">Z resolution, nm <input name="z_resolution_nm" type="number" min="0" step="any" value="{{ values.z_resolution_nm }}"></label>
+    <p class="hint" style="grid-column: 1 / -1">Takagi-Taupin computes the crystal Bragg reflection of the strained lattice; a coating then only attenuates the beam. RCWA and Nevière compute the grating at grazing incidence: the fingers, the surface displacement and the coating, with every diffraction order recorded on its own as an ideal line detector would. {% if solver == "rcwa" %}This grating has a coating, so RCWA is preselected.{% else %}This grating has no coating, so Takagi-Taupin is preselected.{% endif %}</p>
+    <p class="hint" data-bragg-solver-field="rcwa neviere" style="grid-column: 1 / -1">The x and z resolutions sample one period of the structure for the solver, as on the grating pages; layer and finger interfaces are always slice boundaries, and the z resolution sets how finely the surface ripple and planarized interfaces are sliced. Each angle and amplitude is one solve, run in parallel by the workers ("auto" or a number).</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Beam</legend>
+    <label data-bragg-scan-field="rocking_curve">Photon energy, eV <input data-bragg-energy name="energy_ev" type="number" min="10" max="30000" step="any" value="{{ values.energy_ev }}"></label>
+    <label>Polarization
+      <select name="polarization">
+        <option value="sigma" {% if values.polarization == "sigma" %}selected{% endif %}>σ</option>
+        <option value="pi" {% if values.polarization == "pi" %}selected{% endif %}>π</option>
+      </select>
+    </label>
+    <label>Beam size in the scattering plane, µm <input name="beam_x_um" type="number" min="0" step="any" value="{{ values.beam_x_um }}"></label>
+    <label>Beam size across it, µm <input name="beam_y_um" type="number" min="0" step="any" value="{{ values.beam_y_um }}"></label>
+    <label>Angular resolution, arcsec <input name="resolution_arcsec" type="number" min="0" step="any" value="{{ values.resolution_arcsec }}"></label>
+    <p class="hint" style="grid-column: 1 / -1">Beam sizes are FWHM of a Gaussian centred on the electrodes; the part outside the electrode area reflects as the undeformed crystal. The angular resolution combines the beam divergence and the monochromator bandwidth.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Rocking curve</legend>
+    <label data-bragg-scan-field="energy_rocking_curve">Energies given as
+      <select name="energy_mode" data-bragg-energy-mode>
+        <option value="list" {% if values.energy_mode == "list" %}selected{% endif %}>List of values</option>
+        <option value="range" {% if values.energy_mode == "range" %}selected{% endif %}>Linear range</option>
+      </select>
+    </label>
+    <label data-bragg-scan-field="energy_rocking_curve" data-bragg-energy-field="list">Photon energies, eV <input name="energies_ev" value="{{ values.energies_ev }}"></label>
+    <label data-bragg-scan-field="energy_rocking_curve" data-bragg-energy-field="range">First energy, eV <input name="energy_start_ev" type="number" min="10" max="30000" step="any" value="{{ values.energy_start_ev }}"></label>
+    <label data-bragg-scan-field="energy_rocking_curve" data-bragg-energy-field="range">Last energy, eV <input name="energy_stop_ev" type="number" min="10" max="30000" step="any" value="{{ values.energy_stop_ev }}"></label>
+    <label data-bragg-scan-field="energy_rocking_curve" data-bragg-energy-field="range">Number of energies <input name="energy_points" type="number" min="1" step="1" value="{{ values.energy_points }}"></label>
+    <label data-bragg-scan-field="energy_rocking_curve">Deformation amplitude, nm <input name="amplitude_nm" type="number" min="0" step="any" value="{{ values.amplitude_nm }}"></label>
+    <label data-bragg-scan-field="rocking_curve">Amplitudes given as
+      <select name="amplitude_mode" data-bragg-amplitude-mode>
+        <option value="list" {% if values.amplitude_mode == "list" %}selected{% endif %}>List of values</option>
+        <option value="range" {% if values.amplitude_mode == "range" %}selected{% endif %}>Linear range</option>
+      </select>
+    </label>
+    <label data-bragg-scan-field="rocking_curve" data-bragg-amplitude-field="list">Deformation amplitudes, nm <input name="amplitudes_nm" value="{{ values.amplitudes_nm }}"></label>
+    <label data-bragg-scan-field="rocking_curve" data-bragg-amplitude-field="range">First amplitude, nm <input name="amplitude_start_nm" type="number" min="0" step="any" value="{{ values.amplitude_start_nm }}"></label>
+    <label data-bragg-scan-field="rocking_curve" data-bragg-amplitude-field="range">Last amplitude, nm <input name="amplitude_stop_nm" type="number" min="0" step="any" value="{{ values.amplitude_stop_nm }}"></label>
+    <label data-bragg-scan-field="rocking_curve" data-bragg-amplitude-field="range">Number of amplitudes <input name="amplitude_points" type="number" min="1" step="1" value="{{ values.amplitude_points }}"></label>
+    <label data-bragg-solver-field="takagi">Scan half range, ° <input name="half_range_deg" type="number" min="0" step="any" value="{{ values.half_range_deg }}"></label>
+    <label data-bragg-solver-field="takagi">Scan step, ° <input name="step_deg" type="number" min="0" step="any" value="{{ values.step_deg }}"></label>
+    <label data-bragg-solver-field="takagi">Lateral orders (odd) <input name="n_orders" type="number" min="1" max="101" step="2" value="{{ values.n_orders }}"></label>
+    <label data-bragg-solver-field="rcwa neviere">Central grazing angle, ° <input data-bragg-theta name="theta_center_deg" type="number" min="0" step="any" value="{{ values.theta_center_deg }}"></label>
+    <label data-bragg-solver-field="rcwa neviere">± half range, ° <input data-bragg-theta name="theta_half_range_deg" type="number" min="0" step="any" value="{{ values.theta_half_range_deg }}"></label>
+    <label data-bragg-solver-field="rcwa neviere">Grazing-angle step, ° <input data-bragg-theta name="theta_step_deg" type="number" min="0" step="any" value="{{ values.theta_step_deg }}"></label>
+    {% if has_multilayer %}
+      <label class="inline-check" data-bragg-scan-field="energy_rocking_curve" data-bragg-solver-field="rcwa neviere"><input type="checkbox" name="theta_follow_peak" value="on" data-bragg-follow-peak checked> <span>Centre each energy on its multilayer peak (the central angle is then ignored)</span></label>
+    {% endif %}
+    <p class="hint" data-bragg-solver-field="rcwa neviere" style="grid-column: 1 / -1">
+      <span data-bragg-theta-suggestion>{% if values.multilayer_peak_deg %}Multilayer Bragg peak at {{ values.multilayer_peak_deg }}° for {{ values.energy_ev | int }} eV.{% elif values.critical_angle_deg %}No multilayer Bragg peak; critical angle {{ values.critical_angle_deg }}° at {{ values.energy_ev | int }} eV.{% endif %}</span>
+      <button class="button" type="button" data-bragg-use-suggestion>Use suggested window</button>
+      The suggested window centres on the strongest multilayer peak, wide enough for its satellites, or covers total external reflection up to twice the critical angle of a single coating. It follows the photon energy (for an energy scan, the middle of the energy range) until you edit the angles.
+    </p>
+    <p class="hint" data-bragg-scan-field="energy_rocking_curve" style="grid-column: 1 / -1">Run opens a page with the progress, the map of angle against energy and the rocking curve of each energy, filled in as they are computed, all at the one deformation amplitude (0.012 nm per volt). With Takagi-Taupin the angle is measured from the Bragg angle of each energy and each curve is normalized to the undeformed crystal at that energy.</p>
+    <p class="hint" data-bragg-scan-field="rocking_curve" style="grid-column: 1 / -1">Run opens a page with the progress, the map of angle against amplitude and all rocking curves, filled in as each amplitude is computed. The amplitude is the zero-to-peak surface-normal displacement of the lattice below the fingers. Give the amplitudes as a list or as a linear range. The defaults, 0.012 nm per volt from 0 to 10 V (0 to 0.12 nm in eleven steps), reproduce Fig. 4 of Vadilonga et al., Opt. Express 29, 34962 (2021).</p>
+  </fieldset>
+
+  <div class="actions">
+    <button class="button primary" type="submit" data-bragg-run>Run</button>
+    <span data-bragg-status aria-live="polite"></span>
+  </div>
+</form>
+
+{% if recent %}
+  <details class="preview-panel">
+    <summary>Saved scans of this grating</summary>
+    <ul>
+      {% for run in recent %}
+        <li><a href="{{ url_for('bragg_run_detail', run_id=run.id) }}">{{ run.scan }}</a> · {{ run.solver }} · {{ run.state }} · {{ run.series }} · {{ run.when }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+{% endif %}
+{% endblock %}

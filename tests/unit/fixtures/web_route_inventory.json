@@ -21,6 +21,13 @@
   "data_file"
  ],
  [
+  "/_preview/bragg-grating",
+  [
+   "POST"
+  ],
+  "bragg_grating_preview"
+ ],
+ [
   "/_preview/grating",
   [
    "POST"
@@ -40,6 +47,104 @@
    "POST"
   ],
   "preview_plot"
+ ],
+ [
+  "/bragg-gratings",
+  [
+   "GET"
+  ],
+  "bragg_grating_manage"
+ ],
+ [
+  "/bragg-gratings",
+  [
+   "POST"
+  ],
+  "bragg_grating_create"
+ ],
+ [
+  "/bragg-gratings/<grating_id>",
+  [
+   "GET"
+  ],
+  "bragg_grating_detail"
+ ],
+ [
+  "/bragg-gratings/<grating_id>",
+  [
+   "POST"
+  ],
+  "bragg_grating_update"
+ ],
+ [
+  "/bragg-gratings/<grating_id>/delete",
+  [
+   "POST"
+  ],
+  "bragg_grating_delete"
+ ],
+ [
+  "/bragg-gratings/<grating_id>/edit",
+  [
+   "GET"
+  ],
+  "bragg_grating_edit"
+ ],
+ [
+  "/bragg-gratings/<grating_id>/run",
+  [
+   "POST"
+  ],
+  "bragg_grating_run"
+ ],
+ [
+  "/bragg-gratings/<grating_id>/theta-window",
+  [
+   "GET"
+  ],
+  "bragg_grating_theta_window"
+ ],
+ [
+  "/bragg-gratings/new",
+  [
+   "GET"
+  ],
+  "bragg_grating_new"
+ ],
+ [
+  "/bragg-runs",
+  [
+   "GET"
+  ],
+  "bragg_run_manage"
+ ],
+ [
+  "/bragg-runs/<run_id>",
+  [
+   "GET"
+  ],
+  "bragg_run_detail"
+ ],
+ [
+  "/bragg-runs/<run_id>/abort",
+  [
+   "POST"
+  ],
+  "bragg_run_abort"
+ ],
+ [
+  "/bragg-runs/<run_id>/delete",
+  [
+   "POST"
+  ],
+  "bragg_run_delete"
+ ],
+ [
+  "/bragg-scans/<run_id>/status",
+  [
+   "GET"
+  ],
+  "bragg_scan_status"
  ],
  [
   "/docs",

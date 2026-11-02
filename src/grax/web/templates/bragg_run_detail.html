@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ params.grating.name }} scan{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ scan_label }}</h1>
+    <p>
+      {% if grating_exists %}<a href="{{ url_for('bragg_grating_detail', grating_id=params.grating_id) }}">{{ params.grating.name }}</a>{% else %}{{ params.grating.name }} (grating deleted){% endif %}
+      · {{ created_at }}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('bragg_run_manage') }}">Manage Bragg grating runs</a>
+    <form method="post" action="{{ url_for('bragg_run_abort', run_id=run_id) }}">
+      <button class="button" type="submit" data-run-abort-action {% if not initial_status.can_abort %}aria-disabled="true"{% endif %}>Abort run</button>
+    </form>
+  </div>
+</section>
+
+<section class="notice">
+  <p>
+    {% set grazing = params.solver in ("rcwa", "neviere") %}
+    {{ params.grating.crystal }} ({{ params.grating.h }} {{ params.grating.k }} {{ params.grating.l }}){% if coating %}, {{ coating }}{% endif %} · {{ solver_label }} · {% if params.energies_ev %}{{ params.energies_ev | length }} energies from {{ params.energies_ev | first }} to {{ params.energies_ev | last }} eV{% else %}{{ params.energy_ev }} eV{% endif %},
+    {{ "σ" if params.polarization == "sigma" else "π" }} polarization · beam {{ params.beam_x_um }} × {{ params.beam_y_um }} µm ·
+    resolution {{ params.resolution_arcsec }} arcsec · {% if params.energies_ev %}amplitude {{ params.amplitudes_nm | first }} nm{% else %}{{ params.amplitudes_nm | length }} amplitudes from {{ params.amplitudes_nm | first }} to {{ params.amplitudes_nm | last }} nm{% endif %} ·
+    {% if grazing %}{% if params.theta_follow_peak %}grazing angle ±{{ params.theta_half_range_deg }}° around the multilayer peak of each energy{% else %}grazing angle {{ params.theta_start_deg | round(4) }}° to {{ params.theta_stop_deg | round(4) }}°{% endif %} in steps of {{ params.theta_step_deg }}° · {{ params.fourier_orders }} Fourier orders each side{% else %}scan ±{{ params.half_range_deg }}° in steps of {{ params.step_deg }}° · {{ params.n_orders }} lateral orders{% endif %}
+  </p>
+</section>
+
+<section
+  class="run-monitor"
+  data-live-run-monitor
+  data-run-status-url="{{ status_url }}"
+  data-memory-url="{{ memory_url }}"
+>
+  <section class="preview-panel run-monitor-plot">
+    <div class="section-head preview-head">
+      <div>
+        <h2>Live progress</h2>
+        <p data-run-state>{{ initial_status.state }}</p>
+      </div>
+      <span class="preview-pill" data-run-progress-summary>{{ initial_status.completed_points }} / {{ initial_status.total_points }}</span>
+    </div>
+  </section>
+
+  <section class="run-monitor-stats">
+    <div class="run-progress-bar"><span data-run-progress-bar style="width: 0%"></span></div>
+    <div class="stats-grid">
+      <div class="stat-card"><strong>Completed</strong><span data-run-completed>{{ initial_status.completed_points }}</span></div>
+      <div class="stat-card"><strong>Remaining</strong><span data-run-remaining>{{ initial_status.remaining_points }}</span></div>
+      <div class="stat-card"><strong>Elapsed</strong><span data-run-elapsed>Estimating</span></div>
+      <div class="stat-card"><strong>ETA</strong><span data-run-eta>Estimating</span></div>
+      <div class="stat-card"><strong>Workers</strong><span data-run-workers>{{ initial_status.worker_mode }}</span></div>
+      <div class="stat-card"><strong>Machine RAM</strong><span data-run-memory>Loading</span></div>
+    </div>
+    <p class="subtle" data-run-error></p>
+  </section>
+</section>
+
+<section data-bragg-run-page data-status-url="{{ status_url }}" data-amplitudes="{{ series["values"] | tojson | forceescape }}" data-series-label="{{ series.label }}" data-series-unit="{{ series.unit }}" data-angle-label="{{ angle_label }}">
+  {% if plotly_bundle %}
+    <label class="inline-check"><input type="checkbox" data-bragg-log autocomplete="off"> <span>Logarithmic intensity</span></label>
+    {% if params.solver in ("rcwa", "neviere") %}
+      <label>Diffraction order <select data-bragg-order></select></label>
+      <p class="hint">Intensities are fractions of the incident beam. Positive orders leave at larger angles than the specular beam; at 0 V the fingers alone fill the even orders, and the voltage adds the odd ones. Curves fill in point by point; the angular resolution is applied once an amplitude is complete.</p>
+    {% endif %}
+    <h2>Map</h2>
+    <div class="plotly-stage" data-bragg-figure="map"></div>
+    <h2>Rocking curves</h2>
+    <div class="plotly-stage" data-bragg-figure="curves"></div>
+  {% else %}
+    <p class="empty">Install the web extras (<code>graxpy[web]</code>) to show interactive plots.</p>
+  {% endif %}
+</section>
+{% endblock %}

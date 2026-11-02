@@ -721,3 +721,124 @@ def test_form_posted_from_another_site_is_rejected(website, chromium: Browser) -
         assert grating.is_file()
     finally:
         context.close()
+
+
+@pytest.mark.browser
+def test_bragg_grazing_window_follows_the_energy(website, browser_page: Page) -> None:
+    """The suggested multilayer peak moves with the photon energy until the angles are edited."""
+    from werkzeug.datastructures import MultiDict
+
+    from grax.web.bragg_gratings import BraggGratingStore, spec_from_form
+    from tests.unit.test_web_bragg_gratings import COATING_FORM, GRATING_FORM
+
+    base_url, data_dir = website
+    form = MultiDict()
+    for key, value in {**GRATING_FORM, **COATING_FORM}.items():
+        for item in value if isinstance(value, list) else [value]:
+            form.add(key, item)
+    saved = BraggGratingStore(data_dir / "bragg_gratings").save(spec_from_form(form))
+    page = browser_page
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(f"{base_url}/bragg-gratings/{saved['id']}")
+    suggestion = page.locator("[data-bragg-theta-suggestion]")
+    center = page.locator("input[name=theta_center_deg]")
+    expect(suggestion).to_contain_text("Multilayer Bragg peak at")
+    at_8kev = float(center.input_value())
+    page.fill("input[name=energy_ev]", "16000")
+    expect(suggestion).to_contain_text("16000 eV")
+    assert float(center.input_value()) == pytest.approx(at_8kev / 2.0, rel=0.1)
+    center.fill("0.7")
+    page.fill("input[name=energy_ev]", "12000")
+    expect(suggestion).to_contain_text("12000 eV")
+    assert center.input_value() == "0.7"
+    page.click("[data-bragg-use-suggestion]")
+    assert center.input_value() != "0.7"
+    assert not errors
+
+
+@pytest.mark.browser
+def test_bragg_grazing_run_draws_partial_curves(website, browser_page: Page) -> None:
+    """Curves of a grazing scan show while angles are still missing, on the strongest odd order."""
+    from grax.web.bragg_simulations import result_path
+    from grax.web.files import write_json_atomically
+
+    base_url, data_dir = website
+    run_id = "partial"
+    params = {
+        "grating_id": "g", "grating": {"id": "g", "name": "g"}, "scan_type": "rocking_curve",
+        "solver": "rcwa", "energy_ev": 8000.0, "polarization": "sigma", "beam_x_um": 100.0,
+        "beam_y_um": 100.0, "resolution_arcsec": 0.0, "amplitudes_nm": [0.0, 0.1],
+        "theta_center_deg": 0.4, "theta_half_range_deg": 0.1, "theta_start_deg": 0.3,
+        "theta_stop_deg": 0.5, "theta_step_deg": 0.05, "fourier_orders": 6, "workers": "1",
+        "x_resolution_nm": 1.0, "z_resolution_nm": 1.0,
+    }
+    write_json_atomically(result_path(data_dir, run_id), {"state": "running", "params": params})
+    partial = {
+        "state": "running", "completed_points": 7, "total_points": 10, "remaining_points": 3,
+        "elapsed_seconds": 1.0, "eta_seconds": 1.0, "worker_mode": "1", "requested_workers": 1,
+        "resolved_workers": 1, "error_text": "", "can_abort": True,
+        "data": {
+            "geometry": "grazing", "angles_deg": [0.3, 0.35, 0.4, 0.45, 0.5],
+            "curves": {
+                "0": {"0": [0.5, 0.4, 0.3, 0.2, 0.1], "1": [0, 0, 0, 0, 0], "2": [0.01, 0.02, 0.03, 0.02, 0.01]},
+                "0.1": {"0": [0.5, 0.4, None, None, None], "1": [1e-4, 2e-4, None, None, None],
+                        "2": [0.01, 0.02, None, None, None]},
+            },
+            "total": {"0": [0.51, 0.42, 0.33, 0.22, 0.11], "0.1": [0.51, 0.42, None, None, None]},
+            "exit_angles_deg": {},
+        },
+    }
+    page = browser_page
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.route("**/bragg-scans/partial/status", lambda route: route.fulfill(json=partial))
+    page.goto(f"{base_url}/bragg-runs/{run_id}")
+    order = page.locator("select[data-bragg-order]")
+    expect(order).to_have_value("1")
+    traces = page.wait_for_function(
+        "() => { const f = document.querySelector('[data-bragg-figure=\"curves\"]'); return f.data && f.data.length; }"
+    )
+    assert traces.json_value() == 2
+    shown = page.evaluate("document.querySelector('[data-bragg-figure=\"curves\"]').data[1].y")
+    assert shown[:2] == pytest.approx([1e-4, 2e-4]) and shown[2:] == [None, None, None]
+    assert page.locator('[data-bragg-figure="detector"]').count() == 0
+    assert not errors
+
+
+@pytest.mark.browser
+def test_bragg_energy_scan_shows_its_own_fields(website, browser_page: Page) -> None:
+    """The energy scan swaps the amplitude list for energies and one amplitude."""
+    from werkzeug.datastructures import MultiDict
+
+    from grax.web.bragg_gratings import BraggGratingStore, spec_from_form
+    from tests.unit.test_web_bragg_gratings import COATING_FORM, GRATING_FORM
+
+    base_url, data_dir = website
+    form = MultiDict()
+    for key, value in {**GRATING_FORM, **COATING_FORM}.items():
+        for item in value if isinstance(value, list) else [value]:
+            form.add(key, item)
+    saved = BraggGratingStore(data_dir / "bragg_gratings").save(spec_from_form(form))
+    page = browser_page
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(f"{base_url}/bragg-gratings/{saved['id']}")
+    follow = page.locator("[data-bragg-follow-peak]")
+    expect(page.locator("input[name=energy_ev]")).to_be_visible()
+    expect(follow).to_be_hidden()
+    page.select_option("select[name=scan_type]", "energy_rocking_curve")
+    expect(page.locator("input[name=energy_ev]")).to_be_hidden()
+    expect(page.locator("input[name=amplitude_start_nm]")).to_be_hidden()
+    expect(page.locator("input[name=energy_start_ev]")).to_be_visible()
+    expect(page.locator("input[name=amplitude_nm]")).to_be_visible()
+    expect(follow).to_be_visible()
+    page.select_option("select[name=energy_mode]", "list")
+    expect(page.locator("input[name=energies_ev]")).to_be_visible()
+    expect(page.locator("input[name=energy_start_ev]")).to_be_hidden()
+    page.fill("input[name=energies_ev]", "16000")
+    expect(page.locator("[data-bragg-theta-suggestion]")).to_contain_text("16000 eV")
+    page.select_option("select[name=solver]", "takagi")
+    expect(follow).to_be_hidden()
+    expect(page.locator("input[name=half_range_deg]")).to_be_visible()
+    assert not errors

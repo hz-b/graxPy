@@ -96,7 +96,7 @@ def create_app(*, data_dir: str | Path | None = None):
     from flask.logging import default_handler
     from werkzeug.exceptions import Conflict
 
-    from .routes import core, gratings, multilayer, plane_mirrors, plots, runs
+    from .routes import bragg_gratings, core, gratings, multilayer, plane_mirrors, plots, runs
 
     app = Flask(__name__)
     # Flask adds its stderr handler only when no handler applies yet, and the grax
@@ -183,7 +183,7 @@ def create_app(*, data_dir: str | Path | None = None):
 
         return Conflict(description=str(error)).get_response()
 
-    for group in (core, gratings, runs, plots, multilayer, plane_mirrors):
+    for group in (core, gratings, runs, plots, multilayer, plane_mirrors, bragg_gratings):
         group.register(app, ctx)
 
     return app

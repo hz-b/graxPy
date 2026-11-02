@@ -145,6 +145,8 @@ FRONTEND_SCRIPTS = tuple(
         "diagnostics",
         "form-bindings",
         "plane-mirror",
+        "bragg-simulation",
+        "bragg-run",
         "run-export",
     )
 )

@@ -1,36 +1,5 @@
 {% from "_roughness_help.html" import roughness_help %}
-{% macro layer_row(key, layer) %}
-<div class="layer-row layer-block" data-layer-row>
-  <div class="layer-block-head">
-    <span class="layer-index" data-layer-index></span>
-    <select name="cl_kind" data-layer-kind aria-label="Block type">
-      <option value="single" {% if layer.kind|default('single') == 'single' %}selected{% endif %}>Single layer</option>
-      <option value="multilayer" {% if layer.kind == 'multilayer' %}selected{% endif %}>Multilayer (A / B)</option>
-    </select>
-    <span class="layer-row-actions">
-      <button class="button" type="button" data-layer-up title="Move up" aria-label="Move block up">&uarr;</button>
-      <button class="button" type="button" data-layer-down title="Move down" aria-label="Move block down">&darr;</button>
-      <button class="button" type="button" data-layer-remove title="Remove block" aria-label="Remove block">&times;</button>
-    </span>
-  </div>
-  <div class="layer-block-fields">
-    <label>Material / A <input name="cl_material" list="material-suggestions" value="{{ layer.material|default('') }}" data-material-select="cl_{{ key }}" autocomplete="off"></label>
-    <label>Density, g/cm³ <input name="cl_density_g_cm3" type="number" step="any" value="{{ layer.density_g_cm3|default('') }}" data-material-density="cl_{{ key }}"></label>
-    <label>Thickness / A, nm <input name="cl_thickness_nm" type="number" step="any" min="0" value="{{ layer.thickness_nm|default('') }}"></label>
-    <label data-interface-sigma><span class="parameter-label">Roughness / A, nm {% if allow_bare %}{{ roughness_help('cl_roughness_sigma_nm_' ~ key, 'sigma') }}{% endif %}</span> <input aria-label="Roughness / A, nm" name="cl_roughness_sigma_nm" type="number" step="any" min="0" value="{{ layer.roughness_sigma_nm|default('') }}"></label>
-    {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">A correlation ξ, nm {% if allow_bare %}{{ roughness_help('cl_correlation_length_nm_' ~ key, 'xi') }}{% endif %}</span> <input aria-label="A correlation ξ, nm" name="cl_correlation_length_nm" type="number" min="0" step="any" value="{{ layer.correlation_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
-  </div>
-  <div class="layer-block-fields{% if layer.kind != 'multilayer' %} is-hidden{% endif %}" data-bilayer-fields>
-    <label>Material B <input name="cl_material_b" list="material-suggestions" value="{{ layer.material_b|default('') }}" data-material-select="cl_b_{{ key }}" autocomplete="off"></label>
-    <label>B density, g/cm³ <input name="cl_density_b_g_cm3" type="number" step="any" value="{{ layer.density_b_g_cm3|default('') }}" data-material-density="cl_b_{{ key }}"></label>
-    <label>B thickness, nm <input name="cl_thickness_b_nm" type="number" step="any" min="0" value="{{ layer.thickness_b_nm|default('') }}"></label>
-    <label data-interface-sigma><span class="parameter-label">B roughness, nm {% if allow_bare %}{{ roughness_help('cl_roughness_b_sigma_nm_' ~ key, 'sigma') }}{% endif %}</span> <input aria-label="B roughness, nm" name="cl_roughness_b_sigma_nm" type="number" step="any" min="0" value="{{ layer.roughness_b_sigma_nm|default('') }}"></label>
-    {% if allow_bare %}<label data-interface-correlation><span class="parameter-label">B correlation ξ, nm {% if allow_bare %}{{ roughness_help('cl_correlation_b_length_nm_' ~ key, 'xi') }}{% endif %}</span> <input aria-label="B correlation ξ, nm" name="cl_correlation_b_length_nm" type="number" min="0" step="any" value="{{ layer.correlation_b_length_nm|default('') }}" placeholder="period / 10"></label>{% endif %}
-    <label>Bilayer repeats <input name="cl_repeats" type="number" step="1" min="1" max="250" value="{{ layer.repeats|default('1') }}"></label>
-    <p>Top to bottom: A, B, repeated. Period = A thickness + B thickness.</p>
-  </div>
-</div>
-{% endmacro %}
+{% from "_layer_row.html" import layer_row with context %}
     {% if not substrate_rendered %}{% include "_substrate_fields.html" %}{% endif %}
 
     <fieldset class="plane-mirror-layer-stack">

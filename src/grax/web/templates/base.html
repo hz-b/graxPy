@@ -55,6 +55,14 @@
           </div>
         </details>
         <details class="nav-dropdown">
+          <summary>Bragg gratings <span aria-hidden="true">⌄</span></summary>
+          <div class="nav-menu">
+            <a href="{{ url_for('bragg_grating_new') }}">New Bragg grating</a>
+            <a href="{{ url_for('bragg_grating_manage') }}">Manage Bragg gratings</a>
+            <a href="{{ url_for('bragg_run_manage') }}">Manage Bragg grating runs</a>
+          </div>
+        </details>
+        <details class="nav-dropdown">
           <summary>Plots <span aria-hidden="true">⌄</span></summary>
           <div class="nav-menu">
             <a href="{{ url_for('plot_new') }}">New plot</a>

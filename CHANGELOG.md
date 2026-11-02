@@ -3,6 +3,9 @@
 ## 0.6.0
 
 ### New features
+- Bragg gratings: save crystals with comb electrodes (LiNbO3, Si, Ge or diamond, any symmetric reflection) with a top and side preview of the electrodes and the deformation, then scan rocking curves for a list of deformation amplitudes in nm, with beam size, energy and angular resolution; the result is an angle-versus-amplitude intensity map that fills in live, and the defaults reproduce the satellite curves of the pulse-picking device paper.
+- Bragg gratings get a second scan, rocking curves at different photon energies for one deformation amplitude; at grazing incidence each energy can be centred on its multilayer peak. Bragg-grating scans accept photon energies from 10 eV.
+- Coated Bragg gratings: cover the crystal and its fingers with your own layers or multilayers (optionally planarizing the finger steps), preview the cross-section, and choose at scan time between Takagi-Taupin and grazing-incidence RCWA or Nevière (with their Fourier orders, workers and x/z resolution, and a grazing-angle window given as centre ± half range that follows the photon energy and suggests the multilayer Bragg peak), which give rocking curves per diffraction order that fill in point by point.
 - Plane mirrors now have their own pages: create and edit mirrors (with layer-stack previews), run energy, angle or fixed-CFF monochromator scans, vary stacks independently or coupled, and see reflectivity previews and saved results.
 - Manage grating runs: filter runs by grating, and save each run's name and comment with its own Save button.
 - Saved plots can be edited and downloaded as PNG, plotted CSV data, or a portable script with data; plane-mirror runs can be compared in plots too.
@@ -24,6 +27,8 @@
 - Behind the scenes: the website code is split into smaller modules, automated checks compare every page, export and run with the previous version on Windows, macOS and Linux, a PyPI prerelease workflow allows opt-in testing, and Claude Code reads the same `AGENTS.md` guidance as other coding agents.
 
 ### Bug fixes
+- Large batches of grating simulations start at once instead of stalling, sometimes for many minutes, before the first case.
+- Materials containing Mg, Nb, Ta or Y (for example LiNbO3) load again; their optical tables could not be read.
 - Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed instead of looking busy forever.
 - Plane-mirror runs are tracked like grating runs: no double starts, correct failure state, and they can be resumed.
 - Deleting a run or study first stops any calculation still running in it.

@@ -645,9 +645,13 @@ def _load_henke_scattering_factors(symbol: str) -> HenkeScatteringFactors:
             parts = line.split()
             if len(parts) < 3:
                 continue
-            energy_ev = float(parts[0])
-            f1 = float(parts[1])
-            f2 = float(parts[2])
+            try:
+                energy_ev = float(parts[0])
+                f1 = float(parts[1])
+                f2 = float(parts[2])
+            except ValueError:
+                # Some tables (Mg, Nb, Ta, Y) open with a free-text title line.
+                continue
             if f1 <= -9998.0:
                 continue
             energy_ev_values.append(energy_ev)

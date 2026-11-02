@@ -990,13 +990,14 @@ class BatchSimulationRunner:
         """
 
         case_list = list(cases)
-        checkpoint_input_metadata = self._checkpoint_input_metadata(case_list)
         checkpoint_path = self.checkpoint_path
         completed_ids: set[str] = set()
         checkpoint_handle = None
         completed_since_flush = 0
         progress = None
         if self.checkpoint_dir is not None:
+            # Fingerprinting every case is costly for large batches, so only do it for checkpoints.
+            checkpoint_input_metadata = self._checkpoint_input_metadata(case_list)
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             if self.resume:
                 self._validate_checkpoint_compatibility(checkpoint_input_metadata)

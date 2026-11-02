@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Manage Bragg grating runs{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Manage Bragg grating runs</h1>
+    <p>Saved scans of all Bragg gratings. Open one to see its map again, or delete it.</p>
+  </div>
+  <a class="button" href="{{ url_for('bragg_grating_manage') }}">Manage Bragg gratings</a>
+</section>
+
+{% if message %}<section class="notice"><p>{{ message }}</p></section>{% endif %}
+
+{% if runs %}
+  <div class="plane-mirror-run-groups">
+    {% for run in runs %}
+      <article class="plane-mirror-run-group">
+        <h2><a href="{{ url_for('bragg_run_detail', run_id=run.id) }}">{{ run.grating }}</a></h2>
+        <p>{{ run.scan }} · {{ run.solver }} · {{ run.state }} · {{ run.when }}</p>
+        <p class="subtle">{{ run.series }}{% if run.series.endswith(" nm") and " at " not in run.series %} · {{ run.energy_ev }} eV{% endif %} · beam {{ run.beam }}{% if not run.grating_exists %} · the grating has been deleted{% endif %}</p>
+        <div class="actions">
+          <a class="button primary" href="{{ url_for('bragg_run_detail', run_id=run.id) }}">View run</a>
+          <form method="post" action="{{ url_for('bragg_run_delete', run_id=run.id) }}" onsubmit="return confirm('Delete this saved scan?');">
+            <button class="button" type="submit">Delete</button>
+          </form>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="empty">No Bragg scans have been saved yet. Open a Bragg grating and run a scan.</p>
+{% endif %}
+{% endblock %}
