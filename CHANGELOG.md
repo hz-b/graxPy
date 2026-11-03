@@ -3,7 +3,7 @@
 ## Next release
 
 ### New features
-- Exchange work with colleagues: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
+- Import and export: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
 
 ## 0.6.0
 
