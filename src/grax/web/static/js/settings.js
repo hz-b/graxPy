@@ -118,9 +118,8 @@ function initDecimalControls() {
   }, true);
   document.addEventListener("wheel", (event) => {
     const focused = document.activeElement;
-    const field = focused?.matches?.('[data-decimal-field], input[type="number"]')
-      ? focused
-      : focused?.closest?.(".decimal-field-wrap")?.querySelector('[data-decimal-field], input[type="number"]');
+    const field = focused?.matches?.('[data-decimal-field], input[type="number"]') ? focused : null;
+    if (event.target !== field) return;
     if (!field || field.disabled || field.matches(":disabled") || event.deltaY === 0) return;
     event.preventDefault();
     decimalStep(field, event.deltaY < 0 ? 1 : -1);

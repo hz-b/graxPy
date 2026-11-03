@@ -74,6 +74,7 @@ from ..plane_mirror_views import (
     _plane_mirror_stack,
     _plane_mirror_variation_catalog,
 )
+from ..run_status import _run_status_payload
 from ..plot_builder import (
     _plotly_bundle_text,
     get_plotlyjs,
@@ -149,6 +150,20 @@ def register(app: Any, ctx: WebContext) -> None:
         change = {"status": "aborted", "error_text": "The app stopped before this run finished."}
         run_store().update(run_id, lambda saved: saved.update(change))
         return change
+
+    def _mirror_status_payload(run_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+        """Return the shared run monitor's payload, with the keys this endpoint always had."""
+        payload = _run_status_payload(app=app, data_dir=active_data_dir(), run_id=run_id)
+        if payload["state"] not in {"queued", "running", "aborting"}:
+            # The shared fallback counts a manifest's cases as done; mirror runs save their count.
+            done = int(manifest.get("completed_points") or 0)
+            payload.update(
+                state=manifest["status"],
+                completed_points=done,
+                remaining_points=max(payload["total_points"] - done, 0),
+            )
+        payload["status"] = payload["state"]
+        return payload
 
     def _normalize_mirror_run_status(manifest: dict[str, Any]) -> None:
         # Runs saved before the job manager recorded failures as "error".
@@ -303,7 +318,14 @@ def register(app: Any, ctx: WebContext) -> None:
             results = read_json(result_path)
         except (OSError, json.JSONDecodeError):
             results = []
-        return render_template("plane_mirror_run_detail.html", run=manifest, results=results)
+        return render_template(
+            "plane_mirror_run_detail.html",
+            run=manifest,
+            results=results,
+            initial_status=_mirror_status_payload(run_id, manifest),
+            status_url=url_for("plane_mirror_run_status", run_id=run_id),
+            memory_url=url_for("system_memory"),
+        )
 
     @app.get("/plane-mirror-runs/<run_id>/status")
     def plane_mirror_run_status(run_id: str):
@@ -311,8 +333,7 @@ def register(app: Any, ctx: WebContext) -> None:
         if manifest is None or not manifest.get("mirror_id"):
             abort(404)
         _normalize_mirror_run_status(manifest)
-        manifest["plot_url"] = url_for("data_file", filename=f"runs/{run_id}/plot.png", v=manifest.get("completed_points", 0)) if manifest.get("completed_points") else None
-        return jsonify({key: manifest.get(key) for key in ("status", "completed_points", "total_points", "error_text", "plot_url")})
+        return jsonify(_mirror_status_payload(run_id, manifest))
 
     @app.get("/plane-mirror-runs/<run_id>/stack-preview.png")
     def plane_mirror_run_stack_preview(run_id: str):

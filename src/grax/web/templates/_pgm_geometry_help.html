@@ -1,0 +1,20 @@
+{% macro pgm_geometry_help(name, label) -%}
+{% set explanations = {
+'mirror_length_mm': 'Length of the usable mirror surface, measured along the surface in the beam direction.',
+'grating_length_mm': 'Length of the usable grating surface, measured along the surface. The grating axis O passes through its centre.',
+'edge_margin_mm': 'Strip kept clear at each end of both the mirror and the grating. Any part of the beam that lands inside it counts as clipped.',
+'beam_offset_mm': 'Vertical distance from the grating axis O down to the centre of the incoming beam. It is also the default for c when c is left blank.',
+'beam_height_mm': 'Full vertical height of the incoming beam. The geometry map shows the fraction of H that stays on both optics.',
+'mirror_grating_axis_dy_mm': 'Height of the mirror rotation axis A above the grating rotation axis O.',
+'mirror_axis_dx_mm': 'Horizontal position of the mirror rotation axis A relative to the grating rotation axis O. Positive values are downstream.',
+'optic_dx_mm': 'Distance along the mirror surface from the foot point of the axis A to the mirror centre. It is used only to work out a = D − L<sub>M</sub>/2, so it has no effect when a is entered.',
+'mirror_surface_axis_offset_mm': 'Perpendicular distance from the mirror rotation axis A to the mirror surface. The foot point is where this perpendicular meets the surface line. Leave blank to use b.',
+'mirror_downstream_edge_offset_mm': 'Distance along the surface line from the foot point of the axis A to the downstream mirror edge. Positive values put the edge upstream of the foot point. Leave blank to use D − L<sub>M</sub>/2.',
+'theta_min_deg': 'Smallest allowed mirror angle Θ, measured from the mirror normal. At Θ = 90° the surface would be parallel to the beam. Below this limit the throughput is zero.',
+'theta_max_deg': 'Largest allowed mirror angle Θ, measured from the mirror normal; at most 90°. Above this limit the throughput is zero.',
+'beta_min_deg': 'Smallest allowed size of the diffraction angle β, measured from the grating normal to the exit beam. Below this limit the throughput is zero.',
+'beta_max_deg': 'Largest allowed size of the diffraction angle β, measured from the grating normal to the exit beam; at most 90°. Above this limit the throughput is zero.',
+'crit_distance': 'Smallest allowed gap between the mirror and grating surfaces, drawn on the maps as the distance limit. Holders and substrate thickness are not included, so allow for them here.'
+} %}
+<span class="roughness-help-wrap"><span tabindex="0" role="button" class="roughness-help" aria-label="Help: {{ label }}" aria-describedby="pgm-help-{{ name }}">?</span><span class="roughness-tip" role="tooltip" id="pgm-help-{{ name }}">{{ explanations[name]|safe }}</span></span>
+{%- endmacro %}

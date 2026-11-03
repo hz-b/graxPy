@@ -292,6 +292,8 @@ def start_worker(app, data_dir: Path, run_id: str, *, resume=False):
         total_points=len(manifest.get("cases") or []),
         completed_points=done,
         resumed_points=done,
+        worker_mode="manual",
+        requested_workers=1,
     )
 
 
@@ -310,7 +312,7 @@ def execute_worker(app, data_dir: Path, run_id: str, resume: bool):
         manifest = store.load(run_id)
         if resume and results_path.exists():
             results = read_json(results_path)
-        _update_active_run(app, run_id, state="running", started=True)
+        _update_active_run(app, run_id, state="running", started=True, resolved_workers=1)
         save_fields(status="running", error_text="", completed_points=len(results))
         cases = manifest["cases"]
         for index in range(len(results), len(cases)):
@@ -332,6 +334,7 @@ def execute_worker(app, data_dir: Path, run_id: str, resume: bool):
             save_fields(completed_points=len(results), status="aborting" if stop.is_set() else "running")
             _update_active_run(app, run_id, completed_increment=1)
             _plot_results(results, run_dir / "plot.png", manifest["display_name"])
+            _update_active_run(app, run_id, plot_relative_path="plot.png", bump_plot_token=True)
         status = "aborted" if stop.is_set() else "completed"
         save_fields(
             status=status,

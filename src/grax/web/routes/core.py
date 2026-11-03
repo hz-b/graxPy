@@ -98,6 +98,7 @@ def register(app: Any, ctx: WebContext) -> None:
             "plane-mirrors": "web_docs_plane_mirrors.html",
             "multilayer-gratings": "web_docs_multilayer_gratings.html",
             "multilayer-how-it-works": "web_docs_multilayer_how_it_works.html",
+            "pgm": "web_docs_pgm.html",
         }
         if topic not in templates:
             abort(404)

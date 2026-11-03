@@ -52,25 +52,12 @@
 {% endmacro %}
 
 {% macro stage_monitor(study_id, stage) %}
-  <div class="run-monitor" data-live-run-monitor data-run-reload-on-finish
-       data-run-status-url="{{ url_for('multilayer_design_stage_status', study_id=study_id, stage=stage) }}"
-       data-memory-url="{{ url_for('system_memory') }}">
-    <img class="run-monitor-plot is-hidden" data-run-plot-image alt="Live stage plot">
-    <p>Status: <strong data-run-state>queued</strong> — <span data-run-progress-summary>0 / 0</span></p>
-    <div class="run-progress-bar"><span data-run-progress-bar></span></div>
-    <p class="subtle" data-run-current-label></p>
-    <div class="stats-grid">
-      <div class="stat-card"><span>Completed</span><strong data-run-completed>0</strong></div>
-      <div class="stat-card"><span>Remaining</span><strong data-run-remaining>0</strong></div>
-      <div class="stat-card"><span>Elapsed</span><strong data-run-elapsed>—</strong></div>
-      <div class="stat-card"><span>ETA</span><strong data-run-eta>—</strong></div>
-      <div class="stat-card"><span>Workers</span><strong data-run-workers>auto</strong></div>
-      <div class="stat-card"><span>Memory</span><strong data-run-memory>—</strong></div>
-    </div>
-    <p class="notice-error" data-run-error></p>
-    <div class="actions">
-      <a class="button danger" data-run-abort-action
-         href="{{ url_for('multilayer_design_stage_abort_dialog', study_id=study_id, stage=stage) }}">Abort stage</a>
-    </div>
+  {% set initial_status = {"state": "queued", "completed_points": 0, "total_points": 0, "remaining_points": 0, "worker_mode": "auto"} %}
+  {% set status_url = url_for('multilayer_design_stage_status', study_id=study_id, stage=stage) %}
+  {% set memory_url = url_for('system_memory') %}
+  {% include "_run_monitor.html" %}
+  <div class="actions">
+    <a class="button danger" data-run-abort-action
+       href="{{ url_for('multilayer_design_stage_abort_dialog', study_id=study_id, stage=stage) }}">Abort stage</a>
   </div>
 {% endmacro %}

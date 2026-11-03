@@ -369,6 +369,33 @@ def test_a_failed_plane_mirror_run_reads_as_failed_also_when_saved_as_error(
     assert client.post(f"/plane-mirror-runs/{run_id}/resume").status_code == 302
 
 
+def test_plane_mirror_run_page_uses_the_shared_monitor_while_active(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+    release = threading.Event()
+    run_id = _start_mirror_run(client, monkeypatch, release)
+    try:
+        page = client.get(f"/plane-mirror-runs/{run_id}").get_data(as_text=True)
+        assert "data-live-run-monitor" in page
+        assert "data-run-eta" in page
+        assert "data-mirror-run-status" not in page
+        status = client.get(f"/plane-mirror-runs/{run_id}/status").get_json()
+        assert status["state"] == status["status"] == "running"
+        assert status["remaining_points"] == status["total_points"] - status["completed_points"]
+        assert status["worker_mode"] == "manual"
+        assert status["requested_workers"] == status["resolved_workers"] == 1
+        assert status["can_abort"] is True
+    finally:
+        release.set()
+    _wait_until(lambda: client.get(f"/plane-mirror-runs/{run_id}/status").get_json()["status"] == "completed")
+    status = client.get(f"/plane-mirror-runs/{run_id}/status").get_json()
+    assert status["completed_points"] == status["total_points"]
+    assert status["remaining_points"] == 0
+    assert "data-live-run-monitor" not in client.get(f"/plane-mirror-runs/{run_id}").get_data(as_text=True)
+
+
 def test_deleting_a_running_grating_run_stops_it_first(tmp_path: Path) -> None:
     app = create_app(data_dir=tmp_path)
     run_dir = tmp_path / "runs" / "busy-run"

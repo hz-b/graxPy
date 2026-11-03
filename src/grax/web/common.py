@@ -146,6 +146,7 @@ FRONTEND_SCRIPTS = tuple(
         "form-bindings",
         "plane-mirror",
         "run-export",
+        "pgm",
     )
 )
 

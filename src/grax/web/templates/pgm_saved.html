@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Saved PGMs · GraxPy{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div><h1>Manage saved PGMs</h1><p>{{ saved_setups|length }} saved PGM setup{{ 's' if saved_setups|length != 1 else '' }}. Open one to edit it or start a run.</p></div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('pgm_page') }}">New PGM</a>
+    <a class="button" href="{{ url_for('pgm_run_index') }}">Manage PGM runs</a>
+  </div>
+</section>
+<section class="docs-section">
+  {% if saved_setups %}
+  <div class="pgm-saved-list">
+    {% for saved in saved_setups %}
+    <div class="pgm-saved-row">
+      <a href="{{ url_for('pgm_page', saved=saved.id) }}"><strong>{{ saved.name }}</strong></a>
+      <form class="pgm-inline-form" method="post" action="{{ url_for('pgm_setup_rename', setup_id=saved.id) }}">
+        <input name="name" value="{{ saved.name }}" maxlength="120" required aria-label="New name for {{ saved.name }}">
+        <button class="button" type="submit">Rename</button>
+      </form>
+      <form class="pgm-inline-form" method="post" action="{{ url_for('pgm_setup_delete', setup_id=saved.id) }}">
+        <button class="button danger" type="submit" data-confirm="Delete this saved PGM? Its runs are kept.">Delete</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<p class="empty">No saved PGMs yet.</p>{% endif %}
+</section>
+{% endblock %}

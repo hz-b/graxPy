@@ -137,6 +137,14 @@ class PlaneMirrorStore(GratingStore):
     """
 
 
+class PGMSetupStore(GratingStore):
+    """Store named PGM setups as JSON files.
+
+    A setup holds a ``name``, its own copies of the grating and mirror form fields
+    (``grating_form``, ``mirror_form``) and the geometry and scan ``parameters``.
+    """
+
+
 def build_stack_from_spec(stack_spec: dict[str, Any]) -> BaseStack:
     """Restore a stack including optional interface correlation lengths."""
     stack = _build_stack_from_spec(stack_spec)

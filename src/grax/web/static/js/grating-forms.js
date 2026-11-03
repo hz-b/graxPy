@@ -22,16 +22,18 @@ function syncStackSections(select) {
   const mode = select.value;
   // The custom layer table needs room: let its fieldset span the whole form grid.
   select.closest("fieldset")?.classList.toggle("is-wide", mode === "custom");
-  document.querySelectorAll("[data-stack-controls]").forEach((section) => {
+  // A page can hold several stack editors, one per form.
+  const root = select.closest("form") || document;
+  root.querySelectorAll("[data-stack-controls]").forEach((section) => {
     toggleSectionFields(section, mode === "multilayer");
   });
-  document.querySelectorAll("[data-single-layer-controls]").forEach((section) => {
+  root.querySelectorAll("[data-single-layer-controls]").forEach((section) => {
     toggleSectionFields(section, mode === "single_layer");
   });
-  document.querySelectorAll("[data-custom-layer-controls]").forEach((section) => {
+  root.querySelectorAll("[data-custom-layer-controls]").forEach((section) => {
     toggleSectionFields(section, mode === "custom");
   });
-  document.querySelectorAll("[data-top-cap-controls]").forEach((section) => {
+  root.querySelectorAll("[data-top-cap-controls]").forEach((section) => {
     toggleSectionFields(section, mode !== "bare");
   });
 }
@@ -101,21 +103,30 @@ function initLayerEditor(editor, form) {
   renumber();
 }
 
-function syncMaterialDensity(field) {
-  const fieldKey = field.dataset.materialSelect;
-  if (!fieldKey) {
-    return;
-  }
-  const densityInput = document.querySelector(`[data-material-density="${fieldKey}"]`);
-  if (!densityInput) {
-    return;
-  }
+function materialDensityInput(field) {
+  const root = field.closest("form") || document;
+  return root.querySelector(`[data-material-density="${field.dataset.materialSelect}"]`);
+}
+
+function catalogDensity(field) {
   const datalistId = field.getAttribute("list");
   const datalist = datalistId ? document.getElementById(datalistId) : null;
   const matchedOption = datalist
     ? Array.from(datalist.options).find((option) => option.value === field.value.trim())
     : null;
-  const density = matchedOption ? matchedOption.dataset.density || "" : "";
+  return matchedOption ? matchedOption.dataset.density || "" : "";
+}
+
+function syncMaterialDensity(field) {
+  const fieldKey = field.dataset.materialSelect;
+  if (!fieldKey) {
+    return;
+  }
+  const densityInput = materialDensityInput(field);
+  if (!densityInput) {
+    return;
+  }
+  const density = catalogDensity(field);
   const previousAutoDensity = densityInput.dataset.autoDensity || "";
 
   if (density !== "") {
@@ -591,7 +602,11 @@ function initGratingPreview(form) {
 
 function initMaterialDensitySync() {
   document.querySelectorAll("[data-material-select]").forEach((field) => {
-    syncMaterialDensity(field);
+    // Keep a saved density that differs from the catalog value when the page opens.
+    const saved = field.dataset.materialSelect ? materialDensityInput(field)?.value : "";
+    if (!saved || parseDecimal(saved) === Number(catalogDensity(field))) {
+      syncMaterialDensity(field);
+    }
     field.addEventListener("input", () => {
       syncMaterialDensity(field);
     });

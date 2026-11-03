@@ -15,8 +15,8 @@
         </div>
       </section>
       <div class="manage-actions">
-        <label class="run-grating-filter">
-          <select data-run-grating-filter aria-label="Filter by grating">
+        <label class="run-filter">
+          <select data-run-filter aria-label="Filter by grating">
             <option value="">Filter by grating: all</option>
             {% for grating in gratings %}
               <option value="{{ grating.key }}">{{ grating.name }}</option>
@@ -35,7 +35,7 @@
     <p class="subtle" data-run-filter-empty hidden>No runs for this grating.</p>
     <div class="list run-manage-list">
       {% for run in runs %}
-        <article class="row run-manage-row run-manage-card" data-run-grating="{{ run.grating_id or run.grating_name }}">
+        <article class="row run-manage-row run-manage-card" data-run-filter-key="{{ run.grating_id or run.grating_name }}">
           <div class="run-manage-main">
             <label class="inline-check manage-delete">
               <input type="checkbox" name="selected_run_id" value="{{ run.id }}">

@@ -96,15 +96,15 @@ document.addEventListener("DOMContentLoaded", () => {
     updateSelection();
   }
 
-  const runGratingFilter = document.querySelector("[data-run-grating-filter]");
-  if (runGratingFilter) {
-    const runCards = [...document.querySelectorAll("[data-run-grating]")];
+  const runFilter = document.querySelector("[data-run-filter]");
+  if (runFilter) {
+    const runCards = [...document.querySelectorAll("[data-run-filter-key]")];
     const emptyNote = document.querySelector("[data-run-filter-empty]");
-    runGratingFilter.addEventListener("change", () => {
-      const wanted = runGratingFilter.value;
+    runFilter.addEventListener("change", () => {
+      const wanted = runFilter.value;
       let visible = 0;
       runCards.forEach((card) => {
-        const show = !wanted || card.dataset.runGrating === wanted;
+        const show = !wanted || card.dataset.runFilterKey === wanted;
         card.hidden = !show;
         if (show) visible += 1;
         else card.querySelectorAll("input[name='selected_run_id']").forEach((box) => { box.checked = false; });
