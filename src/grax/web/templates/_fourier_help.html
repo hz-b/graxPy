@@ -1,0 +1,3 @@
+{% macro fourier_help(key) -%}
+<span class="roughness-help-wrap"><span tabindex="0" role="button" class="roughness-help" aria-label="Help: Fourier orders" aria-describedby="fourier-help-{{ key }}">?</span><span class="roughness-tip" role="tooltip" id="fourier-help-{{ key }}">Use at least as many Fourier orders as the diffraction order you want to study. More orders take longer to compute.</span></span>
+{%- endmacro %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Import · GraxPy{% endblock %}
+{% block body %}
+{% if preview %}
+<section class="section-head">
+  <div>
+    <h1>Import {{ preview.kind_label|lower }}: {{ preview.name }}</h1>
+    <p>Exported {{ preview.exported_at or "at an unknown time" }} from GRAx {{ preview.grax_version or "(unknown version)" }}.{% if preview.version_differs %} This computer has GRAx {{ preview.local_version }}, so results made with the other version may differ slightly from new runs.{% endif %}</p>
+  </div>
+</section>
+
+<section class="notice notice-error transfer-status" role="alert" {% if not message %}hidden{% endif %} data-object-import-status><p>{{ message }}</p></section>
+
+<form class="form" method="post" action="{{ url_for('transfer_import_commit', token=preview.token) }}" data-object-import-preview>
+  {% if preview.matches %}
+  <fieldset class="transfer-choice">
+    <legend>This {{ preview.kind_label|lower }} may already be here</legend>
+    <label class="inline-check">
+      <input type="radio" name="mode" value="copy" checked data-object-import-mode>
+      <span>Add a copy, named “{{ preview.name }} (imported)”</span>
+    </label>
+    <label class="inline-check">
+      <input type="radio" name="mode" value="replace" data-object-import-mode>
+      <span>Replace the existing one. Its runs are kept, and the imported runs are added.</span>
+    </label>
+    <label>Replace
+      <select name="target_id" disabled data-object-import-target>
+        {% for match in preview.matches %}
+          <option value="{{ match.id }}">{{ match.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </fieldset>
+  {% else %}
+  <input type="hidden" name="mode" value="copy">
+  {% endif %}
+
+  <h2>Runs</h2>
+  {% if preview.runs %}
+  <label class="inline-check transfer-select-all">
+    <input type="checkbox" data-object-import-all {% if preview.runs|selectattr('checked')|list|length == preview.runs|rejectattr('problem')|list|length %}checked{% endif %}>
+    <span>Select all runs</span>
+  </label>
+  <div class="transfer-runs">
+    {% for run in preview.runs %}
+    <label class="transfer-run">
+      <input type="checkbox" name="run_id" value="{{ run.id }}" {% if run.checked %}checked{% endif %} {% if run.problem %}disabled{% endif %} data-object-import-run>
+      <span class="transfer-run-name">
+        {{ run.name }}
+        <span class="subtle">{{ run.workflow }} · {{ run.status }}{% if run.created_at %} · {{ run.created_at }}{% endif %}</span>
+        {% if run.problem %}<span class="transfer-run-problem">Cannot be imported: {{ run.problem }}</span>{% endif %}
+        {% if run.cannot_resume %}<span class="subtle">Its results can be viewed and it can be restarted, but an unfinished scan cannot be resumed.</span>{% endif %}
+        {% if run.already_here %}<span class="subtle">Already here. Tick it to import another copy.</span>{% endif %}
+      </span>
+      <span class="subtle">{{ run.size_label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">This file holds no runs.</p>
+  {% endif %}
+
+  <div class="actions">
+    <button class="button primary" type="submit" data-object-import-submit>Import</button>
+    <button class="button" type="button" data-object-import-cancel="{{ url_for('transfer_import_cancel', token=preview.token) }}">Cancel</button>
+  </div>
+</form>
+{% else %}
+<section class="section-head">
+  <div><h1>Import</h1></div>
+</section>
+<section class="notice notice-error" role="alert"><p>{{ message }}</p></section>
+<a class="button" href="{{ url_for('index') }}">Home</a>
+{% endif %}
+{% endblock %}

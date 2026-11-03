@@ -65,6 +65,11 @@ def test_safe_methods_are_not_checked(client) -> None:
         ("post", "/multilayer-design/%2E%2E/delete"),
         ("get", "/plane-mirror-runs/%2E%2E/status"),
         ("post", "/plane-mirrors/demo/scans/%2E%2E/delete"),
+        ("get", "/transfer/grating/%2E%2E/runs"),
+        ("post", "/transfer/grating/%2E%2E/export"),
+        ("get", "/transfer/import/%2E%2E"),
+        ("post", "/transfer/import/%2E%2E"),
+        ("post", "/transfer/import/%2E%2E/cancel"),
     ],
 )
 def test_path_like_ids_are_not_found_and_touch_no_files(tmp_path: Path, method: str, path: str) -> None:

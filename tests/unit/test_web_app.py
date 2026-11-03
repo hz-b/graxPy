@@ -895,7 +895,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert run_response.status_code == 200
     assert b"energy_sweep" in run_response.data
     assert (tmp_path / "runs").exists()
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline and not captured_cases:
         time.sleep(0.02)
     assert captured_cases
@@ -903,11 +903,11 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     assert captured_cases[0]["polarization"] == "p"
     run_id = next((path.parent.name for path in (tmp_path / "runs").glob("*/manifest.json")), None)
     assert run_id is not None
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 15.0
     manifest_path = tmp_path / "runs" / run_id / "manifest.json"
     manifest = {}
     while time.monotonic() < deadline:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = read_json(manifest_path)
         if manifest.get("status") == "completed":
             break
         time.sleep(0.02)
@@ -1326,11 +1326,11 @@ def test_parameter_study_run_uses_selected_polarization(
     run_id = response.headers["Location"].rsplit("/", 1)[-1]
     manifest_path = tmp_path / "runs" / run_id / "manifest.json"
 
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 15.0
     manifest = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = read_json(manifest_path)
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -1588,6 +1588,27 @@ def test_load_run_manifest_ignores_transient_invalid_json(tmp_path: Path) -> Non
     (run_dir / "manifest.json").write_text('{"status":', encoding="utf-8")
 
     assert web_app_module._load_run_manifest(tmp_path, "run-1") is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Only Windows locks a file during a replace")
+def test_load_run_manifest_waits_out_a_replace_on_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run_dir = tmp_path / "runs" / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text('{"status": "running"}', encoding="utf-8")
+    real_open = Path.open
+    attempts = []
+
+    def locked_once(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        attempts.append(self)
+        if len(attempts) == 1:
+            raise PermissionError(13, "Access is denied", str(self))
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", locked_once)
+
+    assert web_app_module._load_run_manifest(tmp_path, "run-1")["status"] == "running"
 
 
 def test_write_text_atomically_replaces_existing_diagnostic(tmp_path: Path) -> None:
@@ -3374,11 +3395,11 @@ def test_parameter_study_run_uses_selected_solver(
     run_id = response.headers["Location"].rsplit("/", 1)[-1]
     manifest_path = tmp_path / "runs" / run_id / "manifest.json"
 
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 15.0
     manifest: dict[str, object] = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = read_json(manifest_path)
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)

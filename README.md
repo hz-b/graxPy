@@ -89,7 +89,7 @@ stack into energy-by-CFF maps of geometric and optical throughput. It currently
 uses S (TE) polarization. The colleague's PGM geometry and adaptive grating
 sampling are integrated directly into GraxPy; mirror reflectivity uses GraxPy's
 existing plane-mirror model. See `examples/pgm_working_range.py` for an editable
-Python example, or choose **PGM → New working range** in the local web app, where
+Python example, or choose **PGM → New PGM** in the local web app, where
 which opens on the SX700 example. Edit the optics directly, fill them from saved
 gratings and mirrors, and save the setup as a named PGM.
 

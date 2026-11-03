@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}How gratings are computed · Web docs{% endblock %}
+{% block body %}
+<section class="section-head docs-hero"><div><a class="docs-back" href="{{ url_for('web_docs_topic', topic='gratings') }}">← Grating guide</a><p class="docs-eyebrow">Gratings</p><h1>How it works</h1><p>How to choose the numerical settings of a grating run: Fourier orders and x and z resolution.</p></div><a class="button primary" href="{{ url_for('new_grating') }}">New grating</a></section>
+<section class="docs-section"><h2>Accuracy costs time</h2><p>The higher the number of Fourier orders, and the lower the x and z resolution values, the more accurate the calculation can be and the longer it takes. The goal is settings fine enough for a stable result, and no finer.</p></section>
+<section class="docs-section"><h2>Fourier orders</h2><p>The number of Fourier orders must be at least the diffraction order you want to study, and should normally be higher. To study order 2, for example, use more than 2 Fourier orders.</p></section>
+<section class="docs-section"><h2>X and z resolution</h2><p>These are the sampling steps along the grating profile (x) and through the grating and its coating (z), in nm. Keep them smaller than the smallest feature you want to resolve on the grating.</p></section>
+<section class="docs-section"><h2>Check your settings with a parameter study</h2><p>The <strong>Parameter study</strong> workflow exists exactly for this. Open a saved grating and choose it as the run workflow: at one energy and one incident angle, it varies the Fourier orders and the x and z resolution in turn. Look for the point where the result stops changing, and use those values for your runs.</p></section>
+<nav class="docs-next" aria-label="Guide navigation"><a href="{{ url_for('web_docs_topic', topic='gratings') }}">← Grating guide</a><a href="{{ url_for('web_docs') }}">All web docs →</a></nav>
+{% endblock %}

@@ -40,6 +40,7 @@ from .run_state import (
     _is_active_run_entry_live,
     _update_active_run,
 )
+from .object_names import rename_pgm_runs
 from .runs import RunStore
 
 PGM_FORM_FIELDS = (
@@ -196,7 +197,10 @@ def save_pgm_setup(data_dir: Path, form: Any) -> dict[str, Any]:
 def rename_pgm_setup(data_dir: Path, setup_id: str, name: Any) -> None:
     """Rename one saved PGM."""
     store = pgm_setup_store(data_dir)
-    store.save({**store.load(setup_id), "name": clean_name(name, "PGM name")})
+    saved = store.load(setup_id)
+    new_name = clean_name(name, "PGM name")
+    store.save({**saved, "name": new_name})
+    rename_pgm_runs(data_dir, setup_id, str(saved.get("name") or ""), new_name)
 
 
 def delete_pgm_setup(data_dir: Path, setup_id: str) -> None:

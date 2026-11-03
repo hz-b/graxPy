@@ -23,6 +23,7 @@ from .custom_grid import (
     write_custom_grid_all_orders,
     write_custom_grid_summary,
 )
+from .files import read_json
 from .runs import RunStore
 
 
@@ -208,11 +209,8 @@ def _load_run_manifest(data_dir: Path, run_id: str) -> dict[str, Any] | None:
     if not _is_safe_id(run_id):
         return None
     manifest_path = data_dir / "runs" / run_id / "manifest.json"
-    if not manifest_path.exists():
-        return None
     try:
-        with manifest_path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        payload = read_json(manifest_path)
     except (OSError, json.JSONDecodeError):
         # Polling may race an atomic manifest replacement. A transiently
         # unavailable manifest must not turn the status endpoint into a 500.

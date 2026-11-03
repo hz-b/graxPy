@@ -58,6 +58,9 @@
               </form>
             </details>
             <a class="button" href="{{ url_for('grating_detail', grating_id=grating.id) }}">Open grating</a>
+            <button class="button" type="button" data-object-export-open
+                    data-runs-url="{{ url_for('transfer_object_runs', kind='grating', object_id=grating.id) }}"
+                    data-export-url="{{ url_for('transfer_export', kind='grating', object_id=grating.id) }}">Export</button>
           </div>
         </article>
       {% endfor %}
@@ -90,4 +93,5 @@
     <a class="button primary" href="{{ url_for('new_grating') }}">Create a grating</a>
   </section>
 {% endif %}
+{% include "_object_export_dialog.html" %}
 {% endblock %}
