@@ -1,4 +1,5 @@
 build
+WaveGateSim
 examples/reference_baselines/**/results/latest.csv
 .venv*
 .grax-web/
