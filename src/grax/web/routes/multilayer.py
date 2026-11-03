@@ -58,6 +58,7 @@ from ..multilayer_jobs import (
     _reset_multilayer_design_stage,
     _start_multilayer_design_worker,
 )
+from ..object_names import rename_multilayer_studies
 from ..plot_builder import (
     _plotly_bundle_text,
     get_plotlyjs,
@@ -232,8 +233,10 @@ def register(app: Any, ctx: WebContext) -> None:
         new_part = grating_config_subset(config)
         pass_grating_config_to_studies(studies, new_part, studies=_design_store())
         grating["config"] = new_part
+        previous_name = str(grating["display_name"])
         grating["display_name"] = request.form.get("display_name", "").strip() or grating["display_name"]
         _grating_store().save(grating)
+        rename_multilayer_studies(_design_store(), grating_id, previous_name, grating["display_name"])
         return redirect(url_for("multilayer_gratings_manage"))
 
     @app.post("/multilayer-gratings/<grating_id>/delete")

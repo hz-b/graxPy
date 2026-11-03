@@ -54,6 +54,9 @@ from ..plane_mirror import (
     stack_schematic_data_uri,
     unique_scan_id,
 )
+from ..object_names import (
+    rename_mirror_runs,
+)
 from ..plane_mirror_runs import (
     MAX_TOTAL_SAMPLES as MAX_PLANE_MIRROR_RUN_SAMPLES,
 )
@@ -511,6 +514,7 @@ def register(app: Any, ctx: WebContext) -> None:
     def plane_mirror_update(mirror_id: str):
         store = plane_mirror_store()
         mirror = _load_plane_mirror(store, mirror_id)
+        previous_name = str(mirror.get("name") or "")
         try:
             mirror["name"] = clean_name(request.form.get("mirror_name"), "Mirror name")
             mirror["label"] = clean_label(request.form.get("mirror_label"))
@@ -519,6 +523,7 @@ def register(app: Any, ctx: WebContext) -> None:
         except (KeyError, TypeError, ValueError) as error:
             abort(400, str(error))
         store.save(mirror)
+        rename_mirror_runs(active_data_dir(), mirror_id, previous_name, mirror["name"])
         return redirect(url_for("plane_mirror_detail", mirror_id=mirror_id, message="Plane mirror updated."))
 
     @app.post("/plane-mirrors/<mirror_id>/scans")

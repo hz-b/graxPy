@@ -412,8 +412,9 @@ def test_runs_can_be_filtered_by_the_pgm_they_started_from(pgm_client, monkeypat
     assert f'<option value="{saved["id"]}">Beamline B</option>' in client.get(
         "/pgm/runs"
     ).get_data(as_text=True)
+    assert pgm_store(tmp_path).load(from_saved)["pgm_name"] == "Beamline B"
     client.post(f"{url}/delete")
-    assert f'<option value="{saved["id"]}">Beamline A</option>' in client.get(
+    assert f'<option value="{saved["id"]}">Beamline B</option>' in client.get(
         "/pgm/runs"
     ).get_data(as_text=True)
 

@@ -1,11 +1,17 @@
 # Changelog
 
-## Next release
+## Unreleased
 
 ### New features
 - Import and export: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
+- Every Fourier orders field now has a hint: use at least as many orders as the diffraction order you want to study.
+- A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
+
+### Changes
+- The PGM menu now says New PGM instead of New working range.
 
 ### Bug fixes
+- Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.
 - On Windows, a run's page no longer briefly reports the run as not found while the run is saving its progress.
 
 ## 0.6.0
