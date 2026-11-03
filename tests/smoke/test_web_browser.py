@@ -103,6 +103,10 @@ def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeyp
 
     from grax.pgm import PGMCancelled, calculate_working_range
 
+    # The second update waits for the page: on a slow page load it would already
+    # be in the first render, and the solved count could never rise.
+    first_update_shown = threading.Event()
+
     def partial_run(parameters):
         energies, cff, geometry = calculate_working_range(parameters)
         mirror = np.full(geometry["throughput_percent"].shape, 0.5)
@@ -115,6 +119,7 @@ def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeyp
             parameters.nodes_callback(e_nodes, c_nodes, eta)
             if parameters.stop_event.wait(1.2):
                 raise PGMCancelled("stopped")
+            first_update_shown.wait(30)
         parameters.stop_event.wait(30)
         raise PGMCancelled("stopped")
 
@@ -141,6 +146,7 @@ def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeyp
         .flat().filter((value) => value !== null && value > 0).length"""
     browser_page.wait_for_function(f"({count_solved})() > 0", timeout=15000)
     first = browser_page.evaluate(count_solved)
+    first_update_shown.set()
     browser_page.wait_for_function(f"({count_solved})() > {first}", timeout=15000)
     assert grating.evaluate("element => element.data[0].customdata.flat().includes(null)")
 
