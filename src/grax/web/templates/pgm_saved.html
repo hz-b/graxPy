@@ -8,6 +8,11 @@
     <a class="button" href="{{ url_for('pgm_run_index') }}">Manage PGM runs</a>
   </div>
 </section>
+{% if message %}
+  <section class="notice{% if message_kind == 'error' %} notice-error{% else %} notice-success{% endif %}" role="status">
+    <p>{{ message }}</p>
+  </section>
+{% endif %}
 <section class="docs-section">
   {% if saved_setups %}
   <div class="pgm-saved-list">
@@ -18,6 +23,9 @@
         <input name="name" value="{{ saved.name }}" maxlength="120" required aria-label="New name for {{ saved.name }}">
         <button class="button" type="submit">Rename</button>
       </form>
+      <button class="button" type="button" data-object-export-open
+              data-runs-url="{{ url_for('transfer_object_runs', kind='pgm', object_id=saved.id) }}"
+              data-export-url="{{ url_for('transfer_export', kind='pgm', object_id=saved.id) }}">Export</button>
       <form class="pgm-inline-form" method="post" action="{{ url_for('pgm_setup_delete', setup_id=saved.id) }}">
         <button class="button danger" type="submit" data-confirm="Delete this saved PGM? Its runs are kept.">Delete</button>
       </form>
@@ -26,4 +34,5 @@
   </div>
   {% else %}<p class="empty">No saved PGMs yet.</p>{% endif %}
 </section>
+{% include "_object_export_dialog.html" %}
 {% endblock %}

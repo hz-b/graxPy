@@ -13,7 +13,9 @@
 </section>
 
 {% if message %}
-  <section class="notice"><p>{{ message }}</p></section>
+  <section class="notice{% if message_kind == 'error' %} notice-error{% else %} notice-success{% endif %}" role="status">
+    <p>{{ message }}</p>
+  </section>
 {% endif %}
 
 {% if mirrors %}
@@ -26,7 +28,12 @@
               <h2><a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">{{ mirror.name }}</a></h2>
               {% if mirror.label %}<p class="subtle">{{ mirror.label }}</p>{% endif %}
             </div>
-            <a class="button" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">Open mirror</a>
+            <div class="actions">
+              <a class="button" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">Open mirror</a>
+              <button class="button" type="button" data-object-export-open
+                      data-runs-url="{{ url_for('transfer_object_runs', kind='plane_mirror', object_id=mirror.id) }}"
+                      data-export-url="{{ url_for('transfer_export', kind='plane_mirror', object_id=mirror.id) }}">Export</button>
+            </div>
           </div>
           <p class="subtle">{{ mirror.summary }}</p>
         </div>
@@ -45,4 +52,5 @@
     <a class="button primary" href="{{ url_for('plane_mirror_page') }}">Create a plane mirror</a>
   </section>
 {% endif %}
+{% include "_object_export_dialog.html" %}
 {% endblock %}

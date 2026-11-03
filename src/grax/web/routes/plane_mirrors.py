@@ -143,6 +143,7 @@ def register(app: Any, ctx: WebContext) -> None:
             "plane_mirror_library.html",
             mirrors=mirrors,
             message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
         )
 
     def _mark_orphaned_run(run_id: str) -> dict[str, Any]:

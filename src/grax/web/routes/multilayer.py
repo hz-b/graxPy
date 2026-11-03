@@ -30,8 +30,9 @@ from ..multilayer_diagnostics import discover_plots, energy_scan_scans, survey_c
 from ..multilayer_design_studies import (
     STAGE_LABELS,
     MultilayerGratingStore,
-    default_grating_name,
+    attach_study_grating,
     grating_config_subset,
+    pass_grating_config_to_studies,
     STAGES,
     SURVEY_CELL_WARNING_THRESHOLD,
     MultilayerDesignStudyStore,
@@ -79,25 +80,7 @@ def register(app: Any, ctx: WebContext) -> None:
         return MultilayerGratingStore(app.config["GRAx_DATA_DIR"] / "multilayer_gratings")
 
     def _attach_grating(manifest: dict[str, Any]) -> dict[str, Any]:
-        """Give a study its grating, joining an identical one or creating it.
-
-        Studies saved before gratings existed have no ``grating_id``.
-        """
-
-        gratings = _grating_store()
-        try:
-            gratings.load(str(manifest.get("grating_id", "")))
-            return manifest
-        except (ValueError, FileNotFoundError, OSError):
-            pass
-        grating = gratings.find_matching(manifest["config"]) or gratings.create(
-            display_name=default_grating_name(manifest["config"]), config=manifest["config"]
-        )
-        manifest["grating_id"] = grating["id"]
-        _design_store().update(
-            str(manifest["id"]), lambda saved: saved.update(grating_id=grating["id"])
-        )
-        return manifest
+        return attach_study_grating(manifest, studies=_design_store(), gratings=_grating_store())
 
     def _design_study_or_404(study_id: str) -> dict[str, Any]:
         try:
@@ -195,6 +178,8 @@ def register(app: Any, ctx: WebContext) -> None:
             )
         return render_template(
             "multilayer_gratings_manage.html",
+            message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
             gratings=gratings,
             stages=STAGES,
             stage_labels=STAGE_LABELS,
@@ -245,14 +230,7 @@ def register(app: Any, ctx: WebContext) -> None:
         except (TypeError, ValueError) as error:
             abort(400, str(error))
         new_part = grating_config_subset(config)
-        store = _design_store()
-        for study in studies:
-            merged = {**study["config"], **new_part}
-            for stage in stages_invalidated_by(study["config"], merged):
-                if study["stages"][stage]["status"] in {"completed", "aborted"}:
-                    study["stages"][stage]["status"] = "stale"
-            study["config"] = merged
-            store.save(study)
+        pass_grating_config_to_studies(studies, new_part, studies=_design_store())
         grating["config"] = new_part
         grating["display_name"] = request.form.get("display_name", "").strip() or grating["display_name"]
         _grating_store().save(grating)

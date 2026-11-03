@@ -2637,3 +2637,83 @@ text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
 @media (max-width: 1100px) {
   .pgm-dashboard-top, .pgm-dashboard-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+.transfer-runs {
+  display: grid;
+  gap: 6px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.transfer-run {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.transfer-run-name {
+  overflow-wrap: anywhere;
+}
+
+.transfer-run .subtle {
+  display: block;
+  margin: 0;
+}
+
+.transfer-run-problem {
+  display: block;
+  color: var(--danger, #a4262c);
+}
+
+.transfer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.transfer-status[hidden],
+[data-object-export-choice][hidden] {
+  display: none;
+}
+
+.transfer-toolbar label,
+.form label.transfer-run {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.form label.transfer-run {
+  display: grid;
+}
+
+.transfer-toolbar input[type="checkbox"],
+.transfer-run input[type="checkbox"],
+.transfer-select-all input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  flex: none;
+  margin-top: 3px;
+}
+
+.transfer-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.form .transfer-choice label.inline-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.transfer-choice input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  flex: none;
+  margin-top: 3px;
+}

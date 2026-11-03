@@ -13,6 +13,12 @@
   </div>
 </section>
 
+{% if message %}
+  <section class="notice{% if message_kind == 'error' %} notice-error{% else %} notice-success{% endif %}" role="status">
+    <p>{{ message }}</p>
+  </section>
+{% endif %}
+
 {% if gratings %}
   <div class="list manage-record-list">
     {% for grating in gratings %}
@@ -33,6 +39,9 @@
             <div class="actions">
               <a class="button" href="{{ url_for('multilayer_design_new', grating=grating.id) }}">New study</a>
               <a class="button" href="{{ url_for('multilayer_grating_edit', grating_id=grating.id) }}">Edit grating</a>
+              <button class="button" type="button" data-object-export-open
+                      data-runs-url="{{ url_for('transfer_object_runs', kind='multilayer_grating', object_id=grating.id) }}"
+                      data-export-url="{{ url_for('transfer_export', kind='multilayer_grating', object_id=grating.id) }}">Export</button>
               <form method="post" action="{{ url_for('multilayer_grating_delete', grating_id=grating.id) }}">
                 <button class="button danger" type="submit"
                         data-confirm="Delete this grating and all {{ grating.studies|length }} studies attached to it, with their results? This cannot be undone.">Delete</button>
@@ -60,4 +69,5 @@
 {% else %}
   <p class="empty">No multilayer gratings yet. Create one to get started.</p>
 {% endif %}
+{% include "_object_export_dialog.html" %}
 {% endblock %}

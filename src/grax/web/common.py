@@ -147,10 +147,13 @@ FRONTEND_SCRIPTS = tuple(
         "plane-mirror",
         "run-export",
         "pgm",
+        "object-transfer",
     )
 )
 
-PATH_ID_KEYS = ("run_id", "plot_id", "study_id", "mirror_id", "scan_id", "grating_id")
+PATH_ID_KEYS = (
+    "run_id", "plot_id", "study_id", "mirror_id", "scan_id", "grating_id", "object_id", "token",
+)
 
 
 def _is_safe_id(value: Any) -> bool:

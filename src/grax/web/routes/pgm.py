@@ -127,7 +127,12 @@ def register(app: Any, ctx: WebContext) -> None:
 
     @app.get("/pgm/saved")
     def pgm_setup_index():
-        return render_template("pgm_saved.html", saved_setups=pgm_setup_store(data_dir()).list())
+        return render_template(
+            "pgm_saved.html",
+            saved_setups=pgm_setup_store(data_dir()).list(),
+            message=str(request.args.get("message", "")).strip(),
+            message_kind=str(request.args.get("kind", "info")).strip() or "info",
+        )
 
     @app.post("/pgm/saved")
     def pgm_setup_create():
