@@ -12,6 +12,7 @@ import pytest
 from grax.web import app as web_app_module
 from grax.web.custom_grid import (
     common_parameter_catalog,
+    default_configuration,
     expand_custom_grid,
     parameter_catalog,
     write_custom_grid_all_orders,
@@ -61,6 +62,16 @@ def test_catalog_contains_conditions_numerics_geometry_and_coating() -> None:
     assert {"width_to_period_ratio", "depth_nm", "left_wall_angle_deg"} <= ids
     assert "stack.substrate_material" in ids
     assert "stack.substrate_material.density_g_cm3" in ids
+
+
+def test_custom_grid_defaults_to_p_polarization() -> None:
+    """Use p polarization when custom-grid cases omit an override."""
+    spec = _laminar_spec()
+    config = default_configuration(spec)
+
+    _, cases = expand_custom_grid(config, spec)
+
+    assert cases[0]["polarization"] == "p"
 
 
 def test_integer_range_is_rounded_deduplicated_and_ordered() -> None:
@@ -447,6 +458,140 @@ def test_material_rows_apply_density_and_interface_roughness() -> None:
     assert [stack.substrate_material.density_g_cm3 for stack in stacks] == [19, 21, None]
     assert [stack.substrate_roughness_sigma_nm for stack in stacks] == [0.2, 0.4, 0.7]
     assert spec["stack"]["substrate_material"] == "Si"
+
+
+@pytest.mark.parametrize("none_value", ["None", "none", {"name": "nOnE"}])
+def test_none_material_sentinel_removes_single_layer_coating(none_value) -> None:
+    """Treat the documented sentinel as an absent coating, regardless of case."""
+    spec = _laminar_spec(stack={
+        "type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_thickness_nm": 20,
+    })
+    normalized, cases = expand_custom_grid(_config(spec, independent=[{
+        "parameter": "stack.layer_material", "mode": "list", "values": [none_value, "Ni"],
+    }]), spec)
+
+    assert normalized["independent"][0]["values"] == [None, {
+        "name": "Ni", "density_g_cm3": None, "roughness_sigma_nm": None,
+    }]
+    assert cases[0]["grating"].resolved_stack().material_names() == ["Si"]
+    assert cases[0]["custom_grating_spec"]["stack"]["type"] == "bare"
+    assert cases[1]["grating"].resolved_stack().layer_material.name == "Ni"
+    restored = json.loads(json.dumps(normalized))
+    _, restored_cases = expand_custom_grid(restored, spec)
+    assert restored_cases[0]["custom_grating_spec"]["stack"]["type"] == "bare"
+
+
+def test_none_material_in_coupled_axis_is_no_coating() -> None:
+    """Apply the same sentinel normalization to coupled material values."""
+    spec = _laminar_spec(stack={
+        "type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_thickness_nm": 20,
+    })
+    _, cases = expand_custom_grid(_config(spec, coupled=[{
+        "parameters": ["width_to_period_ratio", "stack.layer_material"],
+        "rows": [
+            {"width_to_period_ratio": 0.5, "stack.layer_material": "None"},
+            {"width_to_period_ratio": 0.6, "stack.layer_material": "Ni"},
+        ],
+    }]), spec)
+
+    assert cases[0]["custom_grating_spec"]["stack"]["type"] == "bare"
+    assert cases[1]["grating"].resolved_stack().layer_material.name == "Ni"
+
+
+def test_none_material_removes_optional_top_cap() -> None:
+    spec = _laminar_spec(stack={
+        "type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_thickness_nm": 20, "top_cap_material": "C", "top_cap_thickness_nm": 2,
+    })
+    _, cases = expand_custom_grid(_config(spec, independent=[{
+        "parameter": "stack.top_cap_material", "mode": "list", "values": ["nOnE"],
+    }]), spec)
+
+    assert cases[0]["custom_grating_spec"]["stack"]["top_cap_material"] is None
+    assert cases[0]["grating"].resolved_stack().top_cap_material is None
+
+
+def test_none_material_removes_a_custom_layer_and_can_leave_a_bare_stack() -> None:
+    spec = _laminar_spec(stack={
+        "type": "custom", "substrate_material": "Si",
+        "layers_bottom_up": [{"material": "Au", "thickness_nm": 20}],
+    })
+    _, cases = expand_custom_grid(_config(spec, independent=[{
+        "parameter": "stack.layers_bottom_up.0.material", "mode": "list", "values": ["None"],
+    }]), spec)
+
+    assert cases[0]["custom_grating_spec"]["stack"]["type"] == "bare"
+    assert cases[0]["grating"].resolved_stack().material_names() == ["Si"]
+
+
+def test_none_material_for_required_substrate_is_rejected_clearly() -> None:
+    spec = _laminar_spec()
+    with pytest.raises(ValueError, match="cannot be None: a grating always needs a substrate"):
+        expand_custom_grid(_config(spec, independent=[{
+            "parameter": "stack.substrate_material", "mode": "list", "values": ["None", "Ni"],
+        }]), spec)
+
+
+@pytest.mark.parametrize(("stack", "nullable"), [
+    ({"type": "bare", "substrate_material": "Si"}, {"stack.substrate_material": False}),
+    (
+        {"type": "single_layer", "substrate_material": "Si", "layer_material": "Pt",
+         "layer_thickness_nm": 20, "top_cap_material": "C", "top_cap_thickness_nm": 2},
+        {"stack.substrate_material": False, "stack.layer_material": True,
+         "stack.top_cap_material": True},
+    ),
+    (
+        {"type": "multilayer", "substrate_material": "Si", "material_a": "Mo", "material_b": "C",
+         "top_material": "C", "d_period_nm": 6, "gamma": 0.5, "n_bilayers": 5},
+        {"stack.substrate_material": False, "stack.material_a": False,
+         "stack.material_b": False, "stack.top_material": False},
+    ),
+    (
+        {"type": "custom", "substrate_material": "Si",
+         "layers_bottom_up": [{"material": "Au", "thickness_nm": 20}]},
+        {"stack.substrate_material": False, "stack.layers_bottom_up.0.material": True},
+    ),
+])
+def test_the_catalog_tells_the_editor_which_materials_may_be_none(stack, nullable) -> None:
+    """The sweep editor rejects None inline for every material not marked nullable."""
+
+    catalog = {item.id: item.to_json() for item in parameter_catalog(_laminar_spec(stack=stack))}
+
+    assert {key: catalog[key]["nullable"] for key in nullable} == nullable
+
+
+@pytest.mark.parametrize("parameter", [
+    "stack.material_a", "stack.material_b", "stack.top_material",
+])
+def test_none_material_for_required_multilayer_fields_is_rejected_clearly(parameter) -> None:
+    spec = _laminar_spec(stack={
+        "type": "multilayer", "substrate_material": "Si", "material_a": "Mo",
+        "material_b": "C", "top_material": "C", "d_period_nm": 6,
+        "gamma": 0.5, "n_bilayers": 5,
+    })
+    label = {"stack.material_a": "Material a", "stack.material_b": "Material b",
+             "stack.top_material": "Top material"}[parameter]
+    with pytest.raises(ValueError, match=rf"{label} cannot be None: a multilayer needs both"):
+        expand_custom_grid(_config(spec, independent=[{
+            "parameter": parameter, "mode": "list", "values": ["none"],
+        }]), spec)
+
+
+@pytest.mark.parametrize("parameter", [
+    "stack.top_cap_material.density_g_cm3", "stack.top_cap_roughness_sigma_nm",
+])
+def test_none_base_material_cannot_be_property_scanned(parameter) -> None:
+    spec = _laminar_spec(stack={
+        "type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_thickness_nm": 20, "top_cap_material": None, "top_cap_thickness_nm": 2,
+    })
+    expected = "roughness" if "roughness" in parameter else "density"
+    with pytest.raises(ValueError, match=rf"Choose a material before scanning its {expected}"):
+        expand_custom_grid(_config(spec, independent=[
+            {"parameter": parameter, "mode": "list", "values": [2.0]},
+        ]), spec)
 
 
 def test_separate_property_scans_override_embedded_material_properties() -> None:

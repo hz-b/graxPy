@@ -32,7 +32,6 @@ sawtooth); both are later optimizations.
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import threading
@@ -64,18 +63,24 @@ __all__ = [
 HC_EV_NM = 1239.841984
 
 
+def _polarization_display_label(value: str) -> str:
+    """Return the conventional S/TE or P/TM name used in plot labels."""
+
+    return {"s": "S (TE)", "p": "P (TM)"}.get(value.lower(), value)
+
+
 def _write_csv_atomic(frame: pd.DataFrame, path: Path) -> None:
     """Write ``frame`` to ``path`` so a concurrent reader never sees a half file.
 
     The survey table is rewritten after every cell while the web app polls it for
     the live plots; a plain ``to_csv`` truncates first, so a read landing in that
-    window gets a partial or empty file.
+    window gets a partial or empty file. On Windows that reader also blocks the
+    replace for a moment, which ``write_text_atomically`` waits out.
     """
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
-    frame.to_csv(temporary, index=False)
-    os.replace(temporary, path)
+    from .web.files import write_text_atomically
+
+    write_text_atomically(path, frame.to_csv(index=False, lineterminator="\n"))
 
 
 class _CellAbortedError(RuntimeError):
@@ -1298,6 +1303,7 @@ class MultilayerGratingDesigner:
         import matplotlib.pyplot as plt
 
         config = self.config
+        polarization_label = _polarization_display_label(config.polarization)
         finite = np.isfinite(optimal_eff)
         figure, axis = plt.subplots(figsize=(9, 6))
         axis.plot(d_values[finite], optimal_eff[finite], "-", color="0.6", zorder=1)
@@ -1318,7 +1324,7 @@ class MultilayerGratingDesigner:
                 fontsize=8,
             )
         axis.set_xlabel("Bilayer d-spacing (nm)")
-        axis.set_ylabel(f"Max selected-order efficiency ({config.polarization}-pol)")
+        axis.set_ylabel(f"Max selected-order efficiency ({polarization_label})")
         axis.set_title(
             f"Max efficiency versus d-spacing at {config.target_energy_ev:g} eV "
             f"(order {config.diffraction_order}; colour/labels: optimal blaze angle)"
@@ -1348,6 +1354,7 @@ class MultilayerGratingDesigner:
         import matplotlib.pyplot as plt
 
         config = self.config
+        polarization_label = _polarization_display_label(config.polarization)
         figure, axis = plt.subplots(figsize=(9, 6))
         mesh = axis.pcolormesh(
             d_values,
@@ -1357,7 +1364,7 @@ class MultilayerGratingDesigner:
             cmap="viridis",
         )
         figure.colorbar(
-            mesh, ax=axis, label=f"peak selected-order efficiency ({config.polarization}-pol)"
+            mesh, ax=axis, label=f"peak selected-order efficiency ({polarization_label})"
         )
         finite = np.isfinite(optimal_blaze)
         axis.plot(
@@ -1398,6 +1405,7 @@ class MultilayerGratingDesigner:
         import matplotlib.pyplot as plt
 
         config = self.config
+        polarization_label = _polarization_display_label(config.polarization)
         figure, axis = plt.subplots(figsize=(9, 6))
         axis.plot(
             results["energy_ev"],
@@ -1406,7 +1414,7 @@ class MultilayerGratingDesigner:
             color="tab:blue",
         )
         axis.set_xlabel("Photon energy (eV)")
-        axis.set_ylabel(f"Selected-order efficiency ({config.polarization}-pol)")
+        axis.set_ylabel(f"Selected-order efficiency ({polarization_label})")
         axis.set_title(_energy_scan_title(config, d_spacing_nm, blaze_angle_deg))
         axis.grid(True, alpha=0.3)
         figure.tight_layout()
@@ -1437,6 +1445,7 @@ class MultilayerGratingDesigner:
         if not results:
             raise ValueError("plot_energy_scan_overlay requires at least one result")
         config = self.config
+        polarization_label = _polarization_display_label(config.polarization)
         config.plot_dir.mkdir(parents=True, exist_ok=True)
         output_path = config.plot_dir / _energy_scan_overlay_filename(config)
 
@@ -1450,7 +1459,7 @@ class MultilayerGratingDesigner:
                 label=f"d = {scan.d_spacing_nm:.3f} nm, blaze = {scan.blaze_angle_deg:.3f} deg",
             )
         axis.set_xlabel("Photon energy (eV)")
-        axis.set_ylabel(f"Selected-order efficiency ({config.polarization}-pol)")
+        axis.set_ylabel(f"Selected-order efficiency ({polarization_label})")
         axis.set_title(
             f"{_coating_label(config)} multilayer grating "
             f"(order {config.diffraction_order}): {len(results)} designs"
@@ -1525,6 +1534,7 @@ class MultilayerGratingDesigner:
         import matplotlib.pyplot as plt
 
         config = self.config
+        polarization_label = _polarization_display_label(config.polarization)
         figure, axis = plt.subplots(figsize=(9, 6))
         color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
         for order, (blaze, run_dir) in enumerate(cells):
@@ -1584,7 +1594,7 @@ class MultilayerGratingDesigner:
                         bbox={"boxstyle": "round", "fc": "white", "ec": color, "alpha": 0.9},
                     )
         axis.set_xlabel("Incidence (grazing) angle (deg)")
-        axis.set_ylabel(f"Selected-order efficiency ({config.polarization}-pol)")
+        axis.set_ylabel(f"Selected-order efficiency ({polarization_label})")
         axis.set_title(
             f"Multilayer theta search at d = {d_spacing_nm:.3f} nm, "
             f"{config.target_energy_ev:g} eV (dotted: rough, solid: precise, *: selected peak)"

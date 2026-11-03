@@ -2,58 +2,34 @@
 {% block title %}Manage plane-mirror runs{% endblock %}
 {% block body %}
 <section class="section-head">
-  <div>
-  <h1>Manage plane-mirror runs</h1>
-    <p>Open a saved mirror or scan, or select mirrors to delete with their saved scans.</p>
-  </div>
-  <div class="actions">
-    <a class="button primary" href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
-  </div>
+  <div><h1>Manage plane-mirror runs</h1><p>Review completed and active scans.</p></div>
+  <a class="button" href="{{ url_for('plane_mirror_index') }}">Manage plane mirrors</a>
 </section>
-
-{% if message %}
-  <section class="notice"><p>{{ message }}</p></section>
-{% endif %}
-
-{% if mirrors %}
-  <form class="form" method="post" action="{{ url_for('plane_mirror_manage_update') }}">
-    <div class="manage-actions">
-      <button class="button danger" type="submit" data-confirm="Delete the selected plane mirrors and all their scans? This cannot be undone.">
-        Delete selected
-      </button>
-    </div>
-    <div class="list manage-record-list">
-      {% for mirror in mirrors %}
-        <article class="manage-record-card plane-mirror-record">
-          <div class="manage-record-content">
-            <div class="manage-record-heading">
-              <div>
-                <h2><a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">{{ mirror.name }}</a></h2>
-                {% if mirror.label %}<p class="subtle">{{ mirror.label }}</p>{% endif %}
-              </div>
-              <label class="inline-check manage-record-delete">
-                <input type="checkbox" name="delete_mirror_id" value="{{ mirror.id }}">
-                <span>Delete</span>
-              </label>
-            </div>
-            <p class="manage-record-summary">{{ mirror.summary }}</p>
-            {% if mirror.scans %}
-              <div class="manage-scan-list" aria-label="Saved scans">
-                {% for scan in mirror.scans %}
-                  <a class="manage-scan-link" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id, scan=scan.id) }}">
-                    <strong>{{ scan.name }}</strong>{% if scan.label %}<span>{{ scan.label }}</span>{% endif %}
-                  </a>
-                {% endfor %}
-              </div>
-            {% else %}
-              <p class="subtle">No scans saved for this mirror.</p>
+{% if runs %}
+  <div class="plane-mirror-run-groups">
+    {% for run in runs %}
+      <article class="plane-mirror-run-group">
+        <div class="plane-mirror-manage-row">
+          <section class="plane-mirror-run-settings">
+            <h2><a href="{{ url_for('plane_mirror_run_detail', run_id=run.id) }}">{{ run.display_name }}</a></h2>
+            <p>{{ run.mirror_name }} · {{ run.status }}</p>
+            <p>{{ run.completed_points }} / {{ run.total_points }} variations completed</p>
+            {% if run.scan_details %}
+              <dl class="plane-mirror-parameter-list">
+                {% for label, value in run.scan_details %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+              </dl>
             {% endif %}
-          </div>
-        </article>
-      {% endfor %}
-    </div>
-  </form>
-{% else %}
-  <p class="empty">No plane mirrors have been saved yet.</p>
-{% endif %}
+            <a class="button" href="{{ url_for('plane_mirror_run_detail', run_id=run.id) }}">View run</a>
+          </section>
+          <section class="run-preview-panel"><h3>Scan preview</h3>
+            {% if run.completed_points %}<img src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/plot.png', v=run.completed_points) }}" alt="Results for {{ run.display_name }}" loading="lazy">{% else %}<p class="subtle">Results will appear when the first variation finishes.</p>{% endif %}
+          </section>
+          <section class="run-preview-panel"><h3>Layer stack</h3>
+            <img src="{{ url_for('plane_mirror_run_stack_preview', run_id=run.id) }}" alt="Layer stack snapshot for {{ run.mirror_name }}" loading="lazy">
+          </section>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}<p class="empty">No plane-mirror runs have been saved yet.</p>{% endif %}
 {% endblock %}

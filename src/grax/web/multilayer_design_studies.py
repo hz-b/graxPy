@@ -16,8 +16,7 @@ The workflow has two stages, matching the library:
 
 from __future__ import annotations
 
-import json
-import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +24,7 @@ from typing import Any
 
 from grax.multilayer_design import MultilayerDesignConfig, ThetaSearchScanSettings
 
+from .files import locked, read_json, remove_tree, write_json_atomically
 from .persistence import _slugify
 
 STAGES: tuple[str, ...] = ("survey", "energy_scan")
@@ -214,7 +214,26 @@ def _field_by_name() -> dict[str, FieldSpec]:
     return {spec.name: spec for spec in STUDY_FIELDS}
 
 
-def study_form_sections(advanced: bool) -> list[tuple[str, list[tuple[str, list[FieldSpec]]]]]:
+#: Form sections that describe the grating and its coating rather than one study.
+GRATING_SECTIONS: tuple[str, ...] = ("Shared - geometry & order", "Shared - materials")
+
+
+def grating_field_names() -> frozenset[str]:
+    """Return the config keys a grating owns and its studies inherit."""
+
+    return frozenset(spec.name for spec in STUDY_FIELDS if spec.section in GRATING_SECTIONS)
+
+
+def grating_config_subset(config: dict[str, Any]) -> dict[str, Any]:
+    """Return the grating and coating part of a study config."""
+
+    names = grating_field_names()
+    return {key: value for key, value in config.items() if key in names}
+
+
+def study_form_sections(
+    advanced: bool, scope: str = "all"
+) -> list[tuple[str, list[tuple[str, list[FieldSpec]]]]]:
     """Return ``(section, rows)`` groups for the study form.
 
     Each section holds ``(row_label, fields)`` pairs. A row labelled ``""``
@@ -225,6 +244,8 @@ def study_form_sections(advanced: bool) -> list[tuple[str, list[tuple[str, list[
     Args:
         advanced: ``True`` for the advanced (collapsible) fields, ``False`` for
             the always-visible ones.
+        scope: ``"all"``, ``"grating"`` (only the grating and coating sections) or
+            ``"study"`` (everything a grating does not own).
 
     Returns:
         Section groups preserving :data:`STUDY_FIELDS` order.
@@ -233,6 +254,8 @@ def study_form_sections(advanced: bool) -> list[tuple[str, list[tuple[str, list[
     sections: dict[str, list[tuple[str, list[FieldSpec]]]] = {}
     for spec in STUDY_FIELDS:
         if bool(spec.advanced) != advanced:
+            continue
+        if (scope == "grating") != (spec.section in GRATING_SECTIONS) and scope != "all":
             continue
         rows = sections.setdefault(spec.section, [])
         if rows and rows[-1][0] == spec.row:
@@ -862,9 +885,7 @@ class MultilayerDesignStudyStore:
     def load(self, study_id: str) -> dict[str, Any]:
         """Load one study manifest by id."""
 
-        path = self._study_dir(study_id) / "study.json"
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        payload = read_json(self._study_dir(study_id) / "study.json")
         payload.setdefault("id", study_id)
         return payload
 
@@ -873,15 +894,18 @@ class MultilayerDesignStudyStore:
 
         payload = dict(manifest)
         payload["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        study_dir = self._study_dir(str(payload["id"]))
-        study_dir.mkdir(parents=True, exist_ok=True)
-        path = study_dir / "study.json"
-        temp_path = path.with_name(f"study.json.{datetime.now().timestamp():.9f}.tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        temp_path.replace(path)
+        path = self._study_dir(str(payload["id"])) / "study.json"
+        with locked(path):
+            write_json_atomically(path, payload, sort_keys=True)
         return payload
+
+    def update(self, study_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+        """Apply ``change`` to one saved study with no other update in between."""
+
+        with locked(self._study_dir(study_id) / "study.json"):
+            manifest = self.load(study_id)
+            change(manifest)
+            return self.save(manifest)
 
     def create(
         self,
@@ -916,9 +940,7 @@ class MultilayerDesignStudyStore:
         """Delete several study directories."""
 
         for study_id in study_ids:
-            study_dir = self._study_dir(study_id)
-            if study_dir.exists():
-                shutil.rmtree(study_dir)
+            remove_tree(self._study_dir(study_id))
 
     def study_dir(self, study_id: str) -> Path:
         """Return the directory for one study id (validated)."""
@@ -940,3 +962,94 @@ def _blank_stage() -> dict[str, Any]:
         "designs": [],
         "artifacts": {},
     }
+
+
+
+class MultilayerGratingStore:
+    """Store multilayer gratings; each one groups the studies attached to it.
+
+    A grating holds the geometry and coating (the fields in
+    :data:`GRATING_SECTIONS`); every study keeps its own full config and carries
+    the grating's id as ``grating_id``.
+    """
+
+    def __init__(self, directory: str | Path) -> None:
+        """Initialise the store rooted at ``directory``."""
+
+        self.directory = Path(directory)
+
+    def list(self) -> list[dict[str, Any]]:
+        """Return gratings, newest first."""
+
+        if not self.directory.exists():
+            return []
+        gratings = [read_json(path) for path in self.directory.glob("*/grating.json")]
+        return sorted(
+            gratings,
+            key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))),
+            reverse=True,
+        )
+
+    def load(self, grating_id: str) -> dict[str, Any]:
+        """Load one grating by id."""
+
+        return read_json(self._grating_dir(grating_id) / "grating.json")
+
+    def save(self, grating: dict[str, Any]) -> dict[str, Any]:
+        """Persist a grating atomically and return it."""
+
+        payload = dict(grating)
+        path = self._grating_dir(str(payload["id"])) / "grating.json"
+        with locked(path):
+            write_json_atomically(path, payload, sort_keys=True)
+        return payload
+
+    def create(self, *, display_name: str, config: dict[str, Any]) -> dict[str, Any]:
+        """Create a grating from the grating part of ``config``."""
+
+        slug = _slugify(display_name) or "grating"
+        base = f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
+        candidate = base
+        suffix = 2
+        while (self._grating_dir(candidate) / "grating.json").exists():
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return self.save(
+            {
+                "id": candidate,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "display_name": display_name.strip() or candidate,
+                "config": grating_config_subset(config),
+            }
+        )
+
+    def find_matching(self, config: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the grating whose geometry and coating equal those of ``config``."""
+
+        wanted = grating_config_subset(config)
+        for grating in self.list():
+            if grating_config_subset(grating["config"]) == wanted:
+                return grating
+        return None
+
+    def delete(self, grating_id: str) -> None:
+        """Delete one grating directory."""
+
+        remove_tree(self._grating_dir(grating_id))
+
+    def _grating_dir(self, grating_id: str) -> Path:
+        if _slugify(grating_id) != grating_id:
+            raise ValueError("Invalid grating id.")
+        return self.directory / grating_id
+
+
+def default_grating_name(config: dict[str, Any]) -> str:
+    """Name a grating after its coating and line density."""
+
+    def material(value: Any) -> str:
+        return str(value[0]) if isinstance(value, list) and value else "?"
+
+    coating = config.get("coating_label") or (
+        f"{material(config.get('material_a'))}/{material(config.get('material_b'))}"
+    )
+    return f"{coating} {config.get('grating_density_lpermm', '')} l/mm"

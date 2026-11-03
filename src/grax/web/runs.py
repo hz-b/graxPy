@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import csv
-import json
-import os
 import re
-import shutil
-import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+from .files import locked, read_json, remove_tree, write_json_atomically
 
 
 @dataclass(frozen=True)
@@ -54,9 +51,7 @@ class RunStore:
 
     def load(self, run_id: str) -> dict[str, Any]:
         """Load one run manifest by identifier."""
-        path = self._manifest_path(run_id)
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        payload = read_json(self._manifest_path(run_id))
         payload.setdefault("id", run_id)
         payload.setdefault("display_name", self._default_display_name(payload))
         return payload
@@ -69,50 +64,52 @@ class RunStore:
         payload["id"] = run_id
         payload.setdefault("display_name", self._default_display_name(payload))
         path = self._manifest_path(run_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_name(f"{path.name}.{datetime.now().timestamp():.9f}.tmp")
-        try:
-            with temp_path.open("w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=2, sort_keys=True)
-                handle.write("\n")
-            deadline = time.monotonic() + 2.0
-            while True:
-                try:
-                    temp_path.replace(path)
-                    break
-                except PermissionError as error:
-                    # Windows readers can briefly block replacement of the old file.
-                    if os.name != "nt" or error.winerror != 5 or time.monotonic() >= deadline:
-                        raise
-                    time.sleep(0.02)
-        finally:
-            temp_path.unlink(missing_ok=True)
+        with locked(path):
+            write_json_atomically(path, payload, sort_keys=True)
         return payload
+
+    def update(self, run_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+        """Apply ``change`` to one saved manifest with no other update in between."""
+        with locked(self._manifest_path(run_id)):
+            payload = self.load(run_id)
+            change(payload)
+            return self.save(payload)
 
     def rename(self, run_id: str, display_name: str) -> dict[str, Any]:
         """Update the user-visible display name for one run."""
-        payload = self.load(run_id)
         name = display_name.strip()
-        if name:
-            payload["display_name"] = name
-        else:
-            payload.pop("display_name", None)
-        payload["updated_at"] = _timestamp()
-        return self.save(payload)
+
+        def change(payload: dict[str, Any]) -> None:
+            if name:
+                payload["display_name"] = name
+            else:
+                payload.pop("display_name", None)
+            payload["updated_at"] = _timestamp()
+
+        return self.update(run_id, change)
 
     def update_comment(self, run_id: str, comment: str) -> dict[str, Any]:
         """Update the saved user comment for one run."""
-        payload = self.load(run_id)
-        payload["comment"] = comment.strip()
-        payload["updated_at"] = _timestamp()
-        return self.save(payload)
+        return self.update(
+            run_id,
+            lambda payload: payload.update(comment=comment.strip(), updated_at=_timestamp()),
+        )
+
+    def save_edits(self, form: Any, run_ids: Sequence[str], *, only: str = "") -> None:
+        """Save the name and comment fields a manage page posted, for one run if ``only`` is set."""
+        for run_id in run_ids:
+            if only and run_id != only:
+                continue
+            if f"display_name_{run_id}" in form:
+                self.rename(run_id, str(form.get(f"display_name_{run_id}", "")))
+            if f"comment_{run_id}" in form:
+                self.update_comment(run_id, str(form.get(f"comment_{run_id}", "")))
 
     def delete_many(self, run_ids: Sequence[str]) -> None:
         """Delete several run directories."""
         for run_id in run_ids:
             run_dir = self._run_dir(run_id)
-            if run_dir.exists():
-                shutil.rmtree(run_dir)
+            remove_tree(run_dir)
 
     def available_orders(self, run_id: str) -> list[int]:
         """Return the diffraction orders stored for one run."""
@@ -144,6 +141,10 @@ class RunStore:
             return []
         with path.open("r", encoding="utf-8", newline="") as handle:
             return list(csv.DictReader(handle))
+
+    def run_dir(self, run_id: str) -> Path:
+        """Return the folder of one run, rejecting unsafe run identifiers."""
+        return self._run_dir(run_id)
 
     def _run_dir(self, run_id: str) -> Path:
         """Return the filesystem path for one run identifier."""

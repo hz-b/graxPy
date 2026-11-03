@@ -14,7 +14,10 @@ from werkzeug.datastructures import MultiDict
 from grax import simulation
 from grax.web import app as web_app
 from grax.web import parameter_scans as scans
+from grax.web import run_jobs, run_plots
+from grax.web.routes import runs as run_routes
 from grax.web.custom_grid import default_configuration
+from grax.web.persistence import build_grating_from_spec
 
 
 def spec():
@@ -51,8 +54,35 @@ def build(value=None, mode="energy_sweep"):
         spec(),
         mode=mode,
         energies=np.array([100.0, 110.0, 120.0]),
-        defaults={"grazing_angle_deg": 1.5, "fourier_orders": 5, "cff": 2.25},
+        defaults={"grazing_angle_deg": 1.5, "fourier_orders": 5, "cff": 2.25,
+                  "total_deviation_deg": 174.0},
     )
+
+
+@pytest.mark.parametrize("mode", [
+    "energy_sweep", "angle_sweep", "fixed_angle", "monochromator", "constant_deviation",
+])
+def test_none_coating_scan_is_supported_in_every_parameter_scan_mode(mode):
+    """All grouped scan modes consume the shared None-material representation."""
+    base = spec()
+    base["stack"] = {
+        "type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_thickness_nm": 20,
+    }
+    value = default_configuration(base)
+    value["independent"] = [{
+        "parameter": "stack.layer_material", "mode": "list", "values": ["None", "Ni"],
+    }]
+
+    sweep, cases = scans.build_scans(
+        value, base, mode=mode, energies=np.array([100.0]),
+        defaults={"grazing_angle_deg": 1.5, "fourier_orders": 5, "cff": 2.25,
+                  "total_deviation_deg": 174.0},
+    )
+
+    assert len(sweep["scans"]) == 2
+    assert cases[0]["scan_grating_spec"]["stack"]["type"] == "bare"
+    assert cases[1]["scan_grating_spec"]["stack"]["layer_material"]["name"] == "Ni"
 
 
 def fake_results(cases):
@@ -133,6 +163,95 @@ def test_monochromator_recomputes_geometry_per_energy_and_line_density():
             case["grazing_angle_deg"] for case in reference
         ]
     assert cases[0]["grazing_angle_deg"] != cases[6]["grazing_angle_deg"]
+
+
+def test_constant_deviation_keeps_beam_deviation_fixed_and_solves_grating_equation():
+    """Keep 2θ and the grating equation satisfied at each sampled energy."""
+    cases = list(simulation.constant_deviation_cases(
+        grating=build_grating_from_spec(spec()),
+        energies_ev=[200.0, 400.0, 800.0],
+        total_deviation_deg=174.0,
+    ))
+    assert len(cases) == 3
+    for case in cases:
+        alpha = np.deg2rad(case["grazing_angle_deg"])
+        beta = np.deg2rad(case["diffraction_angle_deg"])
+        assert np.rad2deg(alpha + beta) == pytest.approx(6.0)
+        wavelength_nm = 1239.8 / case["energy_ev"]
+        period_nm = 1e6 / spec()["period_lpermm"]
+        assert period_nm * (np.cos(alpha) - np.cos(beta)) == pytest.approx(wavelength_nm)
+
+
+def test_constant_deviation_rejects_unphysical_angles():
+    """Reject energy and deviation combinations without physical grazing angles."""
+    grating = build_grating_from_spec(spec())
+    with pytest.raises(ValueError, match="No (real|physical) grazing angles"):
+        list(simulation.constant_deviation_cases(
+            grating=grating, energies_ev=[10.0], total_deviation_deg=174.0,
+        ))
+
+
+def test_constant_deviation_parameter_scan_reuses_solver_and_resolved_grating():
+    """Keep parameter combinations and solver choices in the shared scan builder."""
+    value = default_configuration(spec())
+    value["independent"] = [
+        {"parameter": "period_lpermm", "mode": "list", "values": [400, 600]},
+    ]
+    sweep, cases = scans.build_scans(
+        value,
+        spec(),
+        mode="constant_deviation",
+        energies=np.array([200.0, 300.0]),
+        defaults={"total_deviation_deg": 170.0, "diffraction_order": 1,
+                  "fourier_orders": 5, "grazing_angle_deg": 1.5,
+                  "solver": "neviere", "polarization": "p"},
+    )
+    assert len(sweep["scans"]) == 2
+    assert all(case["solver"] == "neviere" for case in cases)
+    assert [case["energy_ev"] for case in cases[:2]] == [200.0, 300.0]
+
+
+def test_constant_deviation_material_loop_includes_uncoated_grating():
+    """A material sweep can include an uncoated case and still start."""
+    coated = spec()
+    coated["x_resolution_nm"] = 50.0
+    coated["z_resolution_nm"] = 2.0
+    coated["stack"] = {
+        "type": "single_layer", "substrate_material": "Si",
+        "layer_material": "Au", "layer_thickness_nm": 10.0,
+        "layer_roughness_sigma_nm": 0.2,
+    }
+    value = default_configuration(coated)
+    value["independent"] = [{
+        "parameter": "stack.layer_material", "mode": "list",
+        "values": [
+            {"name": "None", "density_g_cm3": None, "roughness_sigma_nm": None},
+            {"name": "Au", "density_g_cm3": None, "roughness_sigma_nm": 0.8},
+        ],
+    }]
+    defaults = {
+        "total_deviation_deg": 174.0, "diffraction_order": 1,
+        "fourier_orders": 2, "grazing_angle_deg": 1.5,
+        "solver": "rcwa", "polarization": "s",
+    }
+    sweep, cases = scans.build_scans(
+        value, coated, mode="constant_deviation",
+        energies=np.array([300.0]), defaults=defaults,
+    )
+
+    assert len(sweep["scans"]) == len(cases) == 2
+    assert [case["scan_grating_spec"]["stack"]["type"] for case in cases] == ["bare", "single_layer"]
+    assert cases[0]["scan_grating_spec"]["stack"]["substrate_material"] == "Si"
+    assert cases[1]["scan_grating_spec"]["stack"]["layer_roughness_sigma_nm"] == 0.8
+    results = [simulation.run_simulation(
+        grating=case["grating"], energy_ev=case["energy_ev"],
+        grazing_angle_deg=case["grazing_angle_deg"],
+        diffraction_order=case["diffraction_order"],
+        fourier_orders=case["fourier_orders"],
+        polarization=case["polarization"], solver=case["solver"],
+        validate_physical_results=False,
+    ) for case in cases]
+    assert all(np.isfinite(result.selected_efficiency) for result in results)
 
 
 def test_forbidden_mount_parameters_are_rejected():
@@ -220,7 +339,9 @@ def test_grouped_preview_keeps_scan_identities_and_selected_styles(tmp_path):
 def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, monkeypatch):
     """Preserve the scan snapshot and execution options through queue and resume."""
     launched = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    # The resume route starts workers itself, so patch its lookup too.
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
         {
@@ -268,7 +389,7 @@ def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, 
         f"scan-000000-angle-{index:06d}" for index in range(3)
     ]
     path = tmp_path / "runs" / manifest["id"] / "manifest.json"
-    saved = json.loads(path.read_text())
+    saved = json.loads(path.read_text(encoding="utf-8"))
     saved["status"] = "aborted"
     path.write_text(json.dumps(saved))
     response = app.test_client().post(f"/runs/{manifest['id']}/resume")
@@ -280,7 +401,7 @@ def test_queue_persists_normalized_combinations_and_counts_all_points(tmp_path, 
 def test_monochromator_run_keeps_multidict_form_for_run_input(tmp_path, monkeypatch):
     """Monochromator CFF preprocessing must not break form-list access."""
     launched = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
         [
@@ -405,6 +526,28 @@ def test_angle_comparison_uses_grazing_angle_axis(tmp_path):
     assert figure["layout"]["xaxis"]["title"]["text"] == "Grazing angle (deg)"
 
 
+def test_empty_scan_selection_defaults_to_all_scans_for_selected_run_and_order(tmp_path):
+    sweep, cases = build()
+    run_id = "empty-scan-selection"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "id": run_id, "workflow": "energy_sweep", "status": "completed",
+        "grating_name": "Laminar", "run_input": {"diffraction_order": 1},
+        "parameter_sweep": sweep,
+    }))
+    scans.write_outputs(fake_results(cases), sweep, run_dir, title="Laminar", include_plot=False)
+
+    _, series = web_app._load_selected_plot_series(
+        data_dir=tmp_path,
+        run_ids=[run_id],
+        order_selection={run_id: [1]},
+        scan_selection={run_id: []},
+    )
+
+    assert len(series) == len(sweep["scans"])
+
+
 def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatch):
     sweep, cases = build()
     run_id = "live-grouped"
@@ -447,7 +590,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
         diffraction_order=1, title="Failed first point", now=1.0,
     )
 
-    monkeypatch.setattr(web_app, "_load_checkpoint_results", lambda path: results)
+    monkeypatch.setattr(run_plots, "_load_checkpoint_results", lambda path: results)
     client = web_app.create_app(data_dir=tmp_path).test_client()
     page = client.get(f"/runs/{run_id}")
     final_path = run_dir / "selected_efficiency.png"
@@ -459,7 +602,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
     assert final_path.stat().st_mtime_ns == first_mtime
     scans.write_outputs(results, sweep, run_dir, title="Saved", include_plot=False)
     final_path.unlink()
-    monkeypatch.setattr(web_app, "_load_checkpoint_results", lambda path: [])
+    monkeypatch.setattr(run_plots, "_load_checkpoint_results", lambda path: [])
     assert client.get(f"/runs/{run_id}").status_code == 200
     assert final_path.is_file()
 
@@ -467,7 +610,7 @@ def test_grouped_live_plot_refreshes_and_saved_plot_repairs(tmp_path, monkeypatc
 def test_energy_sweep_keeps_angle_fixed_across_parameter_combinations(tmp_path, monkeypatch):
     """Combine optional parameters with the energy range at one grazing angle."""
     launched = {}
-    monkeypatch.setattr(web_app, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    monkeypatch.setattr(run_jobs, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
     app = web_app.create_app(data_dir=tmp_path)
     form = MultiDict(
         {

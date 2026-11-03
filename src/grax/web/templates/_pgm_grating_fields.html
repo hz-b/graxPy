@@ -1,0 +1,17 @@
+{# The grating editor on the PGM page; also served alone when a grating is picked. #}
+{% set defaults = editor.defaults %}
+{% set custom_layers = editor.custom_layers %}
+{% set density_placeholders = editor.density_placeholders %}
+{% set allow_custom = true %}
+{% set allow_bare = true %}
+{% set allow_afm_type = false %}
+{% set name_required = false %}
+{% set substrate_rendered = true %}
+<input type="hidden" name="afm_profile_path" data-afm-profile-path value="{{ defaults.afm_profile_path|default('') }}">
+<input type="hidden" name="afm_source_filename" value="{{ defaults.afm_source_filename|default('') }}">
+<input type="hidden" name="afm_units" value="{{ defaults.afm_units|default('nm') }}">
+<input type="hidden" name="afm_profile_type" value="{{ defaults.afm_profile_type|default('blazed') }}">
+<input type="hidden" name="afm_period_nm" value="{{ defaults.afm_period_nm|default('0') }}">
+{% include "_grating_fields.html" %}
+{% include "_substrate_fields.html" %}
+{% include "_stack_fields.html" %}

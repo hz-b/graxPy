@@ -33,6 +33,8 @@ class ParameterDescriptor:
     minimum: float | None = None
     choices: tuple[str, ...] = ()
     roughness_path: tuple[str | int, ...] = ()
+    # Whether a material may be scanned as None, which removes it from the stack.
+    nullable: bool = False
 
     def to_json(self) -> dict[str, Any]:
         """Return a JSON-compatible descriptor for the browser builder."""
@@ -335,7 +337,7 @@ def expand_custom_grid(
         "grazing_angle_deg": 1.5,
         "diffraction_order": 1,
         "fourier_orders": 5,
-        "polarization": "s",
+        "polarization": "p",
         "solver": "rcwa",
         **(defaults or {}),
     }
@@ -370,12 +372,21 @@ def expand_custom_grid(
                 raise ValueError(f"Parameter is not valid for every selected variant: {parameter}")
             if descriptor.target == "spec":
                 if descriptor.kind == "material":
+                    if value is None:
+                        stack = _remove_scanned_material(spec, stack, descriptor)
+                        continue
                     material = deepcopy(value)
                     sigma = material.pop("roughness_sigma_nm", None)
                     _set_path(spec, descriptor.path, material)
                     if sigma is not None and descriptor.roughness_path:
                         _set_path(spec, descriptor.roughness_path, sigma)
                 else:
+                    material_path = _material_path_for_property(descriptor.path)
+                    if material_path is not None and _get_path(spec, material_path) is None:
+                        property_name = "density" if descriptor.path[-1] == "density_g_cm3" else "roughness"
+                        raise ValueError(
+                            f"Choose a material before scanning its {property_name}."
+                        )
                     _set_path(spec, descriptor.path, value)
             elif descriptor.target == "case":
                 resolved[parameter] = value
@@ -642,6 +653,11 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
             "top_cap_material": "top_cap_roughness_sigma_nm",
             "material": "roughness_sigma_nm",
         }.get(leaf)
+        # Only coatings, top caps and custom layers can be left out of the stack.
+        nullable = kind == "material" and (
+            leaf in {"top_cap_material", "material"}
+            or (leaf == "layer_material" and stack.get("type") == "single_layer")
+        )
         descriptors.append(
             ParameterDescriptor(
                 id=identifier,
@@ -654,6 +670,7 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
                 roughness_path=(
                     (*path[:-1], roughness_key) if kind == "material" and roughness_key else ()
                 ),
+                nullable=nullable,
             )
         )
         if kind == "material":
@@ -750,10 +767,19 @@ def _cast_value(value: Any, descriptor: ParameterDescriptor) -> Any:
         if descriptor.choices and result not in descriptor.choices:
             raise ValueError(f"Invalid value for {descriptor.label}: {result}")
     elif descriptor.kind == "material":
+        if value is None:
+            return None
         if isinstance(value, dict):
             result = deepcopy(value)
         else:
-            result = {"name": str(value).strip(), "density_g_cm3": None}
+            name = "" if value is None else str(value).strip()
+            if name.casefold() == "none":
+                return None
+            result = {"name": name, "density_g_cm3": None}
+        if str(result.get("name", "")).strip().casefold() == "none":
+            if any(result.get(key) not in (None, "") for key in ("density_g_cm3", "roughness_sigma_nm")):
+                raise ValueError(f"{descriptor.label}: None cannot have density or roughness values.")
+            return None
         if not result.get("name"):
             raise ValueError(f"{descriptor.label} needs a material name.")
         for key, positive in (("density_g_cm3", True), ("roughness_sigma_nm", False)):
@@ -776,6 +802,73 @@ def _cast_value(value: Any, descriptor: ParameterDescriptor) -> Any:
     if isinstance(result, float) and not math.isfinite(result):
         raise ValueError(f"{descriptor.label} must be finite.")
     return result
+
+
+def _remove_scanned_material(
+    spec: dict[str, Any], stack: dict[str, Any], descriptor: ParameterDescriptor
+) -> dict[str, Any]:
+    """Apply the explicit ``None`` material value where absence is supported."""
+    path = descriptor.path
+    leaf = str(path[-1]) if path else "material"
+    if leaf == "top_cap_material":
+        _set_path(spec, path, None)
+        return stack
+    if leaf == "layer_material" and stack.get("type") == "single_layer":
+        spec["stack"] = {
+            "type": "bare",
+            "substrate_material": stack["substrate_material"],
+            "substrate_roughness_sigma_nm": stack.get("substrate_roughness_sigma_nm"),
+        }
+        return spec["stack"]
+    if len(path) == 4 and path[:2] == ("stack", "layers_bottom_up") and leaf == "material":
+        index = int(path[2])
+        layers = stack.get("layers_bottom_up", [])
+        if not 0 <= index < len(layers):
+            raise ValueError(f"{descriptor.label} refers to a missing custom layer.")
+        remaining = [layer for layer_index, layer in enumerate(layers) if layer_index != index]
+        if not remaining:
+            spec["stack"] = {
+                "type": "bare",
+                "substrate_material": stack["substrate_material"],
+                "substrate_roughness_sigma_nm": stack.get("substrate_roughness_sigma_nm"),
+            }
+            return spec["stack"]
+        stack["layers_bottom_up"] = remaining
+        return stack
+    raise ValueError(_required_material_message(descriptor))
+
+
+def _required_material_message(descriptor: ParameterDescriptor) -> str:
+    """Explain why None is not allowed for this material; the sweep editor shows the same text."""
+    if str(descriptor.path[-1]) == "substrate_material":
+        return (
+            "Substrate material cannot be None: a grating always needs a substrate. "
+            "Remove None from this list."
+        )
+    return (
+        f"{descriptor.label} cannot be None: a multilayer needs both of its materials. "
+        "Remove None from this list."
+    )
+
+
+def _material_path_for_property(path: tuple[str | int, ...]) -> tuple[str | int, ...] | None:
+    """Return the material field associated with a density or roughness path."""
+    if len(path) >= 2 and path[-1] == "density_g_cm3":
+        return path[:-1]
+    roughness_materials = {
+        "substrate_roughness_sigma_nm": "substrate_material",
+        "layer_roughness_sigma_nm": "layer_material",
+        "material_a_roughness_sigma_nm": "material_a",
+        "material_b_roughness_sigma_nm": "material_b",
+        "top_cap_roughness_sigma_nm": "top_cap_material",
+    }
+    if path and str(path[-1]) in roughness_materials:
+        return (*path[:-1], roughness_materials[str(path[-1])])
+    if len(path) == 4 and path[:2] == ("stack", "layers_bottom_up") and path[-1] in {
+        "roughness_sigma_nm", "correlation_length_nm",
+    }:
+        return (*path[:-1], "material")
+    return None
 
 
 def _material_name(value: Any) -> str | None:

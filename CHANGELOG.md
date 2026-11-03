@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.6.0
+
+### New features
+- Calculate an SX700 PGM working range, with the same live progress display as other runs, an interactive dashboard that fills in while the run calculates (side view, parameters and all maps, laid out and colored like the SX700 project's), and CSV or PNG downloads. The PGM page opens on the SX700 example; edit its grating and mirror directly or fill them from saved ones, and save a setup as a named PGM. Saved PGMs and PGM runs each have their own manage page, and runs can be filtered by the PGM they started from, renamed, commented and bulk deleted. PGM runs can use several workers, and plane-mirror and multilayer runs now show the same live progress display as other runs.
+- The PGM geometry settings are grouped and use the symbols of a new side-view drawing, with a hover explanation next to each term.
+- Opening a saved grating or mirror for editing keeps a custom density instead of resetting it to the catalog value.
+- Plane mirrors now have their own pages: create and edit mirrors (with layer-stack previews), run energy, angle or fixed-CFF monochromator scans, vary stacks independently or coupled, and see reflectivity previews and saved results.
+- Manage grating runs: filter runs by grating, and save each run's name and comment with its own Save button.
+- Saved plots can be edited and downloaded as PNG, plotted CSV data, or a portable script with data; plane-mirror runs can be compared in plots too.
+- A constant-deviation grating mount, a remembered dot or comma for decimal input, and a saved S (TE) / P (TM) polarization choice per database folder. P is now the default.
+- Parameter-study points are checkpointed, and unfinished runs can be resumed or restarted.
+- A web guide with illustrated walkthroughs for gratings, plane mirrors and multilayer gratings.
+- `grax-web --data-dir` serves a chosen database folder, and `--no-browser` skips opening a browser window.
+- Number fields behave consistently: any decimal precision, fine arrow steps (0.1° for 2θ), mouse-wheel stepping, and marker size 0 to hide plot symbols.
+- Clearer AFM upload page with a scrollable status panel, copyable errors and retry controls, and finer threshold arrows.
+- The grax-web terminal shows the error and traceback when a run or page fails.
+- Multilayer studies have a Diagnostics page to browse stored result folders and plot every theta scan used to find each maximum: precise/rough checkboxes, a one-by-one stepper, and one legend entry per scan that toggles its curves and peak together; also survey, energy and profile plots.
+- Multilayer gratings are now their own objects: Manage multilayer gratings shows each grating with a preview and the studies attached to it, a grating opens on its first study with a dropdown for the others, and a grating's geometry and coating are edited once for all its studies. Existing studies are grouped automatically.
+- The Diagnostics theta-scan plot has a Fit checkbox that shows the Gaussian or Voigt curve used to pick the peak, drawn in red over pale rough and fine scans, for studies run with a fit; the sampled maximum is marked next to the fitted peak.
+- On a multilayer study page, the rough scan, fine scan and selected peak appear below the survey map: the newest solved cell while the survey runs, and any cell you click on the map, which is outlined on the map. The energy scan does the same: the newest solved energy while it runs, and any point you click on the curve. A button returns to following the newest cell or energy after you picked one.
+- Clicking the survey map only adds a design to the energy-scan selection while "Choose manually" is open; otherwise it just shows that cell's scans.
+- Starting, aborting or resetting a multilayer stage keeps the page at that stage instead of jumping to the top, and the energy-scan plot shows its axes as soon as the scan starts.
+- A "How it works" page under Multilayer grating explains the three-step angle search, the noise caveat and the plots it produces, with example figures.
+- Cleaner layouts for plane-mirror run cards, the mirror library and previews.
+- Behind the scenes: the website code is split into smaller modules, automated checks compare every page, export and run with the previous version on Windows, macOS and Linux, a PyPI prerelease workflow allows opt-in testing, and Claude Code reads the same `AGENTS.md` guidance as other coding agents.
+
+### Bug fixes
+- Numeric fields now change with the mouse wheel only when focused and directly under the pointer, preventing accidental edits while scrolling the page.
+- The pictures in the web guide now show in the installed app; they were left out of the package.
+- Runs and multilayer stages left unfinished when the app stopped now show as aborted, so they can be resumed instead of looking busy forever.
+- Plane-mirror runs are tracked like grating runs: no double starts, correct failure state, and they can be resumed.
+- Deleting a run or study first stops any calculation still running in it.
+- Material sweeps with a None option now handle uncoated cases, and the sweep editor reports a clear error when a grating's substrate or multilayer material is None.
+- Much more reliable saving and opening of runs, studies, plots and settings on Windows, including when a result file is open in another program.
+- Saved results and downloads list points in scan order, even when parallel workers finish out of order.
+- Fixed rejected constant-deviation angles and sweep step sizes, and the reflectivity preview on a saved mirror's scan page.
+- Kept plot selections when changing a loop, and saved preferences now persist.
+- The website refuses changes sent by pages from other websites and rejects malformed IDs. `grax-web` runs without the Flask debugger unless `--debug` is given on a local host.
+
 ## 0.5.7
 
 - Added a system folder picker for local desktop use and kept folder selection on the home page.
@@ -258,3 +297,4 @@ Renames only — no behaviour changed. Migration:
 - Flexible optimizer workflows and related examples were expanded/cleaned up across laminar and blazed use cases.
 - Optimizer/simulation documentation was refreshed for consistency with the current APIs and tutorials.
 - Static compile and compatibility coverage for example and comparison scripts was strengthened.
+- Fixed the plot preview so a marker size of zero hides symbols while keeping series lines visible.

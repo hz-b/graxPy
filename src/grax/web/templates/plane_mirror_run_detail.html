@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ run.display_name }}{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div><h1>{{ run.display_name }}</h1><p><a href="{{ url_for('plane_mirror_detail', mirror_id=run.mirror_id) }}">{{ run.mirror_name }}</a> · {{ run.created_at }}</p></div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('plane_mirror_runs') }}">Manage plane-mirror runs</a>
+    {% if run.status in ['queued','running','aborting'] %}<form method="post" action="{{ url_for('plane_mirror_run_abort', run_id=run.id) }}"><button class="button danger" type="submit" data-run-abort-action>Abort</button></form>{% endif %}
+    {% if run.status in ['aborted','error','failed','completed'] %}
+      <form method="post" action="{{ url_for('plane_mirror_run_resume', run_id=run.id) }}"><button class="button primary" type="submit">Resume</button></form>
+      <form method="post" action="{{ url_for('plane_mirror_run_restart', run_id=run.id) }}"><button class="button" type="submit">Restart</button></form>
+    {% endif %}
+  </div>
+</section>
+{% set active = run.status in ['queued','running','aborting'] %}
+{% if active %}
+{% include '_run_monitor.html' %}
+{% else %}
+<section class="notice">
+  <strong>{{ run.status }}</strong> · <span>{{ run.completed_points }} / {{ run.total_points }} variations</span>
+  {% if run.error_text %}<p class="notice-error">{{ run.error_text }}</p>{% endif %}
+</section>
+{% endif %}
+{% if run.scan_details %}
+<section>
+  <h2>Scan settings</h2>
+  <dl class="plane-mirror-parameter-list">
+    {% for label, value in run.scan_details %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+  </dl>
+</section>
+{% endif %}
+{% if run.completed_points and not active %}<section class="preview-panel"><h2>Results</h2><img class="plane-mirror-result-plot" src="{{ url_for('data_file', filename='runs/' ~ run.id ~ '/plot.png', v=run.completed_points) }}" alt="Plane-mirror scan results"></section>{% endif %}
+{% if results %}
+<section><h2>Variation results</h2><div class="run-compare-table-wrap"><table class="run-compare-table"><thead><tr><th>Case</th><th>Parameters</th><th>Scan</th></tr></thead><tbody>
+{% for result in results %}<tr><td>{{ result.index }}</td><td>{% if result.parameters %}{% for key, value in result.parameters.items() %}<div>{{ key }} = {{ value }}</div>{% endfor %}{% else %}Base settings{% endif %}</td><td>{{ result.mode }} · {{ result.x|length }} samples</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endif %}
+{% endblock %}

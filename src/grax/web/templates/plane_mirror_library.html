@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Manage plane mirrors{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Manage plane mirrors</h1>
+    <p>{{ mirrors|length }} saved plane mirror{{ 's' if mirrors|length != 1 else '' }} with layer-stack previews.</p>
+  </div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
+    <a class="button" href="{{ url_for('plane_mirror_runs') }}">Manage plane-mirror runs</a>
+  </div>
+</section>
+
+{% if message %}
+  <section class="notice"><p>{{ message }}</p></section>
+{% endif %}
+
+{% if mirrors %}
+  <section class="plane-mirror-library" aria-label="Saved plane mirrors">
+    {% for mirror in mirrors %}
+      <article class="plane-mirror-library-card">
+        <div class="plane-mirror-library-info">
+          <div class="plane-mirror-library-heading">
+            <div>
+              <h2><a href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">{{ mirror.name }}</a></h2>
+              {% if mirror.label %}<p class="subtle">{{ mirror.label }}</p>{% endif %}
+            </div>
+            <a class="button" href="{{ url_for('plane_mirror_detail', mirror_id=mirror.id) }}">Open mirror</a>
+          </div>
+          <p class="subtle">{{ mirror.summary }}</p>
+        </div>
+        <img
+          class="plane-mirror-stack-preview"
+          src="{{ url_for('plane_mirror_saved_stack_preview', mirror_id=mirror.id) }}"
+          alt="Layer stack schematic for {{ mirror.name }}"
+          loading="lazy"
+        >
+      </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <section class="empty-state">
+    <p class="empty">No plane mirrors have been saved yet.</p>
+    <a class="button primary" href="{{ url_for('plane_mirror_page') }}">Create a plane mirror</a>
+  </section>
+{% endif %}
+{% endblock %}

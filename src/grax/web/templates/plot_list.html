@@ -12,22 +12,29 @@
 {% if plots %}
   <div class="list">
     {% for plot in plots %}
-      <div class="row">
-        <div>
-          <strong><a href="{{ url_for('plot_detail', plot_id=plot.id) }}">{{ plot.name or plot.title }}</a></strong>
-          <p class="subtle">
-            {{ plot.created_at }}
-            {% if plot.selected_runs %}
-              &middot; {{ plot.selected_runs | length }} run{% if plot.selected_runs | length != 1 %}s{% endif %}
-              {% if plot.unavailable_run_count %}&middot; {{ plot.unavailable_run_count }} unavailable{% endif %}
-            {% endif %}
-          </p>
+      <article class="row saved-plot-row">
+        {% if plot.preview_url %}
+          <a class="saved-plot-preview" href="{{ url_for('plot_detail', plot_id=plot.id) }}" aria-label="View {{ plot.name or plot.title }}">
+            <img src="{{ plot.preview_url }}" alt="Preview of {{ plot.name or plot.title }}" loading="lazy">
+          </a>
+        {% endif %}
+        <div class="saved-plot-info">
+          <div>
+            <strong><a href="{{ url_for('plot_detail', plot_id=plot.id) }}">{{ plot.name or plot.title }}</a></strong>
+            <p class="subtle">
+              {{ plot.created_at }}
+              {% if plot.selected_runs %}
+                &middot; {{ plot.selected_runs | length }} run{% if plot.selected_runs | length != 1 %}s{% endif %}
+                {% if plot.unavailable_run_count %}&middot; {{ plot.unavailable_run_count }} unavailable{% endif %}
+              {% endif %}
+            </p>
+          </div>
+          <div class="actions">
+            <a class="button" href="{{ url_for('plot_detail', plot_id=plot.id) }}">View</a>
+            <a class="button" href="{{ url_for('plot_delete', plot_id=plot.id) }}">Delete</a>
+          </div>
         </div>
-        <div class="actions">
-          <a class="button" href="{{ url_for('plot_detail', plot_id=plot.id) }}">View</a>
-          <a class="button" href="{{ url_for('plot_delete', plot_id=plot.id) }}">Delete</a>
-        </div>
-      </div>
+      </article>
     {% endfor %}
   </div>
 {% else %}

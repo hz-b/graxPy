@@ -199,10 +199,20 @@ def _validate_fit_center(
     )
 
 
+def _dense_theta_deg(theta_window_deg: np.ndarray, center_deg: float) -> np.ndarray:
+    """Return a fine grid over the fit window that contains the fitted center exactly.
+
+    The fitted profile is drawn on this grid, so its top is the fitted peak itself rather than
+    the best of the few scan angles.
+    """
+    grid = np.linspace(float(theta_window_deg[0]), float(theta_window_deg[-1]), 400)
+    return np.unique(np.append(grid, center_deg))
+
+
 def _fit_gaussian(
     theta_window_deg: np.ndarray,
     efficiency_window: np.ndarray,
-) -> tuple[float, float, np.ndarray] | None:
+) -> tuple[float, float, np.ndarray, np.ndarray] | None:
     """Fit a Gaussian peak and return center/FWHM."""
 
     amplitude, center_deg, baseline, fwhm_guess_deg = _fit_initial_guesses(
@@ -237,20 +247,21 @@ def _fit_gaussian(
         or fitted_sigma_deg <= 0.0
     ):
         return None
+    dense_theta_deg = _dense_theta_deg(theta_window_deg, fitted_center_deg)
     fitted_curve = _gaussian_with_baseline(
-        theta_window_deg,
+        dense_theta_deg,
         fitted_amplitude,
         fitted_center_deg,
         fitted_sigma_deg,
         fitted_baseline,
     )
-    return fitted_center_deg, float(_GAUSSIAN_TO_FWHM * fitted_sigma_deg), fitted_curve
+    return fitted_center_deg, float(_GAUSSIAN_TO_FWHM * fitted_sigma_deg), dense_theta_deg, fitted_curve
 
 
 def _fit_voigt(
     theta_window_deg: np.ndarray,
     efficiency_window: np.ndarray,
-) -> tuple[float, float, np.ndarray] | None:
+) -> tuple[float, float, np.ndarray, np.ndarray] | None:
     """Fit a Voigt peak and return center/FWHM."""
 
     amplitude, center_deg, baseline, fwhm_guess_deg = _fit_initial_guesses(
@@ -298,15 +309,16 @@ def _fit_voigt(
     fitted_fwhm_deg = _VOIGT_FWHM_COEFF * lorentzian_fwhm_deg + np.sqrt(
         _VOIGT_FWHM_ROOT * lorentzian_fwhm_deg**2 + gaussian_fwhm_deg**2
     )
+    dense_theta_deg = _dense_theta_deg(theta_window_deg, fitted_center_deg)
     fitted_curve = _voigt_with_baseline(
-        theta_window_deg,
+        dense_theta_deg,
         fitted_amplitude,
         fitted_center_deg,
         fitted_sigma_deg,
         fitted_gamma_deg,
         fitted_baseline,
     )
-    return fitted_center_deg, float(fitted_fwhm_deg), fitted_curve
+    return fitted_center_deg, float(fitted_fwhm_deg), dense_theta_deg, fitted_curve
 
 
 def select_peak_theta_from_scan(
@@ -365,7 +377,7 @@ def select_peak_theta_from_scan(
             fit_result = None
         if fit_result is None:
             continue
-        fitted_center_deg, fitted_fwhm_deg, fitted_curve = fit_result
+        fitted_center_deg, fitted_fwhm_deg, fitted_theta_deg, fitted_curve = fit_result
         if not _validate_fit_center(fitted_center_deg, theta_window_deg, theta_deg):
             continue
         return PeakSelectionResult(
@@ -383,7 +395,7 @@ def select_peak_theta_from_scan(
             ),
             fitted_center_deg=float(fitted_center_deg),
             fitted_fwhm_deg=float(fitted_fwhm_deg),
-            fitted_theta_deg=np.asarray(theta_window_deg, dtype=float).copy(),
+            fitted_theta_deg=np.asarray(fitted_theta_deg, dtype=float).copy(),
             fitted_efficiencies=np.asarray(fitted_curve, dtype=float).copy(),
         )
 

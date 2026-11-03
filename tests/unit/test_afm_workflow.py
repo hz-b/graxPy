@@ -4,7 +4,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from grax.web.afm_workflow import estimate_afm_period, parse_afm_upload, preview_afm_upload, process_afm_upload
+from grax.web.afm_workflow import (
+    estimate_afm_period,
+    parse_afm_upload,
+    preview_afm_upload,
+    process_afm_upload,
+)
+from grax.web.common import FRONTEND_SCRIPTS
 
 
 def test_parse_afm_upload_accepts_header_csv_and_units() -> None:
@@ -160,6 +166,17 @@ def test_afm_preview_endpoint_handles_raw_scan_without_period_and_bad_upload(tmp
     )
     assert invalid.status_code == 422
     assert invalid.get_json()["ok"] is False
+    assert "numeric rows" in invalid.get_json()["error"]
+    assert "Traceback (most recent call last)" in invalid.get_json()["traceback"]
+
+    process_invalid = client.post(
+        "/gratings/afm/process",
+        data={"afm_file": (io.BytesIO(b"not a scan"), "bad.txt"), "afm_target_period_lpermm": "400"},
+        content_type="multipart/form-data",
+    )
+    assert process_invalid.status_code == 422
+    assert "numeric rows" in process_invalid.get_json()["error"]
+    assert "Traceback (most recent call last)" in process_invalid.get_json()["traceback"]
 
 
 def test_afm_preview_endpoint_returns_checked_later_stages(tmp_path: Path) -> None:
@@ -203,9 +220,16 @@ def test_afm_form_has_inline_stage_previews(tmp_path: Path) -> None:
     assert b"data-afm-units-hint" in response.data
     assert b"data-afm-period-hint" in response.data
     assert b'data-afm-live-preview' in response.data
+    assert response.data.index(b'name="afm_file"') < response.data.index(b'name="afm_target_period_lpermm"')
+    assert response.data.index(b'name="afm_target_period_lpermm"') < response.data.index(b'name="afm_profile_type"')
+    assert response.data.index(b'name="afm_profile_type"') < response.data.index(b'name="afm_units"')
+    assert b'class="afm-status-panel"' in response.data
+    assert b"Waiting for file" in response.data
+    assert b'data-afm-copy-output' in response.data
+    assert b'data-afm-retry' in response.data
     assert b'name="afm_average" value="1" checked' in response.data
     assert response.data.index(b'name="afm_file"') < response.data.index(b'data-afm-plot="raw"')
-    assert response.data.index(b'data-afm-plot="raw"') < response.data.index(b'name="afm_units"')
+    assert response.data.index(b'name="afm_units"') < response.data.index(b'data-afm-plot="raw"')
     for stage in (b"raw", b"troughs", b"period", b"average", b"reverse", b"baseline", b"ramp", b"rescaled"):
         assert b'data-afm-plot="' + stage + b'"' in response.data
 
@@ -213,7 +237,7 @@ def test_afm_form_has_inline_stage_previews(tmp_path: Path) -> None:
 def test_afm_live_preview_uses_rescaled_period_and_does_not_show_old_analytic_plot() -> None:
     source = Path(__file__).resolve().parents[2] / "src/grax/web/static"
     afm_js = (source / "afm.js").read_text(encoding="utf-8")
-    web_js = (source / "web.js").read_text(encoding="utf-8")
+    web_js = "\n".join((source / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
     assert 'liveCurve = traces.rescaled || null' in afm_js
     assert 'renderCurve(liveFigure, repeatPeriod(liveCurve))' in afm_js
@@ -267,7 +291,7 @@ def test_processed_afm_profile_can_be_previewed_and_saved(tmp_path: Path) -> Non
     edit = client.get(f"/gratings/{spec['id']}/edit")
     assert edit.status_code == 200
     assert b"Stored AFM scan:" in edit.data
-    assert b'name="afm_min_prominence" type="number" min="0" step="0.1" value="0.2"' in edit.data
+    assert b'name="afm_min_prominence" type="number" min="0" step="0.01" value="0.2"' in edit.data
     assert b'name="afm_reverse" value="1" checked' in edit.data
     source_response = client.get(f"/gratings/{spec['id']}/afm/source")
     assert source_response.data == raw
@@ -329,7 +353,7 @@ def test_afm_process_uses_visible_target_when_period_is_blank(tmp_path: Path) ->
 def test_save_attempt_auto_processes_current_afm_settings_in_browser() -> None:
     source = Path(__file__).resolve().parents[2] / "src/grax/web/static"
     afm_js = (source / "afm.js").read_text(encoding="utf-8")
-    web_js = (source / "web.js").read_text(encoding="utf-8")
+    web_js = "\n".join((source / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
     assert 'form.dispatchEvent(new Event("grax:afm-save-requested"))' in web_js
     assert 'gratingForm.addEventListener("grax:afm-save-requested"' in afm_js

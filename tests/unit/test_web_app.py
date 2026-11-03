@@ -18,11 +18,24 @@ from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import MaterialSpec
 from grax.stacks import MultilayerStack, SingleLayerStack
 from grax.web import app as web_app_module
+from grax.web.files import read_json
+from grax.web import plot_builder
 from grax.web.persistence import (
     GratingStore,
     build_grating_from_spec,
     grating_to_spec,
 )
+from grax.web.routes import core as core_routes
+from grax.web.routes import gratings as grating_routes
+from grax.web.routes import runs as run_routes
+
+
+def _frontend_js() -> str:
+    """Return the page scripts concatenated in load order."""
+    from grax.web.common import FRONTEND_SCRIPTS
+
+    static = Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static"
+    return "\n".join((static / script).read_text(encoding="utf-8") for script in FRONTEND_SCRIPTS)
 
 
 def test_site_version_comes_from_project_toml():
@@ -184,10 +197,10 @@ def test_web_install_docs_cover_pypi_and_editable_modes() -> None:
 
 
 def test_web_runtime_dependency_messages_reference_both_install_modes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(web_app_module, "go", None, raising=False)
-    monkeypatch.setattr(web_app_module, "plotly_io", None, raising=False)
-    monkeypatch.setattr(web_app_module, "get_plotlyjs", None, raising=False)
-    monkeypatch.setattr(web_app_module, "make_subplots", None, raising=False)
+    monkeypatch.setattr(plot_builder, "go", None, raising=False)
+    monkeypatch.setattr(plot_builder, "plotly_io", None, raising=False)
+    monkeypatch.setattr(plot_builder, "get_plotlyjs", None, raising=False)
+    monkeypatch.setattr(plot_builder, "make_subplots", None, raising=False)
 
     with pytest.raises(RuntimeError) as error_info:
         web_app_module._require_plotly()
@@ -219,19 +232,13 @@ def test_web_docs_route_and_homepage_link(tmp_path: Path) -> None:
 
     docs_response = client.get("/docs")
     assert docs_response.status_code == 200
-    assert b"Web UI Documentation" in docs_response.data
-    assert b".grax-web/" in docs_response.data
-    assert b"saved_gratings/" in docs_response.data
-    assert b"Materials" in docs_response.data
-    assert b"density" in docs_response.data
-    assert b"deprecated" in docs_response.data
-    assert b"runs/" in docs_response.data
-    assert b"plots/" in docs_response.data
-    assert b"previews/" in docs_response.data
-    assert b"Create and save gratings" in docs_response.data
-    assert b"Run simulations" in docs_response.data
-    assert b"Compare and plot runs" in docs_response.data
-    assert b"How to modify the interface later" in docs_response.data
+    assert b"From a model to a result" in docs_response.data
+    assert b'aria-label="Choose a workflow"' in docs_response.data
+    assert b'href="/docs/gratings"' in docs_response.data
+    assert b'href="/docs/plane-mirrors"' in docs_response.data
+    assert b'href="/docs/multilayer-gratings"' in docs_response.data
+    assert b"How the website is organized" in docs_response.data
+    assert b"Useful input conventions" in docs_response.data
 
 
 def test_installed_web_package_includes_templates_and_static_assets() -> None:
@@ -244,7 +251,9 @@ def test_installed_web_package_includes_templates_and_static_assets() -> None:
     assert (template_root / "index.html").is_file()
     assert (template_root / "web_docs.html").is_file()
     assert (static_root / "web.css").is_file()
-    assert (static_root / "web.js").is_file()
+    from grax.web.common import FRONTEND_SCRIPTS
+
+    assert all((static_root / script).is_file() for script in FRONTEND_SCRIPTS)
 
 
 def test_saved_grating_round_trips_laminar_multilayer(tmp_path: Path) -> None:
@@ -498,7 +507,7 @@ def test_grating_store_writes_plain_json(tmp_path: Path) -> None:
         }
     )
 
-    payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text())
+    payload = json.loads((tmp_path / "gratings" / f"{saved['id']}.json").read_text(encoding="utf-8"))
 
     assert payload["schema_version"] == 4
     assert payload["id"] == saved["id"]
@@ -642,7 +651,7 @@ def test_flask_sinusoidal_create_edit_preview_and_validation(
         captured.update(kwargs)
         return {"id": "sinusoidal-run"}
 
-    monkeypatch.setattr(web_app_module, "_queue_run", fake_queue_run)
+    monkeypatch.setattr(grating_routes, "_queue_run", fake_queue_run)
     run_response = client.post(f"/gratings/{grating_id}/runs", data={})
 
     assert run_response.status_code == 302
@@ -657,8 +666,8 @@ def test_index_mentions_result_locations(tmp_path: Path) -> None:
     response = create_app(data_dir=tmp_path / ".grax-web").test_client().get("/")
 
     assert response.status_code == 200
-    assert b".grax-web/runs/" in response.data
-    assert b".grax-web/plots/" in response.data
+    assert str(tmp_path / ".grax-web").encode() in response.data
+    assert b"Active database folder" in response.data
 
 
 def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> None:
@@ -681,7 +690,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-stack-controls' in response.data
     assert b'data-single-layer-controls' in response.data
     assert b'data-stack-type' in response.data
-    assert b"web.js" in response.data
+    assert b"js/grating-forms.js" in response.data
     assert b'name="substrate_material_density_g_cm3"' in response.data
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
@@ -695,9 +704,7 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-density="19.282"' in response.data
     assert b"Ag" in response.data
 
-    web_js = (Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js").read_text(
-        encoding="utf-8"
-    )
+    web_js = _frontend_js()
     assert "syncMaterialDensity" in web_js
     assert "[data-material-select]" in web_js
 
@@ -900,7 +907,7 @@ def test_flask_app_runs_fixed_angle_sweep_with_saved_grating(
     manifest_path = tmp_path / "runs" / run_id / "manifest.json"
     manifest = {}
     while time.monotonic() < deadline:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("status") == "completed":
             break
         time.sleep(0.02)
@@ -1039,6 +1046,91 @@ def test_plot_page_lists_saved_runs_and_orders(tmp_path: Path) -> None:
     assert b"2026-06-10T12:00:00" in response.data
 
 
+def test_plane_mirror_runs_plot_without_order_picker_and_support_loops(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    run_id = "mirror-plot-check"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    manifest = {
+        "id": run_id,
+        "workflow": "plane_mirror",
+        "mirror_id": "pt-mirror",
+        "mirror_name": "Pt mirror",
+        "display_name": "Pt energy sweep",
+        "created_at": "2026-10-26T12:00:00",
+        "status": "completed",
+        "completed_points": 2,
+        "total_points": 2,
+        "cases": [
+            {"parameters": {"layer_thickness_nm": "20.0"}},
+            {"parameters": {"layer_thickness_nm": "35.0"}},
+        ],
+        "variation_axes": [{"parameter": "layer_thickness_nm", "start": "20", "stop": "35", "points": "2"}],
+        "variation_coupled": [],
+        "scan_details": [["Scan", "Energy sweep"]],
+    }
+    results = [
+        {"mode": "energy_sweep", "x": [100, 200, 300], "x_label": "Photon Energy (eV)",
+         "reflectivity": [0.8, 0.7, 0.6], "parameters": {"layer_thickness_nm": "20.0"}, "index": 1},
+        {"mode": "energy_sweep", "x": [100, 200, 300], "x_label": "Photon Energy (eV)",
+         "reflectivity": [0.9, 0.75, 0.5], "parameters": {"layer_thickness_nm": "35.0"}, "index": 2},
+    ]
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (run_dir / "mirror_results.json").write_text(json.dumps(results), encoding="utf-8")
+    client = create_app(data_dir=tmp_path).test_client()
+
+    page = client.get("/plots/new")
+    assert page.status_code == 200
+    assert b'data-run-kind="mirror"' in page.data
+    assert b'layer_thickness_nm' in page.data
+
+    _write_run_fixture(tmp_path, run_id="grating-plot-check", display_name="Grating reference", orders=(1,))
+    mixed = client.post("/_preview/plot", data={"run_ids": ["grating-plot-check", run_id],
+        "orders_grating-plot-check": "1", f"scans_{run_id}": "mirror-case-000000"})
+    mixed_payload = mixed.get_json()
+    assert mixed_payload["ok"] is True
+    mixed_figure = json.loads(mixed_payload["figure_json"])
+    assert len(mixed_figure["data"]) == 3  # one grating trace plus two mirror loop values
+    assert mixed_figure["layout"]["yaxis"]["title"]["text"] == "Efficiency / reflectivity"
+
+    normal = client.post("/_preview/plot", data={"run_ids": [run_id],
+        f"scan_selection_{run_id}": "1", f"scans_{run_id}": "mirror-case-000000"})
+    normal_payload = normal.get_json()
+    assert normal_payload["ok"] is True
+    normal_figure = json.loads(normal_payload["figure_json"])
+    assert len(normal_figure["data"]) == 1
+    assert normal_figure["layout"]["yaxis"]["title"]["text"] == "Reflectivity"
+    assert normal_payload["series_controls"][0]["is_plane_mirror"] is True
+    assert "order:" not in normal_payload["series_controls"][0]["label"]
+
+    looped = client.post("/_preview/plot", data={"run_ids": [run_id],
+        f"scan_selection_{run_id}": "1", f"scans_{run_id}": "mirror-case-000000",
+        f"loops_{run_id}": "layer_thickness_nm"})
+    looped_payload = looped.get_json()
+    assert looped_payload["ok"] is True
+    looped_figure = json.loads(looped_payload["figure_json"])
+    assert len(looped_figure["data"]) == 2
+    assert [series["name"] for series in looped_figure["data"]] == [
+        "Pt energy sweep · layer_thickness_nm=20.0",
+        "Pt energy sweep · layer_thickness_nm=35.0",
+    ]
+
+    saved = client.post("/plots", data={"run_ids": [run_id], "title": "Mirror loop plot",
+        f"scan_selection_{run_id}": "1", f"scans_{run_id}": "mirror-case-000000",
+        f"loops_{run_id}": "layer_thickness_nm"})
+    assert saved.status_code == 302
+    detail = client.get(saved.headers["Location"])
+    assert detail.status_code == 200
+    assert b"Plane-mirror reflectivity" in detail.data
+    assert f"/plane-mirror-runs/{run_id}".encode() in detail.data
+
+    order_axis = client.post("/_preview/plot", data={"run_ids": [run_id],
+        "x_axis_value": "energy_times_order"})
+    assert order_axis.get_json()["ok"] is False
+
+
 def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -1069,15 +1161,20 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert response.status_code == 200
     assert b'data-run-workflow' in response.data
     assert b'data-run-workflow-description' in response.data
+    assert b'data-geometry-bind="[data-run-form]"' in response.data
     assert b'Scans energy at a fixed grazing incidence angle' in response.data
     assert b'data-workflow-fields=' in response.data
     assert b'energy_sweep' in response.data
     assert b'angle_sweep' in response.data
     assert b'monochromator' in response.data
+    assert b'constant_deviation' in response.data
+    assert b'name="total_deviation_deg"' in response.data
     assert b'multilayer_theta_search' in response.data
     assert b'parameter_study' in response.data
     assert b'name="comment"' in response.data
     assert b'name="polarization"' in response.data
+    assert b'<option value="s">S (TE)</option>' in response.data
+    assert response.data.count(b'<option value="p" selected>P (TM)</option>') == 2
     assert b'name="energy_start_ev" type="number" step="0.1" value="200" data-monochromator-default="200"' in response.data
     assert b'name="energy_stop_ev" type="number" step="0.1" value="2200" data-monochromator-default="2200"' in response.data
     assert b'name="energy_points" type="number" step="1" value="101" data-monochromator-default="201"' in response.data
@@ -1233,7 +1330,7 @@ def test_parameter_study_run_uses_selected_polarization(
     manifest = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -1250,17 +1347,31 @@ def test_parameter_study_run_uses_selected_polarization(
     assert status["completed_points"] == 9
     assert status["remaining_points"] == 0
     assert b"9 / 9" in client.get(f"/runs/{run_id}").data
-    assert b"completed \xc2\xb7 9 / 9 points" in client.get("/runs/gratings").data
+    from bs4 import BeautifulSoup
+
+    completed_run = BeautifulSoup(client.get("/runs/gratings").data, "html.parser").select_one(
+        ".run-manage-status"
+    )
+    assert completed_run is not None
+    assert completed_run.select_one(".status-pill").get_text(strip=True) == "completed"
+    assert completed_run.select_one(".subtle").get_text(strip=True) == "9 / 9 points"
 
 
-def test_load_run_manifest_defaults_missing_polarization_to_s(tmp_path: Path) -> None:
+def test_load_run_manifest_defaults_missing_polarization_to_p(tmp_path: Path) -> None:
     _write_checkpoint_fixture(tmp_path, run_id="run-checkpoint", status="paused")
 
     manifest = web_app_module._load_run_manifest(tmp_path, "run-checkpoint")
 
     assert manifest is not None
-    assert manifest["polarization"] == "s"
-    assert manifest["run_input"]["polarization"] == "s"
+    assert manifest["polarization"] == "p"
+    assert manifest["run_input"]["polarization"] == "p"
+
+
+def test_web_simulation_helpers_default_polarization_to_p() -> None:
+    """Use p polarization when a web run omits its polarization field."""
+    assert web_app_module._normalized_polarization(None) == "p"
+    assert web_app_module._run_input_from_form(MultiDict())["polarization"] == "p"
+    assert web_app_module._custom_grid_defaults_from_form({})["polarization"] == "p"
 
 
 def test_parameter_study_artifacts_include_partial_csv_and_diagnostics(tmp_path: Path) -> None:
@@ -1336,7 +1447,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
 
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest = read_json(run_dir / "manifest.json")
         if manifest["status"] == "failed":
             break
         time.sleep(0.02)
@@ -1344,7 +1455,7 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
     assert manifest["status"] == "failed"
     assert manifest.get("completed_points", 0) == completed_points
     assert "controlled numerical failure" in manifest["error_text"]
-    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text()
+    assert "RuntimeError: controlled numerical failure" in (run_dir / "error.txt").read_text(encoding="utf-8")
     assert "error.txt" in manifest["artifacts"]
     if completed_points:
         assert "parameter_study.png" in manifest["artifacts"]
@@ -1362,7 +1473,83 @@ def test_parameter_study_failure_keeps_recorded_progress_and_artifacts(
         assert b"parameter_study.png" in detail
         assert b"parameter_study_Fourier_orders_E100.0eV.csv" in detail
     manage = client.get("/runs/gratings").data
-    assert f"failed · {completed_points} / 9 points".encode() in manage
+    from bs4 import BeautifulSoup
+
+    failed_run = BeautifulSoup(manage, "html.parser").select_one(".run-manage-status")
+    assert failed_run is not None
+    assert failed_run.select_one(".status-pill").get_text(strip=True) == "failed"
+    assert failed_run.select_one(".subtle").get_text(strip=True) == f"{completed_points} / 9 points"
+
+
+def test_parameter_study_continues_when_windows_locks_live_plot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from grax.web.app import create_app
+
+    def fake_plot_parameter_study(result, output_filename):  # type: ignore[no-untyped-def]
+        Path(output_filename).write_bytes(b"new partial plot")
+
+    def fake_run_parameter_study(**kwargs):  # type: ignore[no-untyped-def]
+        run_dir = Path(kwargs["output_dir"])
+        (run_dir / "parameter_study.png").write_bytes(b"last available plot")
+        kwargs["sweep_progress_callback"](1, 9, SimpleNamespace())
+        return SimpleNamespace()
+
+    original_replace = Path.replace
+
+    def replace_unlocked_files(source: Path, target: Path) -> Path:
+        if Path(target).name == "parameter_study.png":
+            raise PermissionError("simulated Windows image-file lock")
+        return original_replace(source, target)
+
+    monkeypatch.setattr("grax.parameter_sweep.run_parameter_study", fake_run_parameter_study)
+    monkeypatch.setattr("grax.parameter_sweep.plot_parameter_study", fake_plot_parameter_study)
+    monkeypatch.setattr(Path, "replace", replace_unlocked_files)
+
+    client = create_app(data_dir=tmp_path).test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Locked preview test",
+            "grating_type": "blazed",
+            "period_lpermm": "600",
+            "x_resolution_nm": "2.0",
+            "z_resolution_nm": "0.5",
+            "blaze_angle_deg": "0.75",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "parameter_study",
+            "energy_start_ev": "100",
+            "energy_stop_ev": "120",
+            "energy_points": "3",
+            "grazing_angle_deg": "1.5",
+            "diffraction_order": "1",
+            "fourier_orders": "5",
+        },
+    )
+    assert response.status_code == 302
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    run_dir = tmp_path / "runs" / run_id
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        manifest = read_json(run_dir / "manifest.json")
+        if manifest["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.02)
+
+    assert manifest["status"] == "completed"
+    assert (run_dir / "parameter_study.png").read_bytes() == b"last available plot"
+    assert not (run_dir / "parameter_study.tmp.png").exists()
 
 
 def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path) -> None:
@@ -1382,8 +1569,17 @@ def test_run_progress_falls_back_to_legacy_cases_and_checkpoints(tmp_path: Path)
     assert legacy["completed_points"] == 2
     assert checkpoint["completed_points"] == 2
     manage = client.get("/runs/gratings").data
-    assert b"ok \xc2\xb7 2 / 3 points" in manage
-    assert b"aborted \xc2\xb7 2 / 4 points" in manage
+    from bs4 import BeautifulSoup
+
+    run_statuses = [
+        (
+            status.select_one(".status-pill").get_text(strip=True),
+            status.select_one(".subtle").get_text(strip=True),
+        )
+        for status in BeautifulSoup(manage, "html.parser").select(".run-manage-status")
+    ]
+    assert ("ok", "2 / 3 points") in run_statuses
+    assert ("aborted", "2 / 4 points") in run_statuses
 
 
 def test_load_run_manifest_ignores_transient_invalid_json(tmp_path: Path) -> None:
@@ -1400,6 +1596,39 @@ def test_write_text_atomically_replaces_existing_diagnostic(tmp_path: Path) -> N
 
     assert path.read_text(encoding="utf-8") == "new traceback"
     assert list(path.parent.glob("error.txt.*.tmp")) == []
+
+
+def test_replace_plot_retries_transient_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "parameter_study.tmp.png"
+    destination = tmp_path / "parameter_study.png"
+    source.write_bytes(b"new plot")
+    destination.write_bytes(b"old plot")
+    original_replace = Path.replace
+    attempts = 0
+
+    def temporarily_locked(source_path: Path, destination_path: Path) -> Path:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError("simulated temporary Windows lock")
+        return original_replace(source_path, destination_path)
+
+    monkeypatch.setattr(Path, "replace", temporarily_locked)
+
+    replaced = web_app_module._replace_plot_with_retry(
+        source,
+        destination,
+        attempts=3,
+        retry_delay=0,
+    )
+
+    assert replaced is True
+    assert attempts == 3
+    assert destination.read_bytes() == b"new plot"
+    assert not source.exists()
 
 
 def test_plot_preview_endpoint_returns_live_preview(tmp_path: Path) -> None:
@@ -1506,6 +1735,25 @@ def test_plot_preview_applies_series_styles_and_log_axes(tmp_path: Path) -> None
     assert preview_payload["series_controls"][0]["legend_label"] == "Diamond reference"
 
 
+def test_plot_preview_zero_marker_size_keeps_line_and_hides_markers(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", orders=(0,))
+    response = create_app(data_dir=tmp_path).test_client().post(
+        "/_preview/plot",
+        data={"title": "No markers", "run_ids": ["run-1"], "orders_run-1": ["0"],
+              "marker_size_run_1__order_0": "0"},
+    )
+
+    payload = response.get_json()
+    assert payload["ok"] is True
+    trace = json.loads(payload["figure_json"])["data"][0]
+    assert trace["mode"] == "lines"
+    assert trace["marker"]["size"] == 0
+
+
 def test_older_saved_series_style_defaults_to_solid() -> None:
     controls = web_app_module._series_controls_for_selected_series(
         selected_series=[{"series_key": "old::order::1", "series_token": "old__order_1",
@@ -1567,7 +1815,9 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert b"square" in detail_response.data
     assert b"#ff0000" in detail_response.data
     assert b"Reference scan" in detail_response.data
-    assert b"Download plot PNG" in detail_response.data
+    assert b">Download</summary>" in detail_response.data
+    assert b">PNG</a>" in detail_response.data
+    assert b"Download plot PNG" not in detail_response.data
 
     repeat = client.post("/plots", data={"title": "Saved interactive plot", "run_ids": ["run-1", "run-2"], "orders_run-1": ["0"], "orders_run-2": ["2"]})
     assert repeat.status_code == 302
@@ -1795,7 +2045,7 @@ def test_manage_gratings_page_bulk_deletes_selected_gratings(tmp_path: Path) -> 
 
     page = client.get("/gratings/manage")
     assert page.status_code == 200
-    assert b"Manage saved gratings" in page.data
+    assert b"Manage gratings" in page.data
     assert b"Delete selected gratings?" in page.data
 
     response = client.post(
@@ -1828,7 +2078,7 @@ def test_index_picks_database_folder_and_stays_on_home_page(
 
     app = create_app(data_dir=primary)
     client = app.test_client()
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: secondary)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: secondary)
 
     initial = client.get("/")
     assert b"name: Demo grating" in initial.data
@@ -1862,7 +2112,7 @@ def test_workspace_native_picker_switches_only_for_local_requests(
     selected.mkdir()
     app = create_app(data_dir=primary)
     client = app.test_client()
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: selected)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: selected)
 
     response = client.post("/workspace/pick", environ_base={"REMOTE_ADDR": "127.0.0.1"})
 
@@ -1880,7 +2130,7 @@ def test_workspace_native_picker_fallback_and_cancel(
     app = create_app(data_dir=tmp_path / "primary")
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: (_ for _ in ()).throw(RuntimeError("no desktop session")),
     )
@@ -1890,7 +2140,7 @@ def test_workspace_native_picker_fallback_and_cancel(
     assert b"no desktop session" in fallback.data
     assert b"Choose folder" in fallback.data
 
-    monkeypatch.setattr(web_app_module, "_pick_native_directory", lambda: None)
+    monkeypatch.setattr(core_routes, "_pick_native_directory", lambda: None)
     canceled = client.post("/workspace/pick", follow_redirects=True)
     assert canceled.status_code == 200
     assert canceled.request.path == "/"
@@ -1908,7 +2158,7 @@ def test_workspace_native_picker_uses_browser_fallback_for_remote_requests(
     app = create_app(data_dir=tmp_path / "primary")
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: pytest.fail("remote request must not launch a local dialog"),
     )
@@ -1998,9 +2248,7 @@ def test_home_exposes_only_the_native_workspace_picker(tmp_path: Path) -> None:
 
 
 def test_sweep_display_rounding_and_range_count_restore_are_configured() -> None:
-    web_js = (
-        Path(__file__).resolve().parents[2] / "src" / "grax" / "web" / "static" / "web.js"
-    ).read_text(encoding="utf-8")
+    web_js = _frontend_js()
 
     assert "function formatRoundedNumber(value)" in web_js
     assert "value.toFixed(3)" in web_js
@@ -2041,7 +2289,7 @@ def test_native_workspace_picker_is_blocked_when_active_runs_exist(
     }
     client = app.test_client()
     monkeypatch.setattr(
-        web_app_module,
+        core_routes,
         "_pick_native_directory",
         lambda: pytest.fail("active runs must block the folder dialog"),
     )
@@ -2083,7 +2331,7 @@ def test_delete_grating_only_keeps_linked_runs(tmp_path: Path) -> None:
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2124,7 +2372,7 @@ def test_delete_grating_and_runs_removes_linked_runs(tmp_path: Path) -> None:
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -2165,7 +2413,7 @@ def test_delete_grating_and_runs_is_blocked_for_active_linked_runs(tmp_path: Pat
     grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
     _write_run_fixture(tmp_path, run_id="run-1", display_name="Run one")
     manifest_path = tmp_path / "runs" / "run-1" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["grating_id"] = grating_id
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     app.extensions["grax_active_runs"] = {
@@ -2372,6 +2620,18 @@ def test_run_status_marks_disk_backed_incomplete_run_as_interrupted(tmp_path: Pa
     assert payload["total_points"] == 4
 
 
+def test_orphaned_run_without_checkpoints_is_recoverable(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="orphan-run", status="running")
+    (tmp_path / "runs" / "orphan-run" / "checkpoints" / "results.jsonl").unlink()
+    payload = create_app(data_dir=tmp_path).test_client().get("/runs/orphan-run/status").get_json()
+
+    assert payload["state"] == "aborted"
+    assert payload["active_job_missing"] is True
+
+
 def test_incomplete_run_exposes_available_orders_from_checkpoints(tmp_path: Path) -> None:
     from grax.web.app import _available_orders
 
@@ -2412,6 +2672,61 @@ def test_run_detail_shows_abort_action_for_paused_run(tmp_path: Path) -> None:
     assert b"Machine RAM" in response.data
     assert b"Web RSS" not in response.data
     assert b"Simulation RSS" not in response.data
+
+
+def test_run_detail_offers_resume_and_restart_for_parameter_study(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from grax.web.app import create_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
+    manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["workflow"] = "parameter_study"
+    manifest_path.write_text(json.dumps(manifest))
+    response = create_app(data_dir=tmp_path).test_client().get("/runs/study-run")
+
+    assert response.status_code == 200
+    assert b"Resume unfinished run" in response.data
+    assert b"Restart from scratch" in response.data
+
+
+def test_parameter_study_resume_launches_from_saved_energy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("flask")
+    from grax.web import app as web_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="study-run", status="aborted")
+    manifest_path = tmp_path / "runs" / "study-run" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["workflow"] = "parameter_study"
+    manifest["run_input"].update({
+        "workflow": "parameter_study", "study_energy_ev": 120.0,
+        "study_grazing_angle_deg": 1.5, "fourier_orders": 5,
+    })
+    manifest_path.write_text(json.dumps(manifest))
+    launched: dict[str, object] = {}
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/study-run/resume")
+
+    assert response.status_code == 302
+    assert launched["workflow"] == "parameter_study"
+    assert launched["resume"] is True
+    assert launched["energies"].tolist() == [120.0]
+
+
+def test_restart_run_clears_checkpoints_and_starts_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("flask")
+    from grax.web import app as web_app
+
+    _write_checkpoint_fixture(tmp_path, run_id="restart-run", status="failed")
+    checkpoint = tmp_path / "runs" / "restart-run" / "checkpoints" / "results.jsonl"
+    launched: dict[str, object] = {}
+    monkeypatch.setattr(run_routes, "_start_run_worker", lambda **kwargs: launched.update(kwargs))
+    response = web_app.create_app(data_dir=tmp_path).test_client().post("/runs/restart-run/restart")
+
+    assert response.status_code == 302
+    assert launched["resume"] is False
+    assert launched["completed_points"] == 0
+    assert not checkpoint.exists()
 
 
 def test_run_status_prefers_persisted_aborted_state_when_active_entry_is_stale(
@@ -2615,7 +2930,7 @@ def test_abort_route_marks_run_aborted(
             break
         time.sleep(0.05)
 
-    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text())
+    manifest = json.loads((tmp_path / "runs" / run_id / "manifest.json").read_text(encoding="utf-8"))
     assert final_payload["state"] == "aborted"
     assert final_payload["can_abort"] is False
     assert final_payload["elapsed_seconds"] is not None
@@ -2668,13 +2983,14 @@ def test_main_accepts_custom_host_and_port(monkeypatch: pytest.MonkeyPatch) -> N
             captured.update(kwargs)
 
     monkeypatch.setattr(web_app, "create_app", lambda: DummyApp())
+    monkeypatch.setattr(web_app, "_maybe_open_browser", lambda *args, **kwargs: None)
     monkeypatch.setattr(sys, "argv", ["grax-web", "--host", "0.0.0.0", "--port", "8000"])
 
     web_app.main()
 
     assert captured["host"] == "0.0.0.0"
     assert captured["port"] == 8000
-    assert captured["debug"] is True
+    assert captured["debug"] is False
 
 
 def test_main_opens_default_browser_for_local_web_ui(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2948,7 +3264,7 @@ def test_flask_app_plots_selected_orders_across_runs(
     manifests = []
     while time.monotonic() < deadline:
         manifests = [
-            json.loads(path.read_text())
+            json.loads(path.read_text(encoding="utf-8"))
             for path in (tmp_path / "runs").glob("*/manifest.json")
         ]
         if manifests and all(manifest.get("status") == "completed" for manifest in manifests):
@@ -3062,7 +3378,7 @@ def test_parameter_study_run_uses_selected_solver(
     manifest: dict[str, object] = {}
     while time.monotonic() < deadline:
         if captured:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("status") == "completed":
                 break
         time.sleep(0.02)
@@ -3086,7 +3402,7 @@ def test_run_form_rejects_an_unknown_solver(tmp_path: Path) -> None:
         _normalized_solver("differential")
 
 
-def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_path: Path) -> None:
+def test_geometry_views_are_present_on_grating_and_multilayer_pages(tmp_path: Path) -> None:
     pytest.importorskip("flask")
     from grax.web.app import create_app
 
@@ -3098,17 +3414,132 @@ def test_geometry_views_are_present_on_grating_mirror_and_multilayer_pages(tmp_p
     assert 'data-geometry-kind="grating"' in grating
     assert 'data-geometry-bind="[data-afm-process-form], [data-grating-preview-form]"' in grating
     assert 'data-geometry-nominal-type="laminar"' in grating
-    assert 'data-geometry-kind="mirror"' in mirror
-    assert 'data-geometry-bind="[data-plane-mirror-form]"' in mirror
+    # Mirror creation previews its layer stack; the geometry schematic belongs to its scan workflow.
+    assert 'data-plane-mirror-stack-image' in mirror
+    assert 'data-geometry-kind="mirror"' not in mirror
     assert 'data-geometry-bind="closest"' in design
     assert "geometry.js" in grating
     assert "Beams" not in grating  # controls are created safely by the deferred script
 
 
 def test_geometry_static_script_and_switch_hooks_are_available() -> None:
-    geometry = Path("src/grax/web/static/geometry.js").read_text()
+    geometry = Path("src/grax/web/static/geometry.js").read_text(encoding="utf-8")
     assert "window.GraxGeometry" in geometry
     assert "geometryGroup" in geometry
     assert "applyGroups" in geometry
     assert "focusin" in geometry
     assert "profilePoints" in geometry
+    assert 'mount.workflow === "constant_deviation"' in geometry
+    assert 'label(hx, hy - 100, "2θ"' in geometry
+
+
+def test_manage_runs_shows_a_run_left_running_by_a_stopped_app_as_aborted(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+    from bs4 import BeautifulSoup
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-orphan", display_name="Orphan run")
+    path = tmp_path / "runs" / "run-orphan" / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest.update(workflow="parameter_study", status="running")
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    page = BeautifulSoup(create_app(data_dir=tmp_path).test_client().get("/runs/gratings").data, "html.parser")
+
+    assert page.select_one(".run-manage-status .status-pill").get_text(strip=True) == "aborted"
+
+
+def test_results_finished_out_of_order_are_saved_in_case_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("flask")
+    import numpy as np
+
+    from grax.simulation.models import CaseExecutionResult
+    from grax.web.app import create_app
+
+    def fake_run_cases(self, cases, metadata=None):  # type: ignore[no-untyped-def]
+        # Parallel workers: the last case finishes first.
+        for index, case in reversed(list(enumerate(cases))):
+            yield CaseExecutionResult(
+                case_id=str(case["case_id"]),
+                index=index,
+                label=None,
+                energy_ev=float(case["energy_ev"]),
+                grazing_angle_deg=float(case["grazing_angle_deg"]),
+                orders=np.asarray([1, 0, -1]),
+                selected_efficiency=0.25,
+                selected_diffraction_angle_deg=1.2,
+                efficiency_all=np.asarray([0.25, 0.1, 0.0]),
+                diffraction_angle_all=np.asarray([1.2, 0.0, -1.2]),
+                status="ok",
+                case_data={key: value for key, value in case.items() if key != "grating"},
+            )
+
+    monkeypatch.setattr("grax.simulation.BatchSimulationRunner.run_cases", fake_run_cases)
+    client = create_app(data_dir=tmp_path).test_client()
+    client.post(
+        "/gratings",
+        data={
+            "name": "Order grating", "grating_type": "blazed", "period_lpermm": "600",
+            "x_resolution_nm": "2.0", "z_resolution_nm": "0.5", "blaze_angle_deg": "0.75",
+            "anti_blaze_angle_deg": "", "stack_type": "single_layer", "substrate_material": "Si",
+            "layer_material": "Au", "layer_thickness_nm": "30.0",
+        },
+    )
+    grating_id = GratingStore(tmp_path / "saved_gratings").list()[0]["id"]
+    response = client.post(
+        f"/gratings/{grating_id}/runs",
+        data={
+            "workflow": "energy_sweep", "energy_start_ev": "100", "energy_stop_ev": "140",
+            "energy_points": "5", "grazing_angle_deg": "1.5", "diffraction_order": "1",
+            "fourier_orders": "5", "polarization": "p",
+        },
+    )
+    run_id = response.headers["Location"].rsplit("/", 1)[-1]
+    manifest_path = tmp_path / "runs" / run_id / "manifest.json"
+    deadline = time.monotonic() + 5.0
+    manifest: dict = {}
+    while time.monotonic() < deadline and manifest.get("status") != "completed":
+        time.sleep(0.02)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert [case["energy_ev"] for case in manifest["cases"]] == [100.0, 110.0, 120.0, 130.0, 140.0]
+    csv_text = client.get(f"/runs/{run_id}/export/csv").get_data(as_text=True)
+    case_ids = [line.split(",")[0] for line in csv_text.splitlines()[1:] if line.strip()]
+    assert case_ids and case_ids == sorted(case_ids)
+
+
+def test_manage_runs_page_filters_by_grating_and_saves_one_run(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    _write_run_fixture(tmp_path, run_id="run-1", display_name="Alpha run", comment="Note 1")
+    _write_run_fixture(tmp_path, run_id="run-2", display_name="Beta run", comment="Note 2")
+
+    client = create_app(data_dir=tmp_path).test_client()
+
+    page = client.get("/runs/gratings")
+    assert b"data-run-filter" in page.data
+    assert b"data-run-filter-key=" in page.data
+    assert b"Save changes" not in page.data
+    assert b'name="save_run_id" value="run-1"' in page.data
+
+    response = client.post(
+        "/runs/gratings",
+        data={
+            "save_run_id": "run-1",
+            "display_name_run-1": "Renamed run",
+            "comment_run-1": "Changed",
+            "display_name_run-2": "Should not change",
+            "comment_run-2": "Should not change",
+        },
+    )
+    assert response.status_code == 302
+    first = json.loads((tmp_path / "runs" / "run-1" / "manifest.json").read_text(encoding="utf-8"))
+    second = json.loads((tmp_path / "runs" / "run-2" / "manifest.json").read_text(encoding="utf-8"))
+    assert first["comment"] == "Changed"
+    assert second["comment"] == "Note 2"

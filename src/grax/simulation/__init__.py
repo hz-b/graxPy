@@ -15,6 +15,7 @@ from .batch import (
     _worker_initializer,
 )
 from .cases import (
+    constant_deviation_cases,
     energy_angle_cases,
     fixed_angle_cases,
     monochromator_cases,
@@ -116,6 +117,7 @@ __all__ = [
     "SingleSimulationResult",
     "ThetaSearchDiagnostics",
     "efficiency_for_order",
+    "constant_deviation_cases",
     "energy_angle_cases",
     "estimate_multilayer_bragg_angle_deg",
     "fixed_angle_cases",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graxpy"
-version = "0.5.7"
+version = "0.6.0"
 description = "X-ray grating simulations"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -35,6 +35,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "beautifulsoup4>=4.12",
+  "playwright>=1.50",
   "pytest>=8.0",
   "pytest-cov>=5.0",
   "ruff>=0.5",
@@ -60,7 +62,7 @@ license-files = ["LICENSE"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-"grax.web" = ["templates/*.html", "static/*"]
+"grax.web" = ["templates/*.html", "static/*", "static/js/*.js", "static/web-docs/*.png"]
 "grax" = ["henke_tables/*.nff", "henke_tables/read.me"]
 
 [tool.setuptools.packages.find]
@@ -72,6 +74,7 @@ pythonpath = ["src"]
 markers = [
     "unit: fast, fully-mocked tests with no external dependencies",
     "smoke: end-to-end tests that exercise example scripts or compare against external references (Octave/RETICOLO)",
+    "browser: browser-based web application tests",
 ]
 
 [tool.ruff]

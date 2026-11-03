@@ -2,19 +2,29 @@
 {% from "_multilayer_design_macros.html" import render_field, material_datalist %}
 {% from "_geometry_view.html" import geometry_view %}
 {% set editing = study is defined %}
-{% block title %}{% if editing %}Edit {{ study.display_name }}{% else %}New multilayer design{% endif %}{% endblock %}
+{% set grating_mode = scope == "grating" %}
+{% block title %}{% if grating_mode %}Edit {{ grating.display_name }}{% elif editing %}Edit {{ study.display_name }}{% else %}New multilayer design{% endif %}{% endblock %}
 {% block body %}
 <section class="section-head">
   <div>
-    {% if editing %}
+    {% if grating_mode %}
+      <h1>Edit grating</h1>
+      <p>
+        {{ grating.display_name }}. The geometry and coating are shared by every study
+        attached to this grating; changing them marks finished stages of those studies
+        <em>stale</em> until you re-run them.
+      </p>
+    {% elif editing %}
       <h1>Edit parameters</h1>
       <p>
-        {{ study.display_name }} · {{ study.id }}. Changing anything a finished stage
+        {{ study.display_name }} · {{ study.id }} · grating
+        <a href="{{ url_for('multilayer_grating_edit', grating_id=grating.id) }}">{{ grating.display_name }}</a>.
+        Changing anything a finished stage
         used marks that stage <em>stale</em> — its results stay on disk until you
         re-run or reset it.
       </p>
     {% else %}
-      <h1>New multilayer design</h1>
+      <h1>{% if grating %}New study for {{ grating.display_name }}{% else %}New multilayer design{% endif %}</h1>
       <p>
         Step 1 surveys a d-spacing × blaze-angle grid at one energy; step 2 scans the
         designs you pick from it over an energy range.
@@ -32,25 +42,36 @@
 {{ material_datalist(materials, material_density_map) }}
 
 <form class="form" method="post"
-      action="{% if editing %}{{ url_for('multilayer_design_update', study_id=study.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}"
+      action="{% if grating_mode %}{{ url_for('multilayer_grating_update', grating_id=grating.id) }}{% elif editing %}{{ url_for('multilayer_design_update', study_id=study.id) }}{% else %}{{ url_for('multilayer_design_index') }}{% endif %}"
       data-survey-cell-counter data-cell-warning-threshold="{{ cell_warning_threshold }}">
+  {% if grating and not editing and not grating_mode %}<input type="hidden" name="grating_id" value="{{ grating.id }}">{% endif %}
   <fieldset>
-    <legend>Study</legend>
+    <legend>{% if grating_mode %}Grating{% else %}Study{% endif %}</legend>
     <label>Name
       <input name="display_name" type="text" placeholder="Ru/B4C 2nd order"
-             value="{{ study.display_name if editing else '' }}">
+             value="{{ grating.display_name if grating_mode else (study.display_name if editing else '') }}">
     </label>
+    {% if not grating_mode %}
     <label class="inline-check">
       <input type="checkbox" name="auto_energy_scan" value="1"
              {% if editing and study.auto_energy_scan == "best" %}checked{% endif %}>
       <span>When the survey finishes, scan the best design over energy automatically</span>
     </label>
+    {% endif %}
   </fieldset>
 
-  <fieldset>
-    <legend>Geometry</legend>
-    {{ geometry_view("grating", bind="closest") }}
-  </fieldset>
+  {% if scope == "study" %}
+    <fieldset>
+      <legend>Geometry</legend>
+      <p class="subtle">Set by the grating <strong>{{ grating.display_name }}</strong>.</p>
+      {{ geometry_view("grating", static=defaults) }}
+    </fieldset>
+  {% else %}
+    <fieldset>
+      <legend>Geometry</legend>
+      {{ geometry_view("grating", bind="closest") }}
+    </fieldset>
+  {% endif %}
 
   {% for section, rows in basic_sections %}
     <fieldset>
@@ -71,7 +92,7 @@
     </fieldset>
   {% endfor %}
 
-  <details>
+  {% if advanced_sections %}<details>
     <summary>Advanced</summary>
     {% for section, rows in advanced_sections %}
       <fieldset>
@@ -88,15 +109,18 @@
       {% endfor %}
       </fieldset>
     {% endfor %}
-  </details>
+  </details>{% endif %}
 
   <div class="actions">
-    {% if editing %}
+    {% if grating_mode %}
+      <button class="button primary" type="submit">Save grating</button>
+      <a class="button" href="{{ url_for('multilayer_gratings_manage') }}">Cancel</a>
+    {% elif editing %}
       <button class="button primary" type="submit">Save parameters</button>
       <a class="button" href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">Cancel</a>
     {% else %}
       <button class="button primary" type="submit">Create study</button>
-      <a class="button" href="{{ url_for('multilayer_design_index') }}">Cancel</a>
+      <a class="button" href="{{ url_for('multilayer_gratings_manage' if grating else 'multilayer_design_index') }}">Cancel</a>
     {% endif %}
   </div>
 </form>

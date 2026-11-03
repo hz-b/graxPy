@@ -1845,6 +1845,9 @@ def test_run_multilayer_theta_search_sweep_writes_outputs(
             precise_efficiencies=np.asarray([0.31, 0.35, 0.33], dtype=float),
             selected_grazing_angle_deg=1.2,
             selected_efficiency=0.35,
+            precise_peak_selection_mode_used="gauss",
+            precise_peak_fitted_theta_deg=np.asarray([1.19, 1.2, 1.21], dtype=float),
+            precise_peak_fitted_efficiencies=np.asarray([0.33, 0.36, 0.34], dtype=float),
         )
         return SingleSimulationResult(
             energy_ev=energy_ev,
@@ -1881,6 +1884,11 @@ def test_run_multilayer_theta_search_sweep_writes_outputs(
     assert sweep.theta_scan_directory.exists()
     assert (sweep.theta_scan_directory / "theta_scan_1800eV.csv").exists()
     assert (sweep.theta_scan_directory / "theta_scan_1800eV.png").exists()
+    scan_rows = (sweep.theta_scan_directory / "theta_scan_1800eV.csv").read_text(encoding="utf-8").splitlines()
+    assert [row for row in scan_rows if row.startswith("fit,")] == [
+        "fit,1.19,0.33,0", "fit,1.2,0.36,0", "fit,1.21,0.34,0"
+    ]
+    assert [row for row in scan_rows if row.startswith("peak,")] == ["peak,1.2,0.35,1"]
     assert (sweep.theta_scan_directory / "theta_scan_2000eV.csv").exists()
     assert (sweep.theta_scan_directory / "theta_scan_2000eV.png").exists()
     assert sweep.profile_plot_path is None

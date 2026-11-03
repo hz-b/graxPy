@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_geometry_view.html" import geometry_view %}
+{% block title %}Manage multilayer gratings{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>Manage multilayer gratings</h1>
+    <p>Each grating has a geometry and coating, and any number of studies attached to it. Open a grating to see its first study and switch between the others.</p>
+  </div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('multilayer_design_new') }}">New multilayer grating</a>
+    <a class="button" href="{{ url_for('multilayer_design_index') }}">Manage multilayer runs</a>
+  </div>
+</section>
+
+{% if gratings %}
+  <div class="list manage-record-list">
+    {% for grating in gratings %}
+      {% set c = grating.config %}
+      <article class="manage-record-card multilayer-record multilayer-grating-card">
+        <div class="multilayer-grating-preview">
+          {{ geometry_view("grating", static=grating.preview_config) }}
+        </div>
+        <div class="manage-record-content">
+          <div class="manage-record-heading">
+            <div>
+              <h2><a href="{{ url_for('multilayer_grating_detail', grating_id=grating.id) }}">{{ grating.display_name }}</a></h2>
+              <p class="subtle">
+                {{ c.n_bilayers }} bilayers · γ {{ c.gamma }} · {{ c.grating_density_lpermm }} l/mm · order {{ c.diffraction_order }}
+                · {{ grating.studies|length }} stud{{ 'y' if grating.studies|length == 1 else 'ies' }}
+              </p>
+            </div>
+            <div class="actions">
+              <a class="button" href="{{ url_for('multilayer_design_new', grating=grating.id) }}">New study</a>
+              <a class="button" href="{{ url_for('multilayer_grating_edit', grating_id=grating.id) }}">Edit grating</a>
+              <form method="post" action="{{ url_for('multilayer_grating_delete', grating_id=grating.id) }}">
+                <button class="button danger" type="submit"
+                        data-confirm="Delete this grating and all {{ grating.studies|length }} studies attached to it, with their results? This cannot be undone.">Delete</button>
+              </form>
+            </div>
+          </div>
+          {% if grating.studies %}
+            <ul class="multilayer-grating-studies">
+              {% for study in grating.studies %}
+                <li>
+                  <a href="{{ url_for('multilayer_design_detail', study_id=study.id) }}">{{ study.display_name }}</a>
+                  {% for stage in stages %}
+                    <span class="status-pill is-{{ study.stages[stage].status }}">{{ stage_labels[stage] }}: {{ study.stages[stage].status }}</span>
+                  {% endfor %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="subtle">No studies attached yet.</p>
+          {% endif %}
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="empty">No multilayer gratings yet. Create one to get started.</p>
+{% endif %}
+{% endblock %}

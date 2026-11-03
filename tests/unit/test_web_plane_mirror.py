@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ import pytest
 from grax import build_multilayer_stack, parratt_reflectivity
 from grax.materials import MaterialSpec
 from grax.web.app import create_app
+from grax.web.plane_mirror_runs import expand_variations
 
 pytest.importorskip("flask")
 
@@ -48,7 +50,49 @@ def test_page_renders_and_is_linked_from_navigation(client) -> None:
     page = client.get("/plane-mirror")
     assert page.status_code == 200
     assert b"data-plane-mirror-form" in page.data
+    assert b'name="scan_mode"' not in page.data
+    assert b"Layer stack preview" in page.data
+    html = page.get_data(as_text=True)
+    assert html.index('name="mirror_name"') < html.index('data-plane-mirror-stack-image')
     assert b"/plane-mirror" in client.get("/").data
+
+
+def test_plane_mirror_none_material_variations_resolve_optional_coatings() -> None:
+    scan = {"scan_mode": "energy"}
+    stack = {
+        "stack_type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "top_cap_material": "C", "top_cap_thickness_nm": "2", "layer_thickness_nm": "20",
+    }
+    cases = expand_variations(scan, stack, '[{"parameter":"layer_material","values":["None","Ni"]}]', "[]")
+    assert cases[0]["stack"]["stack_type"] == "bare"
+    assert cases[0]["parameters"]["layer_material"] == "None"
+    assert cases[1]["stack"]["layer_material"] == "Ni"
+
+    cap_cases = expand_variations(scan, stack, '[{"parameter":"top_cap_material","values":["none"]}]', "[]")
+    assert cap_cases[0]["stack"]["top_cap_material"] == ""
+
+    paired = expand_variations(
+        scan, stack, "[]",
+        '[{"layer_material":["None","Ni"],"top_cap_material":["None","C"]}]',
+    )
+    assert paired[0]["stack"]["stack_type"] == "bare"
+    assert paired[0]["stack"]["top_cap_material"] == ""
+    assert paired[1]["stack"]["layer_material"] == "Ni"
+
+
+def test_plane_mirror_none_material_variations_validate_required_and_property_fields() -> None:
+    scan = {"scan_mode": "energy"}
+    stack = {"stack_type": "bare", "substrate_material": "Si"}
+    with pytest.raises(ValueError, match="Substrate material is required.*cannot be None"):
+        expand_variations(scan, stack, '[{"parameter":"substrate_material","values":["None"]}]', "[]")
+
+    stack = {
+        "stack_type": "single_layer", "substrate_material": "Si", "layer_material": "Au",
+        "layer_material_density_g_cm3": "19", "layer_thickness_nm": "20",
+    }
+    axes = '[{"parameter":"layer_material","values":["None"]},{"parameter":"layer_material_density_g_cm3","values":["18"]}]'
+    with pytest.raises(ValueError, match="Choose a layer material before scanning its properties"):
+        expand_variations(scan, stack, axes, "[]")
 
 
 def test_compute_matches_direct_parratt(client) -> None:
@@ -114,7 +158,9 @@ def test_unused_scan_fields_are_not_required_or_validated(client) -> None:
 
 
 def test_default_roughness_is_zero(client) -> None:
-    assert b'name="roughness_sigma_nm" type="number" step="0.01" min="0" value="0"' in client.get("/plane-mirror").data
+    mirror_id = _save_mirror(client)
+    assert b'name="roughness_sigma_nm"' not in client.get("/plane-mirror").data
+    assert b'name="roughness_sigma_nm" type="number" min="0" step="any" value="0"' in client.get(f"/plane-mirrors/{mirror_id}").data
 
 
 @pytest.mark.parametrize(
@@ -201,7 +247,8 @@ def test_map_defaults_stay_under_the_sample_cap(client) -> None:
 
 
 def test_energy_scan_defaults(client) -> None:
-    page = client.get("/plane-mirror").get_data(as_text=True)
+    mirror_id = _save_mirror(client)
+    page = client.get(f"/plane-mirrors/{mirror_id}").get_data(as_text=True)
     for name, value in (("energy_min", "100"), ("energy_max", "6000"), ("energy_points", "1000"), ("fixed_angle_deg", "0.4")):
         assert f'name="{name}" type="number"' in page and f'value="{value}"' in page.split(f'name="{name}"')[1].split(">")[0]
 
@@ -243,13 +290,12 @@ def test_save_open_and_list_plane_mirror(client) -> None:
     mirror_id = _save_mirror(client)
 
     page = client.get(f"/plane-mirrors/{mirror_id}").get_data(as_text=True)
-    assert "Pt on Si" in page and "first try" in page and "Energy 1" in page
-    # Saved stack and scan values come back into the form.
-    assert 'name="cl_material" list="material-suggestions" value="Cr"' in page
-    assert 'name="energy_points" type="number" step="1" min="1" max="5000" value="11"' in page
+    assert "Pt on Si" in page and "first try" in page and "Edit mirror" in page
+    assert 'name="mirror_name"' not in page and 'name="stack_type"' not in page
+    assert "Reflectivity preview" in page and "Mirror layer stack" in page
 
     listing = client.get("/plane-mirrors").get_data(as_text=True)
-    assert "Pt on Si" in listing and "3 custom layers" in listing and "1 scan" in listing
+    assert "Pt on Si" in listing and "3 custom layers" in listing and "0 scans" in listing
     assert client.get("/plane-mirrors/unknown-id").status_code == 404
 
 
@@ -265,19 +311,19 @@ def test_scans_are_added_overwritten_renamed_labelled_and_deleted(client) -> Non
 
     store = PlaneMirrorStore(client.application.config["GRAx_DATA_DIR"] / "saved_plane_mirrors")
     scans = store.load(mirror_id)["scans"]
-    assert [scan["name"] for scan in scans] == ["Energy 1", "Angle sweep"]
-    assert scans[1]["form"]["angle_max"] == "20" and scans[1]["label"] == "updated"
+    assert [scan["name"] for scan in scans] == ["Angle sweep"]
+    assert scans[0]["form"]["angle_max"] == "20" and scans[0]["label"] == "updated"
 
     # The saved scan opens with its own settings.
     page = client.get(f"{base}?scan=angle-sweep").get_data(as_text=True)
-    assert '<option value="angle" selected>' in page
+    assert '<option value="angle_sweep" selected>' in page
 
-    assert client.post(f"{base}/scans/angle-sweep/rename", data={"scan_name": "Energy 1"}).status_code == 400
+    assert client.post(f"{base}/scans/angle-sweep/rename", data={"scan_name": " "}).status_code == 400
     client.post(f"{base}/scans/angle-sweep/rename", data={"scan_name": "Angles", "scan_label": "renamed"})
-    assert store.load(mirror_id)["scans"][1]["name"] == "Angles"
+    assert store.load(mirror_id)["scans"][0]["name"] == "Angles"
 
     client.post(f"{base}/scans/angle-sweep/delete")
-    assert [scan["id"] for scan in store.load(mirror_id)["scans"]] == ["energy-1"]
+    assert store.load(mirror_id)["scans"] == []
 
 
 def test_update_and_delete_plane_mirror(client) -> None:
@@ -289,7 +335,7 @@ def test_update_and_delete_plane_mirror(client) -> None:
 
     spec = PlaneMirrorStore(client.application.config["GRAx_DATA_DIR"] / "saved_plane_mirrors").load(mirror_id)
     assert spec["name"] == "Renamed" and spec["label"] == "new note"
-    assert spec["stack_form"]["cl_thickness_nm"] == ["2", "20", "3"] and len(spec["scans"]) == 1
+    assert spec["stack_form"]["cl_thickness_nm"] == ["2", "20", "3"] and len(spec["scans"]) == 0
 
     assert client.post(base, data={**CUSTOM_FORM, "mirror_name": " "}).status_code == 400
     assert client.post(f"{base}/delete").status_code == 302
@@ -302,4 +348,69 @@ def test_bulk_delete_and_invalid_save(client) -> None:
     assert b"No plane mirrors" in client.get("/plane-mirrors").data
 
     assert client.post("/plane-mirrors", data={**CUSTOM_FORM, "mirror_name": ""}).status_code == 400
-    assert client.post("/plane-mirrors", data={**CUSTOM_FORM, "mirror_name": "x", "energy_points": "0"}).status_code == 400
+    # Scan settings are no longer part of mirror creation.
+    assert client.post("/plane-mirrors", data={**CUSTOM_FORM, "mirror_name": "x", "energy_points": "0"}).status_code == 302
+
+
+def test_mirror_detail_is_read_only_and_edit_has_dedicated_page(client) -> None:
+    mirror_id = _save_mirror(client)
+    detail = client.get(f"/plane-mirrors/{mirror_id}").get_data(as_text=True)
+    edit = client.get(f"/plane-mirrors/{mirror_id}/edit").get_data(as_text=True)
+
+    assert f'href="/plane-mirrors/{mirror_id}/edit"' in detail
+    assert 'name="mirror_name"' not in detail and 'name="cl_material"' not in detail
+    assert 'name="scan_mode"' not in edit and 'name="energy_points"' not in edit
+    assert 'name="mirror_name"' in edit and 'name="cl_material"' in edit
+
+
+@pytest.mark.parametrize("mode", ["energy_sweep", "angle_sweep", "monochromator"])
+def test_plane_mirror_runs_support_grating_style_scan_modes(client, mode) -> None:
+    mirror_id = _save_mirror(client)
+    base = {
+        "scan_mode": mode,
+        "energy_min": "200",
+        "energy_max": "300",
+        "energy_points": "3",
+        "angle_min": "1",
+        "angle_max": "2",
+        "angle_points": "3",
+        "fixed_angle_deg": "0.4",
+        "fixed_energy_ev": "250",
+        "grating_density_lpermm": "1200",
+        "cff": "2.25",
+        "diffraction_order": "1",
+        "grading_mode": "none",
+    }
+    response = client.post(f"/plane-mirrors/{mirror_id}/runs", data={**base, "run_name": f"Test {mode}"})
+    assert response.status_code == 302
+    assert client.get(response.headers["Location"]).status_code == 200
+    # The worker must finish, not just start: it runs in a background thread.
+    status_url = response.headers["Location"].rstrip("/") + "/status"
+    deadline = time.monotonic() + 60
+    status = {}
+    while time.monotonic() < deadline:
+        status = client.get(status_url).get_json()
+        if status["status"] in {"completed", "failed", "aborted"}:
+            break
+        time.sleep(0.1)
+    assert status["status"] == "completed", status
+    assert status["completed_points"] == status["total_points"] == 1
+
+
+def test_monochromator_preview_returns_energy_dependent_angles(client) -> None:
+    payload = client.post(
+        "/_compute/plane-mirror",
+        data={
+            **CUSTOM_FORM,
+            "scan_mode": "monochromator",
+            "energy_min": "200",
+            "energy_max": "300",
+            "energy_points": "3",
+            "grating_density_lpermm": "1200",
+            "cff": "2.25",
+            "diffraction_order": "1",
+        },
+    ).get_json()
+    assert payload["ok"] is True
+    assert len(payload["grazing_angles_deg"]) == len(payload["reflectivity"]) == 3
+    assert payload["grazing_angles_deg"][0] != payload["grazing_angles_deg"][-1]

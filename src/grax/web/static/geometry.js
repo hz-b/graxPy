@@ -368,7 +368,7 @@
           : "α (run form)";
     const incident = arc(hx, hy, 58, 180, 180 + f, "geo-arc");
     add("angles", "grazing", incident.path);
-    add("angles", "grazing", label(hx - 100 * dx - 6, hy - 100 * dy - 12, alphaText, "geo-angle-text", "end"));
+    add("angles", "grazing", label(incident.labelX, incident.labelY, alphaText, "geo-angle-text", "middle"));
 
     let exit = null;
     if (p.kind === "grating" && finite(p.order) && p.order !== 0) {
@@ -491,7 +491,7 @@
     add("angles", null, label(X1, BASE_Y + 104, exaggeration > 1.05 ? `heights exaggerated ×${fmt(exaggeration, 1)}; angle labels give the real values` : "to scale; angle labels give the real values", "geo-note", "end"));
   }
 
-  function drawNominalGrating(svg, type, status) {
+  function drawNominalGrating(svg, type, status, mount = {}) {
     const add = makeScene(svg);
     status.textContent = "Schematic only; the measured or calculated profile is shown below.";
     const periodPx = (X1 - X0) / 3;
@@ -528,8 +528,14 @@
     add("beams", "grazing", label(hx - rayLength, hy - 66, "incident", "geo-ray-text", "start"));
     add("beams", "grazing", label(hx + rayLength, hy - 66, "specular (0)", "geo-ray-text", "end"));
     add("angles", "grazing", line(hx - 92, hy, hx, hy, "geo-ref"));
-    add("angles", "grazing", arc(hx, hy, 48, 180, 198, "geo-arc").path);
-    add("angles", "grazing", label(hx - 86, hy - 38, "α", "geo-angle-text"));
+    const alphaArc = arc(hx, hy, 48, 180, 198, "geo-arc");
+    add("angles", "grazing", alphaArc.path);
+    add("angles", "grazing", label(alphaArc.labelX, alphaArc.labelY, "α", "geo-angle-text"));
+    if (mount.workflow === "constant_deviation") {
+      const deviationArc = arc(hx, hy, 66, 198, 342, "geo-arc geo-deviation-arc");
+      add("angles", "deviation", deviationArc.path);
+      add("angles", "deviation", label(hx, hy - 100, "2θ", "geo-angle-text geo-deviation-text", "middle"));
+    }
     add("angles", null, label(hx, hy - 88, "N", "geo-ref-text"));
     add("angles", null, line(hx, hy - 78, hx, hy + 30, "geo-ref"));
 
@@ -688,7 +694,9 @@
         const shapeType = selectedType === "afm"
           ? first(sources, ["afm_profile_type"]) || "blazed"
           : selectedType;
-        drawNominalGrating(svg, shapeType, status);
+        drawNominalGrating(svg, shapeType, status, {
+          workflow: first(sources, ["workflow"]),
+        });
         return;
       }
       const params = kind === "mirror" ? readMirror(sources) : readGrating(sources);

@@ -1,0 +1,2 @@
+This is intentionally not an AFM data file.
+<invalid coordinates>

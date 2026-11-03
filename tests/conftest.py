@@ -22,3 +22,17 @@ def _cleanup_checkpoints() -> None:
     yield
     if checkpoint_dir.exists():
         shutil.rmtree(checkpoint_dir)
+
+
+@pytest.fixture(autouse=True)
+def _no_native_folder_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail instead of opening a real folder picker when a test forgets to stub it."""
+    try:
+        from grax.web.routes import core
+    except ImportError:  # Flask is optional
+        return
+
+    def refuse() -> None:
+        pytest.fail("A test reached the native folder dialog; stub routes.core._pick_native_directory.")
+
+    monkeypatch.setattr(core, "_pick_native_directory", refuse)

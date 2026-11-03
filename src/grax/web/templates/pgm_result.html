@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ run.display_name }} · PGM{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>{{ run.display_name }}</h1>
+    <p>{{ run.grating_name }} · {{ run.mirror_name }} · S (TE) polarization</p>
+  </div>
+  {% set active = initial_status.state in ['queued', 'running', 'aborting'] %}
+  <div class="actions">
+    <a class="button" href="{{ url_for('pgm_run_index') }}">Manage PGM runs</a>
+    {% if active %}
+    <form method="post" action="{{ url_for('pgm_run_stop', run_id=run.id) }}">
+      <button class="button danger" type="submit" data-run-abort-action {% if not initial_status.can_abort %}aria-disabled="true"{% endif %}>Abort run</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+{% if active %}
+{% include '_run_monitor.html' %}
+{% else %}
+<section class="docs-section">
+  <h2>Status: {{ run.status }}</h2>
+  {% if run.status == 'failed' %}
+  <p class="notice notice-error">{{ run.error_text }}</p>
+  {% elif run.status == 'aborted' %}
+  <p class="notice">This run was stopped. The maps show what it solved before stopping. Start a new run to calculate the rest.</p>
+  {% endif %}
+  {% if run.status == 'completed' %}
+  <div class="pgm-actions">
+    <a class="button" href="{{ url_for('pgm_run_csv', run_id=run.id) }}">Download CSV</a>
+    <a class="button" href="{{ url_for('pgm_run_png', run_id=run.id) }}">Download PNG</a>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+<section class="pgm-dashboard" data-pgm-dashboard
+         {% if active %}data-pgm-active{% endif %}
+         data-maps-url="{{ url_for('pgm_run_maps', run_id=run.id) }}"
+         data-live-url="{{ url_for('pgm_run_live', run_id=run.id) }}"
+         data-point-url="{{ url_for('pgm_run_point', run_id=run.id) }}">
+  <h2 class="pgm-dashboard-title">{{ dashboard_title }}</h2>
+  <p class="subtle" data-pgm-dashboard-message role="status">{% if active %}Calculating geometry and mirror reflectivity…{% endif %}</p>
+  <div class="pgm-dashboard-top">
+    <div class="pgm-chart" data-pgm-side-view role="img" aria-label="Side view of the mirror, grating and rays"></div>
+    <div class="pgm-parameters">
+      <pre>{{ parameter_blocks[0] }}</pre>
+      <pre>{{ parameter_blocks[1] }}</pre>
+    </div>
+    <div class="pgm-chart" data-pgm-chart="geometry" role="img" aria-label="Geometric throughput map"></div>
+  </div>
+  <div class="pgm-dashboard-row">
+    <div class="pgm-chart" data-pgm-chart="mirror" role="img" aria-label="Mirror reflectivity map"></div>
+    <div class="pgm-chart" data-pgm-chart="grating" role="img" aria-label="Grating efficiency map"></div>
+  </div>
+  <div class="pgm-dashboard-row">
+    <div class="pgm-chart" data-pgm-chart="optical" role="img" aria-label="Mirror times grating map"></div>
+    <div class="pgm-chart" data-pgm-chart="total" role="img" aria-label="Total throughput map"></div>
+  </div>
+</section>
+<form method="post" action="{{ url_for('pgm_run_delete', run_id=run.id) }}" onsubmit="return confirm('Delete this PGM run?')">
+  <button class="button danger" type="submit">Delete run</button>
+</form>
+{% endblock %}

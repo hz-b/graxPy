@@ -138,7 +138,6 @@ def test_run_parameter_study_reports_progress_after_each_energy(monkeypatch) -> 
         x_resolution_nm=0.5,
         z_resolution_nm=0.1,
     )
-
     result = run_parameter_study(
         grating=grating,
         energies_ev=[100.0, 110.0],
@@ -156,6 +155,31 @@ def test_run_parameter_study_reports_progress_after_each_energy(monkeypatch) -> 
     assert len(result.results) == 2
     assert progress == [(1, 2, 1), (2, 2, 2)]
 
+
+def test_parameter_study_resume_skips_successful_checkpointed_points(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[float, int]] = []
+
+    def fake_run_single(self, photon_energy_ev: float) -> dict[str, object]:
+        calls.append((photon_energy_ev, self.fourier_orders))
+        return {"orders": np.asarray([1]), "efficiency": 0.5, "diffraction_angle_deg": 1.0,
+                "efficiency_all": np.asarray([0.5]), "diffraction_angle_all": np.asarray([1.0])}
+
+    monkeypatch.setattr(GratingSimulation, "run_single", fake_run_single)
+    grating = BlazedGrating(period_lpermm=600, blaze_angle_deg=0.75, x_resolution_nm=1.0, z_resolution_nm=1.0)
+    common = dict(
+        grating=grating, energies_ev=[100.0], grazing_angle_deg=1.5,
+        fourier_orders_values=[3, 5], x_resolution_values=[1.0], z_resolution_values=[1.0],
+        output_dir=tmp_path, save_csv=False, show_progress=False,
+    )
+    with pytest.raises(RuntimeError, match="interrupt"):
+        run_parameter_study(**common, sweep_progress_callback=lambda *_: (_ for _ in ()).throw(RuntimeError("interrupt")))
+    calls_before_resume = len(calls)
+    resumed = run_parameter_study(**common, resume=True)
+    assert len(calls) == calls_before_resume + 3
+    assert np.all(resumed.results[0].sweeps["fourier_orders"].efficiencies == 0.5)
+    assert (tmp_path / "parameter_study_checkpoints.jsonl").is_file()
 
 def test_run_parameter_study_preserves_error_messages_in_csv(
     monkeypatch,

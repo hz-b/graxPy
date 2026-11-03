@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}PGM runs · GraxPy{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div><h1>Manage PGM runs</h1><p>Filter runs by PGM, rename runs or edit their comments, or bulk delete selected runs.</p></div>
+  <div class="actions">
+    <a class="button primary" href="{{ url_for('pgm_page') }}">New PGM run</a>
+    <a class="button" href="{{ url_for('pgm_setup_index') }}">Manage saved PGMs</a>
+  </div>
+</section>
+{% if runs %}
+<form method="post" action="{{ url_for('pgm_runs_update') }}" class="run-manage-form">
+  <div class="manage-actions">
+    <label class="run-filter">
+      <select data-run-filter aria-label="Filter by PGM">
+        <option value="">Filter by PGM: all</option>
+        {% for pgm in pgms %}
+        <option value="{{ pgm.key }}">{{ pgm.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button danger" type="submit" name="action" value="delete" data-confirm="Delete the selected runs? This cannot be undone.">Delete selected</button>
+  </div>
+  <div class="list run-manage-list">
+    {% for run in runs %}
+    <article class="row run-manage-row run-manage-card pgm-run-card" data-run-filter-key="{{ run.pgm_key }}">
+      <div class="run-manage-main">
+        <label class="inline-check manage-delete">
+          <input type="checkbox" name="selected_run_id" value="{{ run.id }}">
+          <span>Select run</span>
+        </label>
+        <div class="run-manage-heading">
+          <h2><a href="{{ url_for('pgm_run_detail', run_id=run.id) }}">{{ run.display_name }}</a></h2>
+          <div class="run-manage-status">
+            <span class="status-pill is-{{ run.status }}">{{ run.status }}</span>
+            <span class="subtle">{{ run.completed_points | default(0) }} / {{ run.total_points | default(0) }} grating nodes</span>
+          </div>
+        </div>
+        <p class="run-manage-summary">{{ run.pgm_label }} · {{ run.grating_name }} · {{ run.mirror_name }} · {{ run.created_at }}</p>
+        {% if run.comment %}<p class="subtle">{{ run.comment }}</p>{% endif %}
+        <div class="run-manage-actions">
+          <a class="button" href="{{ url_for('pgm_run_detail', run_id=run.id) }}">View details</a>
+          {% if run.status == 'completed' %}
+          <a class="button" href="{{ url_for('pgm_run_csv', run_id=run.id) }}">Download CSV</a>
+          <a class="button" href="{{ url_for('pgm_run_png', run_id=run.id) }}">Download PNG</a>
+          {% endif %}
+        </div>
+        <details class="run-edit-details">
+          <summary>Edit run name or comment</summary>
+          <div class="run-manage-fields">
+            <label>Run name <input name="display_name_{{ run.id }}" type="text" value="{{ run.display_name }}"></label>
+            <label>Comment <input name="comment_{{ run.id }}" type="text" value="{{ run.comment | default('', true) }}" placeholder="Optional note"></label>
+            <button class="button primary" type="submit" name="save_run_id" value="{{ run.id }}">Save</button>
+          </div>
+        </details>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</form>
+{% else %}<p class="empty">No PGM runs yet.</p>{% endif %}
+{% endblock %}

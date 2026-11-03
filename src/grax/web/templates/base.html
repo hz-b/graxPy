@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="en">
+<html lang="en"
+      data-decimal-separator="{{ app_settings.decimal_separator }}"
+      data-standard-polarization="{{ app_settings.standard_polarization }}"
+      data-settings-saved="{{ 'true' if app_settings.saved else 'false' }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,11 +11,13 @@
     {% if plotly_bundle %}
       <script>{{ plotly_bundle | safe }}</script>
     {% endif %}
-    <script src="{{ url_for('static', filename='web.js') }}" defer></script>
+    {% for script in frontend_scripts %}
+    <script src="{{ url_for('static', filename=script) }}" defer></script>
+    {% endfor %}
     <script src="{{ url_for('static', filename='geometry.js') }}" defer></script>
     <script src="{{ url_for('static', filename='afm.js') }}" defer></script>
   </head>
-  <body>
+  <body data-settings-url="{{ url_for('update_user_settings') }}">
     <header class="topbar">
       <div class="brand-lockup" aria-label="GraxPy and HZB BESSY II">
         <a class="brand" href="{{ url_for('index') }}" aria-label="Grax Web home">
@@ -37,15 +42,25 @@
           <div class="nav-menu">
             <a href="{{ url_for('plane_mirror_page') }}">New plane mirror</a>
             <a href="{{ url_for('plane_mirror_index') }}">Manage plane mirrors</a>
-            <a href="{{ url_for('plane_mirror_index') }}">Manage plane-mirror runs</a>
+            <a href="{{ url_for('plane_mirror_runs') }}">Manage plane-mirror runs</a>
+          </div>
+        </details>
+        <details class="nav-dropdown">
+          <summary>PGM <span aria-hidden="true">⌄</span></summary>
+          <div class="nav-menu">
+            <a href="{{ url_for('pgm_page') }}">New working range</a>
+            <a href="{{ url_for('pgm_setup_index') }}">Manage saved PGMs</a>
+            <a href="{{ url_for('pgm_run_index') }}">Manage PGM runs</a>
+            <a href="{{ url_for('web_docs_topic', topic='pgm') }}">How it works</a>
           </div>
         </details>
         <details class="nav-dropdown">
           <summary>Multilayer grating <span aria-hidden="true">⌄</span></summary>
           <div class="nav-menu">
             <a href="{{ url_for('multilayer_design_new') }}">New multilayer grating</a>
-            <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer gratings</a>
+            <a href="{{ url_for('multilayer_gratings_manage') }}">Manage multilayer gratings</a>
             <a href="{{ url_for('multilayer_design_index') }}">Manage multilayer runs</a>
+            <a href="{{ url_for('web_docs_topic', topic='multilayer-how-it-works') }}">How it works</a>
           </div>
         </details>
         <details class="nav-dropdown">
