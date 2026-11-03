@@ -671,6 +671,11 @@ def test_stage_monitor_reloads_the_page_when_a_stage_finishes(
     try:
         html = client.get(f"/multilayer-design/{study_id}").get_data(as_text=True)
         assert "data-run-reload-on-finish" in html
+        # Stages show the same monitor as every other run.
+        assert "Live progress" in html
+        assert "Machine RAM" in html
+        assert "data-run-current-label" in html
+        assert "Abort stage" in html
     finally:
         client.post(
             f"/multilayer-design/{study_id}/stages/survey/abort", data={"disposition": "save"}

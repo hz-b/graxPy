@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% from "_pgm_geometry_help.html" import pgm_geometry_help %}
+{% set optional_placeholders = {'mirror_surface_axis_offset_mm': 'Use beam offset', 'mirror_downstream_edge_offset_mm': 'Derived from optic separation'} %}
+{% block title %}PGM working range · GraxPy{% endblock %}
+{% block body %}
+<section class="section-head">
+  <div>
+    <h1>PGM working range</h1>
+    <p>Define or reuse a grating and a mirror, then calculate the working range of an SX700 plane grating monochromator.</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('pgm_setup_index') }}">Manage saved PGMs</a>
+    <a class="button" href="{{ url_for('pgm_run_index') }}">Manage PGM runs</a>
+  </div>
+</section>
+<section class="docs-section pgm-start">
+  <label>Start from
+    <select data-pgm-start>
+      <optgroup label="Examples">
+        {% for preset in presets %}
+        {% set url = url_for('pgm_page', preset=preset.id) %}
+        <option value="{{ url }}" {% if start_url == url %}selected{% endif %}>{{ preset.name }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Saved PGMs" data-pgm-saved-options>
+        {% for saved in saved_setups %}
+        {% set url = url_for('pgm_page', saved=saved.id) %}
+        <option value="{{ url }}" {% if start_url == url %}selected{% endif %}>{{ saved.name }}</option>
+        {% endfor %}
+      </optgroup>
+    </select>
+  </label>
+  {% if setup and setup.note %}<p class="subtle">{{ setup.note }}</p>{% endif %}
+</section>
+<datalist id="material-suggestions">
+  {% for material in materials %}
+    <option value="{{ material }}" data-density="{{ material_density_map.get(material, '') }}">{{ material }}</option>
+  {% endfor %}
+</datalist>
+
+<section class="docs-section" data-pgm-optic="grating">
+  <h2>Grating</h2>
+  <label class="pgm-picker">Fill from a saved grating
+    <select name="grating_source_id" form="pgm-setup-form" data-pgm-picker data-fields-url="{{ url_for('pgm_grating_fields') }}">
+      <option value="">Example grating (SX700)</option>
+      {% for grating in gratings %}
+      <option value="{{ grating.id }}">{{ grating.name }} · {{ grating.period_lpermm }} l/mm</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="plane-mirror-editor-layout">
+    <form class="form plane-mirror-form" data-pgm-grating-form data-grating-preview-form data-preview-url="{{ url_for('preview_grating') }}">
+      <div class="pgm-optic-fields" data-pgm-fields>
+        {% with editor = grating_editor %}{% include "_pgm_grating_fields.html" %}{% endwith %}
+      </div>
+    </form>
+    <section class="preview-panel plane-mirror-schematic">
+      <div class="section-head preview-head">
+        <div>
+          <h3>Live preview</h3>
+          <p data-grating-preview-status>Updating…</p>
+        </div>
+        <span class="preview-pill" data-grating-preview-loading>Idle</span>
+      </div>
+      <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
+      <p class="notice notice-error is-hidden" role="alert" tabindex="-1" data-grating-preview-error></p>
+      <p data-roughness-warnings role="status"></p>
+      <img class="preview is-hidden" src="" alt="Random roughness interfaces and material map" data-roughness-preview-image>
+    </section>
+  </div>
+</section>
+
+<section class="docs-section" data-pgm-optic="mirror">
+  <h2>Plane mirror</h2>
+  <label class="pgm-picker">Fill from a saved mirror
+    <select name="mirror_source_id" form="pgm-setup-form" data-pgm-picker data-fields-url="{{ url_for('pgm_mirror_fields') }}">
+      <option value="">Example mirror (SX700)</option>
+      {% for mirror in mirrors %}
+      <option value="{{ mirror.id }}">{{ mirror.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="plane-mirror-editor-layout">
+    <form class="form plane-mirror-form" data-pgm-mirror-form data-stack-preview-url="{{ url_for('plane_mirror_stack_preview') }}">
+      <div class="pgm-optic-fields" data-pgm-fields>
+        {% with editor = mirror_editor %}{% include "_pgm_mirror_fields.html" %}{% endwith %}
+      </div>
+    </form>
+    <section class="preview-panel plane-mirror-schematic">
+      <div class="section-head preview-head">
+        <div>
+          <h3>Layer stack preview</h3>
+          <p data-pgm-mirror-status>Updating…</p>
+        </div>
+      </div>
+      <img class="preview is-hidden" src="" alt="Layer stack schematic" data-pgm-mirror-image>
+    </section>
+  </div>
+</section>
+
+<form id="pgm-setup-form" method="post" action="{{ url_for('pgm_run_new') }}" class="pgm-form" data-pgm-setup-form data-save-url="{{ url_for('pgm_setup_create') }}">
+  <input type="hidden" name="pgm_id" value="{{ setup.id }}" data-pgm-id>
+  <section class="docs-section">
+    <h2>Diffraction</h2>
+    <div class="pgm-fields">
+      <label>Diffraction order <input type="number" name="diffraction_order" min="1" step="1" required value="{{ values.diffraction_order }}"></label>
+      <label>Mirror roughness (nm) <input type="number" name="mirror_roughness_nm" min="0" step="0.1" required value="{{ values.mirror_roughness_nm }}"></label>
+    </div>
+    <p class="subtle">This calculation uses S (TE) polarization. Groove density comes from the grating above.</p>
+  </section>
+  <section class="docs-section">
+    <h2>Geometry and mechanical limits</h2>
+    <div class="pgm-geometry">
+      <div class="pgm-geometry-figure">{% include "_pgm_geometry_drawing.html" %}</div>
+      <div class="pgm-geometry-groups">
+        {% for group, group_class, fields in [
+          ('Optics', 'optics', [
+            ('mirror_length_mm', 'L<sub>M</sub>', 'Mirror length', 'mm', '1'),
+            ('grating_length_mm', 'L<sub>G</sub>', 'Grating length', 'mm', '1'),
+            ('edge_margin_mm', 'm', 'Edge margin', 'mm', '0.1')]),
+          ('Beam', 'beam', [
+            ('beam_offset_mm', 'b', 'Beam offset', 'mm', '0.1'),
+            ('beam_height_mm', 'H', 'Beam height', 'mm', '0.1')]),
+          ('Rotation axes', 'axes', [
+            ('mirror_grating_axis_dy_mm', 'v', 'Axis vertical offset', 'mm', '0.1'),
+            ('mirror_axis_dx_mm', 'h', 'Mirror axis horizontal offset', 'mm', '0.1')]),
+          ('Mirror position on its axis', 'position', [
+            ('optic_dx_mm', 'D', 'Optic separation', 'mm', '1'),
+            ('mirror_surface_axis_offset_mm', 'c', 'Mirror surface axis offset', 'mm, optional', '0.1'),
+            ('mirror_downstream_edge_offset_mm', 'a', 'Mirror downstream edge offset', 'mm, optional', '0.1')]),
+          ('Mechanical limits', 'limits', [
+            ('theta_min_deg', 'Θ<sub>min</sub>', 'Mirror angle minimum', '°', '0.1'),
+            ('theta_max_deg', 'Θ<sub>max</sub>', 'Mirror angle maximum', '°', '0.1'),
+            ('beta_min_deg', '|β|<sub>min</sub>', 'Grating angle minimum', '°', '0.1'),
+            ('beta_max_deg', '|β|<sub>max</sub>', 'Grating angle maximum', '°', '0.1'),
+            ('crit_distance', 'd<sub>min</sub>', 'Minimum mirror–grating distance', 'mm', '0.1')])
+        ] %}
+        <fieldset class="pgm-geometry-group pgm-group-{{ group_class }}">
+          <legend>{{ group }}</legend>
+          <div class="pgm-fields">
+            {% for name, symbol, label, unit, step in fields %}
+            {% set optional = name in optional_placeholders %}
+            <label>
+              <span class="parameter-label"><span class="pgm-symbol">{{ symbol|safe }}</span> {{ label }} ({{ unit }}) {{ pgm_geometry_help(name, label) }}</span>
+              <input type="number" name="{{ name }}" step="{{ step }}"{% if optional %} placeholder="{{ optional_placeholders[name] }}" value="{{ values[name] if values[name] is not none else '' }}"{% else %} required value="{{ values[name] }}"{% endif %}>
+            </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  <section class="docs-section">
+    <h2>Scan and solver</h2>
+    <div class="pgm-fields">
+      {% for name, label, step in [
+        ('energy_min_eV','Energy minimum (eV)','1'), ('energy_max_eV','Energy maximum (eV)','1'),
+        ('c_min','CFF minimum','0.1'), ('c_max','CFF maximum','0.1'),
+        ('n_energy','Energy map points','1'), ('n_c','CFF map points','1'),
+        ('rcwa_energy_nodes','Grating energy nodes','1'), ('rcwa_cff_nodes','Grating CFF nodes','1'),
+        ('rcwa_harmonics','Fourier orders','1')
+      ] %}
+      <label>{{ label }} <input type="number" name="{{ name }}" step="{{ step }}" required value="{{ values[name] }}"></label>
+      {% endfor %}
+      <label>Solver
+        <select name="rcwa_solver">
+          <option value="rcwa" {% if values.rcwa_solver == 'rcwa' %}selected{% endif %}>RCWA</option>
+          <option value="neviere" {% if values.rcwa_solver == 'neviere' %}selected{% endif %}>Nevière</option>
+        </select>
+      </label>
+      {% include '_worker_fields.html' %}
+    </div>
+    <p class="subtle">The grating is solved at adaptive nodes and interpolated onto the displayed map.</p>
+  </section>
+  <p class="notice notice-error is-hidden" role="alert" tabindex="-1" data-pgm-error></p>
+  <p class="notice is-hidden" role="status" data-pgm-saved-message></p>
+  <div class="pgm-fields pgm-names">
+    <label>Run name <input name="display_name" placeholder="PGM working range"></label>
+    <label>Comment <input name="comment" type="text" placeholder="Optional note for this run"></label>
+    <label>PGM name <input name="pgm_name" maxlength="120" placeholder="Needed to save as a new PGM"></label>
+  </div>
+  <div class="pgm-actions">
+    <button class="button primary" type="submit">Run working range</button>
+    <button class="button" type="button" data-pgm-save>Save as new PGM</button>
+    <a href="{{ url_for('web_docs_topic', topic='pgm') }}">How it works</a>
+  </div>
+</form>
+{% endblock %}

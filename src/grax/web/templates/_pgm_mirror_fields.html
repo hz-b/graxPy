@@ -1,0 +1,12 @@
+{# The mirror editor on the PGM page; also served alone when a mirror is picked. #}
+{% set defaults = editor.defaults %}
+{% set custom_layers = editor.custom_layers %}
+{% set density_placeholders = editor.density_placeholders %}
+{% set allow_custom = true %}
+{% set allow_bare = false %}
+{% set substrate_rendered = false %}
+<fieldset>
+  <legend>Mirror</legend>
+  <label>Name <input name="mirror_name" value="{{ defaults.mirror_name|default('') }}" placeholder="Custom mirror" maxlength="120"></label>
+</fieldset>
+{% include "_stack_fields.html" %}

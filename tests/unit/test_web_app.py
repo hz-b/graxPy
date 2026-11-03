@@ -3523,8 +3523,8 @@ def test_manage_runs_page_filters_by_grating_and_saves_one_run(tmp_path: Path) -
     client = create_app(data_dir=tmp_path).test_client()
 
     page = client.get("/runs/gratings")
-    assert b"data-run-grating-filter" in page.data
-    assert b"data-run-grating=" in page.data
+    assert b"data-run-filter" in page.data
+    assert b"data-run-filter-key=" in page.data
     assert b"Save changes" not in page.data
     assert b'name="save_run_id" value="run-1"' in page.data
 

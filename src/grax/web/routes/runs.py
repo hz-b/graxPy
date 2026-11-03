@@ -143,19 +143,11 @@ def register(app: Any, ctx: WebContext) -> None:
             store.delete_many(run_ids)
             return redirect(url_for("manage_grating_runs"))
 
-        save_run_id = str(request.form.get("save_run_id", ""))
-        for run in store.list():
-            if not _is_grating_run(run):
-                continue
-            run_id = str(run["id"])
-            if save_run_id and run_id != save_run_id:
-                continue
-            field_name = f"display_name_{run_id}"
-            comment_field_name = f"comment_{run_id}"
-            if field_name in request.form:
-                store.rename(run_id, str(request.form.get(field_name, "")))
-            if comment_field_name in request.form:
-                store.update_comment(run_id, str(request.form.get(comment_field_name, "")))
+        store.save_edits(
+            request.form,
+            [str(run["id"]) for run in store.list() if _is_grating_run(run)],
+            only=str(request.form.get("save_run_id", "")),
+        )
         return redirect(url_for("manage_grating_runs"))
 
     # Keep POSTs from older saved forms working while the canonical form URL is

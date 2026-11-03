@@ -95,6 +95,16 @@ class RunStore:
             lambda payload: payload.update(comment=comment.strip(), updated_at=_timestamp()),
         )
 
+    def save_edits(self, form: Any, run_ids: Sequence[str], *, only: str = "") -> None:
+        """Save the name and comment fields a manage page posted, for one run if ``only`` is set."""
+        for run_id in run_ids:
+            if only and run_id != only:
+                continue
+            if f"display_name_{run_id}" in form:
+                self.rename(run_id, str(form.get(f"display_name_{run_id}", "")))
+            if f"comment_{run_id}" in form:
+                self.update_comment(run_id, str(form.get(f"comment_{run_id}", "")))
+
     def delete_many(self, run_ids: Sequence[str]) -> None:
         """Delete several run directories."""
         for run_id in run_ids:
@@ -131,6 +141,10 @@ class RunStore:
             return []
         with path.open("r", encoding="utf-8", newline="") as handle:
             return list(csv.DictReader(handle))
+
+    def run_dir(self, run_id: str) -> Path:
+        """Return the folder of one run, rejecting unsafe run identifiers."""
+        return self._run_dir(run_id)
 
     def _run_dir(self, run_id: str) -> Path:
         """Return the filesystem path for one run identifier."""

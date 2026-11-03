@@ -74,7 +74,7 @@ def test_every_linked_page_renders_without_server_errors(seeded_client):
     failures = {url: status for url, status in statuses.items() if status >= 500}
     assert failures == {}
     # The sweep must reach every section, not just the index.
-    for prefix in ("/gratings/", "/plane-mirrors/", "/multilayer-design/", "/runs/", "/plots", "/docs"):
+    for prefix in ("/gratings/", "/plane-mirrors/", "/multilayer-design/", "/runs/", "/plots", "/docs", "/pgm"):
         assert any(url.startswith(prefix) and status == 200 for url, status in statuses.items()), prefix
 
 

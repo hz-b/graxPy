@@ -17,6 +17,9 @@ from playwright.sync_api import Browser, Page, expect, sync_playwright
 from werkzeug.serving import make_server
 
 from grax.web.app import create_app
+from grax.web.persistence import GratingStore, PlaneMirrorStore, grating_to_spec
+from grax.web.pgm_jobs import create_pgm_run, parse_pgm_form, pgm_store
+from tests.unit.test_web_plane_mirror import FORM as PGM_MIRROR_FORM
 from tests.unit.test_saved_plot_loops import _write_sweep
 
 
@@ -91,6 +94,191 @@ def test_navigation_and_grating_form_use_javascript(browser_page: Page) -> None:
     page.locator("details.nav-dropdown").nth(1).locator("summary").click()
     expect(page.locator("details.nav-dropdown").nth(0)).not_to_have_attribute("open", "")
     expect(page.locator("details.nav-dropdown").nth(1)).to_have_attribute("open", "")
+
+
+@pytest.mark.browser
+def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeypatch) -> None:
+    """Geometry appears first, the grating maps fill in, and aborting keeps them."""
+    import numpy as np
+
+    from grax.pgm import PGMCancelled, calculate_working_range
+
+    def partial_run(parameters):
+        energies, cff, geometry = calculate_working_range(parameters)
+        mirror = np.full(geometry["throughput_percent"].shape, 0.5)
+        parameters.maps_ready_callback(energies, cff, geometry, mirror)
+        e_nodes = np.linspace(energies[0], energies[-1], 10)
+        c_nodes = np.linspace(cff[0], cff[-1], 10)
+        eta = np.full((10, 10), np.nan)
+        for solved in (3, 8):
+            eta[:, :solved] = 0.4
+            parameters.nodes_callback(e_nodes, c_nodes, eta)
+            if parameters.stop_event.wait(1.2):
+                raise PGMCancelled("stopped")
+        parameters.stop_event.wait(30)
+        raise PGMCancelled("stopped")
+
+    monkeypatch.setattr("grax.web.pgm_jobs.run_working_range", partial_run)
+    base_url, _ = website
+    errors = []
+    browser_page.on("pageerror", lambda error: errors.append(str(error)))
+    browser_page.goto(f"{base_url}/pgm")
+    manual_workers = browser_page.locator("[data-pgm-setup-form] [data-manual-workers]")
+    expect(manual_workers).to_be_hidden()
+    browser_page.locator("[data-pgm-setup-form] [data-worker-mode]").select_option("manual")
+    expect(manual_workers).to_be_visible()
+    browser_page.locator("[data-pgm-setup-form] [name='max_workers']").fill("2")
+    browser_page.locator("[name='comment']").fill("Browser note")
+    browser_page.locator("[name='n_energy']").fill("41")
+    browser_page.locator("[name='n_c']").fill("11")
+    browser_page.get_by_role("button", name="Run working range").click()
+
+    expect(browser_page.locator("[data-live-run-monitor]")).to_be_visible(timeout=15000)
+    expect(browser_page.locator("[data-pgm-side-view] .main-svg").first).to_be_visible(timeout=15000)
+    grating = browser_page.locator("[data-pgm-chart='grating']")
+    expect(grating.locator(".main-svg").first).to_be_visible(timeout=15000)
+    count_solved = """() => document.querySelector("[data-pgm-chart='grating']").data[0].customdata
+        .flat().filter((value) => value !== null && value > 0).length"""
+    browser_page.wait_for_function(f"({count_solved})() > 0", timeout=15000)
+    first = browser_page.evaluate(count_solved)
+    browser_page.wait_for_function(f"({count_solved})() > {first}", timeout=15000)
+    assert grating.evaluate("element => element.data[0].customdata.flat().includes(null)")
+
+    browser_page.get_by_role("button", name="Abort run").click()
+    expect(browser_page.get_by_role("heading", name="Status: aborted")).to_be_visible(timeout=15000)
+    expect(grating.locator(".main-svg").first).to_be_visible(timeout=15000)
+    assert errors == []
+
+
+@pytest.mark.browser
+def test_pgm_page_and_interactive_maps(website, browser_page: Page) -> None:
+    """Open the PGM form, see the dashboard and inspect one point without script errors."""
+    import numpy as np
+    import grax
+
+    base_url, data_dir = website
+    grating = grax.BlazedGrating(
+        period_lpermm=400, blaze_angle_deg=0.9, anti_blaze_angle_deg=None,
+        substrate_material="Pt", layer_material="Pt", layer_thickness_nm=1,
+        x_resolution_nm=4, z_resolution_nm=1,
+    )
+    saved_grating = GratingStore(data_dir / "saved_gratings").save(
+        grating_to_spec(grating, name="Browser PGM grating")
+    )
+    saved_mirror = PlaneMirrorStore(data_dir / "saved_plane_mirrors").save({
+        "name": "Browser PGM mirror", "stack_form": dict(PGM_MIRROR_FORM), "scans": [],
+    })
+    errors = []
+    browser_page.on("pageerror", lambda error: errors.append(str(error)))
+    browser_page.goto(f"{base_url}/pgm")
+    expect(browser_page.get_by_role("heading", name="PGM working range")).to_be_visible()
+    # The geometry drawing is shown and a term explains itself on hover.
+    expect(browser_page.locator(".pgm-geometry-drawing")).to_be_visible()
+    geometry_tip = browser_page.locator("#pgm-help-beam_offset_mm")
+    expect(geometry_tip).to_be_hidden()
+    browser_page.locator("[aria-describedby='pgm-help-beam_offset_mm']").hover()
+    expect(geometry_tip).to_be_visible()
+    # Picking fills the editors, the edit stays local, and saving keeps a named copy.
+    expect(browser_page.locator("[data-pgm-grating-form] [name='period_lpermm']")).to_have_value("2400")
+    expect(browser_page.locator("[data-grating-preview-image]")).to_be_visible(timeout=30000)
+    expect(browser_page.locator("[data-pgm-mirror-image]")).to_be_visible(timeout=15000)
+    browser_page.locator("select[name='grating_source_id']").select_option(saved_grating["id"])
+    grating_form = browser_page.locator("[data-pgm-grating-form]")
+    expect(grating_form.locator("[name='name']")).to_have_value("Browser PGM grating")
+    browser_page.locator("select[name='mirror_source_id']").select_option(saved_mirror["id"])
+    mirror_form = browser_page.locator("[data-pgm-mirror-form]")
+    expect(mirror_form.locator("[name='mirror_name']")).to_have_value("Browser PGM mirror")
+    # Two editors: switching one stack type must not touch the other.
+    grating_stack = grating_form.locator("[name='stack_type']")
+    mirror_stack = mirror_form.locator("[name='stack_type']")
+    mirror_stack.select_option("multilayer")
+    grating_stack.select_option("single_layer")
+    expect(grating_form.locator("[name='layer_thickness_nm']")).to_be_visible()
+    expect(mirror_form.locator("[name='d_period_nm']")).to_be_visible()
+    expect(mirror_form.locator("[name='layer_thickness_nm']")).to_be_hidden()
+    grating_form.locator("[name='period_lpermm']").fill("1200")
+    browser_page.locator("[data-pgm-save]").click()
+    expect(browser_page.locator("[data-pgm-error]")).to_contain_text("PGM name")
+    browser_page.locator("[name='pgm_name']").fill("Browser PGM")
+    browser_page.locator("[data-pgm-save]").click()
+    expect(browser_page.locator("[data-pgm-saved-message]")).to_contain_text("Browser PGM")
+    assert GratingStore(data_dir / "saved_gratings").load(saved_grating["id"])["period_lpermm"] == 400
+    browser_page.goto(f"{base_url}/pgm?saved=browser-pgm")
+    expect(grating_form.locator("[name='period_lpermm']")).to_have_value("1200")
+    browser_page.goto(f"{base_url}/pgm?preset=sx700-example")
+    expect(grating_form.locator("[name='period_lpermm']")).to_have_value("2400")
+    expect(browser_page.locator("[data-grating-preview-image]")).to_be_visible(timeout=30000)
+
+    values = parse_pgm_form({"n_energy": "6", "n_c": "4"})
+    run = create_pgm_run(
+        data_dir, grating=saved_grating, mirror=saved_mirror,
+        values=values, display_name="Browser PGM map",
+    )
+    energies = np.linspace(1000, 6000, 6)
+    cff = np.linspace(1.5, 10, 4)
+    maps = np.full((4, 6), 30.0)
+    np.savez_compressed(
+        pgm_store(data_dir).run_dir(run["id"]) / "maps.npz",
+        energies=energies, cff=cff, geometry=maps, mirror=maps,
+        grating=maps, optical=maps, total=maps,
+    )
+    pgm_store(data_dir).update(run["id"], lambda saved: saved.update(status="completed"))
+    browser_page.goto(f"{base_url}/pgm/runs/{run['id']}")
+    dashboard = browser_page.locator("[data-pgm-dashboard]")
+    expect(dashboard.locator("[data-pgm-side-view] .main-svg").first).to_be_visible(timeout=15000)
+    chart_order = dashboard.locator("[data-pgm-chart]").evaluate_all(
+        "elements => elements.map((element) => element.dataset.pgmChart)"
+    )
+    assert chart_order == ["geometry", "mirror", "grating", "optical", "total"]
+    expect(dashboard.locator("[data-pgm-chart='total'] .main-svg").first).to_be_visible()
+    total = dashboard.locator("[data-pgm-chart='total']")
+    assert total.evaluate("element => element.layout.yaxis.type") == "log"
+    assert total.evaluate("element => element.layout.showlegend") is False
+    assert total.evaluate("element => element.data[0].colorscale[0][1]") == "rgb(48,18,59)"
+    assert total.evaluate("element => element.data[0].customdata[0][0]") == pytest.approx(30)
+    assert total.evaluate("element => element.data[0].z[0][0]") == pytest.approx(30**0.5)
+    side_view = dashboard.locator("[data-pgm-side-view]")
+    browser_page.wait_for_function(
+        "() => document.querySelector('[data-pgm-side-view]').layout?.annotations?.length > 0"
+    )
+    before = side_view.evaluate("element => element.layout.annotations[0].text")
+    assert "Grating η = 30.0 %" in before
+    total.evaluate("element => element.scrollIntoView({block: 'center'})")
+    total.locator(".nsewdrag").click(position={"x": 250, "y": 60})
+    browser_page.wait_for_function(
+        "before => document.querySelector('[data-pgm-side-view]').layout.annotations[0].text !== before",
+        arg=before,
+        timeout=5000,
+    )
+    marked = total.evaluate(
+        "element => element.layout.annotations.some((item) => item.name === 'pgm-selected')"
+    )
+    assert marked is True
+    pgm_store(data_dir).update(run["id"], lambda saved: saved.update(pgm_id="sx700-example"))
+    other = create_pgm_run(
+        data_dir, grating=saved_grating, mirror=saved_mirror,
+        values=values, display_name="Browser PGM without a saved PGM",
+    )
+    browser_page.goto(f"{base_url}/pgm/runs")
+    row = browser_page.locator("article", has=browser_page.locator(f"input[value={run['id']}]"))
+    other_row = browser_page.locator(
+        "article", has=browser_page.locator(f"input[value={other['id']}]")
+    )
+    expect(row).to_be_visible()
+    expect(other_row).to_be_visible()
+    browser_page.locator("[data-run-filter]").select_option("none")
+    expect(row).to_be_hidden()
+    expect(other_row).to_be_visible()
+    browser_page.locator("[data-run-filter]").select_option("sx700-example")
+    expect(row).to_be_visible()
+    expect(other_row).to_be_hidden()
+    browser_page.locator("[data-run-filter]").select_option("")
+    browser_page.once("dialog", lambda dialog: dialog.accept())
+    browser_page.locator(f"input[name=selected_run_id][value={other['id']}]").check()
+    browser_page.get_by_role("button", name="Delete selected").click()
+    expect(browser_page.locator(f"input[name=selected_run_id][value={other['id']}]")).to_have_count(0)
+    expect(browser_page.locator(f"input[name=selected_run_id][value={run['id']}]")).to_have_count(1)
+    assert errors == []
 
 
 @pytest.mark.browser
@@ -326,9 +514,15 @@ def test_focused_numeric_fields_step_with_mouse_wheel(browser_page: Page) -> Non
 
     def wheel(field, delta_y: int) -> None:
         field.scroll_into_view_if_needed()
+        field.evaluate("element => element.scrollIntoView({block: 'center', inline: 'nearest'})")
         field.focus()
         box = field.bounding_box()
         assert box is not None
+        hit = page.evaluate(
+            "([x, y]) => { const e = document.elementFromPoint(x, y); return [e?.tagName, e?.getAttribute('name'), document.activeElement?.getAttribute('name')]; }",
+            [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2],
+        )
+        assert hit[1] == field.get_attribute("name"), hit
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         page.mouse.wheel(0, delta_y)
 
@@ -340,6 +534,20 @@ def test_focused_numeric_fields_step_with_mouse_wheel(browser_page: Page) -> Non
     expect(period).to_have_value("601")
     wheel(period, 100)
     expect(period).to_have_value("600")
+    # Focus alone must not arm wheel stepping: pointing elsewhere scrolls instead.
+    other_field = page.locator("input[name='x_resolution_nm']")
+    other_field.scroll_into_view_if_needed()
+    period.focus()
+    other_before = other_field.input_value()
+    page.evaluate("window.scrollTo(0, 0)")
+    box = other_field.bounding_box()
+    assert box is not None
+    before_scroll = page.evaluate("document.scrollingElement.scrollTop")
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.wheel(0, 500)
+    page.wait_for_function("(before) => document.scrollingElement.scrollTop > before", arg=before_scroll)
+    expect(period).to_have_value("600")
+    expect(other_field).to_have_value(other_before)
 
     # Save a grating to exercise the run form's integer settings as well.
     page.locator("input[name='name']").fill("Wheel stepping check")
@@ -549,12 +757,12 @@ def test_manage_runs_filter_hides_other_gratings_and_clears_their_selection(
     page = browser_page
     page.goto(f"{base_url}/runs/gratings")
     page.locator("input[name=selected_run_id][value=run-b]").check()
-    page.locator("[data-run-grating-filter]").select_option("g-a")
-    expect(page.locator("[data-run-grating=g-b]")).to_be_hidden()
-    expect(page.locator("[data-run-grating=g-a]")).to_be_visible()
+    page.locator("[data-run-filter]").select_option("g-a")
+    expect(page.locator("[data-run-filter-key=g-b]")).to_be_hidden()
+    expect(page.locator("[data-run-filter-key=g-a]")).to_be_visible()
     expect(page.locator("input[name=selected_run_id][value=run-b]")).not_to_be_checked()
-    page.locator("[data-run-grating-filter]").select_option("")
-    expect(page.locator("[data-run-grating=g-b]")).to_be_visible()
+    page.locator("[data-run-filter]").select_option("")
+    expect(page.locator("[data-run-filter-key=g-b]")).to_be_visible()
 
 
 @pytest.mark.browser

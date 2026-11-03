@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}PGM working range · Web guide{% endblock %}
+{% block body %}
+<section class="section-head docs-hero">
+  <div>
+    <p class="docs-eyebrow">GraxPy web guide</p>
+    <h1>PGM working range</h1>
+    <p>Find the useful energy and CFF combinations of an SX700 plane grating monochromator.</p>
+  </div>
+  <a class="button primary" href="{{ url_for('pgm_page') }}">New PGM run</a>
+</section>
+<section class="docs-section">
+  <h2>Set up the optics</h2>
+  <p>Define the grating and the plane mirror directly on the PGM page. To reuse a saved one, pick it from the list above its editor: this only fills the fields, so you can change them without touching the saved original. The page opens on the SX700 example; choose a saved PGM under <strong>Start from</strong> to fill the whole page instead. <strong>Save as new PGM</strong> keeps a named copy of the optics, geometry and scan settings; saved gratings and mirrors stay unchanged. The grating supplies groove density, profile and coating; the mirror supplies its layer stack. PGM calculations currently use S (TE) polarization.</p>
+</section>
+<section class="docs-section">
+  <h2>Choose geometry and sampling</h2>
+  <p>Enter the optic sizes and spacing, beam height, mirror and grating angle limits, and minimum distance between the optics. The drawing below names each term, and on the PGM page the <strong>?</strong> next to a field explains it. Choose an energy and CFF range. The map point counts control display resolution; the grating node counts control the more expensive efficiency solves.</p>
+  {% include "_pgm_geometry_drawing.html" %}
+</section>
+<section class="docs-section">
+  <h2>Read the maps</h2>
+  <p>Geometry shows how much of the beam reaches the grating. Mirror and grating maps show their individual optical efficiencies. Their product is the optical throughput; total throughput also includes geometric beam clipping. All maps appear together with a side view of the optics and fill in while the run calculates. Click a map point to show its rays, angles and efficiencies in the side view. Download the values as CSV or the maps as PNG.</p>
+</section>
+{% endblock %}
