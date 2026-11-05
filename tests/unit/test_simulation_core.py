@@ -1500,13 +1500,50 @@ def test_batch_runner_parallel_resume_skips_completed_cases(tmp_path: Path) -> N
 def test_worker_initializer_forces_single_thread_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for variable in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         monkeypatch.delenv(variable, raising=False)
+    # Keep this test process's BLAS pool untouched; the real limit is checked in
+    # a worker process below.
+    calls: list[None] = []
+    monkeypatch.setattr(simulation_batch_module, "limit_blas_threads_for_process", lambda: calls.append(None))
 
     simulation_module._worker_initializer()
+
+    assert calls == [None]
 
     assert os.environ["OPENBLAS_NUM_THREADS"] == "1"
     assert os.environ["OMP_NUM_THREADS"] == "1"
     assert os.environ["MKL_NUM_THREADS"] == "1"
     assert os.environ["NUMEXPR_NUM_THREADS"] == "1"
+
+
+def _max_blas_threads() -> int:
+    from threadpoolctl import threadpool_info
+
+    return max((pool["num_threads"] for pool in threadpool_info() if pool["user_api"] == "blas"), default=0)
+
+
+def test_worker_initializer_limits_already_loaded_blas_in_worker() -> None:
+    import concurrent.futures
+    import multiprocessing as mp
+
+    from threadpoolctl import threadpool_limits
+
+    if _max_blas_threads() == 0:
+        pytest.skip("no controllable BLAS library loaded")
+
+    context = mp.get_context(simulation_module._multiprocessing_start_method())
+    # Give the parent a multi-threaded BLAS, so a forked worker inherits it
+    # already loaded and the environment variables alone could not limit it.
+    with threadpool_limits(limits=2, user_api="blas"):
+        if _max_blas_threads() < 2:
+            pytest.skip("BLAS cannot use 2 threads here, so the worker limit cannot be checked")
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=context,
+            initializer=simulation_module._worker_initializer,
+        ) as executor:
+            worker_threads = executor.submit(_max_blas_threads).result(timeout=60)
+
+    assert worker_threads == 1
 
 
 def test_parallel_worker_is_top_level_and_spawn_compatible() -> None:
