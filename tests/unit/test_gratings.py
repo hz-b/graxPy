@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from grax import RoughnessSpec
-from grax.gratings import BlazedGrating, LaminarGrating, SinusoidalGrating
+from grax.gratings import BlazedGrating, DoubleBlazedGrating, LaminarGrating, SinusoidalGrating
 from grax.materials import material_label
 from grax.stacks import (
     LayerSpec,
@@ -97,6 +97,119 @@ def test_sinusoidal_grating_builds_dense_and_low_memory_textures() -> None:
     assert low_memory[1][0].ndim == low_memory[1][1].ndim == 1
     assert dense[1][0].size == dense[1][1].size
     assert low_memory[1][0].size == low_memory[1][1].size
+
+
+def _double_blazed(**overrides: float) -> DoubleBlazedGrating:
+    values = {
+        "period_lpermm": 1000,
+        "blaze_angle_1_deg": 4.0,
+        "blaze_angle_2_deg": 1.0,
+        "anti_blaze_angle_deg": 30.0,
+        "second_facet_fraction": 0.3,
+        "x_resolution_nm": 5.0,
+        "z_resolution_nm": 1.0,
+        "substrate_material": SI,
+        "layer_material": PT,
+        **overrides,
+    }
+    return DoubleBlazedGrating(**values)
+
+
+def test_double_blazed_profile_matches_requested_facets() -> None:
+    grating = _double_blazed()
+
+    positions, heights = grating.profile_points()
+
+    assert positions[0] == 0.0
+    assert positions[-1] == pytest.approx(grating.period_nm)
+    assert heights[0] == 0.0
+    assert heights[-1] == 0.0
+    assert np.all(np.diff(positions) > 0)
+    slopes = np.diff(heights) / np.diff(positions)
+    assert slopes[0] == pytest.approx(np.tan(np.deg2rad(4.0)))
+    assert slopes[1] == pytest.approx(np.tan(np.deg2rad(1.0)))
+    assert slopes[2] == pytest.approx(-np.tan(np.deg2rad(30.0)))
+    a1, a2 = np.diff(positions)[:2]
+    assert a2 / (a1 + a2) == pytest.approx(0.3)
+    assert grating.profile_depth_nm() == pytest.approx(heights[2])
+    assert grating.depth_nm == pytest.approx(heights[2])
+
+
+def test_double_blazed_depth_follows_field_changes() -> None:
+    grating = _double_blazed()
+    before = grating.depth_nm
+
+    grating.blaze_angle_1_deg = 6.0
+
+    assert grating.depth_nm > before
+    assert grating.profile_points()[1][2] == pytest.approx(grating.depth_nm)
+
+
+def test_double_blazed_approaches_two_facet_blazed_when_angles_meet() -> None:
+    double = _double_blazed(blaze_angle_1_deg=2.0, blaze_angle_2_deg=2.0 - 1e-9)
+    single = BlazedGrating(
+        period_lpermm=1000, blaze_angle_deg=2.0, anti_blaze_angle_deg=30.0
+    )
+
+    positions, heights = single.profile_points()
+    double_positions, double_heights = double.profile_points()
+
+    assert double_positions[2] == pytest.approx(positions[1])
+    assert double_heights[2] == pytest.approx(heights[1])
+    assert double.depth_nm == pytest.approx(single.depth_nm)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("blaze_angle_1_deg", 0.0),
+        ("blaze_angle_1_deg", 90.0),
+        ("blaze_angle_1_deg", np.nan),
+        ("blaze_angle_2_deg", 0.0),
+        ("blaze_angle_2_deg", 4.0),
+        ("blaze_angle_2_deg", 5.0),
+        ("blaze_angle_2_deg", np.nan),
+        ("anti_blaze_angle_deg", 0.0),
+        ("anti_blaze_angle_deg", 90.5),
+        ("anti_blaze_angle_deg", np.inf),
+        ("second_facet_fraction", 0.0),
+        ("second_facet_fraction", 1.0),
+        ("second_facet_fraction", np.nan),
+    ],
+)
+def test_double_blazed_rejects_invalid_geometry(field: str, value: float) -> None:
+    with pytest.raises(ValueError, match=field if field != "blaze_angle_1_deg" else "blaze_angle_1"):
+        _double_blazed(**{field: value})
+
+
+def test_double_blazed_accepts_vertical_anti_blaze_wall() -> None:
+    grating = _double_blazed(anti_blaze_angle_deg=90.0)
+
+    positions, heights = grating.profile_points()
+    textures, _ = grating.build_textures(100.0)
+
+    assert positions[2] == pytest.approx(grating.period_nm)
+    assert heights[2] == pytest.approx(grating.depth_nm)
+    assert len(textures) > 1
+
+
+def test_double_blazed_builds_dense_and_low_memory_textures() -> None:
+    grating = _double_blazed()
+
+    dense = grating.build_textures(100.0)
+    low_memory = grating.build_textures(100.0, _memory_mode="low_memory")
+
+    assert len(dense[0]) > 1
+    assert len(low_memory[0]) > 1
+    assert low_memory[1][0].size == low_memory[1][1].size
+
+
+def test_double_blazed_plots_with_annotations(tmp_path: Path) -> None:
+    output = tmp_path / "double_blazed.png"
+
+    _double_blazed().plot_profile(output)
+
+    assert output.stat().st_size > 0
 
 
 def test_laminar_grating_profile_points_match_current_slag_geometry() -> None:

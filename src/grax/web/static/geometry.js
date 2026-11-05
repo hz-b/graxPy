@@ -39,6 +39,10 @@
     blaze_min_deg: "blaze",
     blaze_max_deg: "blaze",
     anti_blaze_angle_deg: "anti",
+    double_anti_blaze_angle_deg: "anti",
+    blaze_angle_1_deg: "blaze",
+    blaze_angle_2_deg: "blaze_upper",
+    second_facet_fraction: "facet_share",
     grazing_angle_deg: "grazing",
     fixed_angle_deg: "grazing",
     angle_min: "grazing",
@@ -504,6 +508,8 @@
         const x = index / 32;
         return [x, (1 - Math.cos(2 * Math.PI * x)) / 2];
       });
+    } else if (type === "double_blazed") {
+      onePeriod = [[0, 0], [0.38, 0.68], [0.72, 1], [1, 0]];
     } else {
       onePeriod = [[0, 0], [0.78, 1], [1, 0]];
     }
@@ -552,6 +558,29 @@
       add("angles", "wall_right", label(rightFoot - 36, BASE_Y - 30, "θR", "geo-angle-text"));
       dimension(add, "lengths", "width", middleX + 0.24 * periodPx, BASE_Y - heightPx - 18,
         middleX + 0.66 * periodPx, BASE_Y - heightPx - 18, "w", -7);
+    } else if (type === "double_blazed") {
+      const lowerAngle = deg(Math.atan2(0.68 * heightPx, 0.38 * periodPx));
+      const upperAngle = deg(Math.atan2(0.32 * heightPx, 0.34 * periodPx));
+      const antiAngle = deg(Math.atan2(heightPx, 0.28 * periodPx));
+      const kinkX = middleX + 0.38 * periodPx;
+      const kinkY = BASE_Y - 0.68 * heightPx;
+      const apexX = middleX + 0.72 * periodPx;
+      const nextValley = middleX + periodPx;
+      const widthY = BASE_Y + 26;
+      // Each angle label sits beside its arc, clear of the facets and guide lines.
+      add("angles", "blaze", line(middleX, BASE_Y, middleX + 62, BASE_Y, "geo-ref"));
+      add("angles", "blaze", arc(middleX, BASE_Y, 30, 0, -lowerAngle, "geo-arc geo-blaze-arc").path);
+      add("angles", "blaze", label(middleX + 46, BASE_Y - 6, "θ1", "geo-angle-text"));
+      add("angles", "blaze_upper", line(kinkX, kinkY, kinkX + 52, kinkY, "geo-ref"));
+      add("angles", "blaze_upper", arc(kinkX, kinkY, 34, 0, -upperAngle, "geo-arc geo-blaze-arc").path);
+      add("angles", "blaze_upper", label(kinkX + 26, kinkY + 17, "θ2", "geo-angle-text"));
+      add("angles", "anti", line(nextValley - 48, BASE_Y, nextValley, BASE_Y, "geo-ref"));
+      add("angles", "anti", arc(nextValley, BASE_Y, 28, 180, 180 + antiAngle, "geo-arc geo-anti-arc").path);
+      add("angles", "anti", label(nextValley - 39, BASE_Y - 6, "θA", "geo-angle-text"));
+      add("lengths", "facet_share", line(kinkX, kinkY, kinkX, widthY, "geo-ref"));
+      add("lengths", "facet_share", line(apexX, BASE_Y - heightPx, apexX, widthY, "geo-ref"));
+      dimension(add, "lengths", "facet_share", middleX, widthY, kinkX, widthY, "A1", -5);
+      dimension(add, "lengths", "facet_share", kinkX, widthY, apexX, widthY, "A2", -5);
     } else if (type !== "sinusoidal") {
       const blazeAngle = deg(Math.atan2(heightPx, 0.78 * periodPx));
       const antiAngle = deg(Math.atan2(heightPx, 0.22 * periodPx));
@@ -565,7 +594,7 @@
     }
     dimension(add, "lengths", "depth", X1 + 16, BASE_Y, X1 + 16, BASE_Y - heightPx, "h", 8);
     dimension(add, "lengths", "period", middleX, BASE_Y + 42, middleX + periodPx, BASE_Y + 42, "d", 16);
-    const profileName = type === "laminar" ? "Laminar" : type === "sinusoidal" ? "Sinusoidal" : "Blazed";
+    const profileName = type === "laminar" ? "Laminar" : type === "sinusoidal" ? "Sinusoidal" : type === "double_blazed" ? "Double blazed" : "Blazed";
     add("angles", null, label(X1, BASE_Y + 104, `${profileName} profile · schematic, not to scale`, "geo-note", "end"));
   }
 

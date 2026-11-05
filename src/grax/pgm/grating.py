@@ -125,6 +125,10 @@ def _grating_text_lines(grating):
         f"Grating            {type(grating).__name__}",
         f"Grating period     {float(grating.period_lpermm):g} l/mm",
     ]
+    if hasattr(grating, "blaze_angle_1_deg"):
+        lines.append(f"Blaze angle 1      {float(grating.blaze_angle_1_deg):g}°")
+        lines.append(f"Blaze angle 2      {float(grating.blaze_angle_2_deg):g}°")
+        lines.append(f"Anti-blaze angle   {float(grating.anti_blaze_angle_deg):g}°")
     blaze = getattr(grating, "blaze_angle_deg", None)
     if blaze is not None:
         lines.append(f"Blaze angle        {float(blaze):g}°")

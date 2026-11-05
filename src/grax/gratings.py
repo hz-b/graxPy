@@ -236,17 +236,25 @@ class BaseGrating(ABC):
     def _annotate_facet_angles(
         self, axes: Any, *, left_foot: float, left_run: float,
         right_foot: float, right_run: float, left_label: str, right_label: str,
-        width_nm: float,
+        width_nm: float, left_height: float | None = None,
     ) -> None:
-        """Draw angle arcs from the horizontal reference to each plotted facet."""
+        """Draw angle arcs from the horizontal reference to each plotted facet.
+
+        ``left_height`` is the rise over ``left_run`` when the left facet stops
+        below the full profile height.
+        """
         height = self.profile_depth_nm()
         if height <= 0:
             return
         axes.set_ylim(-0.24 * height, 1.55 * height)
         radius_x, radius_z = 0.22 * width_nm, 0.35 * height
         color = "#9c3b10"
-        for foot, run, direction in ((left_foot, left_run, 1), (right_foot, right_run, -1)):
-            sweep = np.arctan2(height * radius_x, run * radius_z)
+        facets = (
+            (left_foot, left_run, height if left_height is None else left_height, 1),
+            (right_foot, right_run, height, -1),
+        )
+        for foot, run, rise, direction in facets:
+            sweep = np.arctan2(rise * radius_x, run * radius_z)
             angles = np.linspace(0.0, sweep, 80)
             axes.plot(foot + direction * radius_x * np.cos(angles),
                       radius_z * np.sin(angles), color=color, linewidth=1.8, zorder=5)
@@ -1530,3 +1538,102 @@ class BlazedGrating(BaseGrating):
         """Return the blazed groove depth derived from blaze geometry."""
 
         return float(self.depth_nm)
+
+
+@dataclass
+class DoubleBlazedGrating(BaseGrating):
+    """Blazed profile with two rising facets and one falling facet.
+
+    Going along x from the foot at ``x = 0``, the surface rises at
+    ``blaze_angle_1_deg``, continues at the shallower ``blaze_angle_2_deg`` up to
+    the apex, then falls at ``anti_blaze_angle_deg`` back to zero at the end of
+    the period.
+
+    Attributes:
+        blaze_angle_1_deg: Angle of the lower rising facet, in degrees.
+        blaze_angle_2_deg: Angle of the upper rising facet, in degrees. Must be
+            smaller than ``blaze_angle_1_deg``.
+        anti_blaze_angle_deg: Angle of the falling facet, in degrees.
+        second_facet_fraction: Share of the rising width taken by the upper
+            facet, ``A2 / (A1 + A2)``, between 0 and 1 (exclusive).
+    """
+
+    blaze_angle_1_deg: float = 1.5
+    blaze_angle_2_deg: float = 0.75
+    anti_blaze_angle_deg: float = 30.0
+    second_facet_fraction: float = 0.5
+
+    def __post_init__(self) -> None:
+        """Validate the geometry and discretization inputs."""
+
+        if not np.isfinite(self.period_lpermm) or self.period_lpermm <= 0:
+            raise ValueError("period_lpermm must be finite and greater than 0.")
+        if not np.isfinite(self.x_resolution_nm) or self.x_resolution_nm <= 0:
+            raise ValueError("x_resolution_nm must be finite and greater than 0 nm.")
+        if not 0.0 < self.blaze_angle_1_deg < 90.0:
+            raise ValueError("blaze_angle_1_deg must be in (0, 90).")
+        if not 0.0 < self.blaze_angle_2_deg < self.blaze_angle_1_deg:
+            raise ValueError(
+                "blaze_angle_2_deg must be greater than 0 and smaller than blaze_angle_1_deg."
+            )
+        if not 0.0 < self.anti_blaze_angle_deg <= 90.0:
+            raise ValueError("anti_blaze_angle_deg must be in (0, 90].")
+        if not 0.0 < self.second_facet_fraction < 1.0:
+            raise ValueError("second_facet_fraction must be in (0, 1).")
+
+    def _facet_geometry(self) -> tuple[float, float, float, float]:
+        """Return the facet rises and widths ``(h1, h2, a1, a2)`` in nm."""
+
+        cot_1 = 1.0 / np.tan(np.deg2rad(self.blaze_angle_1_deg))
+        cot_2 = 1.0 / np.tan(np.deg2rad(self.blaze_angle_2_deg))
+        cot_anti = 1.0 / np.tan(np.deg2rad(self.anti_blaze_angle_deg))
+        width_ratio = self.second_facet_fraction / (1.0 - self.second_facet_fraction)
+        # upper_base is the width of the triangle above the kink height.
+        upper_base = self.period_nm * width_ratio / (
+            width_ratio + (1.0 + cot_anti / cot_1) / (1.0 + cot_anti / cot_2)
+        )
+        h1 = (self.period_nm - upper_base) / (cot_1 + cot_anti)
+        h2 = upper_base / (cot_2 + cot_anti)
+        return float(h1), float(h2), float(h1 * cot_1), float(h2 * cot_2)
+
+    @property
+    def depth_nm(self) -> float:
+        """Return the total groove depth from the facet angles."""
+
+        h1, h2, _, _ = self._facet_geometry()
+        return h1 + h2
+
+    def profile_points(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return the double blazed profile for one period."""
+
+        h1, h2, a1, a2 = self._facet_geometry()
+        positions = np.array([0.0, a1, a1 + a2, self.period_nm], dtype=float)
+        heights = np.array([0.0, h1, h1 + h2, 0.0], dtype=float)
+        return positions, heights
+
+    def _annotate_profile(self, axes: Any) -> None:
+        """Mark the two blaze angles and the anti-blaze angle."""
+
+        h1, _, a1, a2 = self._facet_geometry()
+        self._annotate_facet_angles(
+            axes, left_foot=0.0, left_run=a1, left_height=h1,
+            right_foot=2.0 * self.period_nm, right_run=self.period_nm - a1 - a2,
+            left_label=f"Blaze 1 = {self.blaze_angle_1_deg:g}°",
+            right_label=f"Anti-blaze = {self.anti_blaze_angle_deg:g}°",
+            width_nm=self.period_nm,
+        )
+        axes.annotate(
+            f"Blaze 2 = {self.blaze_angle_2_deg:g}°\n"
+            f"Upper facet share p = {self.second_facet_fraction:g}",
+            xy=(self.period_nm + a1 + 0.5 * a2, h1 + 0.5 * (self.depth_nm - h1)),
+            xytext=(self.period_nm + a1 + 0.5 * a2, 1.3 * self.depth_nm),
+            ha="center",
+            color="#9c3b10",
+            arrowprops={"arrowstyle": "-", "color": "#9c3b10", "linewidth": 1.0},
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85},
+        )
+
+    def profile_depth_nm(self) -> float:
+        """Return the total groove depth derived from the facet angles."""
+
+        return self.depth_nm

@@ -12,7 +12,13 @@ import pytest
 
 import grax
 from grax import rcwa_1d
-from grax.gratings import BlazedGrating, LaminarGrating, ProfileGrating, SinusoidalGrating
+from grax.gratings import (
+    BlazedGrating,
+    DoubleBlazedGrating,
+    LaminarGrating,
+    ProfileGrating,
+    SinusoidalGrating,
+)
 from grax.simulation import (
     BatchSimulationRunner,
     energy_angle_cases,
@@ -230,6 +236,31 @@ def test_neviere_matches_rcwa_for_sinusoidal_grating(polarization: str) -> None:
         SinusoidalGrating(
             period_lpermm=2000,
             depth_nm=10.0,
+            substrate_material=SI,
+            layer_material=SI,
+            layer_thickness_nm=5.0,
+            x_resolution_nm=2.0,
+            z_resolution_nm=0.25,
+        ),
+        energy_ev=300.0,
+        grazing_angle_deg=5.0,
+        polarization=polarization,
+        fourier_orders=8,
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("polarization", ["s", "p"])
+def test_neviere_matches_rcwa_for_double_blazed_grating(polarization: str) -> None:
+    """Verify both solvers accept and agree on the double blazed profile."""
+
+    _assert_solvers_agree(
+        DoubleBlazedGrating(
+            period_lpermm=2000,
+            blaze_angle_1_deg=3.0,
+            blaze_angle_2_deg=1.0,
+            anti_blaze_angle_deg=30.0,
+            second_facet_fraction=0.4,
             substrate_material=SI,
             layer_material=SI,
             layer_thickness_nm=5.0,

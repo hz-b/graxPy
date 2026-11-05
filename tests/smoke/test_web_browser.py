@@ -90,6 +90,13 @@ def test_navigation_and_grating_form_use_javascript(browser_page: Page) -> None:
     expect(page.locator("[data-grating-section='blazed']")).to_be_visible()
     expect(page.locator("[data-grating-section='laminar']")).to_be_hidden()
 
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    expect(page.locator("[data-grating-section='double_blazed']")).to_be_visible()
+    expect(page.locator("[data-grating-section='blazed']")).to_be_hidden()
+    expect(page.locator(".geo-note").first).to_contain_text("Double blazed profile")
+    expect(page.locator("[data-key='facet_share'].geo-dim-text")).to_have_text(["A1", "A2"])
+    page.locator("select[name='grating_type']").select_option("blazed")
+
     page.locator("details.nav-dropdown").nth(0).locator("summary").click()
     page.locator("details.nav-dropdown").nth(1).locator("summary").click()
     expect(page.locator("details.nav-dropdown").nth(0)).not_to_have_attribute("open", "")
@@ -348,6 +355,68 @@ def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Pag
     assert angle.evaluate("node => node.validity.valid")
     page.locator("select[name='workflow']").select_option("energy_sweep")
     expect(angle_label).to_have_count(0)
+
+
+RED_BORDER = "rgb(180, 35, 24)"
+
+
+def _border(locator) -> str:
+    return locator.evaluate("field => getComputedStyle(field).borderTopColor")
+
+
+@pytest.mark.browser
+def test_forbidden_values_turn_the_field_red(browser_page: Page) -> None:
+    """Mark a value outside the limits, or rejected by the server, in red."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+
+    # Outside the field's own limits: red while typing, not after half a number.
+    share = page.locator("input[name='second_facet_fraction']")
+    assert _border(share) != RED_BORDER
+    share.fill("10")
+    expect(share).to_have_css("border-top-color", RED_BORDER)
+    share.fill("0.5")
+    expect(share).not_to_have_css("border-top-color", RED_BORDER)
+
+    # Only the server knows the angles depend on each other.
+    upper = page.locator("input[name='blaze_angle_2_deg']")
+    lower = page.locator("input[name='blaze_angle_1_deg']")
+    upper.fill("3")
+    expect(upper).to_have_css("border-top-color", RED_BORDER)
+    expect(lower).to_have_css("border-top-color", RED_BORDER)
+    upper.fill("0.75")
+    expect(upper).not_to_have_css("border-top-color", RED_BORDER)
+    expect(lower).not_to_have_css("border-top-color", RED_BORDER)
+
+    # Comma mode reads limits the same way.
+    page.goto(base)
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    share.fill("0,5")
+    expect(share).not_to_have_css("border-top-color", RED_BORDER)
+    share.fill("1,5")
+    expect(share).to_have_css("border-top-color", RED_BORDER)
+
+
+@pytest.mark.browser
+def test_untouched_forms_show_no_red_fields(browser_page: Page) -> None:
+    """Never mark a field red just because a page opened with its defaults."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    for path in ("/gratings/new", "/plane-mirrors", "/multilayer-design/new", "/pgm"):
+        response = page.goto(f"{base}{path}")
+        assert response is not None and response.ok, path
+        red = page.evaluate(
+            """(color) => [...document.querySelectorAll('input, select, textarea')]
+                .filter((field) => field.checkVisibility()
+                    && getComputedStyle(field).borderTopColor === color)
+                .map((field) => field.name)""",
+            RED_BORDER,
+        )
+        assert red == [], path
 
 
 @pytest.mark.browser

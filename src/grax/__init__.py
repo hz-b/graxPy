@@ -22,6 +22,7 @@ from .materials import (
 from .gratings import (
     BaseGrating,
     BlazedGrating,
+    DoubleBlazedGrating,
     LaminarGrating,
     ProfileGrating,
     SinusoidalGrating,
@@ -90,6 +91,7 @@ __all__ = [
     "BlazedGrating",
     "CaseExecutionResult",
     "CustomStack",
+    "DoubleBlazedGrating",
     "EnergyScanResult",
     "LateralGrading",
     "LayerSpec",

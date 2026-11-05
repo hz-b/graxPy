@@ -232,6 +232,45 @@ def test_duplicate_parameter_and_malformed_coupled_row_are_rejected() -> None:
         )
 
 
+def test_double_blazed_parameters_can_be_scanned() -> None:
+    laminar = _laminar_spec()
+    spec = {
+        key: value
+        for key, value in laminar.items()
+        if key not in {"width_to_period_ratio", "depth_nm", "left_wall_angle_deg", "right_wall_angle_deg"}
+    }
+    spec.update(
+        {
+            "grating_type": "double_blazed",
+            "blaze_angle_1_deg": 2.0,
+            "blaze_angle_2_deg": 1.0,
+            "anti_blaze_angle_deg": 30.0,
+            "second_facet_fraction": 0.5,
+        }
+    )
+
+    ids = {item.id for item in parameter_catalog(spec)}
+
+    assert {
+        "blaze_angle_1_deg",
+        "blaze_angle_2_deg",
+        "anti_blaze_angle_deg",
+        "second_facet_fraction",
+    } <= ids
+
+    _, cases = expand_custom_grid(
+        _config(
+            spec,
+            independent=[
+                {"parameter": "second_facet_fraction", "mode": "list", "values": [0.25, 0.75]}
+            ],
+        ),
+        spec,
+    )
+    assert [case["grating"].second_facet_fraction for case in cases] == [0.25, 0.75]
+    assert cases[0]["grating"].depth_nm != cases[1]["grating"].depth_nm
+
+
 def test_variant_axis_rebuilds_each_complete_structure() -> None:
     laminar = _laminar_spec()
     sinusoidal = {

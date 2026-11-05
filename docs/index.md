@@ -9,8 +9,8 @@
 *Version {{ release }}*
 
 GraxPy is a Python package developed by Helmholtz-Zentrum Berlin (HZB) for
-one-dimensional X-ray grating simulations. Build laminar, blazed, sinusoidal,
-or custom grating profiles; combine them with material definitions and
+one-dimensional X-ray grating simulations. Build laminar, blazed, double blazed,
+sinusoidal, or custom grating profiles; combine them with material definitions and
 multilayer coatings; then calculate diffraction efficiencies with either
 modal RCWA or the Nevière differential method. GraxPy also offers two
 roughness models: Debye-Waller damping, which reduces diffraction efficiencies

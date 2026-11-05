@@ -120,6 +120,26 @@ def parameter_catalog(spec: dict[str, Any]) -> list[ParameterDescriptor]:
                 ),
             ]
         )
+    elif grating_type == "double_blazed":
+        descriptors.extend(
+            [
+                _spec_descriptor(
+                    "blaze_angle_1_deg", "Lower blaze angle, deg", "Double blazed geometry", "float"
+                ),
+                _spec_descriptor(
+                    "blaze_angle_2_deg", "Upper blaze angle, deg", "Double blazed geometry", "float"
+                ),
+                _spec_descriptor(
+                    "anti_blaze_angle_deg", "Anti-blaze angle, deg", "Double blazed geometry", "float"
+                ),
+                _spec_descriptor(
+                    "second_facet_fraction",
+                    "Upper facet share p",
+                    "Double blazed geometry",
+                    "float",
+                ),
+            ]
+        )
 
     for key, label, kind, minimum in (
         ("kind", "Roughness model", "choice", None),

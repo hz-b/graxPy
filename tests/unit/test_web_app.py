@@ -579,6 +579,141 @@ def test_grating_name_is_required_to_save_but_not_to_preview(tmp_path: Path) -> 
     assert GratingStore(tmp_path / "saved_gratings").list() == []
 
 
+def test_preview_error_marks_the_field_named_by_the_library(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    payload = client.post(
+        "/_preview/grating",
+        data={
+            "grating_type": "laminar",
+            "period_lpermm": "400",
+            "x_resolution_nm": "5.0",
+            "z_resolution_nm": "1.0",
+            "width_to_period_ratio": "1.5",
+            "depth_nm": "10",
+            "left_wall_angle_deg": "15",
+            "right_wall_angle_deg": "15",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "Au",
+            "layer_thickness_nm": "12.0",
+            "roughness_kind": "none",
+        },
+    ).get_json()
+
+    assert payload["ok"] is False
+    assert payload["error_fields"] == ["width_to_period_ratio"]
+
+
+def test_double_blazed_spec_round_trip() -> None:
+    from grax.gratings import DoubleBlazedGrating
+    from grax.web.persistence import build_grating_from_spec, grating_to_spec
+
+    grating = DoubleBlazedGrating(
+        period_lpermm=800,
+        blaze_angle_1_deg=2.5,
+        blaze_angle_2_deg=1.25,
+        anti_blaze_angle_deg=25.0,
+        second_facet_fraction=0.35,
+        substrate_material="Si",
+        layer_material="Pt",
+        layer_thickness_nm=20.0,
+    )
+
+    spec = grating_to_spec(grating, name="Double")
+    rebuilt = build_grating_from_spec(spec)
+
+    assert spec["grating_type"] == "double_blazed"
+    assert isinstance(rebuilt, DoubleBlazedGrating)
+    assert rebuilt.blaze_angle_1_deg == 2.5
+    assert rebuilt.blaze_angle_2_deg == 1.25
+    assert rebuilt.anti_blaze_angle_deg == 25.0
+    assert rebuilt.second_facet_fraction == 0.35
+
+
+def test_flask_double_blazed_create_edit_preview_and_validation(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    form = {
+        "name": "Double Au",
+        "grating_type": "double_blazed",
+        "period_lpermm": "600",
+        "x_resolution_nm": "5.0",
+        "z_resolution_nm": "1.0",
+        "blaze_angle_1_deg": "2.0",
+        "blaze_angle_2_deg": "1.0",
+        "double_anti_blaze_angle_deg": "25.0",
+        "second_facet_fraction": "0.4",
+        "stack_type": "single_layer",
+        "substrate_material": "Si",
+        "layer_material": "Au",
+        "layer_thickness_nm": "12.0",
+        "roughness_kind": "none",
+    }
+
+    preview = client.post("/_preview/grating", data=form)
+    assert preview.status_code == 200
+    assert preview.get_json()["ok"] is True
+
+    created = client.post("/gratings", data=form, follow_redirects=True)
+    assert created.status_code == 200
+    assert b"double_blazed" in created.data
+
+    store = GratingStore(tmp_path / "saved_gratings")
+    grating_id = store.list()[0]["id"]
+    saved = store.load(grating_id)
+    assert saved["grating_type"] == "double_blazed"
+    assert saved["blaze_angle_1_deg"] == pytest.approx(2.0)
+    assert saved["blaze_angle_2_deg"] == pytest.approx(1.0)
+    assert saved["anti_blaze_angle_deg"] == pytest.approx(25.0)
+    assert saved["second_facet_fraction"] == pytest.approx(0.4)
+
+    edit = client.get(f"/gratings/{grating_id}/edit")
+    assert edit.status_code == 200
+    assert b'<option value="double_blazed" selected' in edit.data
+    assert b'name="double_anti_blaze_angle_deg" type="number" step="0.001" min="0" max="90" value="25.0"' in edit.data
+    assert b'name="anti_blaze_angle_deg" type="number" step="0.001" value=""' in edit.data
+
+    bad_preview = client.post(
+        "/_preview/grating", data={**form, "blaze_angle_2_deg": "3.0"}
+    ).get_json()
+    assert bad_preview["ok"] is False
+    assert bad_preview["error_fields"] == ["blaze_angle_1_deg", "blaze_angle_2_deg"]
+    bad_share = client.post(
+        "/_preview/grating", data={**form, "second_facet_fraction": "1.5"}
+    ).get_json()
+    assert bad_share["error_fields"] == ["second_facet_fraction"]
+    bad_text = client.post(
+        "/_preview/grating", data={**form, "blaze_angle_1_deg": "abc"}
+    ).get_json()
+    assert bad_text["error_fields"] == ["blaze_angle_1_deg"]
+
+    for field, value, message in (
+        ("blaze_angle_2_deg", "2.0", "shallower"),
+        ("double_anti_blaze_angle_deg", "0", "anti-blaze"),
+        ("second_facet_fraction", "1", "upper facet share p"),
+        ("blaze_angle_1_deg", "abc", "must all be numbers"),
+    ):
+        invalid = client.post(f"/gratings/{grating_id}", data={**form, field: value})
+        assert invalid.status_code == 422, field
+        assert message.encode() in invalid.data
+        assert store.load(grating_id)["blaze_angle_2_deg"] == pytest.approx(1.0)
+
+    updated = client.post(
+        f"/gratings/{grating_id}",
+        data={**form, "second_facet_fraction": "0.6"},
+        follow_redirects=True,
+    )
+    assert updated.status_code == 200
+    assert store.load(grating_id)["second_facet_fraction"] == pytest.approx(0.6)
+
+
 def test_flask_sinusoidal_create_edit_preview_and_validation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -687,6 +822,10 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-grating-section="sinusoidal"' in response.data
     assert b'<option value="sinusoidal"' in response.data
     assert b'data-grating-section="blazed"' in response.data
+    assert b'data-grating-section="double_blazed"' in response.data
+    assert b'<option value="double_blazed"' in response.data
+    assert "Upper facet share p".encode() in response.data
+    assert "p = A2 / (A1 + A2)".encode() in response.data
     assert b'data-stack-controls' in response.data
     assert b'data-single-layer-controls' in response.data
     assert b'data-stack-type' in response.data

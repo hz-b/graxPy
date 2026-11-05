@@ -239,6 +239,34 @@ def test_grating_round_trip_keeps_results_and_shows_the_run(source, target) -> N
     assert not list((target_dir / ".imports").iterdir())
 
 
+def test_double_blazed_grating_round_trip(source, target) -> None:
+    _, sender, source_dir = source
+    _, receiver, target_dir = target
+    grating = grax.DoubleBlazedGrating(
+        period_lpermm=400,
+        blaze_angle_1_deg=2.0,
+        blaze_angle_2_deg=1.0,
+        anti_blaze_angle_deg=30.0,
+        second_facet_fraction=0.4,
+        substrate_material="Pt",
+        layer_material="Pt",
+        layer_thickness_nm=1,
+        x_resolution_nm=4,
+        z_resolution_nm=1,
+    )
+    spec = GratingStore(source_dir / "saved_gratings").save(grating_to_spec(grating, name="Double"))
+
+    url = _stage(receiver, _export(sender, "grating", spec["id"], []))
+    response = _commit(receiver, url, [])
+    assert response.status_code == 200, response.get_data(as_text=True)
+
+    imported = GratingStore(target_dir / "saved_gratings").list()[0]
+    assert imported["grating_type"] == "double_blazed"
+    assert imported["blaze_angle_2_deg"] == 1.0
+    assert imported["second_facet_fraction"] == 0.4
+    assert receiver.get(f"/gratings/{imported['id']}").status_code == 200
+
+
 def test_plane_mirror_round_trip_with_saved_scans(source, target) -> None:
     _, sender, source_dir = source
     _, receiver, target_dir = target

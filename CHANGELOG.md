@@ -5,10 +5,12 @@
 ### New features
 - Import and export: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
 - Every Fourier orders field now has a hint: use at least as many orders as the diffraction order you want to study.
+- A new double blazed grating type, with two rising facets at different angles and one falling facet, is available in the Python package and as a grating type on the website.
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
 - The PGM menu now says New PGM instead of New working range.
+- Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.

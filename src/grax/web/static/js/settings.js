@@ -25,6 +25,10 @@ function decimalFieldMessage(field) {
   return "";
 }
 function decimalFieldComplete(field) { return !decimalFieldMessage(field); }
+// A half-typed number is not an error yet, but a complete one outside the limits is.
+function decimalRangeMessage(field) {
+  return DECIMAL_COMPLETE.test(field.value.trim()) ? decimalFieldMessage(field) : "";
+}
 function decimalFieldEligible(field) {
   if (field.type !== "number") return false;
   const step = field.getAttribute("step") || "1";
@@ -48,7 +52,7 @@ function decimalStep(field, direction) {
   if (field.max !== "") next = Math.min(next, Number(field.max));
   field.value = String(next);
   if (isDecimalField) field.dataset.decimalCommitted = String(next);
-  field.setCustomValidity("");
+  field.setCustomValidity(isDecimalField ? decimalRangeMessage(field) : "");
   field.dispatchEvent(new Event("input", {bubbles: true}));
   field.dispatchEvent(new Event("change", {bubbles: true}));
 }
@@ -85,6 +89,7 @@ function initDecimalField(field) {
     controls.append(button);
   }
   wrapper.append(controls);
+  field.setCustomValidity(decimalRangeMessage(field));
 }
 function initDecimalFields(root = document) {
   if (root instanceof HTMLInputElement) initDecimalField(root);
@@ -96,7 +101,7 @@ function initDecimalControls() {
     const field = event.target;
     if (!field.matches?.("[data-decimal-field]")) return;
     const message = decimalFieldMessage(field);
-    field.setCustomValidity("");
+    field.setCustomValidity(decimalRangeMessage(field));
     if (!message) field.dataset.decimalCommitted = canonicalDecimal(field.value);
     else event.stopPropagation();
   }, true);

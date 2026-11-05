@@ -686,12 +686,6 @@ p {
   background: var(--brand-lime-soft);
 }
 
-input.is-invalid,
-select.is-invalid {
-  border-color: #b42318;
-  box-shadow: 0 0 0 1px #b42318;
-}
-
 .form {
   display: grid;
   gap: 18px;
@@ -2716,4 +2710,27 @@ text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
   min-height: 0;
   flex: none;
   margin-top: 3px;
+}
+
+/* Forbidden values. A blank required field only turns red once the user has
+   touched it; :user-invalid has its own rule so that browsers without it keep
+   the others. */
+input.is-invalid,
+select.is-invalid,
+input:invalid:not(:required),
+select:invalid:not(:required),
+textarea:invalid:not(:required) {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
+  background-color: #fef3f2;
+  outline-color: #b42318;
+}
+
+input:user-invalid,
+select:user-invalid,
+textarea:user-invalid {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
+  background-color: #fef3f2;
+  outline-color: #b42318;
 }

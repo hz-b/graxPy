@@ -45,6 +45,15 @@ def seeded_client(tmp_path: Path):
     app = create_app(data_dir=tmp_path)
     client = app.test_client()
     assert client.post("/gratings", data=GRATING_FORM).status_code == 302
+    assert client.post("/gratings", data={
+        **GRATING_FORM,
+        "name": "Sweep double blazed",
+        "grating_type": "double_blazed",
+        "blaze_angle_1_deg": "2.0",
+        "blaze_angle_2_deg": "1.0",
+        "double_anti_blaze_angle_deg": "30.0",
+        "second_facet_fraction": "0.5",
+    }).status_code == 302
     assert client.post("/plane-mirrors", data={**PLANE_MIRROR_FORM, "mirror_name": "Sweep mirror"}).status_code == 302
     assert client.post("/multilayer-design", data=_study_form()).status_code == 302
     assert client.post("/pgm/saved", data=_merged(pgm_name="Sweep PGM")).status_code == 200
