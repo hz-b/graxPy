@@ -83,6 +83,16 @@ def replace_file(source: Path, destination: Path) -> None:
         Path(source).unlink(missing_ok=True)
 
 
+def move_tree(source: Path, destination: Path) -> None:
+    """Move a finished folder into place in one step, so scans never see it half written."""
+
+    destination = Path(destination)
+    if destination.exists():
+        raise FileExistsError(f"{destination.name} already exists.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _retry_windows_lock(lambda: os.rename(source, destination))
+
+
 def read_text(path: Path) -> str:
     """Read a UTF-8 file, waiting out the moment Windows holds it during a replace."""
 

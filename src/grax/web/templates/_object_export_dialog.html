@@ -1,0 +1,36 @@
+<dialog class="export-dialog" data-object-export-dialog data-objects-url="{{ url_for('transfer_objects') }}">
+  <form class="form" data-object-export-form>
+    <div class="section-head preview-head">
+      <div>
+        <h2>Export <span data-object-export-name></span></h2>
+        <p>The file holds this object and the runs you select, and can be imported into another GRAx installation.</p>
+      </div>
+      <button class="button" type="button" data-object-export-cancel>Cancel</button>
+    </div>
+
+    <div class="grid halves" data-object-export-choice hidden>
+      <label>Type
+        <select data-object-export-kind></select>
+      </label>
+      <label>Object
+        <select data-object-export-object></select>
+      </label>
+    </div>
+
+    <div class="transfer-toolbar">
+      <label class="inline-check">
+        <input type="checkbox" data-object-export-all checked>
+        <span>Select all runs</span>
+      </label>
+      <span class="subtle" data-object-export-total></span>
+    </div>
+    <div class="transfer-runs" data-object-export-runs></div>
+
+    <section class="notice notice-error transfer-status" role="alert" hidden data-object-export-status><p></p></section>
+    <p class="subtle" data-object-export-progress></p>
+    <div class="actions">
+      <button class="button primary" type="submit">Choose destination…</button>
+      <button class="button" type="button" data-object-export-cancel>Cancel</button>
+    </div>
+  </form>
+</dialog>

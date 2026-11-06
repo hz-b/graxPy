@@ -95,6 +95,7 @@ def register(app: Any, ctx: WebContext) -> None:
     def web_docs_topic(topic: str):
         templates = {
             "gratings": "web_docs_gratings.html",
+            "gratings-how-it-works": "web_docs_gratings_how_it_works.html",
             "plane-mirrors": "web_docs_plane_mirrors.html",
             "multilayer-gratings": "web_docs_multilayer_gratings.html",
             "multilayer-how-it-works": "web_docs_multilayer_how_it_works.html",

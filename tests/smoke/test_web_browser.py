@@ -90,6 +90,13 @@ def test_navigation_and_grating_form_use_javascript(browser_page: Page) -> None:
     expect(page.locator("[data-grating-section='blazed']")).to_be_visible()
     expect(page.locator("[data-grating-section='laminar']")).to_be_hidden()
 
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    expect(page.locator("[data-grating-section='double_blazed']")).to_be_visible()
+    expect(page.locator("[data-grating-section='blazed']")).to_be_hidden()
+    expect(page.locator(".geo-note").first).to_contain_text("Double blazed profile")
+    expect(page.locator("[data-key='facet_share'].geo-dim-text")).to_have_text(["A1", "A2"])
+    page.locator("select[name='grating_type']").select_option("blazed")
+
     page.locator("details.nav-dropdown").nth(0).locator("summary").click()
     page.locator("details.nav-dropdown").nth(1).locator("summary").click()
     expect(page.locator("details.nav-dropdown").nth(0)).not_to_have_attribute("open", "")
@@ -103,6 +110,10 @@ def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeyp
 
     from grax.pgm import PGMCancelled, calculate_working_range
 
+    # The second update waits for the page: on a slow page load it would already
+    # be in the first render, and the solved count could never rise.
+    first_update_shown = threading.Event()
+
     def partial_run(parameters):
         energies, cff, geometry = calculate_working_range(parameters)
         mirror = np.full(geometry["throughput_percent"].shape, 0.5)
@@ -115,6 +126,7 @@ def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeyp
             parameters.nodes_callback(e_nodes, c_nodes, eta)
             if parameters.stop_event.wait(1.2):
                 raise PGMCancelled("stopped")
+            first_update_shown.wait(30)
         parameters.stop_event.wait(30)
         raise PGMCancelled("stopped")
 
@@ -141,6 +153,7 @@ def test_pgm_dashboard_updates_during_a_run(website, browser_page: Page, monkeyp
         .flat().filter((value) => value !== null && value > 0).length"""
     browser_page.wait_for_function(f"({count_solved})() > 0", timeout=15000)
     first = browser_page.evaluate(count_solved)
+    first_update_shown.set()
     browser_page.wait_for_function(f"({count_solved})() > {first}", timeout=15000)
     assert grating.evaluate("element => element.data[0].customdata.flat().includes(null)")
 
@@ -342,6 +355,175 @@ def test_constant_deviation_angle_is_shown_only_for_that_mount(browser_page: Pag
     assert angle.evaluate("node => node.validity.valid")
     page.locator("select[name='workflow']").select_option("energy_sweep")
     expect(angle_label).to_have_count(0)
+
+
+RED_BORDER = "rgb(180, 35, 24)"
+
+
+def _border(locator) -> str:
+    return locator.evaluate("field => getComputedStyle(field).borderTopColor")
+
+
+@pytest.mark.browser
+def test_decimal_arrow_buttons_repeat_while_held(browser_page: Page) -> None:
+    """Step once per click, keep stepping while held, and stop at the limit."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    field = page.locator("input[name='blaze_angle_1_deg']")
+    field.fill("1.5")
+    up = page.get_by_role("button", name="Increase blaze_angle_1_deg")
+
+    up.click()
+    assert float(field.input_value()) == pytest.approx(1.51)
+
+    box = up.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.wait_for_timeout(900)
+    page.mouse.up()
+    held = float(field.input_value())
+    assert held >= 1.51 + 0.03
+    page.wait_for_timeout(300)
+    assert float(field.input_value()) == pytest.approx(held)
+
+    # The keyboard repeats through the browser's own key events.
+    field.focus()
+    for _ in range(3):
+        page.keyboard.down("ArrowUp")
+    page.keyboard.up("ArrowUp")
+    assert float(field.input_value()) == pytest.approx(held + 0.03)
+
+    # The field's maximum stops the repeat.
+    share = page.locator("input[name='second_facet_fraction']")
+    share.fill("0.98")
+    share_up = page.get_by_role("button", name="Increase second_facet_fraction")
+    box = share_up.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.wait_for_timeout(800)
+    page.mouse.up()
+    assert float(share.input_value()) == pytest.approx(1.0)
+
+
+@pytest.mark.browser
+def test_double_blazed_schematic_follows_the_inputs(browser_page: Page) -> None:
+    """Redraw the kink for concave shapes, a flat land and a missing lower facet."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+
+    def outline() -> list[list[float]]:
+        points = page.locator(".geo-surface").first.get_attribute("points") or ""
+        return [[float(value) for value in point.split(",")] for point in points.split()]
+
+    def slopes() -> tuple[float, ...]:
+        first_period = outline()[:4]
+        return tuple(
+            (start[1] - end[1]) / (end[0] - start[0])
+            for start, end in zip(first_period, first_period[1:])
+        )
+
+    lower = page.locator("input[name='blaze_angle_1_deg']")
+    upper = page.locator("input[name='blaze_angle_2_deg']")
+    share = page.locator("input[name='second_facet_fraction']")
+
+    lower.fill("2")
+    upper.fill("1")
+    share.fill("0.5")
+    assert slopes()[0] > slopes()[1] > 0
+    lower.fill("1")
+    upper.fill("2")
+    assert 0 < slopes()[0] < slopes()[1]
+    lower.fill("0")
+    assert slopes()[0] == 0
+    assert page.locator(".geo-angle-text", has_text="θ1").count() == 0
+    lower.fill("2")
+    share.fill("1")
+    assert len(outline()) == 9
+    assert page.locator(".geo-angle-text", has_text="θ1").count() == 0
+
+    # A decimal comma draws the same shape as a decimal point.
+    share.fill("0.5")
+    lower.fill("1.5")
+    upper.fill("0.75")
+    dot_outline = outline()
+    page.goto(base)
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    share.fill("0,5")
+    lower.fill("1,5")
+    upper.fill("0,75")
+    assert outline() == dot_outline
+
+
+@pytest.mark.browser
+def test_forbidden_values_turn_the_field_red(browser_page: Page) -> None:
+    """Mark a value outside the limits, or rejected by the server, in red."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+
+    # Outside the field's own limits: red while typing, not after half a number.
+    share = page.locator("input[name='second_facet_fraction']")
+    assert _border(share) != RED_BORDER
+    share.fill("10")
+    expect(share).to_have_css("border-top-color", RED_BORDER)
+    share.fill("0.5")
+    expect(share).not_to_have_css("border-top-color", RED_BORDER)
+
+    # Only the server knows zero is excluded here, and it says why above the plot.
+    upper = page.locator("input[name='blaze_angle_2_deg']")
+    lower = page.locator("input[name='blaze_angle_1_deg']")
+    upper.fill("0")
+    expect(upper).to_have_css("border-top-color", RED_BORDER)
+    assert _border(lower) != RED_BORDER
+    message = page.locator("[data-grating-preview-error]")
+    expect(message).to_contain_text("upper blaze angle")
+    assert page.evaluate(
+        """() => {
+          const message = document.querySelector('[data-grating-preview-error]');
+          const view = document.querySelector('[data-geometry-view]');
+          return Boolean(message.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING);
+        }"""
+    )
+    upper.fill("0.75")
+    expect(upper).not_to_have_css("border-top-color", RED_BORDER)
+    expect(message).to_be_hidden()
+
+    # Comma mode reads limits the same way.
+    page.goto(base)
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    share.fill("0,5")
+    expect(share).not_to_have_css("border-top-color", RED_BORDER)
+    share.fill("1,5")
+    expect(share).to_have_css("border-top-color", RED_BORDER)
+
+
+@pytest.mark.browser
+def test_untouched_forms_show_no_red_fields(browser_page: Page) -> None:
+    """Never mark a field red just because a page opened with its defaults."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    for path in ("/gratings/new", "/plane-mirrors", "/multilayer-design/new", "/pgm"):
+        response = page.goto(f"{base}{path}")
+        assert response is not None and response.ok, path
+        red = page.evaluate(
+            """(color) => [...document.querySelectorAll('input, select, textarea')]
+                .filter((field) => field.checkVisibility()
+                    && getComputedStyle(field).borderTopColor === color)
+                .map((field) => field.name)""",
+            RED_BORDER,
+        )
+        assert red == [], path
 
 
 @pytest.mark.browser
@@ -907,6 +1089,145 @@ def test_saved_plane_mirror_scan_page_draws_reflectivity_preview(website, browse
     expect(page.locator("[data-plane-mirror-preview-status]")).to_contain_text("Preview ready", timeout=30_000)
     expect(page.locator("[data-plane-mirror-figure] .main-svg").first).to_be_visible()
     assert errors == []
+
+
+@pytest.mark.browser
+def test_export_then_import_through_the_dialogs(website, browser_page: Page, tmp_path: Path) -> None:
+    """Export a grating from its manage page and import it back from the home page."""
+    from tests.unit.test_web_page_sweep import GRATING_FORM
+    from tests.unit.test_web_transfer import _write_run
+
+    base_url, data_dir = website
+    page = browser_page
+    page.request.post(f"{base_url}/gratings", form=GRATING_FORM, max_redirects=0)
+    grating_id = GratingStore(data_dir / "saved_gratings").list()[0]["id"]
+    for run_id in ("run-a", "run-b"):
+        _write_run(data_dir / "runs", run_id, extra={"grating_id": grating_id})
+
+    page.goto(f"{base_url}/gratings/manage")
+    # The picker cannot be driven headless, so the browser's own download is used instead.
+    page.evaluate("delete window.showSaveFilePicker")
+    page.get_by_role("button", name="Export", exact=True).click()
+    dialog = page.locator("[data-object-export-dialog]")
+    expect(dialog.locator("input[name='run_id']")).to_have_count(2)
+    expect(dialog.locator("[data-object-export-total]")).to_contain_text("2 of 2 runs")
+    dialog.get_by_label("Select all runs").uncheck()
+    expect(dialog.locator("[data-object-export-total]")).to_contain_text("0 of 2 runs")
+    dialog.locator("input[value='run-a']").check()
+    with page.expect_download() as download_info:
+        dialog.get_by_role("button", name="Choose destination…").click()
+    package = tmp_path / download_info.value.suggested_filename
+    download_info.value.save_as(package)
+    assert package.name.endswith(".grax.zip")
+
+    page.goto(base_url)
+    page.locator("[data-object-import-file]").set_input_files(str(package))
+    page.wait_for_url("**/transfer/import/*")
+    expect(page.get_by_role("heading", name="Import grating: Sweep laminar")).to_be_visible()
+    expect(page.locator("input[name='run_id']")).to_have_count(1)
+    expect(page.locator("input[value='run-a']")).not_to_be_checked()
+    expect(page.get_by_text("Already here")).to_be_visible()
+
+    # Replace needs a choice of object, and the choice is enabled only when it applies.
+    expect(page.locator("[data-object-import-target]")).to_be_disabled()
+    page.locator("input[name='mode'][value='replace']").check()
+    expect(page.locator("[data-object-import-target]")).to_be_enabled()
+    page.locator("input[name='mode'][value='copy']").check()
+    page.get_by_role("button", name="Import", exact=True).click()
+    page.wait_for_url("**/gratings/manage*")
+    expect(page.locator(".notice-success")).to_contain_text("Imported grating")
+    expect(page.get_by_role("link", name="Sweep laminar (imported)")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_import_errors_appear_on_the_page_the_user_is_on(website, browser_page: Page, tmp_path: Path) -> None:
+    """A bad file or a failed import explains itself without leaving the page."""
+    from tests.unit.test_web_transfer import _build_package
+
+    base_url, data_dir = website
+    page = browser_page
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    bad_file = tmp_path / "not-a-package.zip"
+    bad_file.write_text("this is not a zip file", encoding="utf-8")
+    page.goto(base_url)
+    home_url = page.url
+    page.locator("[data-object-import-file]").set_input_files(str(bad_file))
+    status = page.locator("[data-object-import-status]")
+    expect(status).to_be_visible()
+    expect(status).to_contain_text("not a GRAx package")
+    assert page.url == home_url
+    expect(page.get_by_role("button", name="Import…")).to_be_enabled()
+
+    # Choosing the same file again reports the problem again.
+    page.locator("[data-object-import-file]").set_input_files(str(bad_file))
+    expect(status).to_contain_text("not a GRAx package")
+
+    # The connection dropping is reported too.
+    good_file = tmp_path / "good.grax.zip"
+    good_file.write_bytes(_build_package())
+    page.route("**/transfer/import", lambda route: route.abort())
+    page.locator("[data-object-import-file]").set_input_files(str(good_file))
+    expect(status).to_contain_text("could not be reached")
+    page.unroute("**/transfer/import")
+    assert page.url == home_url
+
+    # An answer that is not JSON is reported as well.
+    page.route("**/transfer/import", lambda route: route.fulfill(status=500, body="<h1>Broken</h1>"))
+    page.locator("[data-object-import-file]").set_input_files(str(good_file))
+    expect(status).to_contain_text("error 500")
+    page.unroute("**/transfer/import")
+
+    page.locator("[data-object-import-file]").set_input_files(str(good_file))
+    page.wait_for_url("**/transfer/import/*")
+    preview_url = page.url
+
+    # A failed import stays on the preview, which can be tried again.
+    page.route("**/transfer/import/*", lambda route: route.fulfill(
+        status=422, content_type="application/json",
+        body=json.dumps({"error": "The import failed and nothing was changed: disk full", "can_retry": True}),
+    ) if route.request.method == "POST" else route.continue_())
+    page.get_by_role("button", name="Import", exact=True).click()
+    preview_status = page.locator("[data-object-import-status]")
+    expect(preview_status).to_contain_text("disk full")
+    assert page.url == preview_url
+    expect(page.get_by_role("button", name="Import", exact=True)).to_be_enabled()
+    page.unroute("**/transfer/import/*")
+
+    page.get_by_role("button", name="Import", exact=True).click()
+    page.wait_for_url("**/gratings/manage*")
+    assert GratingStore(data_dir / "saved_gratings").load("imported")["name"] == "Imported"
+    assert errors == []
+
+
+@pytest.mark.browser
+def test_home_page_export_chooses_the_object_first(website, browser_page: Page) -> None:
+    from tests.unit.test_web_page_sweep import GRATING_FORM
+    from tests.unit.test_web_plane_mirror import FORM as PLANE_MIRROR_FORM
+
+    base_url, _data_dir = website
+    page = browser_page
+    page.request.post(f"{base_url}/gratings", form=GRATING_FORM, max_redirects=0)
+    page.request.post(
+        f"{base_url}/plane-mirrors", form={**PLANE_MIRROR_FORM, "mirror_name": "Home mirror"}, max_redirects=0
+    )
+    page.goto(base_url)
+    page.get_by_role("button", name="Export…").click()
+    dialog = page.locator("[data-object-export-dialog]")
+    expect(dialog.locator("[data-object-export-name]")).to_have_text("Sweep laminar")
+    dialog.locator("[data-object-export-kind]").select_option("plane_mirror")
+    expect(dialog.locator("[data-object-export-name]")).to_have_text("Home mirror")
+    expect(dialog.locator("[data-object-export-runs]")).to_contain_text("no runs")
+
+    # A server failure appears inside the dialog.
+    page.route("**/transfer/plane_mirror/*/export", lambda route: route.fulfill(
+        status=422, content_type="application/json", body=json.dumps({"error": "Could not build the file."}),
+    ))
+    page.evaluate("delete window.showSaveFilePicker")
+    dialog.get_by_role("button", name="Choose destination…").click()
+    expect(dialog.locator("[data-object-export-status]")).to_contain_text("Could not build the file.")
+    expect(dialog).to_be_visible()
 
 
 @pytest.mark.browser

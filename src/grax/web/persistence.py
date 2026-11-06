@@ -15,6 +15,7 @@ from typing import Any
 from grax.gratings import (
     BaseGrating,
     BlazedGrating,
+    DoubleBlazedGrating,
     LaminarGrating,
     SinusoidalGrating,
 )
@@ -124,6 +125,15 @@ def grating_to_spec(grating: BaseGrating, *, name: str) -> dict[str, Any]:
             "grating_type": "blazed",
             "blaze_angle_deg": grating.blaze_angle_deg,
             "anti_blaze_angle_deg": grating.anti_blaze_angle_deg,
+        }
+    if isinstance(grating, DoubleBlazedGrating):
+        return {
+            **common,
+            "grating_type": "double_blazed",
+            "blaze_angle_1_deg": grating.blaze_angle_1_deg,
+            "blaze_angle_2_deg": grating.blaze_angle_2_deg,
+            "anti_blaze_angle_deg": grating.anti_blaze_angle_deg,
+            "second_facet_fraction": grating.second_facet_fraction,
         }
     raise TypeError("Unsupported grating class.")
 
@@ -293,6 +303,14 @@ def _build_grating_from_spec(
             **common,
             blaze_angle_deg=float(spec["blaze_angle_deg"]),
             anti_blaze_angle_deg=None if anti_blaze in (None, "") else float(anti_blaze),
+        )
+    if spec["grating_type"] == "double_blazed":
+        return DoubleBlazedGrating(
+            **common,
+            blaze_angle_1_deg=float(spec["blaze_angle_1_deg"]),
+            blaze_angle_2_deg=float(spec["blaze_angle_2_deg"]),
+            anti_blaze_angle_deg=float(spec["anti_blaze_angle_deg"]),
+            second_facet_fraction=float(spec["second_facet_fraction"]),
         )
     raise ValueError("Unsupported grating_type.")
 

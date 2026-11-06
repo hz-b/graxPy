@@ -25,6 +25,10 @@ function decimalFieldMessage(field) {
   return "";
 }
 function decimalFieldComplete(field) { return !decimalFieldMessage(field); }
+// A half-typed number is not an error yet, but a complete one outside the limits is.
+function decimalRangeMessage(field) {
+  return DECIMAL_COMPLETE.test(field.value.trim()) ? decimalFieldMessage(field) : "";
+}
 function decimalFieldEligible(field) {
   if (field.type !== "number") return false;
   const step = field.getAttribute("step") || "1";
@@ -48,9 +52,37 @@ function decimalStep(field, direction) {
   if (field.max !== "") next = Math.min(next, Number(field.max));
   field.value = String(next);
   if (isDecimalField) field.dataset.decimalCommitted = String(next);
-  field.setCustomValidity("");
+  field.setCustomValidity(isDecimalField ? decimalRangeMessage(field) : "");
   field.dispatchEvent(new Event("input", {bubbles: true}));
   field.dispatchEvent(new Event("change", {bubbles: true}));
+}
+const DECIMAL_HOLD_DELAY_MS = 400;
+const DECIMAL_HOLD_REPEAT_MS = 80;
+// Step once on press, then keep stepping while the button stays pressed.
+function bindDecimalStepButton(button, field, direction) {
+  let timer = null;
+  const stop = () => {
+    window.clearTimeout(timer);
+    timer = null;
+  };
+  const repeat = () => {
+    const before = field.value;
+    decimalStep(field, direction);
+    timer = field.value === before ? null : window.setTimeout(repeat, DECIMAL_HOLD_REPEAT_MS);
+  };
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    stop();
+    decimalStep(field, direction);
+    timer = window.setTimeout(repeat, DECIMAL_HOLD_DELAY_MS);
+  });
+  for (const name of ["pointerup", "pointerleave", "pointercancel", "contextmenu"]) {
+    button.addEventListener(name, stop);
+  }
+  // Pointer presses step above; a click without a pointer comes from the keyboard.
+  button.addEventListener("click", (event) => {
+    if (event.detail === 0) decimalStep(field, direction);
+  });
 }
 function initDecimalField(field) {
   if (!decimalFieldEligible(field)) return;
@@ -81,10 +113,11 @@ function initDecimalField(field) {
     button.type = "button";
     button.textContent = direction > 0 ? "▲" : "▼";
     button.setAttribute("aria-label", `${label} ${field.name || "value"}`);
-    button.addEventListener("click", () => decimalStep(field, direction));
+    bindDecimalStepButton(button, field, direction);
     controls.append(button);
   }
   wrapper.append(controls);
+  field.setCustomValidity(decimalRangeMessage(field));
 }
 function initDecimalFields(root = document) {
   if (root instanceof HTMLInputElement) initDecimalField(root);
@@ -96,7 +129,7 @@ function initDecimalControls() {
     const field = event.target;
     if (!field.matches?.("[data-decimal-field]")) return;
     const message = decimalFieldMessage(field);
-    field.setCustomValidity("");
+    field.setCustomValidity(decimalRangeMessage(field));
     if (!message) field.dataset.decimalCommitted = canonicalDecimal(field.value);
     else event.stopPropagation();
   }, true);

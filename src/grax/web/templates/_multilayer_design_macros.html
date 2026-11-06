@@ -1,3 +1,4 @@
+{% from "_fourier_help.html" import fourier_help %}
 {% macro render_field(spec, values) %}
   {% set value = values.get(spec.name) %}
   {% if spec.kind == "material" %}
@@ -31,7 +32,7 @@
     </label>
   {% else %}
     <label>
-      {{ spec.label }}
+      {% if spec.name.endswith('fourier_orders') %}<span class="parameter-label">{{ spec.label }} {{ fourier_help(spec.name | replace('.', '-')) }}</span>{% else %}{{ spec.label }}{% endif %}
       <input
         name="{{ spec.name }}"
         type="{{ 'text' if spec.kind == 'text' else 'number' }}"

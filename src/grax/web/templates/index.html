@@ -18,7 +18,7 @@
     and is open to collaboration. It offers two solvers: modal RCWA and the Nevi&egrave;re differential method.
   </p>
   <p>
-    Simulate laminar, blazed, and sinusoidal gratings, or upload and process an AFM-measured profile. Surface roughness
+    Simulate laminar, blazed, double blazed, and sinusoidal gratings, or upload and process an AFM-measured profile. Surface roughness
     can be represented either with a Debye&ndash;Waller efficiency correction or with explicitly simulated random interfaces.
   </p>
   <p class="home-resource-links">
@@ -63,6 +63,22 @@
     </div>
   </div>
 </section>
+
+<section class="home-database" aria-labelledby="import-export-heading">
+  <h2 id="import-export-heading">Import and export</h2>
+  <div class="home-database-form">
+    <p>Save a grating, plane mirror, PGM or multilayer grating to a file with the runs you select, or import one from a file.</p>
+    <div class="actions">
+      <button class="button" type="button" data-object-export-open data-object-export-choose>Export…</button>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('transfer_import_upload') }}" data-object-import-form>
+        <input type="file" name="package" accept=".zip" hidden data-object-import-file>
+        <button class="button primary" type="button" data-object-import-choose>Import…</button>
+      </form>
+    </div>
+  </div>
+  <section class="notice notice-error transfer-status" role="alert" hidden data-object-import-status><p></p></section>
+</section>
+{% include "_object_export_dialog.html" %}
 
 <div class="grid halves home-recent-grid">
   <section class="home-recent-panel">

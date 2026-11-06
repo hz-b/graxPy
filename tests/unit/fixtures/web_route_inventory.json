@@ -840,6 +840,55 @@
   "system_resource_status"
  ],
  [
+  "/transfer/<kind>/<object_id>/export",
+  [
+   "POST"
+  ],
+  "transfer_export"
+ ],
+ [
+  "/transfer/<kind>/<object_id>/runs",
+  [
+   "GET"
+  ],
+  "transfer_object_runs"
+ ],
+ [
+  "/transfer/import",
+  [
+   "POST"
+  ],
+  "transfer_import_upload"
+ ],
+ [
+  "/transfer/import/<token>",
+  [
+   "GET"
+  ],
+  "transfer_import_preview"
+ ],
+ [
+  "/transfer/import/<token>",
+  [
+   "POST"
+  ],
+  "transfer_import_commit"
+ ],
+ [
+  "/transfer/import/<token>/cancel",
+  [
+   "POST"
+  ],
+  "transfer_import_cancel"
+ ],
+ [
+  "/transfer/objects",
+  [
+   "GET"
+  ],
+  "transfer_objects"
+ ],
+ [
   "/workspace/pick",
   [
    "POST"

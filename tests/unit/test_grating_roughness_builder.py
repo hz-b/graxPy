@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from grax import RoughnessSpec
-from grax.gratings import LaminarGrating, SinusoidalGrating, BlazedGrating
+from grax.gratings import DoubleBlazedGrating, LaminarGrating, SinusoidalGrating, BlazedGrating
 from grax.stacks import BareStack, SingleLayerStack, MultilayerStack, CustomStack, LayerSpec
 from grax.simulation import run_simulation
 from grax.solvers import NeviereOptions
@@ -43,10 +43,14 @@ def make_grating(kind, stack_kind='single', sigma=0.2):
         return LaminarGrating(**kwargs, depth_nm=5, left_wall_angle_deg=45, right_wall_angle_deg=45)
     if kind == 'blazed':
         return BlazedGrating(**kwargs, blaze_angle_deg=1, anti_blaze_angle_deg=20)
+    if kind == 'double_blazed':
+        return DoubleBlazedGrating(
+            **kwargs, blaze_angle_1_deg=2, blaze_angle_2_deg=1, anti_blaze_angle_deg=20,
+        )
     return SinusoidalGrating(**kwargs, depth_nm=5)
 
 
-@pytest.mark.parametrize('kind', ['laminar', 'blazed', 'sinusoidal'])
+@pytest.mark.parametrize('kind', ['laminar', 'blazed', 'sinusoidal', 'double_blazed'])
 @pytest.mark.parametrize('stack_kind', ['single', 'multi', 'custom', 'bare'])
 def test_random_geometry_dense_low_memory_and_zero_limit(kind, stack_kind):
     grating = make_grating(kind, stack_kind)
@@ -95,7 +99,7 @@ def test_crossings_are_rejected():
         validate_roughness_geometry(grating)
 
 
-@pytest.mark.parametrize('kind', ['laminar', 'blazed', 'sinusoidal'])
+@pytest.mark.parametrize('kind', ['laminar', 'blazed', 'sinusoidal', 'double_blazed'])
 def test_both_solvers_and_continuous_roughness(kind):
     grating = make_grating(kind)
     settings = dict(grating=grating, energy_ev=300, grazing_angle_deg=3, fourier_orders=1,
@@ -107,7 +111,7 @@ def test_both_solvers_and_continuous_roughness(kind):
     np.testing.assert_allclose(rcwa.efficiency_all, neviere.efficiency_all, atol=0.03)
 
 
-@pytest.mark.parametrize('kind', ['laminar', 'blazed', 'sinusoidal'])
+@pytest.mark.parametrize('kind', ['laminar', 'blazed', 'sinusoidal', 'double_blazed'])
 def test_builder_save_preview_reload_and_run_settings(tmp_path, kind):
     client = create_app(data_dir=tmp_path).test_client()
     form = _default_form_values()

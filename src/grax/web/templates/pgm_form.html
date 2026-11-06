@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_pgm_geometry_help.html" import pgm_geometry_help %}
+{% from "_fourier_help.html" import fourier_help %}
 {% set optional_placeholders = {'mirror_surface_axis_offset_mm': 'Use beam offset', 'mirror_downstream_edge_offset_mm': 'Derived from optic separation'} %}
 {% block title %}PGM working range · GraxPy{% endblock %}
 {% block body %}
@@ -62,8 +63,8 @@
         </div>
         <span class="preview-pill" data-grating-preview-loading>Idle</span>
       </div>
-      <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
       <p class="notice notice-error is-hidden" role="alert" tabindex="-1" data-grating-preview-error></p>
+      <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
       <p data-roughness-warnings role="status"></p>
       <img class="preview is-hidden" src="" alt="Random roughness interfaces and material map" data-roughness-preview-image>
     </section>
@@ -161,7 +162,7 @@
         ('rcwa_energy_nodes','Grating energy nodes','1'), ('rcwa_cff_nodes','Grating CFF nodes','1'),
         ('rcwa_harmonics','Fourier orders','1')
       ] %}
-      <label>{{ label }} <input type="number" name="{{ name }}" step="{{ step }}" required value="{{ values[name] }}"></label>
+      <label>{% if name == 'rcwa_harmonics' %}<span class="parameter-label">{{ label }} {{ fourier_help(name) }}</span>{% else %}{{ label }}{% endif %} <input type="number" name="{{ name }}" step="{{ step }}" required value="{{ values[name] }}"></label>
       {% endfor %}
       <label>Solver
         <select name="rcwa_solver">

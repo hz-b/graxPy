@@ -10,11 +10,14 @@ import pytest
 
 from tests.unit.test_saved_plot_loops import _write_sweep
 from tests.unit.test_web_multilayer_design import _study_form
+from tests.unit.test_web_pgm import _merged
 from tests.unit.test_web_plane_mirror import FORM as PLANE_MIRROR_FORM
+from tests.unit.test_web_transfer import _write_profile
 
 pytest.importorskip("flask")
 
 from grax.web.app import create_app  # noqa: E402
+from grax.web.persistence import GratingStore  # noqa: E402
 
 GRATING_FORM = {
     "name": "Sweep laminar",
@@ -42,8 +45,28 @@ def seeded_client(tmp_path: Path):
     app = create_app(data_dir=tmp_path)
     client = app.test_client()
     assert client.post("/gratings", data=GRATING_FORM).status_code == 302
+    assert client.post("/gratings", data={
+        **GRATING_FORM,
+        "name": "Sweep double blazed",
+        "grating_type": "double_blazed",
+        "blaze_angle_1_deg": "2.0",
+        "blaze_angle_2_deg": "1.0",
+        "double_anti_blaze_angle_deg": "30.0",
+        "second_facet_fraction": "0.5",
+    }).status_code == 302
     assert client.post("/plane-mirrors", data={**PLANE_MIRROR_FORM, "mirror_name": "Sweep mirror"}).status_code == 302
     assert client.post("/multilayer-design", data=_study_form()).status_code == 302
+    assert client.post("/pgm/saved", data=_merged(pgm_name="Sweep PGM")).status_code == 200
+    profile = tmp_path / "saved_gratings" / "sweep-afm" / "profile.csv"
+    _write_profile(profile)
+    spec = GratingStore(tmp_path / "saved_gratings").load("sweep-laminar")
+    GratingStore(tmp_path / "saved_gratings").save({
+        **{key: value for key, value in spec.items() if key not in {"created_at", "updated_at"}},
+        "id": "sweep-afm",
+        "name": "Sweep AFM",
+        "grating_type": "afm",
+        "profile": {"profile_path": str(profile), "source_filename": "scan.csv"},
+    })
     _write_sweep(tmp_path)
     return client
 

@@ -68,6 +68,9 @@ from ..grating_forms import (
 from ..grating_roughness import (
     validate_roughness_geometry,
 )
+from ..object_names import (
+    rename_grating_runs,
+)
 from ..persistence import (
     build_grating_from_spec,
 )
@@ -324,8 +327,10 @@ def register(app: Any, ctx: WebContext) -> None:
             return redirect(url_for("manage_gratings", message="A grating name cannot be empty.", kind="error"))
         if len(name) > 128:
             return redirect(url_for("manage_gratings", message="Grating names must be 128 characters or fewer.", kind="error"))
+        previous_name = str(spec.get("name") or "")
         spec["name"] = name
         grating_store.save(spec)
+        rename_grating_runs(active_data_dir(), grating_id, previous_name, name)
         return redirect(url_for("manage_gratings", message=f"Renamed grating to “{name}”.", kind="success"))
 
     @app.get("/gratings/<grating_id>")
@@ -445,6 +450,7 @@ def register(app: Any, ctx: WebContext) -> None:
         except (KeyError, TypeError, ValueError, OverflowError, OSError) as error:
             return invalid_grating_form(error, grating_id)
         grating_store.save(spec)
+        rename_grating_runs(active_data_dir(), grating_id, str(previous.get("name") or ""), str(spec.get("name") or ""))
         if request.form.get("return_to_run") == "1":
             return redirect(url_for("grating_detail", grating_id=grating_id, restore_run="1"))
         return redirect(url_for("grating_detail", grating_id=grating_id))

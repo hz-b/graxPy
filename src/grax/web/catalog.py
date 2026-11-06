@@ -563,7 +563,8 @@ def _run_comparison_parameter_rows(runs: list[dict[str, Any]]) -> list[dict[str,
             for key in (
                 "grating_type", "period_lpermm", "x_resolution_nm", "z_resolution_nm",
                 "width_to_period_ratio", "depth_nm", "sinusoidal_depth_nm", "blaze_angle_deg",
-                "anti_blaze_angle_deg", "left_wall_angle_deg", "right_wall_angle_deg", "stack",
+                "anti_blaze_angle_deg", "blaze_angle_1_deg", "blaze_angle_2_deg",
+                "second_facet_fraction", "left_wall_angle_deg", "right_wall_angle_deg", "stack",
                 "roughness",
             ):
                 if key in spec and spec[key] not in (None, ""):

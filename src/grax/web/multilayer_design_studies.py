@@ -953,6 +953,47 @@ class MultilayerDesignStudyStore:
         return self.directory / study_id
 
 
+def attach_study_grating(
+    manifest: dict[str, Any],
+    *,
+    studies: MultilayerDesignStudyStore,
+    gratings: MultilayerGratingStore,
+) -> dict[str, Any]:
+    """Give a study its grating, joining an identical one or creating it.
+
+    Studies saved before gratings existed have no ``grating_id``.
+    """
+
+    try:
+        gratings.load(str(manifest.get("grating_id", "")))
+        return manifest
+    except (ValueError, FileNotFoundError, OSError):
+        pass
+    grating = gratings.find_matching(manifest["config"]) or gratings.create(
+        display_name=default_grating_name(manifest["config"]), config=manifest["config"]
+    )
+    manifest["grating_id"] = grating["id"]
+    studies.update(str(manifest["id"]), lambda saved: saved.update(grating_id=grating["id"]))
+    return manifest
+
+
+def pass_grating_config_to_studies(
+    attached: list[dict[str, Any]],
+    grating_config: dict[str, Any],
+    *,
+    studies: MultilayerDesignStudyStore,
+) -> None:
+    """Give attached studies a grating's new geometry and mark the results it outdates."""
+
+    for study in attached:
+        merged = {**study["config"], **grating_config}
+        for stage in stages_invalidated_by(study["config"], merged):
+            if study["stages"][stage]["status"] in {"completed", "aborted"}:
+                study["stages"][stage]["status"] = "stale"
+        study["config"] = merged
+        studies.save(study)
+
+
 def _blank_stage() -> dict[str, Any]:
     return {
         "status": "not_run",

@@ -35,6 +35,7 @@
             <a href="{{ url_for('new_grating') }}">New grating</a>
             <a href="{{ url_for('manage_gratings') }}">Manage gratings</a>
             <a href="{{ url_for('manage_grating_runs') }}">Manage grating runs</a>
+            <a href="{{ url_for('web_docs_topic', topic='gratings-how-it-works') }}">How it works</a>
           </div>
         </details>
         <details class="nav-dropdown">
@@ -48,7 +49,7 @@
         <details class="nav-dropdown">
           <summary>PGM <span aria-hidden="true">⌄</span></summary>
           <div class="nav-menu">
-            <a href="{{ url_for('pgm_page') }}">New working range</a>
+            <a href="{{ url_for('pgm_page') }}">New PGM</a>
             <a href="{{ url_for('pgm_setup_index') }}">Manage saved PGMs</a>
             <a href="{{ url_for('pgm_run_index') }}">Manage PGM runs</a>
             <a href="{{ url_for('web_docs_topic', topic='pgm') }}">How it works</a>

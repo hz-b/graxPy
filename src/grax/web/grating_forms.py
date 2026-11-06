@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import warnings
 from copy import copy
@@ -52,6 +53,10 @@ def _default_form_values() -> dict[str, str]:
         "right_wall_angle_deg": "15.0",
         "blaze_angle_deg": "0.75",
         "anti_blaze_angle_deg": "",
+        "blaze_angle_1_deg": "1.5",
+        "blaze_angle_2_deg": "0.75",
+        "double_anti_blaze_angle_deg": "30.0",
+        "second_facet_fraction": "0.5",
         "substrate_material": "Si",
         "substrate_material_density_g_cm3": _default_density_text("Si"),
         "stack_type": "single_layer",
@@ -113,6 +118,9 @@ def _form_values_from_spec(spec: dict[str, Any]) -> dict[str, str]:
             values["roughness_" + field] = str(roughness[field])
     if spec.get("grating_type") == "sinusoidal":
         values["sinusoidal_depth_nm"] = str(spec.get("depth_nm", "20.0"))
+    if spec.get("grating_type") == "double_blazed":
+        values["double_anti_blaze_angle_deg"] = str(spec.get("anti_blaze_angle_deg", "30.0"))
+        values["anti_blaze_angle_deg"] = ""
     if spec.get("grating_type") == "afm":
         profile = spec.get("profile") or {}
         values.update({
@@ -218,6 +226,14 @@ def _persist_afm_artifacts(
     profile["profile_path"] = str(saved_profile)
 
 
+class FormFieldError(ValueError):
+    """A form validation error that knows which inputs caused it."""
+
+    def __init__(self, message: str, *fields: str) -> None:
+        super().__init__(message)
+        self.fields = fields
+
+
 def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
     """Build a saved grating spec from submitted form data."""
     name = str(form.get("name") or "").strip()
@@ -230,11 +246,11 @@ def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
         try:
             value = float(form[key])
         except (KeyError, TypeError, ValueError):
-            raise ValueError(f"{label} must be a finite number greater than 0.") from None
+            raise FormFieldError(f"{label} must be a finite number greater than 0.", key) from None
         if not np.isfinite(value) or value <= 0:
-            raise ValueError(f"{label} must be a finite number greater than 0.")
+            raise FormFieldError(f"{label} must be a finite number greater than 0.", key)
         if key == "period_lpermm" and not value.is_integer():
-            raise ValueError("Period (lines/mm) must be a whole number of at least 1.")
+            raise FormFieldError("Period (lines/mm) must be a whole number of at least 1.", key)
     spec: dict[str, Any] = {
         "name": name or "Preview grating",
         "grating_type": grating_type,
@@ -270,12 +286,14 @@ def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
         try:
             depth_nm = float(form["sinusoidal_depth_nm"])
         except (KeyError, TypeError, ValueError):
-            raise ValueError(
-                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm."
+            raise FormFieldError(
+                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm.",
+                "sinusoidal_depth_nm",
             ) from None
         if not np.isfinite(depth_nm) or depth_nm <= 0:
-            raise ValueError(
-                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm."
+            raise FormFieldError(
+                "Sinusoidal peak-to-valley depth must be a finite number greater than 0 nm.",
+                "sinusoidal_depth_nm",
             )
         spec["depth_nm"] = depth_nm
         return spec
@@ -285,6 +303,55 @@ def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
             {
                 "blaze_angle_deg": float(form["blaze_angle_deg"]),
                 "anti_blaze_angle_deg": None if anti_blaze_text == "" else float(anti_blaze_text),
+            }
+        )
+        return spec
+    if grating_type == "double_blazed":
+        try:
+            blaze_1 = float(form["blaze_angle_1_deg"])
+            blaze_2 = float(form["blaze_angle_2_deg"])
+            anti_blaze = float(form["double_anti_blaze_angle_deg"])
+            fraction = float(form["second_facet_fraction"])
+        except (KeyError, TypeError, ValueError):
+            raise FormFieldError(
+                "Double blazed angles and upper facet share p must all be numbers.",
+                *(
+                    name
+                    for name in (
+                        "blaze_angle_1_deg",
+                        "blaze_angle_2_deg",
+                        "double_anti_blaze_angle_deg",
+                        "second_facet_fraction",
+                    )
+                    if not _is_number(form.get(name))
+                ),
+            ) from None
+        if not 0.0 <= blaze_1 < 90.0:
+            raise FormFieldError(
+                "Double blazed lower blaze angle θ1 must be at least 0° and below 90°.",
+                "blaze_angle_1_deg",
+            )
+        if not 0.0 < blaze_2 < 90.0:
+            raise FormFieldError(
+                "Double blazed upper blaze angle θ2 must be above 0° and below 90°.",
+                "blaze_angle_2_deg",
+            )
+        if not 0.0 < anti_blaze <= 90.0:
+            raise FormFieldError(
+                "Double blazed anti-blaze angle must be above 0° and at most 90°.",
+                "double_anti_blaze_angle_deg",
+            )
+        if not 0.0 < fraction <= 1.0:
+            raise FormFieldError(
+                "Double blazed upper facet share p must be above 0 and at most 1.",
+                "second_facet_fraction",
+            )
+        spec.update(
+            {
+                "blaze_angle_1_deg": blaze_1,
+                "blaze_angle_2_deg": blaze_2,
+                "anti_blaze_angle_deg": anti_blaze,
+                "second_facet_fraction": fraction,
             }
         )
         return spec
@@ -308,6 +375,23 @@ def _render_grating_previews(grating: Any, preview_path: Path) -> tuple[Path | N
             sample.plot_roughness(rough_path)
         notices = [str(item.message) for item in caught if "underresolved" in str(item.message)]
     return rough_path, notices
+
+
+def _is_number(value: Any) -> bool:
+    """Return whether a submitted form value parses as a number."""
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _error_fields(error: Exception, form_data: Any) -> list[str]:
+    """Return the inputs an error blames: its own list, or those its message names."""
+    if isinstance(error, FormFieldError):
+        return list(error.fields)
+    words = set(re.findall(r"\w+", str(error)))
+    return [name for name in form_data if name in words]
 
 
 def _build_grating_preview(
@@ -343,7 +427,7 @@ def _build_grating_preview(
                     "width_to_period_ratio",
                 ]
                 if is_geometry_error
-                else []
+                else _error_fields(error, form_data)
             ),
             "preview_id": None,
             "preview_url": None,

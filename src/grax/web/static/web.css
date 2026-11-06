@@ -686,12 +686,6 @@ p {
   background: var(--brand-lime-soft);
 }
 
-input.is-invalid,
-select.is-invalid {
-  border-color: #b42318;
-  box-shadow: 0 0 0 1px #b42318;
-}
-
 .form {
   display: grid;
   gap: 18px;
@@ -831,6 +825,7 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
+.decimal-field-controls button { touch-action: none; }
 .decimal-field-controls button:first-child { border-radius: 0 6px 0 0; }
 .decimal-field-controls button:last-child { border-top: 0; border-radius: 0 0 6px 0; }
 .decimal-field-controls button:disabled { cursor: default; opacity: 0.5; }
@@ -2636,4 +2631,107 @@ text.geo-item.is-focused { stroke: none; font-weight: 800; font-size: 14px; }
 .pgm-parameters pre { margin: 0; padding: 8px 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 0.64rem; line-height: 1.12; }
 @media (max-width: 1100px) {
   .pgm-dashboard-top, .pgm-dashboard-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+.transfer-runs {
+  display: grid;
+  gap: 6px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.transfer-run {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.transfer-run-name {
+  overflow-wrap: anywhere;
+}
+
+.transfer-run .subtle {
+  display: block;
+  margin: 0;
+}
+
+.transfer-run-problem {
+  display: block;
+  color: var(--danger, #a4262c);
+}
+
+.transfer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.transfer-status[hidden],
+[data-object-export-choice][hidden] {
+  display: none;
+}
+
+.transfer-toolbar label,
+.form label.transfer-run {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.form label.transfer-run {
+  display: grid;
+}
+
+.transfer-toolbar input[type="checkbox"],
+.transfer-run input[type="checkbox"],
+.transfer-select-all input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  flex: none;
+  margin-top: 3px;
+}
+
+.transfer-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.form .transfer-choice label.inline-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.transfer-choice input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  flex: none;
+  margin-top: 3px;
+}
+
+/* Forbidden values. A blank required field only turns red once the user has
+   touched it; :user-invalid has its own rule so that browsers without it keep
+   the others. */
+input.is-invalid,
+select.is-invalid,
+input:invalid:not(:required),
+select:invalid:not(:required),
+textarea:invalid:not(:required) {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
+  background-color: #fef3f2;
+  outline-color: #b42318;
+}
+
+input:user-invalid,
+select:user-invalid,
+textarea:user-invalid {
+  border-color: #b42318;
+  box-shadow: 0 0 0 1px #b42318;
+  background-color: #fef3f2;
+  outline-color: #b42318;
 }
