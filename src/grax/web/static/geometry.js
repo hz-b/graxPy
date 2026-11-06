@@ -495,6 +495,31 @@
     add("angles", null, label(X1, BASE_Y + 104, exaggeration > 1.05 ? `heights exaggerated ×${fmt(exaggeration, 1)}; angle labels give the real values` : "to scale; angle labels give the real values", "geo-note", "end"));
   }
 
+  const DOUBLE_BLAZED_APEX_X = 0.72;
+
+  // Form fields can hold a decimal comma, which the site-wide parser understands.
+  function formNumber(sources, name) {
+    const raw = first(sources, [name]);
+    if (raw === undefined || raw === "") return null;
+    const value = typeof parseDecimal === "function" ? parseDecimal(raw) : Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  // The kink position of the schematic, from the facet angles and the upper facet share.
+  function doubleBlazedShape({theta1Deg = null, theta2Deg = null, share = null}) {
+    const valid = theta1Deg !== null && theta2Deg !== null && share !== null
+      && theta1Deg >= 0 && theta1Deg < 90 && theta2Deg > 0 && theta2Deg < 90 && share > 0 && share <= 1;
+    if (!valid) {
+      return {kinkX: 0.38, kinkZ: 0.68, flatLower: false};
+    }
+    const lowerRise = (1 - share) * Math.tan(rad(theta1Deg));
+    return {
+      kinkX: DOUBLE_BLAZED_APEX_X * (1 - share),
+      kinkZ: lowerRise / (lowerRise + share * Math.tan(rad(theta2Deg))),
+      flatLower: theta1Deg === 0,
+    };
+  }
+
   function drawNominalGrating(svg, type, status, mount = {}) {
     const add = makeScene(svg);
     status.textContent = "Schematic only; the measured or calculated profile is shown below.";
@@ -509,7 +534,10 @@
         return [x, (1 - Math.cos(2 * Math.PI * x)) / 2];
       });
     } else if (type === "double_blazed") {
-      onePeriod = [[0, 0], [0.38, 0.68], [0.72, 1], [1, 0]];
+      const shape = doubleBlazedShape(mount);
+      onePeriod = shape.kinkX > 0
+        ? [[0, 0], [shape.kinkX, shape.kinkZ], [DOUBLE_BLAZED_APEX_X, 1], [1, 0]]
+        : [[0, 0], [DOUBLE_BLAZED_APEX_X, 1], [1, 0]];
     } else {
       onePeriod = [[0, 0], [0.78, 1], [1, 0]];
     }
@@ -559,27 +587,35 @@
       dimension(add, "lengths", "width", middleX + 0.24 * periodPx, BASE_Y - heightPx - 18,
         middleX + 0.66 * periodPx, BASE_Y - heightPx - 18, "w", -7);
     } else if (type === "double_blazed") {
-      const lowerAngle = deg(Math.atan2(0.68 * heightPx, 0.38 * periodPx));
-      const upperAngle = deg(Math.atan2(0.32 * heightPx, 0.34 * periodPx));
-      const antiAngle = deg(Math.atan2(heightPx, 0.28 * periodPx));
-      const kinkX = middleX + 0.38 * periodPx;
-      const kinkY = BASE_Y - 0.68 * heightPx;
-      const apexX = middleX + 0.72 * periodPx;
+      const shape = doubleBlazedShape(mount);
+      const hasLowerFacet = shape.kinkX > 0;
+      const lowerAngle = deg(Math.atan2(shape.kinkZ * heightPx, shape.kinkX * periodPx));
+      const upperAngle = deg(Math.atan2((1 - shape.kinkZ) * heightPx, (DOUBLE_BLAZED_APEX_X - shape.kinkX) * periodPx));
+      const antiAngle = deg(Math.atan2(heightPx, (1 - DOUBLE_BLAZED_APEX_X) * periodPx));
+      const kinkX = middleX + shape.kinkX * periodPx;
+      const kinkY = BASE_Y - shape.kinkZ * heightPx;
+      const apexX = middleX + DOUBLE_BLAZED_APEX_X * periodPx;
       const nextValley = middleX + periodPx;
       const widthY = BASE_Y + 26;
       // Each angle label sits beside its arc, clear of the facets and guide lines.
-      add("angles", "blaze", line(middleX, BASE_Y, middleX + 62, BASE_Y, "geo-ref"));
-      add("angles", "blaze", arc(middleX, BASE_Y, 30, 0, -lowerAngle, "geo-arc geo-blaze-arc").path);
-      add("angles", "blaze", label(middleX + 46, BASE_Y - 6, "θ1", "geo-angle-text"));
+      if (hasLowerFacet && !shape.flatLower) {
+        add("angles", "blaze", line(middleX, BASE_Y, middleX + 62, BASE_Y, "geo-ref"));
+        add("angles", "blaze", arc(middleX, BASE_Y, 30, 0, -lowerAngle, "geo-arc geo-blaze-arc").path);
+        add("angles", "blaze", label(middleX + 46, BASE_Y - 6, "θ1", "geo-angle-text"));
+      }
       add("angles", "blaze_upper", line(kinkX, kinkY, kinkX + 52, kinkY, "geo-ref"));
       add("angles", "blaze_upper", arc(kinkX, kinkY, 34, 0, -upperAngle, "geo-arc geo-blaze-arc").path);
-      add("angles", "blaze_upper", label(kinkX + 26, kinkY + 17, "θ2", "geo-angle-text"));
+      // Next to the base line, the spot below the guide line belongs to the A1 and A2 widths.
+      const upperLabel = BASE_Y - kinkY < 14 ? [kinkX + 46, kinkY - 5] : [kinkX + 26, kinkY + 17];
+      add("angles", "blaze_upper", label(upperLabel[0], upperLabel[1], "θ2", "geo-angle-text"));
       add("angles", "anti", line(nextValley - 48, BASE_Y, nextValley, BASE_Y, "geo-ref"));
       add("angles", "anti", arc(nextValley, BASE_Y, 28, 180, 180 + antiAngle, "geo-arc geo-anti-arc").path);
       add("angles", "anti", label(nextValley - 39, BASE_Y - 6, "θA", "geo-angle-text"));
-      add("lengths", "facet_share", line(kinkX, kinkY, kinkX, widthY, "geo-ref"));
+      if (hasLowerFacet) {
+        add("lengths", "facet_share", line(kinkX, kinkY, kinkX, widthY, "geo-ref"));
+        dimension(add, "lengths", "facet_share", middleX, widthY, kinkX, widthY, "A1", -5);
+      }
       add("lengths", "facet_share", line(apexX, BASE_Y - heightPx, apexX, widthY, "geo-ref"));
-      dimension(add, "lengths", "facet_share", middleX, widthY, kinkX, widthY, "A1", -5);
       dimension(add, "lengths", "facet_share", kinkX, widthY, apexX, widthY, "A2", -5);
     } else if (type !== "sinusoidal") {
       const blazeAngle = deg(Math.atan2(heightPx, 0.78 * periodPx));
@@ -725,6 +761,9 @@
           : selectedType;
         drawNominalGrating(svg, shapeType, status, {
           workflow: first(sources, ["workflow"]),
+          theta1Deg: formNumber(sources, "blaze_angle_1_deg"),
+          theta2Deg: formNumber(sources, "blaze_angle_2_deg"),
+          share: formNumber(sources, "second_facet_fraction"),
         });
         return;
       }

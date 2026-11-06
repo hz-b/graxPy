@@ -677,14 +677,25 @@ def test_flask_double_blazed_create_edit_preview_and_validation(tmp_path: Path) 
     edit = client.get(f"/gratings/{grating_id}/edit")
     assert edit.status_code == 200
     assert b'<option value="double_blazed" selected' in edit.data
-    assert b'name="double_anti_blaze_angle_deg" type="number" step="0.001" min="0" max="90" value="25.0"' in edit.data
-    assert b'name="anti_blaze_angle_deg" type="number" step="0.001" value=""' in edit.data
+    assert b'name="double_anti_blaze_angle_deg" type="number" step="0.01" min="0" max="90" value="25.0"' in edit.data
+    assert b'name="anti_blaze_angle_deg" type="number" step="0.01" value=""' in edit.data
 
     bad_preview = client.post(
-        "/_preview/grating", data={**form, "blaze_angle_2_deg": "3.0"}
+        "/_preview/grating", data={**form, "blaze_angle_2_deg": "0"}
     ).get_json()
     assert bad_preview["ok"] is False
-    assert bad_preview["error_fields"] == ["blaze_angle_1_deg", "blaze_angle_2_deg"]
+    assert bad_preview["error_fields"] == ["blaze_angle_2_deg"]
+    for name, value in (
+        ("blaze_angle_1_deg", "0"),
+        ("blaze_angle_2_deg", "3.0"),
+        ("second_facet_fraction", "1"),
+    ):
+        allowed = client.post("/_preview/grating", data={**form, name: value}).get_json()
+        assert allowed["ok"] is True, name
+    no_share = client.post(
+        "/_preview/grating", data={**form, "second_facet_fraction": "0"}
+    ).get_json()
+    assert no_share["error_fields"] == ["second_facet_fraction"]
     bad_share = client.post(
         "/_preview/grating", data={**form, "second_facet_fraction": "1.5"}
     ).get_json()
@@ -695,9 +706,10 @@ def test_flask_double_blazed_create_edit_preview_and_validation(tmp_path: Path) 
     assert bad_text["error_fields"] == ["blaze_angle_1_deg"]
 
     for field, value, message in (
-        ("blaze_angle_2_deg", "2.0", "shallower"),
+        ("blaze_angle_2_deg", "0", "upper blaze angle"),
+        ("blaze_angle_1_deg", "90", "lower blaze angle"),
         ("double_anti_blaze_angle_deg", "0", "anti-blaze"),
-        ("second_facet_fraction", "1", "upper facet share p"),
+        ("second_facet_fraction", "1.5", "upper facet share p"),
         ("blaze_angle_1_deg", "abc", "must all be numbers"),
     ):
         invalid = client.post(f"/gratings/{grating_id}", data={**form, field: value})

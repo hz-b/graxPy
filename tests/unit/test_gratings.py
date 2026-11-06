@@ -162,18 +162,17 @@ def test_double_blazed_approaches_two_facet_blazed_when_angles_meet() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("blaze_angle_1_deg", 0.0),
+        ("blaze_angle_1_deg", -1.0),
         ("blaze_angle_1_deg", 90.0),
         ("blaze_angle_1_deg", np.nan),
         ("blaze_angle_2_deg", 0.0),
-        ("blaze_angle_2_deg", 4.0),
-        ("blaze_angle_2_deg", 5.0),
+        ("blaze_angle_2_deg", 90.0),
         ("blaze_angle_2_deg", np.nan),
         ("anti_blaze_angle_deg", 0.0),
         ("anti_blaze_angle_deg", 90.5),
         ("anti_blaze_angle_deg", np.inf),
         ("second_facet_fraction", 0.0),
-        ("second_facet_fraction", 1.0),
+        ("second_facet_fraction", 1.5),
         ("second_facet_fraction", np.nan),
     ],
 )
@@ -202,6 +201,73 @@ def test_double_blazed_builds_dense_and_low_memory_textures() -> None:
     assert len(dense[0]) > 1
     assert len(low_memory[0]) > 1
     assert low_memory[1][0].size == low_memory[1][1].size
+
+
+def test_double_blazed_allows_a_concave_kink() -> None:
+    positions, heights = _double_blazed(
+        blaze_angle_1_deg=1.0, blaze_angle_2_deg=4.0
+    ).profile_points()
+
+    assert positions[-1] == pytest.approx(1000.0)
+    slopes = np.diff(heights) / np.diff(positions)
+    assert slopes[0] == pytest.approx(np.tan(np.deg2rad(1.0)))
+    assert slopes[1] == pytest.approx(np.tan(np.deg2rad(4.0)))
+    assert slopes[2] == pytest.approx(-np.tan(np.deg2rad(30.0)))
+    a1, a2 = np.diff(positions)[:2]
+    assert a2 / (a1 + a2) == pytest.approx(0.3)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"blaze_angle_1_deg": 2.0, "blaze_angle_2_deg": 2.0},
+        {"blaze_angle_1_deg": 0.0, "blaze_angle_2_deg": 2.0, "second_facet_fraction": 1.0},
+        {"blaze_angle_1_deg": 7.0, "blaze_angle_2_deg": 2.0, "second_facet_fraction": 1.0},
+    ],
+)
+def test_double_blazed_reduces_to_two_facet_blazed(overrides: dict[str, float]) -> None:
+    double = _double_blazed(**overrides)
+    single = BlazedGrating(period_lpermm=1000, blaze_angle_deg=2.0, anti_blaze_angle_deg=30.0)
+
+    assert double.depth_nm == pytest.approx(single.depth_nm)
+    positions, heights = double.profile_points()
+    assert positions[-2] == pytest.approx(single.profile_points()[0][1])
+    assert heights[-2] == pytest.approx(single.depth_nm)
+    assert np.all(np.diff(positions) > 0)
+
+
+def test_double_blazed_zero_lower_angle_gives_a_flat_land() -> None:
+    positions, heights = _double_blazed(blaze_angle_1_deg=0.0, blaze_angle_2_deg=2.0).profile_points()
+
+    assert heights[:2] == pytest.approx([0.0, 0.0])
+    assert positions[1] > 0.0
+    a1, a2 = np.diff(positions)[:2]
+    assert a2 / (a1 + a2) == pytest.approx(0.3)
+    assert heights[2] / a2 == pytest.approx(np.tan(np.deg2rad(2.0)))
+    assert (positions[3] - positions[2]) * np.tan(np.deg2rad(30.0)) == pytest.approx(heights[2])
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"blaze_angle_1_deg": 1.0, "blaze_angle_2_deg": 4.0},
+        {"blaze_angle_1_deg": 0.0, "blaze_angle_2_deg": 2.0},
+        {"second_facet_fraction": 1.0},
+    ],
+)
+def test_double_blazed_limit_shapes_build_and_plot(
+    overrides: dict[str, float], tmp_path: Path
+) -> None:
+    grating = _double_blazed(**overrides)
+    output = tmp_path / "profile.png"
+
+    grating.plot_profile(output)
+
+    assert output.stat().st_size > 0
+    dense = grating.build_textures(100.0)
+    low_memory = grating.build_textures(100.0, _memory_mode="low_memory")
+    assert len(dense[0]) > 1
+    assert len(low_memory[0]) > 1
 
 
 def test_double_blazed_plots_with_annotations(tmp_path: Path) -> None:

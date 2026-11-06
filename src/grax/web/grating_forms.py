@@ -326,11 +326,14 @@ def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
                     if not _is_number(form.get(name))
                 ),
             ) from None
-        if not 0.0 < blaze_2 < blaze_1 < 90.0:
+        if not 0.0 <= blaze_1 < 90.0:
             raise FormFieldError(
-                "Double blazed angles must satisfy 0° < θ2 < θ1 < 90°: "
-                "the upper facet must be shallower than the lower facet.",
+                "Double blazed lower blaze angle θ1 must be at least 0° and below 90°.",
                 "blaze_angle_1_deg",
+            )
+        if not 0.0 < blaze_2 < 90.0:
+            raise FormFieldError(
+                "Double blazed upper blaze angle θ2 must be above 0° and below 90°.",
                 "blaze_angle_2_deg",
             )
         if not 0.0 < anti_blaze <= 90.0:
@@ -338,9 +341,9 @@ def _spec_from_form(form: Any, *, require_name: bool = True) -> dict[str, Any]:
                 "Double blazed anti-blaze angle must be above 0° and at most 90°.",
                 "double_anti_blaze_angle_deg",
             )
-        if not 0.0 < fraction < 1.0:
+        if not 0.0 < fraction <= 1.0:
             raise FormFieldError(
-                "Double blazed upper facet share p must be between 0 and 1.",
+                "Double blazed upper facet share p must be above 0 and at most 1.",
                 "second_facet_fraction",
             )
         spec.update(

@@ -1545,17 +1545,21 @@ class DoubleBlazedGrating(BaseGrating):
     """Blazed profile with two rising facets and one falling facet.
 
     Going along x from the foot at ``x = 0``, the surface rises at
-    ``blaze_angle_1_deg``, continues at the shallower ``blaze_angle_2_deg`` up to
-    the apex, then falls at ``anti_blaze_angle_deg`` back to zero at the end of
-    the period.
+    ``blaze_angle_1_deg``, continues at ``blaze_angle_2_deg`` up to the apex,
+    then falls at ``anti_blaze_angle_deg`` back to zero at the end of the period.
+
+    The kink is convex when the upper facet is shallower and concave when it is
+    steeper. Equal angles, or ``second_facet_fraction = 1``, give a plain blazed
+    profile, and ``blaze_angle_1_deg = 0`` gives a flat land at the valley.
 
     Attributes:
-        blaze_angle_1_deg: Angle of the lower rising facet, in degrees.
-        blaze_angle_2_deg: Angle of the upper rising facet, in degrees. Must be
-            smaller than ``blaze_angle_1_deg``.
+        blaze_angle_1_deg: Angle of the lower rising facet, in degrees, from 0 up
+            to but not including 90.
+        blaze_angle_2_deg: Angle of the upper rising facet, in degrees, between 0
+            and 90 (exclusive).
         anti_blaze_angle_deg: Angle of the falling facet, in degrees.
         second_facet_fraction: Share of the rising width taken by the upper
-            facet, ``A2 / (A1 + A2)``, between 0 and 1 (exclusive).
+            facet, ``A2 / (A1 + A2)``, above 0 and at most 1.
     """
 
     blaze_angle_1_deg: float = 1.5
@@ -1570,31 +1574,32 @@ class DoubleBlazedGrating(BaseGrating):
             raise ValueError("period_lpermm must be finite and greater than 0.")
         if not np.isfinite(self.x_resolution_nm) or self.x_resolution_nm <= 0:
             raise ValueError("x_resolution_nm must be finite and greater than 0 nm.")
-        if not 0.0 < self.blaze_angle_1_deg < 90.0:
-            raise ValueError("blaze_angle_1_deg must be in (0, 90).")
-        if not 0.0 < self.blaze_angle_2_deg < self.blaze_angle_1_deg:
-            raise ValueError(
-                "blaze_angle_2_deg must be greater than 0 and smaller than blaze_angle_1_deg."
-            )
+        if not 0.0 <= self.blaze_angle_1_deg < 90.0:
+            raise ValueError("blaze_angle_1_deg must be in [0, 90).")
+        if not 0.0 < self.blaze_angle_2_deg < 90.0:
+            raise ValueError("blaze_angle_2_deg must be in (0, 90).")
         if not 0.0 < self.anti_blaze_angle_deg <= 90.0:
             raise ValueError("anti_blaze_angle_deg must be in (0, 90].")
-        if not 0.0 < self.second_facet_fraction < 1.0:
-            raise ValueError("second_facet_fraction must be in (0, 1).")
+        if not 0.0 < self.second_facet_fraction <= 1.0:
+            raise ValueError("second_facet_fraction must be in (0, 1].")
 
     def _facet_geometry(self) -> tuple[float, float, float, float]:
         """Return the facet rises and widths ``(h1, h2, a1, a2)`` in nm."""
 
-        cot_1 = 1.0 / np.tan(np.deg2rad(self.blaze_angle_1_deg))
-        cot_2 = 1.0 / np.tan(np.deg2rad(self.blaze_angle_2_deg))
+        tan_1 = np.tan(np.deg2rad(self.blaze_angle_1_deg))
+        tan_2 = np.tan(np.deg2rad(self.blaze_angle_2_deg))
         cot_anti = 1.0 / np.tan(np.deg2rad(self.anti_blaze_angle_deg))
-        width_ratio = self.second_facet_fraction / (1.0 - self.second_facet_fraction)
+        share = self.second_facet_fraction
+        # Written with tangents so that blaze_angle_1_deg = 0 and share = 1 stay finite.
+        ratio_1 = tan_1 * cot_anti
+        ratio_2 = tan_2 * cot_anti
         # upper_base is the width of the triangle above the kink height.
-        upper_base = self.period_nm * width_ratio / (
-            width_ratio + (1.0 + cot_anti / cot_1) / (1.0 + cot_anti / cot_2)
+        upper_base = self.period_nm * share / (
+            share + (1.0 - share) * (1.0 + ratio_1) / (1.0 + ratio_2)
         )
-        h1 = (self.period_nm - upper_base) / (cot_1 + cot_anti)
-        h2 = upper_base / (cot_2 + cot_anti)
-        return float(h1), float(h2), float(h1 * cot_1), float(h2 * cot_2)
+        a1 = (self.period_nm - upper_base) / (1.0 + ratio_1)
+        a2 = upper_base / (1.0 + ratio_2)
+        return float(a1 * tan_1), float(a2 * tan_2), float(a1), float(a2)
 
     @property
     def depth_nm(self) -> float:
@@ -1607,6 +1612,12 @@ class DoubleBlazedGrating(BaseGrating):
         """Return the double blazed profile for one period."""
 
         h1, h2, a1, a2 = self._facet_geometry()
+        if a1 == 0.0:
+            # Without a lower facet the kink would repeat the foot point.
+            return (
+                np.array([0.0, a2, self.period_nm], dtype=float),
+                np.array([0.0, h2, 0.0], dtype=float),
+            )
         positions = np.array([0.0, a1, a1 + a2, self.period_nm], dtype=float)
         heights = np.array([0.0, h1, h1 + h2, 0.0], dtype=float)
         return positions, heights
@@ -1615,6 +1626,15 @@ class DoubleBlazedGrating(BaseGrating):
         """Mark the two blaze angles and the anti-blaze angle."""
 
         h1, _, a1, a2 = self._facet_geometry()
+        if a1 == 0.0:
+            self._annotate_facet_angles(
+                axes, left_foot=0.0, left_run=a2,
+                right_foot=2.0 * self.period_nm, right_run=self.period_nm - a2,
+                left_label=f"Blaze 2 = {self.blaze_angle_2_deg:g}°",
+                right_label=f"Anti-blaze = {self.anti_blaze_angle_deg:g}°",
+                width_nm=self.period_nm,
+            )
+            return
         self._annotate_facet_angles(
             axes, left_foot=0.0, left_run=a1, left_height=h1,
             right_foot=2.0 * self.period_nm, right_run=self.period_nm - a1 - a2,

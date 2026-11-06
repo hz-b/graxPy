@@ -365,6 +365,104 @@ def _border(locator) -> str:
 
 
 @pytest.mark.browser
+def test_decimal_arrow_buttons_repeat_while_held(browser_page: Page) -> None:
+    """Step once per click, keep stepping while held, and stop at the limit."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    field = page.locator("input[name='blaze_angle_1_deg']")
+    field.fill("1.5")
+    up = page.get_by_role("button", name="Increase blaze_angle_1_deg")
+
+    up.click()
+    assert float(field.input_value()) == pytest.approx(1.51)
+
+    box = up.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.wait_for_timeout(900)
+    page.mouse.up()
+    held = float(field.input_value())
+    assert held >= 1.51 + 0.03
+    page.wait_for_timeout(300)
+    assert float(field.input_value()) == pytest.approx(held)
+
+    # The keyboard repeats through the browser's own key events.
+    field.focus()
+    for _ in range(3):
+        page.keyboard.down("ArrowUp")
+    page.keyboard.up("ArrowUp")
+    assert float(field.input_value()) == pytest.approx(held + 0.03)
+
+    # The field's maximum stops the repeat.
+    share = page.locator("input[name='second_facet_fraction']")
+    share.fill("0.98")
+    share_up = page.get_by_role("button", name="Increase second_facet_fraction")
+    box = share_up.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.wait_for_timeout(800)
+    page.mouse.up()
+    assert float(share.input_value()) == pytest.approx(1.0)
+
+
+@pytest.mark.browser
+def test_double_blazed_schematic_follows_the_inputs(browser_page: Page) -> None:
+    """Redraw the kink for concave shapes, a flat land and a missing lower facet."""
+    page = browser_page
+    base = page.url.rstrip("/")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+
+    def outline() -> list[list[float]]:
+        points = page.locator(".geo-surface").first.get_attribute("points") or ""
+        return [[float(value) for value in point.split(",")] for point in points.split()]
+
+    def slopes() -> tuple[float, ...]:
+        first_period = outline()[:4]
+        return tuple(
+            (start[1] - end[1]) / (end[0] - start[0])
+            for start, end in zip(first_period, first_period[1:])
+        )
+
+    lower = page.locator("input[name='blaze_angle_1_deg']")
+    upper = page.locator("input[name='blaze_angle_2_deg']")
+    share = page.locator("input[name='second_facet_fraction']")
+
+    lower.fill("2")
+    upper.fill("1")
+    share.fill("0.5")
+    assert slopes()[0] > slopes()[1] > 0
+    lower.fill("1")
+    upper.fill("2")
+    assert 0 < slopes()[0] < slopes()[1]
+    lower.fill("0")
+    assert slopes()[0] == 0
+    assert page.locator(".geo-angle-text", has_text="θ1").count() == 0
+    lower.fill("2")
+    share.fill("1")
+    assert len(outline()) == 9
+    assert page.locator(".geo-angle-text", has_text="θ1").count() == 0
+
+    # A decimal comma draws the same shape as a decimal point.
+    share.fill("0.5")
+    lower.fill("1.5")
+    upper.fill("0.75")
+    dot_outline = outline()
+    page.goto(base)
+    page.locator("select[data-decimal-separator]").select_option("comma")
+    page.goto(f"{base}/gratings/new")
+    page.locator("select[name='grating_type']").select_option("double_blazed")
+    share.fill("0,5")
+    lower.fill("1,5")
+    upper.fill("0,75")
+    assert outline() == dot_outline
+
+
+@pytest.mark.browser
 def test_forbidden_values_turn_the_field_red(browser_page: Page) -> None:
     """Mark a value outside the limits, or rejected by the server, in red."""
     page = browser_page
@@ -380,15 +478,24 @@ def test_forbidden_values_turn_the_field_red(browser_page: Page) -> None:
     share.fill("0.5")
     expect(share).not_to_have_css("border-top-color", RED_BORDER)
 
-    # Only the server knows the angles depend on each other.
+    # Only the server knows zero is excluded here, and it says why above the plot.
     upper = page.locator("input[name='blaze_angle_2_deg']")
     lower = page.locator("input[name='blaze_angle_1_deg']")
-    upper.fill("3")
+    upper.fill("0")
     expect(upper).to_have_css("border-top-color", RED_BORDER)
-    expect(lower).to_have_css("border-top-color", RED_BORDER)
+    assert _border(lower) != RED_BORDER
+    message = page.locator("[data-grating-preview-error]")
+    expect(message).to_contain_text("upper blaze angle")
+    assert page.evaluate(
+        """() => {
+          const message = document.querySelector('[data-grating-preview-error]');
+          const view = document.querySelector('[data-geometry-view]');
+          return Boolean(message.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING);
+        }"""
+    )
     upper.fill("0.75")
     expect(upper).not_to_have_css("border-top-color", RED_BORDER)
-    expect(lower).not_to_have_css("border-top-color", RED_BORDER)
+    expect(message).to_be_hidden()
 
     # Comma mode reads limits the same way.
     page.goto(base)
