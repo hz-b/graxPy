@@ -12,7 +12,10 @@
 </section>
 
 <section class="preview-panel" data-afm-workflow data-grating-section="afm">
-  <h2>Import AFM profile</h2>
+  <div class="section-head preview-head">
+    <h2>Import AFM profile</h2>
+    <button class="button" type="button" data-afm-back>Back to profile type</button>
+  </div>
   <p>Upload a two-column x/z scan and preprocess one period before using it as a profile grating.</p>
   <p class="subtle">Accepted formats: .csv, .tsv, .txt, and .dat. Use a text file with two numeric columns (x and z), separated by commas, tabs, semicolons, or spaces. A header row is optional.</p>
   {% if existing_afm_source_url %}<p class="subtle">Stored AFM scan: <a href="{{ existing_afm_source_url }}">{{ defaults.afm_source_filename or 'Download scan' }}</a>. Choose a new file to replace it.</p>{% endif %}
@@ -104,6 +107,7 @@
     {% else %}
       <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
     {% endif %}
+    <p class="subtle" data-grating-preview-status-duplicate role="status" aria-live="polite">{% if preview and preview.ok %}Ready{% else %}{{ preview.error if preview else "Preview unavailable" }}{% endif %}</p>
     <p data-roughness-warnings role="status">{{ (preview.warnings|default([]))|join(' ') if preview else '' }}</p>
     <img class="preview{% if not preview or not preview.roughness_preview_url %} is-hidden{% endif %}" src="{{ preview.roughness_preview_url|default('') or '' if preview else '' }}" alt="Random roughness interfaces and material map" data-roughness-preview-image>
   </section>

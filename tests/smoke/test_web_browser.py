@@ -643,6 +643,10 @@ def test_decimal_comma_in_coupled_grid(browser_page: Page) -> None:
     axis.locator(".custom-grid-parameter").select_option("blaze_angle_deg")
     axis.locator("[data-axis-mode]").select_option("range")
     step = axis.locator("[data-linked-step]")
+    expect(axis.locator("[data-minimum]")).to_have_attribute("step", "0.1")
+    expect(axis.locator("[data-maximum]")).to_have_attribute("step", "0.1")
+    expect(step).to_have_attribute("step", "0.1")
+    expect(axis.locator(".roughness-help")).to_have_attribute("tabindex", "-1")
     step.fill("0.2")
     assert step.evaluate("node => node.validity.valid")
     axis.locator("[data-axis-mode]").select_option("list")
@@ -686,6 +690,9 @@ def test_afm_fraction_spinner_uses_hundredths(browser_page: Page) -> None:
     prominence.fill("0.1")
     prominence.press("ArrowUp")
     expect(prominence).to_have_value("0.11")
+    page.get_by_role("button", name="Back to profile type").click()
+    expect(page.locator("select[name='grating_type']")).to_have_value("laminar")
+    expect(page.locator("[data-grating-profile-fields]")).to_be_in_viewport()
 
 
 @pytest.mark.browser

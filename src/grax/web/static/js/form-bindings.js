@@ -10,9 +10,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll("[data-grating-type]").forEach((select) => {
     syncGratingSections(select);
+    let lastNonAfmType = select.value === "afm" ? "laminar" : select.value;
     select.addEventListener("change", () => {
+      if (select.value !== "afm") lastNonAfmType = select.value;
       syncGratingSections(select);
       defaultStackForGrating(select);
+    });
+    document.querySelector("[data-afm-back]")?.addEventListener("click", () => {
+      select.value = lastNonAfmType;
+      select.dispatchEvent(new Event("change", {bubbles: true}));
+      const profile = document.querySelector("[data-grating-profile-fields]");
+      profile?.scrollIntoView({behavior: "smooth", block: "center"});
+      select.focus({preventScroll: true});
+    });
+  });
+
+  document.querySelectorAll("[data-grating-preview-form], [data-afm-process-form], [data-custom-grid-builder]").forEach((form) => {
+    form.querySelectorAll("button, a[href], .roughness-help, [tabindex='0']").forEach((control) => {
+      control.tabIndex = -1;
     });
   });
 

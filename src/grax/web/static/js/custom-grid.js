@@ -303,7 +303,7 @@ function initCustomGridBuilder(root) {
     row.append(controls, values, materials, range, generated, couplingHint);
     function syncMode() {
       const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind);
-      const numericStep = "any";
+      const numericStep = parameter.value === "blaze_angle_deg" ? "0.1" : "any";
       range.querySelectorAll("[data-minimum], [data-maximum]").forEach((input) => { input.step = numericStep; });
       range.querySelector("[data-linked-step]")?.setAttribute("step", numericStep);
       if (!rangeAllowed) mode.value = "list";

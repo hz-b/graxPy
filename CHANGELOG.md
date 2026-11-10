@@ -16,6 +16,8 @@
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
+- Canceling the native folder picker no longer reports AppleScript's cancellation as an error.
+- AFM profile navigation, preview status, fine numeric increments, keyboard flow and plot PNG filenames are improved; run-stack images no longer delay the run list and are cached on demand.
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.
 - On Windows, a run's page no longer briefly reports the run as not found while the run is saving its progress.
 

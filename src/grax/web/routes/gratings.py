@@ -45,7 +45,6 @@ from ..afm_workflow import (
 )
 from ..catalog import (
     _linked_runs,
-    _list_plot_runs,
 )
 from ..context import WebContext
 from ..custom_grid import (
@@ -239,9 +238,8 @@ def register(app: Any, ctx: WebContext) -> None:
 
     @app.get("/gratings/manage")
     def manage_gratings():
-        data_dir = active_data_dir()
         run_counts: dict[str, int] = {}
-        for run in _list_plot_runs(data_dir / "runs"):
+        for run in run_store().list():
             linked_grating_id = str(run.get("grating_id", ""))
             if linked_grating_id:
                 run_counts[linked_grating_id] = run_counts.get(linked_grating_id, 0) + 1

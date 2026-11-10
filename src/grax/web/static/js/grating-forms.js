@@ -44,6 +44,10 @@ function initLayerEditor(editor, form) {
   let nextKey = rows.querySelectorAll("[data-layer-row]").length;
 
   const notify = () => form.dispatchEvent(new Event("change", { bubbles: true }));
+  const removeActionTabStops = (row) => {
+    row.querySelectorAll("button, .roughness-help").forEach((control) => { control.tabIndex = -1; });
+  };
+  rows.querySelectorAll("[data-layer-row]").forEach(removeActionTabStops);
   const renumber = () => {
     const all = rows.querySelectorAll("[data-layer-row]");
     all.forEach((row, index) => {
@@ -60,6 +64,7 @@ function initLayerEditor(editor, form) {
       nextKey += 1;
       rows.insertAdjacentHTML("beforeend", html);
       const row = rows.lastElementChild;
+      removeActionTabStops(row);
       row.querySelector("[data-layer-kind]").value = button.dataset.layerAdd || "single";
       row.querySelector("[data-bilayer-fields]").classList.toggle("is-hidden", button.dataset.layerAdd !== "multilayer");
       renumber();
@@ -264,7 +269,8 @@ function initLinkedRange(minimum, maximum, count, fixedCount = false) {
     if (count.closest("label")?.hasAttribute(attr)) label.setAttribute(attr, count.closest("label").getAttribute(attr));
   }
   const step = document.createElement("input");
-  step.type = "number"; step.step = count.closest("[data-custom-axis]")?.querySelector(".custom-grid-parameter")?.value === "blaze_angle_deg" ? "0.1" : "any"; step.min = "0"; step.dataset.linkedStep = "";
+  const isBlazeAngle = () => count.closest("[data-custom-axis]")?.querySelector(".custom-grid-parameter")?.value === "blaze_angle_deg";
+  step.type = "number"; step.step = isBlazeAngle() ? "0.1" : "any"; step.min = "0"; step.dataset.linkedStep = "";
   const help = document.createElement("span"); help.className = "roughness-help-wrap";
   const helpButton = document.createElement("button");
   helpButton.type = "button"; helpButton.className = "roughness-help"; helpButton.textContent = "?";
@@ -458,10 +464,15 @@ function initGratingPreview(form) {
   const previewUrl = form.dataset.previewUrl;
   const image = document.querySelector("[data-grating-preview-image]");
   const status = document.querySelector("[data-grating-preview-status]");
+  const statusDuplicate = document.querySelector("[data-grating-preview-status-duplicate]");
   const loading = document.querySelector("[data-grating-preview-loading]");
   const errorBox = document.querySelector("[data-grating-preview-error]");
   let previewValid = true;
   let requestId = 0;
+  const setStatus = (message) => {
+    status.textContent = message;
+    if (statusDuplicate) statusDuplicate.textContent = message;
+  };
 
   function clearInvalidFields() {
     form.querySelectorAll(".is-invalid").forEach((field) => {
@@ -485,7 +496,7 @@ function initGratingPreview(form) {
       errorBox.textContent = payload.error || "Preview inputs are invalid.";
       errorBox.classList.remove("is-hidden");
     }
-    status.textContent = payload.error_category === "geometry" ? "Invalid geometry" : "Validation error";
+    setStatus(payload.error_category === "geometry" ? "Invalid geometry" : "Validation error");
   }
 
   function clearPreviewError() {
@@ -515,8 +526,8 @@ function initGratingPreview(form) {
       if (roughImage) roughImage.classList.add("is-hidden");
       if (warnings) warnings.textContent = "";
       loading.textContent = "AFM preview";
-      status.textContent = afmError ? "AFM processing failed" :
-        "Review the AFM period. Save will process the current settings.";
+      setStatus(afmError ? "AFM processing failed" :
+        "Review the AFM period. Save will process the current settings.");
       return;
     }
     loading.textContent = "Rendering";
@@ -539,7 +550,7 @@ function initGratingPreview(form) {
         clearPreviewError();
         image.src = payload.preview_url;
         image.classList.remove("is-hidden");
-        status.textContent = "Ready";
+        setStatus("Ready");
       } else {
         showPreviewError(payload);
       }
@@ -548,7 +559,7 @@ function initGratingPreview(form) {
         return;
       }
       loading.textContent = "Error";
-      status.textContent = "Preview request failed.";
+      setStatus("Preview request failed.");
     }
   }, 250);
 
@@ -641,7 +652,8 @@ function renderPlotlyFigure(container, figureJson) {
   const parsed = typeof figureJson === "string" ? JSON.parse(figureJson) : figureJson;
   const rawTitle = parsed.layout?.title;
   const title = typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot";
-  const filename = title.replace(/<[^>]*>/g, "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "plot";
+  const filenameSource = container.dataset.pngFilename || title;
+  const filename = filenameSource.replace(/<[^>]*>/g, "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "plot";
   window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
     responsive: true,
     displaylogo: false,

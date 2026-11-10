@@ -31,6 +31,7 @@ from .jobs import (
     wait_for_stop,
 )
 from .jobs import stop_event as job_stop_event
+from .material_previews import ensure_run_material_stack_preview
 from .run_files import (
     _load_checkpoint_results,
     _load_run_manifest,
@@ -323,6 +324,7 @@ def _execute_run_job(
 
     run_dir = data_dir / "runs" / run_id
     run_manifest = _load_run_manifest(data_dir, run_id) or {}
+    ensure_run_material_stack_preview(data_dir, run_manifest)
 
     # Block here until the global pool has room — run stays "queued" while waiting.
     granted_workers = allocate_workers(run_id)

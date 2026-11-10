@@ -52,6 +52,12 @@ function initPlotWorkspace(form) {
     previewStatus.textContent = message;
   }
 
+  function syncPngFilename() {
+    previewContainer.dataset.pngFilename = form.querySelector('input[name="plot_name"]')?.value.trim()
+      || form.querySelector('input[name="title"]')?.value.trim()
+      || "plot";
+  }
+
   function summarizeRuns(selectedRuns) {
     selectedRunSummary.replaceChildren();
     selectedRuns.forEach((run) => {
@@ -148,6 +154,7 @@ function initPlotWorkspace(form) {
         return;
       }
       if (payload.ok) {
+        syncPngFilename();
         renderPlotlyFigure(previewContainer, payload.figure_json);
         const hasSeries = (payload.series_controls || []).length > 0;
         setPreviewFeedback(hasSeries ? "ready" : "idle", hasSeries ? "Preview is up to date." : "No plots are available for this loop and selection.");
@@ -283,7 +290,8 @@ function initPlotWorkspace(form) {
     refreshPreview();
   });
 
-  form.querySelector('input[name="title"]')?.addEventListener("change", refreshPreview);
+  form.querySelector('input[name="title"]')?.addEventListener("input", refreshPreview);
+  form.querySelector('input[name="plot_name"]')?.addEventListener("input", refreshPreview);
   form.querySelectorAll('select[name="x_axis_value"], select[name="x_axis_type"], select[name="y_axis_type"]').forEach((field) => {
     field.addEventListener("change", refreshPreview);
   });

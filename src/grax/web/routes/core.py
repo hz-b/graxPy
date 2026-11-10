@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import (
     Any,
 )
@@ -22,9 +23,11 @@ from ..catalog import (
 )
 from ..common import (
     _is_loopback_address,
+    _is_safe_id,
 )
 from ..context import WebContext
 from ..files import write_json_atomically
+from ..material_previews import ensure_run_material_stack_preview
 from ..run_state import (
     _has_active_runs,
 )
@@ -41,6 +44,7 @@ def register(app: Any, ctx: WebContext) -> None:
     """Register the core routes on ``app``."""
     active_data_dir = ctx.active_data_dir
     store = ctx.store
+    run_store = ctx.run_store
 
     @app.post("/settings")
     def update_user_settings():
@@ -165,4 +169,19 @@ def register(app: Any, ctx: WebContext) -> None:
 
     @app.get("/_data/<path:filename>")
     def data_file(filename: str):
+        parts = Path(filename).parts
+        if (
+            len(parts) == 3
+            and parts[:2] == ("previews", "run-stacks")
+            and parts[2].endswith(".png")
+        ):
+            run_id = parts[2][:-4]
+            if not _is_safe_id(run_id):
+                abort(404)
+            try:
+                manifest = run_store().load(run_id)
+            except (FileNotFoundError, ValueError):
+                abort(404)
+            if ensure_run_material_stack_preview(active_data_dir(), manifest) is None:
+                abort(404)
         return send_from_directory(app.config["GRAx_DATA_DIR"], filename)

@@ -834,6 +834,11 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'data-grating-section="sinusoidal"' in response.data
     assert b'<option value="sinusoidal"' in response.data
     assert b'data-grating-section="blazed"' in response.data
+    assert b'data-afm-back' in response.data
+    assert b'data-grating-preview-status-duplicate' in response.data
+    assert b'name="cl_density_g_cm3" type="number" step="0.1"' in response.data
+    assert b'name="cl_thickness_nm" type="number" step="0.1"' in response.data
+    assert b"These values control profile sampling in the preview" in response.data
     assert b'data-grating-section="double_blazed"' in response.data
     assert b'<option value="double_blazed"' in response.data
     assert "Upper facet share p".encode() in response.data
@@ -1085,6 +1090,49 @@ def test_grating_form_includes_live_preview_panel(tmp_path: Path) -> None:
     assert b'tabindex="-1"' in response.data
 
 
+def test_run_material_stack_preview_is_cached(tmp_path: Path) -> None:
+    from grax.web.material_previews import ensure_run_material_stack_preview
+    from tests.simulation_helpers import build_test_grating
+
+    run = {
+        "id": "run-preview",
+        "grating_spec": grating_to_spec(build_test_grating(), name="Preview grating"),
+    }
+    first = ensure_run_material_stack_preview(tmp_path, run)
+    assert first is not None and first.is_file()
+    first_mtime = first.stat().st_mtime_ns
+
+    second = ensure_run_material_stack_preview(tmp_path, run)
+    assert second == first
+    assert second.stat().st_mtime_ns == first_mtime
+
+
+def test_manage_runs_generates_missing_stack_preview_on_image_request(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+    from tests.simulation_helpers import build_test_grating
+
+    _write_run_fixture(tmp_path, run_id="run-lazy-preview", display_name="Lazy preview")
+    manifest_path = tmp_path / "runs" / "run-lazy-preview" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["grating_spec"] = grating_to_spec(
+        build_test_grating(), name="Lazy preview grating"
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    client = create_app(data_dir=tmp_path).test_client()
+    preview_path = tmp_path / "previews" / "run-stacks" / "run-lazy-preview.png"
+
+    page = client.get("/runs/gratings")
+    assert page.status_code == 200
+    assert b"/_data/previews/run-stacks/run-lazy-preview.png" in page.data
+    assert not preview_path.exists()
+
+    image = client.get("/_data/previews/run-stacks/run-lazy-preview.png")
+    assert image.status_code == 200
+    assert image.mimetype == "image/png"
+    assert preview_path.is_file()
+
+
 def test_grating_preview_endpoint_returns_preview_and_validation(tmp_path: Path) -> None:
     pytest.importorskip("flask")
 
@@ -1333,6 +1381,8 @@ def test_grating_detail_run_form_exposes_workflow_specific_controls(tmp_path: Pa
     assert b'name="grazing_angle_start_deg" type="number" step="0.01" value="0.1"' in response.data
     assert b'name="grazing_angle_stop_deg" type="number" step="0.01" value="35"' in response.data
     assert b'name="grazing_angle_points" type="number" step="1" value="101"' in response.data
+    assert b"These simulation X/Z values override the saved grating profile resolutions" in response.data
+    assert b"This run-only choice overrides the saved model" in response.data
 
 
 def test_cases_for_workflow_propagates_polarization_for_web_runs() -> None:
@@ -1948,6 +1998,7 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
         "/plots",
         data={
             "title": "Saved interactive plot",
+            "plot_name": "Named PNG export",
             "run_ids": ["run-1", "run-2"],
             "orders_run-1": ["0", "1"],
             "orders_run-2": ["2"],
@@ -1971,9 +2022,9 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_symbol"] == "square"
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["marker_size"] == 11
     assert manifest["plot_config"]["series_styles"]["run-1::order::0"]["line_style"] == "dash"
-    assert (tmp_path / "plots" / plot_id / "Saved_interactive_plot.png").is_file()
-    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot.png").is_file()
-    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot.png").is_file()
+    assert (tmp_path / "plots" / plot_id / "Named_PNG_export.png").is_file()
+    assert (tmp_path / "runs" / "run-1" / "Named_PNG_export.png").is_file()
+    assert (tmp_path / "runs" / "run-2" / "Named_PNG_export.png").is_file()
     assert (
         manifest["plot_config"]["series_styles"]["run-1::order::0"]["legend_label"]
         == "Reference scan"
@@ -1984,6 +2035,7 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
     assert detail_response.status_code == 200
     assert b"interactive Plotly figure" in detail_response.data
     assert b'data-saved-plot-figure' in detail_response.data
+    assert b'data-png-filename="Named PNG export"' in detail_response.data
     assert b"square" in detail_response.data
     assert b"#ff0000" in detail_response.data
     assert b"Reference scan" in detail_response.data
@@ -1993,8 +2045,8 @@ def test_saved_plot_persists_interactive_config_and_detail_view(tmp_path: Path) 
 
     repeat = client.post("/plots", data={"title": "Saved interactive plot", "run_ids": ["run-1", "run-2"], "orders_run-1": ["0"], "orders_run-2": ["2"]})
     assert repeat.status_code == 302
-    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot_2.png").is_file()
-    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot_2.png").is_file()
+    assert (tmp_path / "runs" / "run-1" / "Saved_interactive_plot.png").is_file()
+    assert (tmp_path / "runs" / "run-2" / "Saved_interactive_plot.png").is_file()
 
 
 def test_legacy_png_plot_detail_still_renders(tmp_path: Path) -> None:
@@ -2362,6 +2414,21 @@ def test_native_workspace_picker_uses_macos_folder_dialog(monkeypatch: pytest.Mo
     assert calls[0][0] == "osascript"
     assert "choose folder" in calls[0][2]
     assert "with invisibles" in calls[0][2]
+
+
+def test_native_workspace_picker_treats_macos_abort_as_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(web_app_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        web_app_module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="execution error: User canceled."
+        ),
+    )
+
+    assert web_app_module._pick_native_directory() is None
 
 
 def test_native_workspace_picker_shows_hidden_folders_on_windows(

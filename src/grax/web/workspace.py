@@ -29,7 +29,12 @@ def _pick_native_directory() -> Path | None:
         result = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
         if result.returncode:
             # AppleScript uses -128 for a user cancellation; other errors mean unavailable.
-            if "-128" in result.stderr:
+            cancellation_text = result.stderr.casefold()
+            if (
+                "-128" in cancellation_text
+                or "user canceled" in cancellation_text
+                or "user cancelled" in cancellation_text
+            ):
                 return None
             raise RuntimeError(result.stderr.strip() or "macOS folder selection failed")
         selected = result.stdout.strip()

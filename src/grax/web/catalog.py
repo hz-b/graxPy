@@ -7,13 +7,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from . import parameter_scans
 from .common import (
     _polarization_display_label,
 )
-from .persistence import build_grating_from_spec
 from .run_files import (
     _available_orders,
     _checkpoint_counts,
@@ -317,15 +314,24 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
     """Build the derived view model used by Manage Runs."""
 
     entries: list[dict[str, Any]] = []
-    for run in _list_plot_runs(data_dir / "runs"):
+    for run in _list_runs(data_dir / "runs"):
         run_id = str(run["id"])
+        run_dir = _run_result_location(data_dir, run_id)
+        checkpoint_results = _load_checkpoint_results(run_dir)
+        checkpoint_completed_points = len(checkpoint_results)
+        checkpoint_total_points = int(run.get("total_points") or 0)
+        run.setdefault("status", "completed")
+        if run.get("status") in {"queued", "running", "aborting"} and checkpoint_completed_points > 0:
+            run["status"] = "aborted"
+        elif run.get("status") in {"paused", "interrupted"}:
+            run["status"] = "aborted"
         # The status payload knows which runs still have a live worker in this app.
         if app is not None and (run.get("parameter_sweep") or run["status"] in {"queued", "running", "aborting"}):
             run["status"] = _run_status_payload(app=app, data_dir=data_dir, run_id=run_id)["state"]
         input_data = run.get("run_input") if isinstance(run.get("run_input"), dict) else {}
         artifacts = [str(name) for name in run.get("artifacts", [])]
         plot_path = _preferred_run_plot_path(data_dir, run_id)
-        material_stack_preview_url = _run_material_stack_preview_url(data_dir, run)
+        material_stack_preview_url = _run_material_stack_preview_url(run)
         run.update(
             {
                 "detail_url": f"/runs/{run_id}",
@@ -344,10 +350,12 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
                 "related_plots": _plot_references_for_runs(data_dir, [run_id]),
                 "parameter_summary": _run_input_summary(input_data),
                 "parameter_details": _run_parameter_details(run),
-                "scan_rows": _scan_run_rows(run, data_dir / "runs" / run_id),
+                "scan_rows": _scan_run_rows(
+                    run, run_dir, checkpoint_results=checkpoint_results
+                ),
                 "progress_summary": (
-                    f"{_run_completed_points(run, run.get('checkpoint_completed_points', 0))} / "
-                    f"{run.get('checkpoint_total_points') or run.get('total_points', 0)} points"
+                    f"{_run_completed_points(run, checkpoint_completed_points)} / "
+                    f"{checkpoint_total_points or run.get('total_points', 0)} points"
                 ),
             }
         )
@@ -355,65 +363,32 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
     return entries
 
 
-def _run_material_stack_preview_url(data_dir: Path, run: dict[str, Any]) -> str | None:
-    """Return a cached material-map image URL for a run's saved grating spec."""
+def _run_material_stack_preview_url(run: dict[str, Any]) -> str | None:
+    """Return the lazy image URL for a run's saved grating spec."""
     spec = run.get("grating_spec")
     if not isinstance(spec, dict):
         return None
     run_id = str(run.get("id", ""))
     if not run_id:
         return None
-    relative_path = Path("previews") / "run-stacks" / f"{run_id}.png"
-    preview_path = data_dir / relative_path
-    if not preview_path.is_file():
-        try:
-            grating = build_grating_from_spec(spec)
-            x_grid, z_grid, material_map, material_labels = grating._material_plot_data(num_periods=3)
-            import matplotlib.pyplot as plt
-
-            figure, axes = plt.subplots(figsize=(8, 3.5))
-            colors = grating._plot_material_colors(
-                coating_stack=grating.resolved_stack(),
-                material_labels=material_labels,
-            )
-            color_map = plt.matplotlib.colors.ListedColormap(colors)
-            color_map.set_bad(color="#ffffff", alpha=1.0)
-            masked_material_map = np.ma.masked_less(material_map, 0)
-            axes.imshow(
-                masked_material_map,
-                origin="lower",
-                aspect="auto",
-                extent=[x_grid[0], x_grid[-1], z_grid[0], z_grid[-1]],
-                cmap=color_map,
-                interpolation="nearest",
-                vmin=0,
-                vmax=max(len(material_labels) - 1, 1),
-            )
-            legend_handles = [
-                plt.matplotlib.patches.Patch(color=color_map.colors[index], label=label)
-                for index, label in enumerate(material_labels)
-            ]
-            axes.set_xlabel("x (nm)")
-            axes.set_ylabel("z (nm)")
-            axes.set_title("Material Stack")
-            axes.legend(handles=legend_handles, loc="upper right")
-            figure.tight_layout()
-            preview_path.parent.mkdir(parents=True, exist_ok=True)
-            figure.savefig(preview_path, dpi=150, bbox_inches="tight")
-            plt.close(figure)
-        except Exception:
-            return None
-    return f"/_data/{relative_path.as_posix()}"
+    return f"/_data/previews/run-stacks/{run_id}.png"
 
 
-def _scan_run_rows(manifest: dict[str, Any], run_dir: Path) -> list[dict[str, Any]]:
+def _scan_run_rows(
+    manifest: dict[str, Any], run_dir: Path, *, checkpoint_results: list[Any] | None = None
+) -> list[dict[str, Any]]:
     """Annotate scan definitions with checkpoint-backed progress and images."""
     sweep = manifest.get("parameter_sweep")
     if not sweep:
         return []
     counts: dict[str, int] = {}
     failures: dict[str, int] = {}
-    for result in _load_checkpoint_results(run_dir):
+    results = (
+        checkpoint_results
+        if checkpoint_results is not None
+        else _load_checkpoint_results(run_dir)
+    )
+    for result in results:
         scan_id = result.case_data.get("scan_id")
         counts[scan_id] = counts.get(scan_id, 0) + 1
         failures[scan_id] = failures.get(scan_id, 0) + (result.status != "ok")
