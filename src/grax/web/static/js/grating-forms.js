@@ -479,6 +479,7 @@ function initGratingPreview(form) {
       field.classList.remove("is-invalid");
       field.removeAttribute("aria-invalid");
     });
+    form.querySelectorAll("[data-field-error]").forEach((message) => message.remove());
   }
 
   function showPreviewError(payload) {
@@ -486,11 +487,19 @@ function initGratingPreview(form) {
     const fields = payload.error_fields || [];
     clearInvalidFields();
     fields.forEach((name) => {
-      const field = form.querySelector(`[name="${name}"]`);
-      if (field) {
+      form.querySelectorAll(`[name="${name}"]`).forEach((field) => {
         field.classList.add("is-invalid");
         field.setAttribute("aria-invalid", "true");
-      }
+        const label = field.closest("label");
+        if (label) {
+          const message = document.createElement("span");
+          message.className = "field-error";
+          message.dataset.fieldError = "";
+          message.setAttribute("role", "alert");
+          message.textContent = payload.error || "Check this value.";
+          label.append(message);
+        }
+      });
     });
     if (errorBox) {
       errorBox.textContent = payload.error || "Preview inputs are invalid.";

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.3
 
 ### New features
 - Import and export: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
@@ -16,6 +16,7 @@
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
+- Material help explains formula input and user-supplied density; validation points to the density field, and sweep layer labels follow the grating editor's top-to-bottom numbering.
 - Canceling the native folder picker no longer reports AppleScript's cancellation as an error.
 - AFM profile navigation, preview status, fine numeric increments, keyboard flow and plot PNG filenames are improved; run-stack images no longer delay the run list and are cached on demand.
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.

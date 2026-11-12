@@ -713,11 +713,14 @@ def _stack_descriptors(stack: dict[str, Any]) -> list[ParameterDescriptor]:
             for index, layer in enumerate(value):
                 if not isinstance(layer, dict):
                     continue
+                # The grating editor numbers custom layers from the top down,
+                # while the persisted stack and parameter paths are bottom-up.
+                display_index = len(value) - index
                 for layer_key, layer_value in layer.items():
                     add_value(
                         ("stack", key, index, layer_key),
                         layer_value,
-                        f"Custom layer {index + 1} {layer_key.replace('_', ' ')}",
+                        f"Custom layer {display_index} {layer_key.replace('_', ' ')}",
                     )
             continue
         add_value(("stack", key), value, key.replace("_", " ").capitalize())

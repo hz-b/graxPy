@@ -64,6 +64,22 @@ def test_catalog_contains_conditions_numerics_geometry_and_coating() -> None:
     assert "stack.substrate_material.density_g_cm3" in ids
 
 
+def test_custom_layer_sweep_labels_match_top_to_bottom_editor_order() -> None:
+    spec = _laminar_spec(stack={
+        "type": "custom",
+        "substrate_material": "Si",
+        "layers_bottom_up": [
+            {"material": "SiON", "thickness_nm": 3.0},
+            {"material": "COCr", "thickness_nm": 2.0},
+        ],
+    })
+
+    catalog = {item.id: item.label for item in parameter_catalog(spec)}
+
+    assert catalog["stack.layers_bottom_up.0.material"] == "Custom layer 2 material"
+    assert catalog["stack.layers_bottom_up.1.material"] == "Custom layer 1 material"
+
+
 def test_custom_grid_defaults_to_p_polarization() -> None:
     """Use p polarization when custom-grid cases omit an override."""
     spec = _laminar_spec()

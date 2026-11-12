@@ -608,6 +608,36 @@ def test_preview_error_marks_the_field_named_by_the_library(tmp_path: Path) -> N
     assert payload["error_fields"] == ["width_to_period_ratio"]
 
 
+def test_preview_points_formula_material_density_error_to_density_field(tmp_path: Path) -> None:
+    pytest.importorskip("flask")
+
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    payload = client.post(
+        "/_preview/grating",
+        data={
+            "grating_type": "laminar",
+            "period_lpermm": "400",
+            "x_resolution_nm": "5.0",
+            "z_resolution_nm": "1.0",
+            "width_to_period_ratio": "0.67",
+            "depth_nm": "10",
+            "left_wall_angle_deg": "15",
+            "right_wall_angle_deg": "15",
+            "stack_type": "single_layer",
+            "substrate_material": "Si",
+            "layer_material": "COCr",
+            "layer_material_density_g_cm3": "",
+            "layer_thickness_nm": "12.0",
+            "roughness_kind": "none",
+        },
+    ).get_json()
+
+    assert payload["ok"] is False
+    assert payload["error_fields"] == ["layer_material_density_g_cm3"]
+
+
 def test_double_blazed_spec_round_trip() -> None:
     from grax.gratings import DoubleBlazedGrating
     from grax.web.persistence import build_grating_from_spec, grating_to_spec

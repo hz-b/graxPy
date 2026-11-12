@@ -390,8 +390,31 @@ def _error_fields(error: Exception, form_data: Any) -> list[str]:
     """Return the inputs an error blames: its own list, or those its message names."""
     if isinstance(error, FormFieldError):
         return list(error.fields)
-    words = set(re.findall(r"\w+", str(error)))
-    return [name for name in form_data if name in words]
+    message = str(error)
+    words = set(re.findall(r"\w+", message))
+    fields = [name for name in form_data if name in words]
+
+    # Formula materials have no catalog density to fill automatically. When
+    # validation says one needs a density, point to the matching density input.
+    if "requires density_g_cm3" in message:
+        density_fields = {
+            "layer_material": "layer_material_density_g_cm3",
+            "material_a": "material_a_density_g_cm3",
+            "material_b": "material_b_density_g_cm3",
+            "top_material": "top_material_density_g_cm3",
+            "top_cap_material": "top_cap_material_density_g_cm3",
+            "cl_material": "cl_density_g_cm3",
+            "cl_material_b": "cl_density_b_g_cm3",
+        }
+        return [
+            density_name
+            for material_name, density_name in density_fields.items()
+            if material_name in form_data
+            and form_data.get(material_name)
+            and str(form_data.get(material_name)).strip() in message
+            and density_name in form_data
+        ]
+    return fields
 
 
 def _build_grating_preview(

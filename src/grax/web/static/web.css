@@ -2735,3 +2735,10 @@ textarea:user-invalid {
   background-color: #fef3f2;
   outline-color: #b42318;
 }
+
+.field-error {
+  display: block;
+  color: #9a3412;
+  font-size: var(--font-secondary);
+  font-weight: 400;
+}
