@@ -37,12 +37,41 @@ def _pick_native_directory() -> Path | None:
         powershell = shutil.which("powershell") or shutil.which("pwsh")
         if not powershell:
             raise RuntimeError("PowerShell is not available")
+        # The server is a background process, and Windows does not let it take focus,
+        # so its dialog opens behind the browser and the button looks dead. Once the
+        # dialog is up, a timer on the dialog's thread pushes it to the topmost layer,
+        # which needs no focus rights. GetWindow(..., GW_ENABLEDPOPUP) finds the
+        # dialog through its owner, so this does not depend on the Windows language.
         script = (
             "Add-Type -AssemblyName System.Windows.Forms; "
+            "Add-Type -Namespace Grax -Name Win -MemberDefinition '"
+            '[DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint c); '
+            '[DllImport("user32.dll")] public static extern bool SetWindowPos('
+            "IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);'; "
+            "$owner = New-Object System.Windows.Forms.Form; "
+            "$owner.ShowInTaskbar = $false; "
+            "$owner.FormBorderStyle = 'None'; "
+            "$owner.Opacity = 0; "
+            "$owner.StartPosition = 'Manual'; "
+            "$owner.Location = New-Object System.Drawing.Point(-32000, -32000); "
+            "$owner.Size = New-Object System.Drawing.Size(1, 1); "
+            "$owner.Show(); "
+            "$timer = New-Object System.Windows.Forms.Timer; "
+            "$timer.Interval = 100; "
+            "$timer.Add_Tick({ "
+            "$popup = [Grax.Win]::GetWindow($owner.Handle, 6); "
+            "if ($popup -ne [IntPtr]::Zero) { "
+            "[void][Grax.Win]::SetWindowPos($popup, [IntPtr](-1), 0, 0, 0, 0, 0x43); "
+            "$timer.Stop() } }); "
+            "$timer.Start(); "
             "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
             "$dialog.Description = 'Select GraxPy database folder'; "
-            "$dialog.ShowHiddenFiles = $true; "
-            "if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath }"
+            # Windows PowerShell 5.1 (.NET Framework) has no ShowHiddenFiles property.
+            "if ($dialog.PSObject.Properties['ShowHiddenFiles']) { $dialog.ShowHiddenFiles = $true }; "
+            "$answer = $dialog.ShowDialog($owner); "
+            "$timer.Stop(); "
+            "$owner.Dispose(); "
+            "if ($answer -eq 'OK') { $dialog.SelectedPath }"
         )
         result = subprocess.run(
             [powershell, "-NoProfile", "-STA", "-Command", script],

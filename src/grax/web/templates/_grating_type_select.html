@@ -1,0 +1,7 @@
+        <select name="grating_type" {% if type_form_id|default('') %}form="{{ type_form_id }}" {% endif %}data-grating-type>
+          <option value="laminar" {% if defaults.grating_type == "laminar" %}selected{% endif %}>Laminar</option>
+          <option value="sinusoidal" {% if defaults.grating_type == "sinusoidal" %}selected{% endif %}>Sinusoidal</option>
+          {% if allow_afm_type|default(true) or defaults.grating_type == "afm" %}<option value="afm" {% if defaults.grating_type == "afm" %}selected{% endif %}>AFM profile</option>{% endif %}
+          <option value="blazed" {% if defaults.grating_type == "blazed" %}selected{% endif %}>Blazed</option>
+          <option value="double_blazed" {% if defaults.grating_type == "double_blazed" %}selected{% endif %}>Double blazed</option>
+        </select>

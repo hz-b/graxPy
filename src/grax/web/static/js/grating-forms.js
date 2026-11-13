@@ -13,7 +13,8 @@ function syncGratingSections(select) {
 }
 
 function defaultStackForGrating(select) {
-  const stackSelect = select.closest("form")?.querySelector("[data-stack-type]");
+  // select.form also finds the form of a type select placed outside it (form="...").
+  const stackSelect = (select.form || select.closest("form"))?.querySelector("[data-stack-type]");
   if (!stackSelect) return;
   syncStackSections(stackSelect);
 }
@@ -501,7 +502,7 @@ function initGratingPreview(form) {
     if (materialPauseTimer !== null) return;
     requestId += 1;
     const currentRequest = requestId;
-    const afmPending = form.querySelector('[name="grating_type"]')?.value === "afm" &&
+    const afmPending = form.elements.grating_type?.value === "afm" &&
       !form.querySelector("[data-afm-profile-path]")?.value;
     if (afmPending) {
       previewValid = false;
@@ -580,7 +581,7 @@ function initGratingPreview(form) {
     }
   });
   form.addEventListener("submit", (event) => {
-    if (form.querySelector('[name="grating_type"]')?.value === "afm") {
+    if (form.elements.grating_type?.value === "afm") {
       if (!form.querySelector("[data-afm-profile-path]")?.value) {
         event.preventDefault();
         form.dispatchEvent(new Event("grax:afm-save-requested"));
@@ -594,7 +595,7 @@ function initGratingPreview(form) {
       if (errorBox) errorBox.focus();
     }
   });
-  if (form.querySelector('[name="grating_type"]')?.value === "afm" &&
+  if (form.elements.grating_type?.value === "afm" &&
       !form.querySelector("[data-afm-profile-path]")?.value) {
     updatePreview();
   }

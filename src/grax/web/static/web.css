@@ -356,6 +356,27 @@ a {
   margin-bottom: 24px;
 }
 
+.grating-type-bar {
+  margin-bottom: 20px;
+  padding: 14px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.grating-type-bar label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.grating-type-bar select {
+  width: auto;
+  min-width: 240px;
+}
+
 .actions,
 .manage-actions {
   display: flex;
