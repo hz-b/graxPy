@@ -11,6 +11,7 @@
 ## Bug fixes and website testing
 
 - Unless the user instructs otherwise, create or switch to the `bug-fixes` branch before fixing a bug, and do the bug-fix work there. Reuse that branch if it already exists.
+- Do not run the full test suite after every change. Run only the tests related to the change. Before the user asks for a merge request (pull request), ask them whether to run the full suite.
 - Run project tests with the Python environment in the repository's `.venv` (for example, `.venv/bin/python -m pytest ...` or `uv run --python .venv/bin/python pytest ...`); do not use a global Python environment. If `.venv` is missing or unusable, tell the user how to create it with `bash tools/bootstrap.sh` (requires `uv`) and wait for them to install it before running tests.
 - Before starting the website for testing, check whether a development server is already running and reuse it. Keep one server on the same port through repeated checks; restart it only when a change requires a restart, and stop the old process before starting its replacement.
 - Do not open a new visible browser page each time the website is tested. Reuse an existing tab when visual inspection is needed. Prefer headless browser tests and direct test-client or HTTP checks when no visible browser interaction is needed.
@@ -34,7 +35,7 @@
 - `grax-web` runs without the debugger. Use `--debug` only on a local host, and note that the reloader stops running jobs. `--data-dir` selects the database folder, and `--no-browser` skips opening the system browser (the dev-server entry in `.claude/launch.json` uses it).
 - Never point tests, scripts or the dev server at the real `.grax-web` database. Use a copy, such as `.grax-web-dev` (git-ignored) or a temporary folder.
 - Testing layers for web changes:
-  1. Unit and smoke tests, including the route inventory, the page sweep and the security tests, on every change.
+  1. Related unit and smoke tests on every change; the full unit and smoke suites (including the route inventory, the page sweep and the security tests) only after asking the user, before a merge request.
   2. Browser tests (`-m browser`), including the page-script error check, after template or JavaScript changes.
   3. A parity check against the previous version (skill `web-parity-check`) after any refactoring or restructuring. Its report must show no unexplained differences.
   4. A live check in the built-in browser (skill `web-live-check`) before opening a PR that changes what users see or do.
