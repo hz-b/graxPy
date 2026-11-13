@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.3
 
 ### New features
 - Import and export: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
@@ -9,24 +9,25 @@
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
-- Runs with thousands of parameter combinations no longer slow down because of the live plot: the plot is drawn in the background, redraws less often the longer it takes, and is built much faster.
-- AFM processing keeps one folder per scan file, named after the file, and overwrites it when you change settings, instead of adding a new folder every time an AFM setting changes.
-- Downloading a plot as PNG from the plot's camera button now uses the plot's name as the file name, the same name as the data export, instead of sometimes falling back to "Combined_plot".
-- The Tab key now moves between entry fields only; it skips the up and down arrow buttons and the help question marks, whose tooltips still show on hover.
-- In a sweep over the blaze angle, the minimum, maximum and step size fields of a linear range now change by 0.1° with the arrows instead of 1°.
+- The home page and the manage runs, manage gratings and plot pages open much faster with many saved runs. Run counts and diffraction orders are remembered and only recalculated when a run's results change, and stack images that are missing are drawn in the background. An older database fills this in the first time it is opened.
+- Runs with thousands of parameter combinations no longer slow down as they progress: the live plot is built much faster, drawn in the background and redrawn less often the longer it takes.
+- AFM processing keeps one folder per scan file.
+- PNG download uses the plot's name as file name.
+- Tab skips arrow buttons and help marks.
+- Blaze angle sweep range fields step by 0.1°.
 - A grating form now explains an invalid value directly under the Live preview heading instead of below the plot.
 - Blaze and anti-blaze angle fields now step by 0.01° with the arrows and the mouse wheel. Typed values can still have more decimals.
 - Holding an arrow button on a number field now keeps changing the value until you let go.
-- Layer thickness and density fields, including those of custom layers, now change by 0.1 with the arrows and the mouse wheel. Typed values can still have more decimals.
+- Layer thickness and density fields step by 0.1.
 - The PGM menu now says New PGM instead of New working range.
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.
 - On Windows, a run's page no longer briefly reports the run as not found while the run is saving its progress.
-- On Windows, the Choose folder button for the database folder now opens its folder dialog in front of the browser instead of hidden behind it, where the button seemed to do nothing. While the dialog is open, the button says it is waiting, and further clicks do not open more dialogs.
-- The grating live preview now has one clear status, "Status:" followed by a label (Idle, Waiting, Rendering, Ready, Invalid or Error) and a short message only when there is something to explain. It is shown above the preview and repeated below the plot, for every grating type. Choosing a different grating type resets it to Idle, and AFM profile shows Waiting until a profile is processed.
-- The grating type choice on the New grating and Edit grating pages now sits in a bar at the top of the page, so after choosing AFM profile you can always switch to another type instead of having to find it far below the AFM import.
+- On Windows, the Choose folder dialog opens in front of the browser.
+- The grating live preview shows one clear status.
+- The grating type choice sits at the top of the grating pages, so you can switch away from AFM profile.
 
 ## 0.6.0
 

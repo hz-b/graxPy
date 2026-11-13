@@ -3716,3 +3716,27 @@ def test_manage_runs_page_filters_by_grating_and_saves_one_run(tmp_path: Path) -
     second = json.loads((tmp_path / "runs" / "run-2" / "manifest.json").read_text(encoding="utf-8"))
     assert first["comment"] == "Changed"
     assert second["comment"] == "Note 2"
+
+
+def test_run_list_summary_is_cached_and_follows_result_changes(tmp_path, monkeypatch):
+    """List pages reuse saved run counts until the results file changes."""
+    from grax.web import run_files
+
+    run_dir = tmp_path / "runs" / "r1"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    results = run_dir / "checkpoints" / "results.jsonl"
+    results.write_text("", encoding="utf-8")
+    loads = []
+    real = run_files._load_checkpoint_results
+    monkeypatch.setattr(run_files, "_load_checkpoint_results", lambda path: loads.append(path) or real(path))
+
+    assert run_files._run_list_summary(run_dir)["completed"] == 0
+    after_first = len(loads)
+    assert after_first >= 1
+    assert run_files._run_list_summary(run_dir)["completed"] == 0
+    assert len(loads) == after_first
+    assert (tmp_path / "cache" / "run_summaries" / "r1.json").is_file()
+
+    results.write_text("\n", encoding="utf-8")
+    run_files._run_list_summary(run_dir)
+    assert len(loads) > after_first

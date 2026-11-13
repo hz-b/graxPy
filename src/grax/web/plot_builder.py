@@ -28,7 +28,7 @@ from .common import (
     _plot_id,
 )
 from .run_files import (
-    _available_orders,
+    _run_list_summary,
     _load_order_series,
     _load_run_manifest,
 )
@@ -644,7 +644,7 @@ def _load_selected_plot_series(
                 series["run_id"] = run_id
                 selected_series.append(series)
             continue
-        orders = order_selection.get(run_id) or _available_orders(run_dir)
+        orders = order_selection.get(run_id) or _run_list_summary(run_dir)["orders"]
         run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
         sweep = manifest.get("parameter_sweep") or _custom_grid_plot_definition(manifest)
         custom_grid_plot = bool(sweep and not manifest.get("parameter_sweep"))
@@ -849,7 +849,7 @@ def _render_combined_plot_image(
         with manifest_path.open("r", encoding="utf-8") as handle:
             manifest = json.load(handle)
         run_label = str(manifest.get("display_name") or manifest.get("grating_name", run_id))
-        orders = order_selection.get(run_id) or _available_orders(run_dir)
+        orders = order_selection.get(run_id) or _run_list_summary(run_dir)["orders"]
         run_summaries.append({"id": run_id, "name": run_label, "orders": orders})
         for order in orders:
             series = _load_order_series(run_dir, order=order, label=run_label)

@@ -48,6 +48,7 @@ from ..catalog import (
     _linked_runs,
     _list_plot_runs,
 )
+from ..run_files import _list_runs
 from ..context import WebContext
 from ..files import remove_tree
 from ..custom_grid import (
@@ -249,7 +250,7 @@ def register(app: Any, ctx: WebContext) -> None:
     def manage_gratings():
         data_dir = active_data_dir()
         run_counts: dict[str, int] = {}
-        for run in _list_plot_runs(data_dir / "runs"):
+        for run in _list_runs(data_dir / "runs"):
             linked_grating_id = str(run.get("grating_id", ""))
             if linked_grating_id:
                 run_counts[linked_grating_id] = run_counts.get(linked_grating_id, 0) + 1
