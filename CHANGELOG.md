@@ -9,6 +9,8 @@
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
+- Downloading a plot as PNG from the plot's camera button now uses the plot's name as the file name, the same name as the data export, instead of sometimes falling back to "Combined_plot".
+- The Tab key now moves between entry fields only; it skips the up and down arrow buttons and the help question marks, whose tooltips still show on hover.
 - In a sweep over the blaze angle, the minimum, maximum and step size fields of a linear range now change by 0.1° with the arrows instead of 1°.
 - A grating form now explains an invalid value directly under the Live preview heading instead of below the plot.
 - Blaze and anti-blaze angle fields now step by 0.01° with the arrows and the mouse wheel. Typed values can still have more decimals.

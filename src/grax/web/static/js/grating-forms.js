@@ -671,13 +671,13 @@ function createOrderCheckbox(runId, order) {
   return label;
 }
 
-function renderPlotlyFigure(container, figureJson) {
+function renderPlotlyFigure(container, figureJson, exportName = "") {
   if (!container || !window.Plotly || !figureJson) {
     return;
   }
   const parsed = typeof figureJson === "string" ? JSON.parse(figureJson) : figureJson;
   const rawTitle = parsed.layout?.title;
-  const title = typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot";
+  const title = exportName || (typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot");
   const filename = title.replace(/<[^>]*>/g, "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "plot";
   window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
     responsive: true,

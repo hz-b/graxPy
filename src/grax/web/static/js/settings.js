@@ -111,6 +111,7 @@ function initDecimalField(field) {
   for (const [direction, label] of [[1, "Increase"], [-1, "Decrease"]]) {
     const button = document.createElement("button");
     button.type = "button";
+    button.tabIndex = -1;
     button.textContent = direction > 0 ? "▲" : "▼";
     button.setAttribute("aria-label", `${label} ${field.name || "value"}`);
     bindDecimalStepButton(button, field, direction);
@@ -119,7 +120,13 @@ function initDecimalField(field) {
   wrapper.append(controls);
   field.setCustomValidity(decimalRangeMessage(field));
 }
+// Tab moves between entry fields only; the help "?" tooltips still open on hover.
+function skipHelpInTabOrder(root) {
+  if (root.matches?.(".roughness-help")) root.tabIndex = -1;
+  root.querySelectorAll?.(".roughness-help").forEach((help) => { help.tabIndex = -1; });
+}
 function initDecimalFields(root = document) {
+  skipHelpInTabOrder(root);
   if (root instanceof HTMLInputElement) initDecimalField(root);
   root.querySelectorAll?.('input[type="number"]').forEach(initDecimalField);
 }

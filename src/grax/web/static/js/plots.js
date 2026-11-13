@@ -148,7 +148,8 @@ function initPlotWorkspace(form) {
         return;
       }
       if (payload.ok) {
-        renderPlotlyFigure(previewContainer, payload.figure_json);
+        const exportName = (form.elements.plot_name?.value || "").trim() || (form.elements.title?.value || "").trim();
+        renderPlotlyFigure(previewContainer, payload.figure_json, exportName);
         const hasSeries = (payload.series_controls || []).length > 0;
         setPreviewFeedback(hasSeries ? "ready" : "idle", hasSeries ? "Preview is up to date." : "No plots are available for this loop and selection.");
         saveButton.disabled = !hasSeries;
@@ -283,7 +284,7 @@ function initPlotWorkspace(form) {
     refreshPreview();
   });
 
-  form.querySelector('input[name="title"]')?.addEventListener("change", refreshPreview);
+  form.querySelectorAll('input[name="title"], input[name="plot_name"]').forEach((field) => field.addEventListener("change", refreshPreview));
   form.querySelectorAll('select[name="x_axis_value"], select[name="x_axis_type"], select[name="y_axis_type"]').forEach((field) => {
     field.addEventListener("change", refreshPreview);
   });
@@ -316,7 +317,7 @@ function initSavedPlotFigure(container) {
   if (!figureJson) {
     return;
   }
-  renderPlotlyFigure(container, JSON.parse(figureJson));
+  renderPlotlyFigure(container, JSON.parse(figureJson), container.dataset.plotName || "");
 }
 
 function initScanViewer(root) {

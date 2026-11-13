@@ -365,6 +365,17 @@ def _border(locator) -> str:
 
 
 @pytest.mark.browser
+def test_tab_skips_arrow_buttons_and_help_marks(browser_page: Page) -> None:
+    """Tab moves between entry fields only, never onto arrow buttons or "?" marks."""
+    page = browser_page
+    page.goto(f"{page.url.rstrip('/')}/gratings/new")
+    skipped = page.evaluate(
+        """() => [...document.querySelectorAll(".decimal-field-controls button, .roughness-help")]
+            .filter((el) => el.tabIndex >= 0).length"""
+    )
+    assert skipped == 0
+
+
 def test_decimal_arrow_buttons_repeat_while_held(browser_page: Page) -> None:
     """Step once per click, keep stepping while held, and stop at the limit."""
     page = browser_page
