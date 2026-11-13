@@ -12,6 +12,7 @@
 - A grating form now explains an invalid value directly under the Live preview heading instead of below the plot.
 - Blaze and anti-blaze angle fields now step by 0.01° with the arrows and the mouse wheel. Typed values can still have more decimals.
 - Holding an arrow button on a number field now keeps changing the value until you let go.
+- Layer thickness and density fields, including those of custom layers, now change by 0.1 with the arrows and the mouse wheel. Typed values can still have more decimals.
 - The PGM menu now says New PGM instead of New working range.
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
