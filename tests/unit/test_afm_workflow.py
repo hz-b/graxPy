@@ -359,3 +359,26 @@ def test_save_attempt_auto_processes_current_afm_settings_in_browser() -> None:
     assert 'gratingForm.addEventListener("grax:afm-save-requested"' in afm_js
     assert 'if (await processCurrentProfile()) gratingForm.requestSubmit()' in afm_js
     assert 'if (startedRevision !== settingsRevision)' in afm_js
+
+
+def test_processing_the_same_scan_again_reuses_one_named_folder(tmp_path: Path) -> None:
+    from grax.web.app import create_app
+
+    client = create_app(data_dir=tmp_path).test_client()
+    x = np.linspace(0, 4000, 401)
+    z = 20 * (1 - np.cos(2 * np.pi * x / 1000)) / 2
+    raw = ("x,z\n" + "\n".join(f"{a},{b}" for a, b in zip(x, z))).encode()
+    ids = []
+    for prominence in ("0.1", "0.2", "0.3"):
+        response = client.post(
+            "/gratings/afm/process",
+            data={
+                "afm_file": (io.BytesIO(raw), "My scan.csv"), "afm_units": "nm",
+                "afm_profile_type": "blazed", "afm_period_nm": "1000", "afm_min_prominence": prominence,
+            },
+            content_type="multipart/form-data",
+        )
+        assert response.status_code == 200
+        ids.append(response.get_json()["workflow_id"])
+    assert len(set(ids)) == 1 and ids[0].startswith("My_scan-")
+    assert [path.name for path in (tmp_path / "afm_workflows").iterdir()] == [ids[0]]

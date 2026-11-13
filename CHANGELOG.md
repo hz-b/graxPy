@@ -9,6 +9,7 @@
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
+- AFM processing keeps one folder per scan file, named after the file, and overwrites it when you change settings, instead of adding a new folder every time an AFM setting changes.
 - Downloading a plot as PNG from the plot's camera button now uses the plot's name as the file name, the same name as the data export, instead of sometimes falling back to "Combined_plot".
 - The Tab key now moves between entry fields only; it skips the up and down arrow buttons and the help question marks, whose tooltips still show on hover.
 - In a sweep over the blaze angle, the minimum, maximum and step size fields of a linear range now change by 0.1° with the arrows instead of 1°.

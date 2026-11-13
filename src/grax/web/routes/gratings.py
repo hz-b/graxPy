@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -48,6 +49,7 @@ from ..catalog import (
     _list_plot_runs,
 )
 from ..context import WebContext
+from ..files import remove_tree
 from ..custom_grid import (
     default_configuration as default_custom_grid_configuration,
 )
@@ -156,6 +158,12 @@ def register(app: Any, ctx: WebContext) -> None:
         workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
         try:
             raw, filename = afm_request_bytes()
+            # One folder per scan: named after the file and keyed by its content, so
+            # new settings overwrite the previous result instead of adding a folder.
+            stem = "".join(c if c.isalnum() or c in "-_" else "_" for c in Path(filename).stem).strip("_-")[:60] or "afm"
+            workflow_id = f"{stem}-{hashlib.sha256(raw).hexdigest()[:8]}"
+            workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
+            remove_tree(workflow_dir)
             period_text = str(request.form.get("afm_period_nm") or "").strip()
             if period_text:
                 period_nm = float(period_text)
