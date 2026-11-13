@@ -9,6 +9,7 @@
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
+- In a sweep over the blaze angle, the minimum, maximum and step size fields of a linear range now change by 0.1° with the arrows instead of 1°.
 - A grating form now explains an invalid value directly under the Live preview heading instead of below the plot.
 - Blaze and anti-blaze angle fields now step by 0.01° with the arrows and the mouse wheel. Typed values can still have more decimals.
 - Holding an arrow button on a number field now keeps changing the value until you let go.

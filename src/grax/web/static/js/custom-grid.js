@@ -303,9 +303,14 @@ function initCustomGridBuilder(root) {
     row.append(controls, values, materials, range, generated, couplingHint);
     function syncMode() {
       const rangeAllowed = ["int", "float", "optional_float"].includes(descriptor(parameter.value)?.kind);
-      const numericStep = "any";
-      range.querySelectorAll("[data-minimum], [data-maximum]").forEach((input) => { input.step = numericStep; });
-      range.querySelector("[data-linked-step]")?.setAttribute("step", numericStep);
+      // Blaze angles step by 0.1 deg with the arrows; typed values may have more decimals.
+      const arrowStep = parameter.value === "blaze_angle_deg" ? "0.1" : "";
+      const numericStep = arrowStep || "any";
+      range.querySelectorAll("[data-minimum], [data-maximum], [data-linked-step]").forEach((input) => {
+        input.step = numericStep;
+        input.dataset.arrowStep = arrowStep;
+        if (input.dataset.decimalField !== undefined) input.dataset.decimalArrowStep = arrowStep || "1";
+      });
       if (!rangeAllowed) mode.value = "list";
       mode.querySelector('[value="range"]').disabled = !rangeAllowed;
       syncCustomGridAxisInputs(row);
