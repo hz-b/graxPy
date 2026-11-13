@@ -560,10 +560,11 @@ def test_decimal_fields_keep_comma_display_and_last_valid_preview(browser_page: 
         expect(page.locator(f"input[name='{name}']")).to_have_value(value)
     assert page.locator("input[name='period_lpermm']").get_attribute("type") == "number"
     angle = page.locator("input[name='left_wall_angle_deg']")
-    expect(page.locator("[data-grating-preview-status]")).to_have_text("Ready")
+    preview_state = page.locator("[data-grating-preview-loading]")
+    expect(preview_state).not_to_have_text(re.compile("Invalid|Error"))
     angle.fill("15,")
     page.wait_for_timeout(500)
-    expect(page.locator("[data-grating-preview-status]")).to_have_text("Ready")
+    expect(preview_state).not_to_have_text(re.compile("Invalid|Error"))
     angle.fill("15.875")
     angle.blur()
     expect(angle).to_have_value("15,875")

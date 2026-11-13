@@ -119,7 +119,6 @@
     const copyOutputButton = processForm.querySelector("[data-afm-copy-output]");
     const processButton = processForm.querySelector("[data-afm-process]");
     const gratingError = document.querySelector("[data-grating-preview-error]");
-    const gratingStatus = document.querySelector("[data-grating-preview-status]");
     const liveFigure = document.querySelector("[data-afm-live-preview]");
     const liveCaption = liveFigure?.querySelector("[data-afm-live-caption]");
     const gratingType = gratingForm.elements.grating_type;
@@ -398,7 +397,7 @@
             gratingError.textContent = result.textContent;
             gratingError.classList.remove("is-hidden");
           }
-          if (gratingStatus) gratingStatus.textContent = "AFM processing failed";
+          if (typeof setGratingPreviewState === "function") setGratingPreviewState("error", "AFM processing failed");
           if (retryButton) retryButton.classList.remove("is-hidden");
           return false;
         }

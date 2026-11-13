@@ -95,12 +95,14 @@
   </form>
 
   <section class="preview-panel">
+    {# One status: a pill (Idle, Waiting, Rendering, Ready, Invalid, Error) and an optional message. #}
+    {% set preview_invalid = preview and not preview.ok %}
+    {% set preview_message = (preview.error or "") if preview_invalid else "" %}
     <div class="section-head preview-head">
       <div>
         <h2>Live preview</h2>
-        <p data-grating-preview-status>{% if preview and preview.ok %}Ready{% else %}{{ preview.error if preview else "Preview unavailable" }}{% endif %}</p>
+        <p class="preview-status-line">Status: <span class="preview-pill{% if preview_invalid %} is-error{% endif %}" data-grating-preview-loading>{{ "Invalid" if preview_invalid else "Idle" }}</span> <span data-grating-preview-status>{{ preview_message }}</span></p>
       </div>
-      <span class="preview-pill" data-grating-preview-loading>Idle</span>
     </div>
     <p class="notice notice-error is-hidden" role="alert" tabindex="-1" data-grating-preview-error></p>
     {{ geometry_view("grating", bind="[data-afm-process-form], [data-grating-preview-form]", nominal=defaults.grating_type) }}
@@ -113,6 +115,8 @@
     {% else %}
       <img class="preview is-hidden" src="" alt="Live grating preview" data-grating-preview-image>
     {% endif %}
+    {# Same status as in the heading above, kept in step by initGratingPreview. #}
+    <p class="preview-status-line" role="status">Status: <span class="preview-pill{% if preview_invalid %} is-error{% endif %}" data-grating-preview-loading-mirror>{{ "Invalid" if preview_invalid else "Idle" }}</span> <span data-grating-preview-status-mirror>{{ preview_message }}</span></p>
     <p data-roughness-warnings role="status">{{ (preview.warnings|default([]))|join(' ') if preview else '' }}</p>
     <img class="preview{% if not preview or not preview.roughness_preview_url %} is-hidden{% endif %}" src="{{ preview.roughness_preview_url|default('') or '' if preview else '' }}" alt="Random roughness interfaces and material map" data-roughness-preview-image>
   </section>

@@ -19,6 +19,7 @@
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.
 - On Windows, a run's page no longer briefly reports the run as not found while the run is saving its progress.
 - On Windows, the Choose folder button for the database folder now opens its folder dialog in front of the browser instead of hidden behind it, where the button seemed to do nothing. While the dialog is open, the button says it is waiting, and further clicks do not open more dialogs.
+- The grating live preview now has one clear status, "Status:" followed by a label (Idle, Waiting, Rendering, Ready, Invalid or Error) and a short message only when there is something to explain. It is shown above the preview and repeated below the plot, for every grating type. Choosing a different grating type resets it to Idle, and AFM profile shows Waiting until a profile is processed.
 - The grating type choice on the New grating and Edit grating pages now sits in a bar at the top of the page, so after choosing AFM profile you can always switch to another type instead of having to find it far below the AFM import.
 
 ## 0.6.0
