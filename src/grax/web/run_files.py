@@ -68,6 +68,28 @@ def _file_signature(path: Path) -> list[int] | None:
     return [stat.st_size, stat.st_mtime_ns]
 
 
+def _run_summary_signature(run_dir: Path) -> dict[str, Any]:
+    """Describe the files a run summary depends on, to notice when they change."""
+    return {
+        "version": _SUMMARY_VERSION,
+        "results": _file_signature(run_dir / "checkpoints" / "results.jsonl"),
+        "orders": _file_signature(run_dir / "all_orders.csv"),
+        "manifest": _file_signature(run_dir / "manifest.json"),
+    }
+
+
+def _cached_run_summary(run_dir: Path) -> dict[str, Any] | None:
+    """Return the saved run summary if it still matches the run's files, else None."""
+    cache_path = run_dir.parent.parent / "cache" / "run_summaries" / f"{run_dir.name}.json"
+    try:
+        cached = read_json(cache_path)
+        if isinstance(cached, dict) and cached.get("signature") == _run_summary_signature(run_dir):
+            return cached["summary"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
 def _run_list_summary(run_dir: Path) -> dict[str, Any]:
     """Return the numbers the run lists need, reading result files only when they changed.
 
@@ -78,20 +100,11 @@ def _run_list_summary(run_dir: Path) -> dict[str, Any]:
     so an older database fills the cache the first time its runs are listed.
     """
 
-    data_dir = run_dir.parent.parent
-    signature = {
-        "version": _SUMMARY_VERSION,
-        "results": _file_signature(run_dir / "checkpoints" / "results.jsonl"),
-        "orders": _file_signature(run_dir / "all_orders.csv"),
-        "manifest": _file_signature(run_dir / "manifest.json"),
-    }
-    cache_path = data_dir / "cache" / "run_summaries" / f"{run_dir.name}.json"
-    try:
-        cached = read_json(cache_path)
-        if isinstance(cached, dict) and cached.get("signature") == signature:
-            return cached["summary"]
-    except (OSError, ValueError, KeyError):
-        pass
+    cached = _cached_run_summary(run_dir)
+    if cached is not None:
+        return cached
+    signature = _run_summary_signature(run_dir)
+    cache_path = run_dir.parent.parent / "cache" / "run_summaries" / f"{run_dir.name}.json"
     results = _load_checkpoint_results(run_dir)
     scan_counts: dict[str, list[int]] = {}
     for result in results:

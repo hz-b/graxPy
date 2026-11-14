@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Home · GraxPy{% endblock %}
 {% block body %}
+<div class="database-status" data-database-status data-url="{{ url_for('system_database_status') }}" hidden>
+  <p data-database-message></p>
+  <progress data-database-progress max="1" value="0" hidden></progress>
+</div>
 <section class="brand-hero" aria-label="GraxPy and HZB BESSY II logo">
   <img class="brand-hero-complete" src="{{ url_for('static', filename='graxpy-hzb-logo.png') }}" alt="GraxPy — Gratings made easy, developed with HZB BESSY II Light Source">
 </section>

@@ -2768,3 +2768,8 @@ textarea:user-invalid {
   background-color: #fef3f2;
   outline-color: #b42318;
 }
+
+.database-status { margin-bottom: 16px; font-size: var(--font-compact); color: #52667a; }
+.database-status p { margin: 0 0 4px; }
+.database-status progress { width: min(420px, 100%); height: 10px; accent-color: #184e8b; }
+.database-status.is-current { color: #6f8292; }

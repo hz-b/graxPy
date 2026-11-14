@@ -9,6 +9,7 @@
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
+- Opening an older database now shows a progress bar on the home page with how many runs and gratings are updated and how many are missing; the missing items are filled in the background, and afterwards the page says the database is updated to the latest version.
 - The home page and the manage runs, manage gratings and plot pages open much faster with many saved runs. Run counts and diffraction orders are remembered and only recalculated when a run's results change, and stack images that are missing are drawn in the background. An older database fills this in the first time it is opened.
 - Runs with thousands of parameter combinations no longer slow down as they progress: the live plot is built much faster, drawn in the background and redrawn less often the longer it takes.
 - AFM processing keeps one folder per scan file.

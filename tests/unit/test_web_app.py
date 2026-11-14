@@ -3740,3 +3740,31 @@ def test_run_list_summary_is_cached_and_follows_result_changes(tmp_path, monkeyp
     results.write_text("\n", encoding="utf-8")
     run_files._run_list_summary(run_dir)
     assert len(loads) > after_first
+
+
+def test_database_status_updates_older_database_then_stays_current(tmp_path):
+    """An older database is filled in the background and then reports it is current."""
+    import time
+
+    from grax.web import db_upgrade
+    from grax.web.app import create_app
+    from grax.web.runs import RunStore
+
+    RunStore(tmp_path / "runs").save({"id": "old-run", "status": "completed", "total_points": 0})
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+
+    first = client.get("/system/database-status").get_json()
+    assert first["state"] in {"updating", "current"}
+    status = first
+    for _ in range(100):
+        if status["state"] == "current":
+            break
+        time.sleep(0.1)
+        status = client.get("/system/database-status").get_json()
+    assert status["state"] == "current"
+    assert status["missing"] == 0 and status["total"] == 1
+    assert (tmp_path / "cache" / "run_summaries" / "old-run.json").is_file()
+    marker = db_upgrade._read_marker(tmp_path)
+    assert marker["version"] == db_upgrade.DATABASE_STANDARD_VERSION
+    assert client.get("/system/database-status").get_json()["state"] == "current"
