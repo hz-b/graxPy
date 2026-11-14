@@ -2769,7 +2769,12 @@ textarea:user-invalid {
   outline-color: #b42318;
 }
 
-.database-status { margin-bottom: 16px; font-size: var(--font-compact); color: #52667a; }
-.database-status p { margin: 0 0 4px; }
+.home-database-status-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.home-database-folder { min-width: 0; }
+.home-database-folder code { overflow-wrap: anywhere; }
+.home-database-folder form { margin-top: 12px; }
+.database-status { font-size: var(--font-compact); color: #52667a; }
+.database-status strong { display: block; font-size: inherit; color: #243447; }
+.database-status p { margin: 4px 0; }
 .database-status progress { width: min(420px, 100%); height: 10px; accent-color: #184e8b; }
-.database-status.is-current { color: #6f8292; }
+.database-status.is-current { color: #3f6a2a; }

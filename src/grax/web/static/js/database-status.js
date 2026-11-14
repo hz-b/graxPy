@@ -12,12 +12,11 @@ function initDatabaseStatus() {
     } catch {
       return;
     }
-    box.hidden = false;
     if (status.state === "current") {
       box.classList.add("is-current");
       bar.hidden = true;
       const note = status.failed ? ` ${status.failed} could not be updated.` : "";
-      message.textContent = `Database updated to the latest version.${note}`;
+      message.textContent = `Database is up to date (latest version).${note}`;
       return;
     }
     box.classList.remove("is-current");

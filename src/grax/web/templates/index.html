@@ -1,10 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Home · GraxPy{% endblock %}
 {% block body %}
-<div class="database-status" data-database-status data-url="{{ url_for('system_database_status') }}" hidden>
-  <p data-database-message></p>
-  <progress data-database-progress max="1" value="0" hidden></progress>
-</div>
 <section class="brand-hero" aria-label="GraxPy and HZB BESSY II logo">
   <img class="brand-hero-complete" src="{{ url_for('static', filename='graxpy-hzb-logo.png') }}" alt="GraxPy — Gratings made easy, developed with HZB BESSY II Light Source">
 </section>
@@ -34,14 +30,19 @@
 
 <section class="home-database">
   <h1>Database folder</h1>
-  <div class="home-database-form">
-    <div>
+  <div class="home-database-form home-database-status-row">
+    <div class="home-database-folder">
       <strong>Active database folder</strong>
       <p><code>{{ active_workspace }}</code></p>
+      <form method="post" action="{{ url_for('pick_workspace') }}" data-workspace-pick-form>
+        <button class="button primary" type="submit">Choose folder…</button>
+      </form>
     </div>
-    <form method="post" action="{{ url_for('pick_workspace') }}" data-workspace-pick-form>
-      <button class="button primary" type="submit">Choose folder…</button>
-    </form>
+    <div class="database-status" data-database-status data-url="{{ url_for('system_database_status') }}">
+      <strong>Database status</strong>
+      <p data-database-message>Checking the database…</p>
+      <progress data-database-progress max="1" value="0" hidden></progress>
+    </div>
   </div>
 </section>
 
