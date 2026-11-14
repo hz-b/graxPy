@@ -376,6 +376,7 @@ def test_tab_skips_arrow_buttons_and_help_marks(browser_page: Page) -> None:
     assert skipped == 0
 
 
+@pytest.mark.browser
 def test_decimal_arrow_buttons_repeat_while_held(browser_page: Page) -> None:
     """Step once per click, keep stepping while held, and stop at the limit."""
     page = browser_page

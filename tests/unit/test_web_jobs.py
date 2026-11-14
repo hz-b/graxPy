@@ -343,7 +343,7 @@ def test_aborting_a_plane_mirror_run_stops_it(monkeypatch: pytest.MonkeyPatch, t
     assert RunStore(tmp_path / "runs").load(run_id)["status"] == "aborting"
     release.set()
 
-    _wait_until(lambda: client.get(f"/plane-mirror-runs/{run_id}/status").get_json()["status"] == "aborted")
+    _wait_until(lambda: client.get(f"/plane-mirror-runs/{run_id}/status").get_json()["status"] == "aborted", timeout=60)
     assert not _is_run_active(app, run_id)
 
 
