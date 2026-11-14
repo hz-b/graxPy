@@ -846,8 +846,8 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
     assert b'name="top_material_density_g_cm3"' in response.data
-    assert b'name="substrate_material_density_g_cm3" type="number" step="any" value="2.3296"' in response.data
-    assert b'name="layer_material_density_g_cm3" type="number" step="any" value="21.46"' in response.data
+    assert b'name="substrate_material_density_g_cm3" type="number" step="any" data-arrow-step="0.1" value="2.3296"' in response.data
+    assert b'name="layer_material_density_g_cm3" type="number" step="any" data-arrow-step="0.1" value="21.46"' in response.data
     assert b'data-material-select="substrate_material"' in response.data
     assert b'data-material-density="substrate_material"' in response.data
     assert b'list="material-suggestions"' in response.data
