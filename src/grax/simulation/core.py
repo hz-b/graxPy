@@ -286,9 +286,8 @@ def _run_single_realization(
             )
         # The differential method makes thousands of tiny dense solves per solve;
         # a threaded BLAS spends its time in dispatch and some OpenBLAS builds
-        # crash under that pattern. Pin to one thread for the integration. In a
-        # spawned batch worker the environment already does this, so this is a
-        # no-op there.
+        # crash under that pattern. Pin to one thread for the integration. A
+        # batch worker's initializer already does this, so this is a no-op there.
         with single_threaded_blas():
             ef = res2_dm(
                 aa,

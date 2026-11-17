@@ -26,6 +26,7 @@ from tqdm import tqdm
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
 
+from .._threads import limit_blas_threads_for_process
 from ..gratings import BaseGrating
 from .core import (
     _clone_grating_with_overrides,
@@ -38,6 +39,7 @@ from .core import (
 )
 from ._profiling import SolverProfiler
 from .models import (
+    AUTO_WORKER_CALIBRATION_MIN_CASES,
     AUTO_WORKER_MEMORY_RESERVE_BYTES,
     AUTO_WORKER_MEMORY_SAFETY_FACTOR,
     BatchSimulationResult,
@@ -549,7 +551,12 @@ def _multiprocessing_start_method() -> str:
 
 
 def _worker_initializer() -> None:
-    """Limit worker-local BLAS/OpenMP thread counts to avoid oversubscription."""
+    """Limit worker-local BLAS/OpenMP thread counts to avoid oversubscription.
+
+    The environment variables only reach libraries loaded after this point
+    (spawned workers, subprocesses). A forked worker inherits a BLAS that the
+    parent already loaded, so the thread pool is also limited at run time.
+    """
 
     for variable in (
         "OPENBLAS_NUM_THREADS",
@@ -558,6 +565,7 @@ def _worker_initializer() -> None:
         "NUMEXPR_NUM_THREADS",
     ):
         os.environ[variable] = "1"
+    limit_blas_threads_for_process()
 
 
 def _current_process_memory_bytes() -> int | None:
@@ -618,12 +626,21 @@ def _peak_process_memory_bytes() -> int | None:
     NumPy/BLAS/Numba native allocations that ``tracemalloc`` does not see. That
     peak is what each spawned worker actually needs, and it grows with supercell
     count, so it is the right basis for sizing ``auto`` workers. Returns ``None``
-    on platforms where it cannot be determined (e.g. Windows).
+    on platforms where it cannot be determined.
     """
 
     try:
         import resource  # Unix-only (macOS, Linux); absent on Windows.
+    except ImportError:
+        # Windows: the peak working set is the equivalent high-water mark.
+        try:
+            import psutil  # type: ignore
 
+            peak_wset = getattr(psutil.Process().memory_info(), "peak_wset", None)
+        except Exception:
+            return None
+        return None if peak_wset is None else int(peak_wset)
+    try:
         max_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     except Exception:
         return None
@@ -637,8 +654,14 @@ def _calibrate_auto_max_workers_from_result(
     *,
     pending_case_count: int,
     available_memory_bytes: int | None,
+    measured_memory_bytes: int | None = None,
 ) -> int:
-    """Return an ``auto`` worker count from one already-completed calibration case."""
+    """Return an ``auto`` worker count from one already-completed calibration case.
+
+    ``measured_memory_bytes`` is the calibration worker's own peak RSS (see
+    :func:`_calibration_worker_execute`). Without it, the current process is
+    measured, which also counts anything the caller did before ``run_cases``.
+    """
 
     cpu_limited_workers = _resolve_max_workers("auto")
     if pending_case_count <= 1 or available_memory_bytes is None:
@@ -648,12 +671,15 @@ def _calibrate_auto_max_workers_from_result(
     # current RSS. Steady-state RSS understates a solve's transient high-water
     # mark, which grows with supercell count; oversubscribing on that stale
     # figure is what let large-supercell runs exhaust RAM.
-    current_memory = _current_process_memory_bytes()
-    peak_memory = _peak_process_memory_bytes()
-    candidate_bytes = [value for value in (current_memory, peak_memory) if value is not None]
-    if not candidate_bytes:
-        return cpu_limited_workers
-    measured_memory = max(candidate_bytes)
+    if measured_memory_bytes is not None:
+        measured_memory = measured_memory_bytes
+    else:
+        current_memory = _current_process_memory_bytes()
+        peak_memory = _peak_process_memory_bytes()
+        candidate_bytes = [value for value in (current_memory, peak_memory) if value is not None]
+        if not candidate_bytes:
+            return cpu_limited_workers
+        measured_memory = max(candidate_bytes)
 
     per_worker_memory = max(int(measured_memory * AUTO_WORKER_MEMORY_SAFETY_FACTOR), 1)
     usable_memory = max(available_memory_bytes - AUTO_WORKER_MEMORY_RESERVE_BYTES, 0)
@@ -682,6 +708,20 @@ def _parallel_worker_execute(payload: dict[str, object]) -> dict[str, object]:
         return message
     except Exception as error:  # pragma: no cover - exercised in parent tests
         return {"success": False, "error": str(error)}
+
+
+def _calibration_worker_execute(payload: dict[str, object]) -> dict[str, object]:
+    """Execute the ``auto`` calibration case in a worker and report the worker's peak RSS.
+
+    Measuring in a worker sizes ``auto`` by what one worker needs, independent of the
+    caller's history (e.g. a large plot drawn in the main process before ``run_cases``).
+    With ``fork`` the child's peak starts at the parent's current RSS (inherited pages
+    count), not at the parent's lifetime peak; that overestimates slightly, which is safe.
+    """
+
+    message = _parallel_worker_execute(payload)
+    message["process_peak_rss_bytes"] = _peak_process_memory_bytes()
+    return message
 
 
 def _completed_case_ids(checkpoint_path: Path) -> set[str]:
@@ -1019,12 +1059,27 @@ class BatchSimulationRunner:
                     progress.update(len(completed_ids))
             calibrated_result = None
             if self.max_workers == "auto" and pending_cases:
-                calibrated_result = self._execute_case(*pending_cases[0])
-                pending_cases = pending_cases[1:]
-                self.resolved_max_workers = _calibrate_auto_max_workers_from_result(
-                    pending_case_count=len(pending_cases) + 1,
-                    available_memory_bytes=_available_memory_bytes(),
-                )
+                if len(pending_cases) < AUTO_WORKER_CALIBRATION_MIN_CASES:
+                    self.resolved_max_workers = min(_resolve_max_workers("auto"), len(pending_cases))
+                else:
+                    # Calibrate in a separate one-worker pool (same start method and
+                    # initializer as the real pool), so the measurement reflects one
+                    # worker rather than the main process's lifetime peak.
+                    self._calibration_peak_rss_bytes = None
+                    calibration = list(
+                        self._run_parallel_cases(
+                            pending_cases[:1],
+                            max_workers=1,
+                            worker=_calibration_worker_execute,
+                        )
+                    )
+                    calibrated_result = calibration[0] if calibration else None
+                    pending_cases = pending_cases[1:]
+                    self.resolved_max_workers = _calibrate_auto_max_workers_from_result(
+                        pending_case_count=len(pending_cases) + 1,
+                        available_memory_bytes=_available_memory_bytes(),
+                        measured_memory_bytes=self._calibration_peak_rss_bytes,
+                    )
             if self.resolved_max_workers == 1:
                 result_iterator = self._run_serial_cases(pending_cases)
             else:
@@ -1226,6 +1281,9 @@ class BatchSimulationRunner:
     def _run_parallel_cases(
         self,
         pending_cases: Sequence[tuple[int, str, dict[str, object]]],
+        *,
+        max_workers: int | None = None,
+        worker: Callable[[dict[str, object]], dict[str, object]] | None = None,
     ) -> Iterator[CaseExecutionResult]:
         """Yield multiprocessing case results in completion order.
 
@@ -1235,6 +1293,8 @@ class BatchSimulationRunner:
 
         Args:
             pending_cases: List of (index, case_id, case) tuples to execute.
+            max_workers: Pool size. Defaults to ``resolved_max_workers``.
+            worker: Worker function. Defaults to ``_parallel_worker_execute``.
 
         Yields:
             CaseExecutionResult for each completed case, in completion order
@@ -1248,7 +1308,10 @@ class BatchSimulationRunner:
         """
 
         context = mp.get_context(_multiprocessing_start_method())
-        max_workers = self.resolved_max_workers
+        if max_workers is None:
+            max_workers = self.resolved_max_workers
+        if worker is None:
+            worker = _parallel_worker_execute
         settings = self._settings()
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=max_workers,
@@ -1270,7 +1333,7 @@ class BatchSimulationRunner:
                     return False
                 _log_case_execution_start(case_id=case_id, case=case, index=index, location="parallel-submit")
                 payload = _case_payload(case, settings)
-                futures[executor.submit(_parallel_worker_execute, payload)] = (
+                futures[executor.submit(worker, payload)] = (
                     index,
                     case_id,
                     case,
@@ -1296,6 +1359,8 @@ class BatchSimulationRunner:
                         energy_ev = float(case["energy_ev"])
                         grazing_angle_deg = self._case_energy_and_angle(case)[1]
                         message = future.result()
+                        if "process_peak_rss_bytes" in message:
+                            self._calibration_peak_rss_bytes = message["process_peak_rss_bytes"]
                         if message["success"]:
                             single = _single_result_from_record(message["result"])  # type: ignore[arg-type]
                             peak_memory_bytes = message.get("peak_memory_bytes")

@@ -14,6 +14,9 @@ CaseStatus = Literal["ok", "error"]
 MaxWorkers = Union[int, Literal["all", "auto"], None]
 AUTO_WORKER_MEMORY_SAFETY_FACTOR = 1.35
 AUTO_WORKER_MEMORY_RESERVE_BYTES = 4 * 1024**3
+# Below this many pending cases, ``auto`` skips the serial calibration case: it would
+# cost up to one extra case duration, which dominates small runs.
+AUTO_WORKER_CALIBRATION_MIN_CASES = 6
 
 @dataclass
 class ThetaSearchDiagnostics:

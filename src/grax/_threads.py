@@ -7,11 +7,14 @@ particular -- driving many-core machines, those tiny ``zgesv`` / ``zgemm`` calls
 spend most of their time in thread dispatch, and some OpenBLAS builds crash
 outright (SIGSEGV in threaded ``zgemm`` / ``getrf``) under that call pattern.
 
-``BatchSimulationRunner`` already pins ``OPENBLAS_NUM_THREADS`` and friends to
-``1`` in its spawned workers, but a serial run (``max_workers=1``) or a direct
-:func:`grax.run_simulation` call executes in the current process, where those
-environment variables were read once at BLAS import and can no longer take
-effect. This module limits the pools at run time instead, scoped to the solve.
+Environment variables such as ``OPENBLAS_NUM_THREADS`` are read only once, when
+the BLAS library loads. They cannot limit a library that is already loaded: the
+current process in a serial run (``max_workers=1``) or a direct
+:func:`grax.run_simulation` call, and the batch workers on Linux, which are
+forked from a parent that has already imported NumPy. This module therefore
+limits the pools at run time: scoped to one solve with
+:func:`single_threaded_blas`, or for a whole worker process with
+:func:`limit_blas_threads_for_process`.
 """
 
 from __future__ import annotations
@@ -35,3 +38,15 @@ def single_threaded_blas() -> Iterator[None]:
 
     with threadpool_limits(limits=1, user_api="blas"):
         yield
+
+
+def limit_blas_threads_for_process() -> None:
+    """Limit BLAS/LAPACK to one thread for the rest of this process's life.
+
+    Meant for batch worker initializers: several workers each running a
+    multi-threaded BLAS oversubscribe the CPU. Unlike setting environment
+    variables, this also works when the library is already loaded, as in a
+    forked worker. A no-op where no controllable native library is loaded.
+    """
+
+    threadpool_limits(limits=1, user_api="blas")

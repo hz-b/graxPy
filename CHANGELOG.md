@@ -21,6 +21,8 @@
 - Holding an arrow button on a number field now keeps changing the value until you let go.
 - Layer thickness and density fields step by 0.1.
 - The PGM menu now says New PGM instead of New working range.
+- Parallel simulation runs on Linux are much faster: each worker now really uses a single linear-algebra thread, so workers no longer compete for the CPU and setting `MKL_NUM_THREADS=1` by hand is no longer needed.
+- With `max_workers="auto"`, the number of workers is measured in a separate worker process, so a large memory peak earlier in the main process (for example from plotting) no longer limits a run to too few workers.
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
