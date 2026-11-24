@@ -320,7 +320,15 @@ def _build_combined_plot(
     plot_dir = plot_root / plot_id
     plot_dir.mkdir(parents=True, exist_ok=True)
     name = str(plot_options.get("name") or title)
-    image_path = plot_dir / (str(existing_plot["plot_path"]) if existing_plot else f"{_plot_filename_stem(name)}.png")
+    wanted_filename = f"{_plot_filename_stem(name)}.png"
+    old_image_path = plot_dir / str(existing_plot["plot_path"]) if existing_plot else None
+    if old_image_path is None:
+        image_path = plot_dir / wanted_filename
+    elif old_image_path.name == wanted_filename:
+        image_path = old_image_path
+    else:
+        # The plot was renamed: give the image the new name too.
+        image_path = _unused_plot_image_path(plot_dir, wanted_filename)
     _save_compare_image(
         selected_series=selected_series,
         series_controls=series_controls,
@@ -330,6 +338,8 @@ def _build_combined_plot(
         y_axis_type=plot_options["y_axis_type"],
         output_path=image_path,
     )
+    if old_image_path is not None and old_image_path != image_path:
+        old_image_path.unlink(missing_ok=True)
     if existing_plot:
         for old_copy in existing_plot.get("run_images", []):
             (data_dir / "runs" / str(old_copy["run_id"]) / str(old_copy["filename"])).unlink(missing_ok=True)

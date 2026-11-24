@@ -24,6 +24,7 @@
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
+- Renaming a saved plot when editing it now also renames its exported PNG image, instead of keeping the name it had when first saved.
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.
 - On Windows, a run's page no longer briefly reports the run as not found while the run is saving its progress.
 - On Windows, the Choose folder dialog opens in front of the browser.
