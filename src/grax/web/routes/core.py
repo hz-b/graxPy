@@ -158,6 +158,13 @@ def register(app: Any, ctx: WebContext) -> None:
     def system_memory():
         return jsonify(_memory_status_payload())
 
+    @app.get("/system/database-status")
+    def system_database_status():
+        """Report how many saved items follow the current standard and start filling the rest."""
+        from ..db_upgrade import database_status
+
+        return jsonify(database_status(active_data_dir()))
+
     @app.get("/system/resource-status")
     def system_resource_status():
         from ..resource_manager import resource_status

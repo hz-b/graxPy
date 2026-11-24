@@ -846,8 +846,8 @@ def test_grating_form_exposes_conditional_profile_sections(tmp_path: Path) -> No
     assert b'name="layer_material_density_g_cm3"' in response.data
     assert b'name="material_a_density_g_cm3"' in response.data
     assert b'name="top_material_density_g_cm3"' in response.data
-    assert b'name="substrate_material_density_g_cm3" type="number" step="any" value="2.3296"' in response.data
-    assert b'name="layer_material_density_g_cm3" type="number" step="any" value="21.46"' in response.data
+    assert b'name="substrate_material_density_g_cm3" type="number" step="any" data-arrow-step="0.1" value="2.3296"' in response.data
+    assert b'name="layer_material_density_g_cm3" type="number" step="any" data-arrow-step="0.1" value="21.46"' in response.data
     assert b'data-material-select="substrate_material"' in response.data
     assert b'data-material-density="substrate_material"' in response.data
     assert b'list="material-suggestions"' in response.data
@@ -3716,3 +3716,55 @@ def test_manage_runs_page_filters_by_grating_and_saves_one_run(tmp_path: Path) -
     second = json.loads((tmp_path / "runs" / "run-2" / "manifest.json").read_text(encoding="utf-8"))
     assert first["comment"] == "Changed"
     assert second["comment"] == "Note 2"
+
+
+def test_run_list_summary_is_cached_and_follows_result_changes(tmp_path, monkeypatch):
+    """List pages reuse saved run counts until the results file changes."""
+    from grax.web import run_files
+
+    run_dir = tmp_path / "runs" / "r1"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    results = run_dir / "checkpoints" / "results.jsonl"
+    results.write_text("", encoding="utf-8")
+    loads = []
+    real = run_files._load_checkpoint_results
+    monkeypatch.setattr(run_files, "_load_checkpoint_results", lambda path: loads.append(path) or real(path))
+
+    assert run_files._run_list_summary(run_dir)["completed"] == 0
+    after_first = len(loads)
+    assert after_first >= 1
+    assert run_files._run_list_summary(run_dir)["completed"] == 0
+    assert len(loads) == after_first
+    assert (tmp_path / "cache" / "run_summaries" / "r1.json").is_file()
+
+    results.write_text("\n", encoding="utf-8")
+    run_files._run_list_summary(run_dir)
+    assert len(loads) > after_first
+
+
+def test_database_status_updates_older_database_then_stays_current(tmp_path):
+    """An older database is filled in the background and then reports it is current."""
+    import time
+
+    from grax.web import db_upgrade
+    from grax.web.app import create_app
+    from grax.web.runs import RunStore
+
+    RunStore(tmp_path / "runs").save({"id": "old-run", "status": "completed", "total_points": 0})
+    app = create_app(data_dir=tmp_path)
+    client = app.test_client()
+
+    first = client.get("/system/database-status").get_json()
+    assert first["state"] in {"updating", "current"}
+    status = first
+    for _ in range(100):
+        if status["state"] == "current":
+            break
+        time.sleep(0.1)
+        status = client.get("/system/database-status").get_json()
+    assert status["state"] == "current"
+    assert status["missing"] == 0 and status["total"] == 1
+    assert (tmp_path / "cache" / "run_summaries" / "old-run.json").is_file()
+    marker = db_upgrade._read_marker(tmp_path)
+    assert marker["version"] == db_upgrade.DATABASE_STANDARD_VERSION
+    assert client.get("/system/database-status").get_json()["state"] == "current"

@@ -119,10 +119,9 @@
     const copyOutputButton = processForm.querySelector("[data-afm-copy-output]");
     const processButton = processForm.querySelector("[data-afm-process]");
     const gratingError = document.querySelector("[data-grating-preview-error]");
-    const gratingStatus = document.querySelector("[data-grating-preview-status]");
     const liveFigure = document.querySelector("[data-afm-live-preview]");
     const liveCaption = liveFigure?.querySelector("[data-afm-live-caption]");
-    const gratingType = gratingForm.querySelector('[name="grating_type"]');
+    const gratingType = gratingForm.elements.grating_type;
     const profilePath = gratingForm.querySelector("[data-afm-profile-path]");
     let previewRequest = 0;
     let previewTimer = null;
@@ -326,9 +325,6 @@
     });
     gratingForm.addEventListener("change", (event) => {
       updateLivePreview();
-      if (event.target === gratingType && mainPeriodLabel) {
-        mainPeriodLabel.classList.toggle("is-hidden", gratingType.value === "afm");
-      }
       if (event.target === periodInput) {
         syncTargetPeriod();
         schedulePreview(false);
@@ -339,6 +335,10 @@
         syncTargetPeriod();
         schedulePreview(false);
       }
+    });
+    // The type select can sit outside the form, so listen on it directly.
+    gratingType.addEventListener("change", () => {
+      if (mainPeriodLabel) mainPeriodLabel.classList.toggle("is-hidden", gratingType.value === "afm");
     });
     syncTargetPeriod();
     if (mainPeriodLabel && gratingType.value === "afm") mainPeriodLabel.classList.add("is-hidden");
@@ -384,8 +384,8 @@
           gratingForm.querySelector("[data-afm-profile-type]").value = payload.profile_type;
           gratingForm.querySelector("[data-afm-period-nm]").value = String(payload.period_nm);
           gratingForm.querySelector('[name="period_lpermm"]').value = String(Math.round(1e6 / payload.period_nm));
-          gratingForm.querySelector("[name=grating_type]").value = "afm";
-          gratingForm.querySelector("[name=grating_type]").dispatchEvent(new Event("change", {bubbles: true}));
+          gratingType.value = "afm";
+          gratingType.dispatchEvent(new Event("change", {bubbles: true}));
           delete gratingForm.dataset.afmProcessingError;
           if (gratingError) gratingError.classList.add("is-hidden");
           setFeedback(`AFM profile processed successfully in ${((Date.now() - startedAt) / 1000).toFixed(1)} s.`, "completed");
@@ -397,7 +397,7 @@
             gratingError.textContent = result.textContent;
             gratingError.classList.remove("is-hidden");
           }
-          if (gratingStatus) gratingStatus.textContent = "AFM processing failed";
+          if (typeof setGratingPreviewState === "function") setGratingPreviewState("error", "AFM processing failed");
           if (retryButton) retryButton.classList.remove("is-hidden");
           return false;
         }

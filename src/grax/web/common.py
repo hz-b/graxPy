@@ -148,6 +148,7 @@ FRONTEND_SCRIPTS = tuple(
         "run-export",
         "pgm",
         "object-transfer",
+        "database-status",
     )
 )
 

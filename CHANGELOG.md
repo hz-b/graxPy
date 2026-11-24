@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.3
 
 ### New features
 - Import and export: export a grating, plane mirror, PGM or multilayer grating with the runs you choose, from its manage page or the home page, and import the file from the home page. GRAx recognizes the object type, lets you pick the runs (all by default), and asks whether to add a copy or replace an object that is already there. If an import fails, the page you are on explains why and nothing changes.
@@ -9,15 +9,27 @@
 - A new How it works page in the Gratings menu explains how to choose Fourier orders and x and z resolution, and how the parameter study helps.
 
 ### Changes
+- Opening an older database now shows a progress bar on the home page with how many runs and gratings are updated and how many are missing; the missing items are filled in the background, and afterwards the page says the database is updated to the latest version.
+- The home page and the manage runs, manage gratings and plot pages open much faster with many saved runs. Run counts and diffraction orders are remembered and only recalculated when a run's results change, and stack images that are missing are drawn in the background. An older database fills this in the first time it is opened.
+- Runs with thousands of parameter combinations no longer slow down as they progress: the live plot is built much faster, drawn in the background and redrawn less often the longer it takes.
+- AFM processing keeps one folder per scan file.
+- PNG download uses the plot's name as file name.
+- Tab skips arrow buttons and help marks.
+- Blaze angle sweep range fields step by 0.1°.
 - A grating form now explains an invalid value directly under the Live preview heading instead of below the plot.
 - Blaze and anti-blaze angle fields now step by 0.01° with the arrows and the mouse wheel. Typed values can still have more decimals.
 - Holding an arrow button on a number field now keeps changing the value until you let go.
+- Layer thickness and density fields step by 0.1.
 - The PGM menu now says New PGM instead of New working range.
 - Number fields across the site turn red as soon as a value is outside what they allow, and on the grating form so do the fields behind a live preview error.
 
 ### Bug fixes
+- Renaming a saved plot when editing it now also renames its exported PNG image, instead of keeping the name it had when first saved.
 - Renaming a grating, plane mirror, saved PGM or multilayer grating now also updates the name on its runs, including where the old name appears in a run's title.
 - On Windows, a run's page no longer briefly reports the run as not found while the run is saving its progress.
+- On Windows, the Choose folder dialog opens in front of the browser.
+- The grating live preview shows one clear status.
+- The grating type choice sits at the top of the grating pages, so you can switch away from AFM profile.
 
 ## 0.6.0
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -47,7 +48,9 @@ from ..catalog import (
     _linked_runs,
     _list_plot_runs,
 )
+from ..run_files import _list_runs
 from ..context import WebContext
+from ..files import remove_tree
 from ..custom_grid import (
     default_configuration as default_custom_grid_configuration,
 )
@@ -156,6 +159,12 @@ def register(app: Any, ctx: WebContext) -> None:
         workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
         try:
             raw, filename = afm_request_bytes()
+            # One folder per scan: named after the file and keyed by its content, so
+            # new settings overwrite the previous result instead of adding a folder.
+            stem = "".join(c if c.isalnum() or c in "-_" else "_" for c in Path(filename).stem).strip("_-")[:60] or "afm"
+            workflow_id = f"{stem}-{hashlib.sha256(raw).hexdigest()[:8]}"
+            workflow_dir = active_data_dir() / "afm_workflows" / workflow_id
+            remove_tree(workflow_dir)
             period_text = str(request.form.get("afm_period_nm") or "").strip()
             if period_text:
                 period_nm = float(period_text)
@@ -241,7 +250,7 @@ def register(app: Any, ctx: WebContext) -> None:
     def manage_gratings():
         data_dir = active_data_dir()
         run_counts: dict[str, int] = {}
-        for run in _list_plot_runs(data_dir / "runs"):
+        for run in _list_runs(data_dir / "runs"):
             linked_grating_id = str(run.get("grating_id", ""))
             if linked_grating_id:
                 run_counts[linked_grating_id] = run_counts.get(linked_grating_id, 0) + 1

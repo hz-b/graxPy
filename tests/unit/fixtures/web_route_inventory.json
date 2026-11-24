@@ -826,6 +826,13 @@
   "static"
  ],
  [
+  "/system/database-status",
+  [
+   "GET"
+  ],
+  "system_database_status"
+ ],
+ [
   "/system/memory",
   [
    "GET"

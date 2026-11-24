@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,12 @@ from .run_state import (
 )
 
 matplotlib.use("Agg")
+
+logger = logging.getLogger(__name__)
+# pyplot keeps global state, so only one live image is drawn at a time.
+_LIVE_PLOT_RENDER_LOCK = threading.Lock()
+# Idle time after a redraw, as a multiple of the time that redraw took.
+LIVE_PLOT_IDLE_FACTOR = 5.0
 
 
 def _results_sorted_for_live_plot(results: list[Any], *, x_key: str = "energy_ev") -> list[Any]:
@@ -112,27 +120,63 @@ def _publish_live_progress_if_due(
     title: str,
     min_interval_seconds: float = 1.5,
 ) -> None:
-    """Publish the live progress image on a throttled interval."""
+    """Publish the live progress image on a throttled interval.
+
+    The image is drawn in a background thread, so a slow redraw of a large run
+    never stops the loop that hands out new cases. While one redraw is still
+    running, further requests are skipped. A final request (interval 0) waits
+    for the running redraw and draws on the calling thread.
+    """
 
     with _active_runs_lock(app):
         state = _active_runs(app).get(run_id)
     if state is None:
         return
-    published = _publish_live_progress_snapshot(
-        state=state,
-        results=results,
-        output_path=output_path,
-        diffraction_order=diffraction_order,
-        title=title,
-        min_interval_seconds=min_interval_seconds,
-    )
-    if not published:
+
+    def publish(snapshot: list[Any]) -> None:
+        started = time.monotonic()
+        with _LIVE_PLOT_RENDER_LOCK:
+            published = _publish_live_progress_snapshot(
+                state=state,
+                results=snapshot,
+                output_path=output_path,
+                diffraction_order=diffraction_order,
+                title=title,
+                min_interval_seconds=min_interval_seconds,
+            )
+        if published:
+            state.last_plot_render_seconds = time.monotonic() - started
+            _update_active_run(app, run_id, plot_relative_path=output_path.name)
+
+    thread = state.live_plot_thread
+    if min_interval_seconds <= 0:
+        if thread is not None:
+            thread.join()
+        state.live_plot_thread = None
+        publish(results)
         return
-    _update_active_run(
-        app,
-        run_id,
-        plot_relative_path=output_path.name,
+    if thread is not None and thread.is_alive():
+        return
+    last = state.last_plot_publish_monotonic
+    # Wait a multiple of the last drawing time, so a slow redraw of a large run
+    # takes only a small share of the run instead of competing with the calculation.
+    wait = max(min_interval_seconds, LIVE_PLOT_IDLE_FACTOR * state.last_plot_render_seconds)
+    if not results or (last is not None and time.monotonic() - last < wait):
+        return
+    state.live_plot_thread = threading.Thread(
+        target=_publish_in_background, args=(publish, list(results)), daemon=True,
+        name=f"live-plot-{run_id}",
     )
+    state.live_plot_thread.start()
+
+
+def _publish_in_background(publish: Any, snapshot: list[Any]) -> None:
+    """Draw one live image; a failed redraw keeps the previous image."""
+
+    try:
+        publish(snapshot)
+    except Exception:
+        logger.exception("Could not refresh the live plot; keeping the previous preview")
 
 
 def _repair_saved_run_plot(app: Any, data_dir: Path, run_id: str, manifest: dict[str, Any]) -> None:

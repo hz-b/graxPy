@@ -13,7 +13,8 @@ function syncGratingSections(select) {
 }
 
 function defaultStackForGrating(select) {
-  const stackSelect = select.closest("form")?.querySelector("[data-stack-type]");
+  // select.form also finds the form of a type select placed outside it (form="...").
+  const stackSelect = (select.form || select.closest("form"))?.querySelector("[data-stack-type]");
   if (!stackSelect) return;
   syncStackSections(stackSelect);
 }
@@ -450,6 +451,25 @@ function syncGratingRoughness(form) {
   form.querySelectorAll("[data-debye-explanation]").forEach((label) => label.classList.toggle("is-hidden", model.value !== "debye-waller"));
 }
 
+// The live preview reports one state in a pill ("Status: Ready") and, only when there
+// is something to explain, a short message after it.
+const PREVIEW_STATE_LABELS = {
+  idle: "Idle", waiting: "Waiting", rendering: "Rendering", ready: "Ready", invalid: "Invalid", error: "Error",
+};
+const PREVIEW_STATE_CLASSES = {
+  rendering: "is-rendering", ready: "is-ready", invalid: "is-error", error: "is-error",
+};
+
+function setGratingPreviewState(state, message = "") {
+  const pill = document.querySelector("[data-grating-preview-loading]");
+  const text = document.querySelector("[data-grating-preview-status]");
+  if (!pill || !text) return;
+  pill.classList.remove("is-rendering", "is-ready", "is-error");
+  if (PREVIEW_STATE_CLASSES[state]) pill.classList.add(PREVIEW_STATE_CLASSES[state]);
+  pill.textContent = PREVIEW_STATE_LABELS[state];
+  text.textContent = message;
+}
+
 function initGratingPreview(form) {
   syncGratingRoughness(form);
   form.addEventListener("change", () => syncGratingRoughness(form));
@@ -460,6 +480,23 @@ function initGratingPreview(form) {
   const status = document.querySelector("[data-grating-preview-status]");
   const loading = document.querySelector("[data-grating-preview-loading]");
   const errorBox = document.querySelector("[data-grating-preview-error]");
+  // Repeat the status line under the plots, which can sit far below the heading.
+  const mirrorState = (source, mirrorSelector) => {
+    const mirrors = document.querySelectorAll(mirrorSelector);
+    if (!source || !mirrors.length) return;
+    const copy = () => mirrors.forEach((mirror) => {
+      mirror.textContent = source.textContent;
+      mirror.className = source.className;
+    });
+    new MutationObserver(copy).observe(source, {
+      childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class"],
+    });
+    copy();
+  };
+  mirrorState(status, "[data-grating-preview-status-mirror]");
+  mirrorState(loading, "[data-grating-preview-loading-mirror]");
+  // A new grating type starts from Idle; a render then moves the status on as usual.
+  form.elements.grating_type?.addEventListener("change", () => setGratingPreviewState("idle"));
   let previewValid = true;
   let requestId = 0;
 
@@ -485,7 +522,10 @@ function initGratingPreview(form) {
       errorBox.textContent = payload.error || "Preview inputs are invalid.";
       errorBox.classList.remove("is-hidden");
     }
-    status.textContent = payload.error_category === "geometry" ? "Invalid geometry" : "Validation error";
+    setGratingPreviewState(
+      "invalid",
+      payload.error_category === "geometry" ? "Invalid geometry" : "Check the highlighted fields",
+    );
   }
 
   function clearPreviewError() {
@@ -501,7 +541,7 @@ function initGratingPreview(form) {
     if (materialPauseTimer !== null) return;
     requestId += 1;
     const currentRequest = requestId;
-    const afmPending = form.querySelector('[name="grating_type"]')?.value === "afm" &&
+    const afmPending = form.elements.grating_type?.value === "afm" &&
       !form.querySelector("[data-afm-profile-path]")?.value;
     if (afmPending) {
       previewValid = false;
@@ -514,12 +554,11 @@ function initGratingPreview(form) {
       image.classList.add("is-hidden");
       if (roughImage) roughImage.classList.add("is-hidden");
       if (warnings) warnings.textContent = "";
-      loading.textContent = "AFM preview";
-      status.textContent = afmError ? "AFM processing failed" :
-        "Review the AFM period. Save will process the current settings.";
+      if (afmError) setGratingPreviewState("error", "AFM processing failed");
+      else setGratingPreviewState("waiting", "Review the AFM period. Save will process the current settings.");
       return;
     }
-    loading.textContent = "Rendering";
+    setGratingPreviewState("rendering");
     try {
       const response = await fetch(previewUrl, {
         method: "POST",
@@ -529,7 +568,6 @@ function initGratingPreview(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = payload.ok ? "Ready" : "Invalid inputs";
       if (roughImage) {
         roughImage.classList.toggle("is-hidden", !payload.ok || !payload.roughness_preview_url);
         if (payload.roughness_preview_url) roughImage.src = payload.roughness_preview_url;
@@ -539,7 +577,7 @@ function initGratingPreview(form) {
         clearPreviewError();
         image.src = payload.preview_url;
         image.classList.remove("is-hidden");
-        status.textContent = "Ready";
+        setGratingPreviewState("ready");
       } else {
         showPreviewError(payload);
       }
@@ -547,8 +585,7 @@ function initGratingPreview(form) {
       if (currentRequest !== requestId) {
         return;
       }
-      loading.textContent = "Error";
-      status.textContent = "Preview request failed.";
+      setGratingPreviewState("error", "Preview request failed.");
     }
   }, 250);
 
@@ -580,7 +617,7 @@ function initGratingPreview(form) {
     }
   });
   form.addEventListener("submit", (event) => {
-    if (form.querySelector('[name="grating_type"]')?.value === "afm") {
+    if (form.elements.grating_type?.value === "afm") {
       if (!form.querySelector("[data-afm-profile-path]")?.value) {
         event.preventDefault();
         form.dispatchEvent(new Event("grax:afm-save-requested"));
@@ -594,7 +631,7 @@ function initGratingPreview(form) {
       if (errorBox) errorBox.focus();
     }
   });
-  if (form.querySelector('[name="grating_type"]')?.value === "afm" &&
+  if (form.elements.grating_type?.value === "afm" &&
       !form.querySelector("[data-afm-profile-path]")?.value) {
     updatePreview();
   }
@@ -634,13 +671,13 @@ function createOrderCheckbox(runId, order) {
   return label;
 }
 
-function renderPlotlyFigure(container, figureJson) {
+function renderPlotlyFigure(container, figureJson, exportName = "") {
   if (!container || !window.Plotly || !figureJson) {
     return;
   }
   const parsed = typeof figureJson === "string" ? JSON.parse(figureJson) : figureJson;
   const rawTitle = parsed.layout?.title;
-  const title = typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot";
+  const title = exportName || (typeof rawTitle === "string" ? rawTitle : rawTitle?.text || "plot");
   const filename = title.replace(/<[^>]*>/g, "").trim().replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "plot";
   window.Plotly.react(container, parsed.data || [], parsed.layout || {}, {
     responsive: true,

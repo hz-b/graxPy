@@ -44,6 +44,8 @@ class ActiveRunState:
     plot_relative_path: str | None = None
     plot_token: str = ""
     last_plot_publish_monotonic: float | None = None
+    # How long the last live image took to draw; large runs redraw less often.
+    last_plot_render_seconds: float = 0.0
     error_text: str = ""
     completion_timestamps: list[float] = field(default_factory=list)
     abort_requested: bool = False
@@ -51,6 +53,8 @@ class ActiveRunState:
     stop_event: threading.Event = field(default_factory=threading.Event)
     worker_thread: threading.Thread | None = None
     simulation_pids: set[int] = field(default_factory=set)
+    # Thread drawing the live progress image, so a slow redraw never holds up the run.
+    live_plot_thread: threading.Thread | None = None
     # Points already on disk when the run started (a resumed checkpoint). They
     # count towards progress but not towards this run's rate, so the ETA has to
     # subtract them.

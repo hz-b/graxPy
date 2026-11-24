@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
+import queue
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,14 +19,14 @@ from .common import (
 from .persistence import build_grating_from_spec
 from .run_files import (
     _available_orders,
-    _checkpoint_counts,
     _list_runs,
-    _load_checkpoint_results,
     _preferred_run_plot_path,
     _run_completed_points,
     _run_plot_url,
+    _run_list_summary,
     _run_result_location,
 )
+from .run_plots import _LIVE_PLOT_RENDER_LOCK
 from .run_status import (
     _run_status_payload,
 )
@@ -162,13 +165,18 @@ def _plane_mirror_plot_definition(manifest: dict[str, Any], run_dir: Path) -> di
     }
 
 
+logger = logging.getLogger(__name__)
+
+
 def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
     """Return run manifests augmented with available plot orders."""
     runs = []
     for run in _list_runs(run_dir):
         run_id = str(run["id"])
         run_dir_for_id = _run_result_location(run_dir.parent, run_id)
-        checkpoint_completed_points, checkpoint_total_points = _checkpoint_counts(run_dir_for_id)
+        summary = _run_list_summary(run_dir_for_id)
+        checkpoint_completed_points = int(summary["completed"])
+        checkpoint_total_points = int(run.get("total_points") or 0)
         state = str(run.get("status", "completed"))
         if state in {"queued", "running", "aborting"} and checkpoint_completed_points > 0:
             state = "aborted"
@@ -185,7 +193,7 @@ def _list_plot_runs(run_dir: Path) -> list[dict[str, Any]]:
             {
                 **enriched_run,
                 "results_dir": run_dir_for_id,
-                "available_orders": [0] if _is_plane_mirror_run(run) else _available_orders(run_dir_for_id),
+                "available_orders": [0] if _is_plane_mirror_run(run) else list(summary["orders"]),
                 "is_plane_mirror": _is_plane_mirror_run(run),
                 "summary_label": _run_summary_label(enriched_run),
                 "summary_meta": _run_summary_meta(enriched_run),
@@ -355,8 +363,85 @@ def _manage_run_entries(data_dir: Path, *, app: Any | None = None) -> list[dict[
     return entries
 
 
+_STACK_PREVIEW_QUEUE: queue.Queue[tuple[dict[str, Any], Path]] = queue.Queue()
+_STACK_PREVIEW_PENDING: set[Path] = set()
+_STACK_PREVIEW_LOCK = threading.Lock()
+_STACK_PREVIEW_WORKER: threading.Thread | None = None
+
+
+def _draw_run_stack_preview(spec: dict[str, Any], preview_path: Path) -> None:
+    """Draw the material-map image of a saved grating spec."""
+    import matplotlib.pyplot as plt
+
+    with _LIVE_PLOT_RENDER_LOCK:
+        grating = build_grating_from_spec(spec)
+        x_grid, z_grid, material_map, material_labels = grating._material_plot_data(num_periods=3)
+        figure, axes = plt.subplots(figsize=(8, 3.5))
+        colors = grating._plot_material_colors(
+            coating_stack=grating.resolved_stack(),
+            material_labels=material_labels,
+        )
+        color_map = plt.matplotlib.colors.ListedColormap(colors)
+        color_map.set_bad(color="#ffffff", alpha=1.0)
+        masked_material_map = np.ma.masked_less(material_map, 0)
+        axes.imshow(
+            masked_material_map,
+            origin="lower",
+            aspect="auto",
+            extent=[x_grid[0], x_grid[-1], z_grid[0], z_grid[-1]],
+            cmap=color_map,
+            interpolation="nearest",
+            vmin=0,
+            vmax=max(len(material_labels) - 1, 1),
+        )
+        legend_handles = [
+            plt.matplotlib.patches.Patch(color=color_map.colors[index], label=label)
+            for index, label in enumerate(material_labels)
+        ]
+        axes.set_xlabel("x (nm)")
+        axes.set_ylabel("z (nm)")
+        axes.set_title("Material Stack")
+        axes.legend(handles=legend_handles, loc="upper right")
+        figure.tight_layout()
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(preview_path, dpi=150, bbox_inches="tight")
+        plt.close(figure)
+
+
+def _stack_preview_worker() -> None:
+    """Draw queued run stack images one at a time, off the request thread."""
+    while True:
+        spec, preview_path = _STACK_PREVIEW_QUEUE.get()
+        try:
+            _draw_run_stack_preview(spec, preview_path)
+        except Exception:
+            logger.warning("Could not draw the stack preview %s", preview_path.name, exc_info=True)
+        finally:
+            with _STACK_PREVIEW_LOCK:
+                _STACK_PREVIEW_PENDING.discard(preview_path)
+
+
+def _queue_run_stack_preview(spec: dict[str, Any], preview_path: Path) -> None:
+    """Ask for a missing stack image to be drawn in the background, once."""
+    global _STACK_PREVIEW_WORKER
+    with _STACK_PREVIEW_LOCK:
+        if preview_path in _STACK_PREVIEW_PENDING:
+            return
+        _STACK_PREVIEW_PENDING.add(preview_path)
+        _STACK_PREVIEW_QUEUE.put((spec, preview_path))
+        if _STACK_PREVIEW_WORKER is None or not _STACK_PREVIEW_WORKER.is_alive():
+            _STACK_PREVIEW_WORKER = threading.Thread(
+                target=_stack_preview_worker, daemon=True, name="run-stack-previews"
+            )
+            _STACK_PREVIEW_WORKER.start()
+
+
 def _run_material_stack_preview_url(data_dir: Path, run: dict[str, Any]) -> str | None:
-    """Return a cached material-map image URL for a run's saved grating spec."""
+    """Return the cached material-map image URL for a run's saved grating spec.
+
+    A missing image is drawn in the background, so the page opens at once and
+    shows the image on the next visit instead of waiting for every drawing.
+    """
     spec = run.get("grating_spec")
     if not isinstance(spec, dict):
         return None
@@ -366,43 +451,8 @@ def _run_material_stack_preview_url(data_dir: Path, run: dict[str, Any]) -> str 
     relative_path = Path("previews") / "run-stacks" / f"{run_id}.png"
     preview_path = data_dir / relative_path
     if not preview_path.is_file():
-        try:
-            grating = build_grating_from_spec(spec)
-            x_grid, z_grid, material_map, material_labels = grating._material_plot_data(num_periods=3)
-            import matplotlib.pyplot as plt
-
-            figure, axes = plt.subplots(figsize=(8, 3.5))
-            colors = grating._plot_material_colors(
-                coating_stack=grating.resolved_stack(),
-                material_labels=material_labels,
-            )
-            color_map = plt.matplotlib.colors.ListedColormap(colors)
-            color_map.set_bad(color="#ffffff", alpha=1.0)
-            masked_material_map = np.ma.masked_less(material_map, 0)
-            axes.imshow(
-                masked_material_map,
-                origin="lower",
-                aspect="auto",
-                extent=[x_grid[0], x_grid[-1], z_grid[0], z_grid[-1]],
-                cmap=color_map,
-                interpolation="nearest",
-                vmin=0,
-                vmax=max(len(material_labels) - 1, 1),
-            )
-            legend_handles = [
-                plt.matplotlib.patches.Patch(color=color_map.colors[index], label=label)
-                for index, label in enumerate(material_labels)
-            ]
-            axes.set_xlabel("x (nm)")
-            axes.set_ylabel("z (nm)")
-            axes.set_title("Material Stack")
-            axes.legend(handles=legend_handles, loc="upper right")
-            figure.tight_layout()
-            preview_path.parent.mkdir(parents=True, exist_ok=True)
-            figure.savefig(preview_path, dpi=150, bbox_inches="tight")
-            plt.close(figure)
-        except Exception:
-            return None
+        _queue_run_stack_preview(spec, preview_path)
+        return None
     return f"/_data/{relative_path.as_posix()}"
 
 
@@ -411,17 +461,12 @@ def _scan_run_rows(manifest: dict[str, Any], run_dir: Path) -> list[dict[str, An
     sweep = manifest.get("parameter_sweep")
     if not sweep:
         return []
-    counts: dict[str, int] = {}
-    failures: dict[str, int] = {}
-    for result in _load_checkpoint_results(run_dir):
-        scan_id = result.case_data.get("scan_id")
-        counts[scan_id] = counts.get(scan_id, 0) + 1
-        failures[scan_id] = failures.get(scan_id, 0) + (result.status != "ok")
+    scan_counts = _run_list_summary(run_dir)["scan_counts"]
     return [
         {
             **scan,
-            "completed": counts.get(scan["id"], 0),
-            "failed": failures.get(scan["id"], 0),
+            "completed": scan_counts.get(scan["id"], [0, 0])[0],
+            "failed": scan_counts.get(scan["id"], [0, 0])[1],
             "total": len(parameter_scans.sample_values(sweep)),
             "plot_path": f"scans/{scan['id']}/efficiency.png"
             if (run_dir / "scans" / scan["id"] / "efficiency.png").exists()

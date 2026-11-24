@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,8 +24,11 @@ from .custom_grid import (
     write_custom_grid_all_orders,
     write_custom_grid_summary,
 )
-from .files import read_json
+from .files import read_json, write_json_atomically
 from .runs import RunStore
+
+
+logger = logging.getLogger(__name__)
 
 
 def _run_result_location(data_dir: Path, run_id: str) -> Path:
@@ -49,8 +53,77 @@ def _checkpoint_counts(run_dir: Path) -> tuple[int, int]:
 
     manifest = _load_run_manifest(run_dir.parent.parent, run_dir.name)
     total_points = int((manifest or {}).get("total_points") or 0)
-    completed_points = len(_load_checkpoint_results(run_dir))
-    return completed_points, total_points
+    return int(_run_list_summary(run_dir)["completed"]), total_points
+
+
+_SUMMARY_VERSION = 1
+
+
+def _file_signature(path: Path) -> list[int] | None:
+    """Return size and modification time of a file, or None when it is missing."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return [stat.st_size, stat.st_mtime_ns]
+
+
+def _run_summary_signature(run_dir: Path) -> dict[str, Any]:
+    """Describe the files a run summary depends on, to notice when they change."""
+    return {
+        "version": _SUMMARY_VERSION,
+        "results": _file_signature(run_dir / "checkpoints" / "results.jsonl"),
+        "orders": _file_signature(run_dir / "all_orders.csv"),
+        "manifest": _file_signature(run_dir / "manifest.json"),
+    }
+
+
+def _cached_run_summary(run_dir: Path) -> dict[str, Any] | None:
+    """Return the saved run summary if it still matches the run's files, else None."""
+    cache_path = run_dir.parent.parent / "cache" / "run_summaries" / f"{run_dir.name}.json"
+    try:
+        cached = read_json(cache_path)
+        if isinstance(cached, dict) and cached.get("signature") == _run_summary_signature(run_dir):
+            return cached["summary"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def _run_list_summary(run_dir: Path) -> dict[str, Any]:
+    """Return the numbers the run lists need, reading result files only when they changed.
+
+    Counting completed points, finding the diffraction orders and tallying the
+    points of each scan mean parsing a run's whole results file, which makes
+    the list pages slow for many runs. The numbers are kept in
+    ``cache/run_summaries`` and recalculated when a run's result files change,
+    so an older database fills the cache the first time its runs are listed.
+    """
+
+    cached = _cached_run_summary(run_dir)
+    if cached is not None:
+        return cached
+    signature = _run_summary_signature(run_dir)
+    cache_path = run_dir.parent.parent / "cache" / "run_summaries" / f"{run_dir.name}.json"
+    results = _load_checkpoint_results(run_dir)
+    scan_counts: dict[str, list[int]] = {}
+    for result in results:
+        scan_id = result.case_data.get("scan_id")
+        if scan_id is None:
+            continue
+        counts = scan_counts.setdefault(str(scan_id), [0, 0])
+        counts[0] += 1
+        counts[1] += int(result.status != "ok")
+    summary = {
+        "completed": len(results),
+        "orders": _available_orders(run_dir),
+        "scan_counts": scan_counts,
+    }
+    try:
+        write_json_atomically(cache_path, {"signature": signature, "summary": summary})
+    except OSError:
+        logger.warning("Could not save the run summary for %s", run_dir.name)
+    return summary
 
 
 def _parameter_study_checkpoint_count(run_dir: Path) -> int:

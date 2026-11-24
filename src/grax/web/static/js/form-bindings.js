@@ -14,6 +14,13 @@ document.addEventListener("DOMContentLoaded", () => {
       syncGratingSections(select);
       defaultStackForGrating(select);
     });
+    // A select placed outside its form (form="...") does not bubble events through the
+    // form, so pass its change on to the listeners that update the preview and drawing.
+    if (select.form && !select.form.contains(select)) {
+      select.addEventListener("change", () => {
+        select.form.dispatchEvent(new Event("change", {bubbles: true}));
+      });
+    }
   });
 
   document.querySelectorAll("[data-stack-type]").forEach((select) => {
@@ -118,6 +125,20 @@ document.addEventListener("DOMContentLoaded", () => {
       const message = button.dataset.confirm;
       if (message && !window.confirm(message)) {
         event.preventDefault();
+      }
+    });
+  });
+
+  // The folder dialog opens on the computer running the server; until it is answered
+  // the request waits, so show that and avoid stacking up more dialogs.
+  document.querySelectorAll("[data-workspace-pick-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const button = form.querySelector("button[type='submit']");
+      if (form.dataset.waiting === "true") { event.preventDefault(); return; }
+      form.dataset.waiting = "true";
+      if (button) {
+        button.textContent = "Waiting for the folder dialog…";
+        button.setAttribute("aria-disabled", "true");
       }
     });
   });

@@ -274,18 +274,30 @@ def result_order(result: Any) -> tuple[Any, ...]:
     return (result.case_data.get("scan_id", ""), int(result.case_data.get("energy_index", result.index)), int(result.index))
 
 
+def group_series(
+    results: list[Any], sweep: dict[str, Any], order: int
+) -> dict[Any, dict[float, float]]:
+    """Collect one calculated order per scan in a single pass over the results."""
+    grouped: dict[Any, dict[float, float]] = defaultdict(dict)
+    for result in results:
+        if result.status != "ok":
+            continue
+        for actual_order, efficiency in zip(result.orders, result.efficiency_all, strict=True):
+            if float(actual_order) == float(order):
+                grouped[result.case_data.get("scan_id")][sample_key(result, sweep)] = float(efficiency)
+    return grouped
+
+
+def aligned_series(values: dict[float, float], sweep: dict[str, Any]) -> list[float]:
+    """Align collected values with the full configured sample grid, leaving gaps as NaN."""
+    return [values.get(float(value), math.nan) for value in sample_values(sweep)]
+
+
 def result_series(
     results: list[Any], sweep: dict[str, Any], scan_id: str, order: int
 ) -> list[float]:
     """Align one calculated order with the full configured energy grid."""
-    values = {}
-    for result in results:
-        if result.case_data.get("scan_id") != scan_id or result.status != "ok":
-            continue
-        for actual_order, efficiency in zip(result.orders, result.efficiency_all, strict=True):
-            if float(actual_order) == float(order):
-                values[sample_key(result, sweep)] = float(efficiency)
-    return [values.get(float(value), math.nan) for value in sample_values(sweep)]
+    return aligned_series(group_series(results, sweep, order).get(scan_id, {}), sweep)
 
 
 def load_results(run_dir: Path) -> list[Any]:
@@ -367,12 +379,14 @@ def plot_scans(
                     linewidth=1.2, linestyle=["-", "--", ":", "-."][index % 4],
                 )
         else:
+            by_order: dict[int, dict[Any, dict[float, float]]] = {}
             for index, scan in enumerate(sweep["scans"]):
                 if scan_id is not None and scan["id"] != scan_id:
                     continue
-                values = result_series(
-                    results, sweep, scan["id"], int(scan["settings"]["diffraction_order"])
-                )
+                order = int(scan["settings"]["diffraction_order"])
+                if order not in by_order:
+                    by_order[order] = group_series(results, sweep, order)
+                values = aligned_series(by_order[order].get(scan["id"], {}), sweep)
                 axis.plot(
                     sample_values(sweep), values,
                     label=scan["label"], linewidth=1.2,

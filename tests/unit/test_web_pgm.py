@@ -538,7 +538,7 @@ def test_custom_layers_round_trip_through_a_saved_pgm(pgm_client):
     response = client.post("/pgm/saved", data=data)
     assert response.status_code == 200, response.get_data(as_text=True)
     page = client.get(response.get_json()["url"]).get_data(as_text=True)
-    assert 'name="cl_thickness_nm" type="number" step="any" min="0" value="11"' in page
+    assert 'name="cl_thickness_nm" type="number" step="any" data-arrow-step="0.1" min="0" value="11"' in page
 
 
 def test_afm_grating_keeps_its_own_profile(pgm_client, tmp_path, monkeypatch):
